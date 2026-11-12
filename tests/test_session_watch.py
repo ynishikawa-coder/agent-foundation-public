@@ -173,3 +173,16 @@ def test_AI_の残りを書いて動かさずに締めると拾い_子窓を立�
         {"type": "tool_use", "id": "tu9", "name": "mcp__claude-code-remote__create_session", "input": {"title": "🤖 レビュー"}}]}}
     moved = rs[:-1] + [spawn, rs[-1]]
     assert "rest" not in codes(moved)
+
+
+def test_背で走らせた助手は残りを動かす手に数え_前で待つ助手は数えない():
+    close = "\nAI の残り: 調べを受けて直す（今日中・この窓で）\nオーナーの残り: なし"
+    rs = set_last_text(rows("owner_ok.jsonl"), "✅終わった（一部）\n調べを頼んだ。" + close)
+    agent = lambda bg: {"type": "assistant", "message": {"role": "assistant", "content": [
+        {"type": "tool_use", "id": "tuA", "name": "Agent", "input": {"prompt": "作り物", "run_in_background": bg}}]}}
+    assert "rest" not in codes(rs[:-1] + [agent(True), rs[-1]])
+    assert "rest" in codes(rs[:-1] + [agent(False), rs[-1]])
+
+
+def test_返し先が別の窓の子窓には題の知らせを出さない():
+    assert sw.remind({"prompt": "作り物を見て（親窓 session_X の子）"}, CLOUD) is None
