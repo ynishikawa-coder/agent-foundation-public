@@ -1,0 +1,66 @@
+name: tag
+
+# main に入った時、CHANGELOG.md の版の見出しからまだ無い版の印（git の tag）を打つ。
+# 決め方は scripts/release/tags_from_changelog.py、型と写し方は docs/版の印.md。
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "手で打つ口: 版の名 vX.Y.Z（sha と組で。空なら CHANGELOG から決める）"
+        required: false
+        default: ""
+      sha:
+        description: "手で打つ口: 印の先の commit（40 桁・main の祖先）"
+        required: false
+        default: ""
+
+permissions:
+  contents: write
+
+concurrency:
+  group: tag
+  cancel-in-progress: false
+
+jobs:
+  tag:
+    # 手で回す時に main 以外の枝を選んでも、main に無い commit に印を打たない。
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      # push は checkout が持たせる GITHUB_TOKEN だけで打つ（他の秘密は使わない）。
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: まだ無い版の印を打つ
+        # 手で打つ口の入力は run に直に埋めず env で渡す（入れ込みを防ぐ）。
+        env:
+          IN_VERSION: ${{ inputs.version }}
+          IN_SHA: ${{ inputs.sha }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch --tags --force origin
+          if [ -n "${IN_VERSION:-}" ] || [ -n "${IN_SHA:-}" ]; then
+            # 手で打つ口: 形・main の祖先・既にある印を道具が照らす。片方だけなら道具が止める。
+            plan="$(python3 scripts/release/tags_from_changelog.py --ref origin/main --version "${IN_VERSION:-}" --sha "${IN_SHA:-}")"
+          else
+            plan="$(python3 scripts/release/tags_from_changelog.py)"
+          fi
+          {
+            echo "## 版の印"
+            if [ -z "$plan" ]; then
+              echo "打つ印は無い（まだ無い版は無い・既にある印は飛ばした）。"
+            else
+              echo "| 版 | commit |"
+              echo "|---|---|"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+          [ -z "$plan" ] && exit 0
+          while read -r ver sha; do
+            git tag -a "$ver" "$sha" -m "$ver"
+            git push origin "refs/tags/$ver"
+            echo "| $ver | \`${sha:0:12}\` |" >> "$GITHUB_STEP_SUMMARY"
+          done <<< "$plan"

@@ -1,0 +1,8 @@
+{"type": "user", "message": {"role": "user", "content": "あなたは書く窓です（親窓 session_PARENT02 の子）。作り物の置き場を決める。"}}
+{"type": "assistant", "message": {"role": "assistant", "content": [{"type": "tool_use", "id": "tu4", "name": "mcp__claude-code-remote__set_session_title", "input": {"session_id": "session_CHILD02", "title": "🤖❓ 作り物の置き場"}}]}}
+{"type": "user", "message": {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "tu4", "content": "ok"}]}, "toolUseResult": {"ok": true}}
+{"type": "assistant", "message": {"role": "assistant", "content": [{"type": "tool_use", "id": "tu5", "name": "AskUserQuestion", "input": {"questions": [{"question": "作り物の置き場をどちらにしますか", "header": "置き場", "multiSelect": false, "options": [{"label": "上の箱 (推奨)", "description": "今の形のまま"}, {"label": "下の箱", "description": "分ける"}]}]}}]}}
+{"type": "user", "message": {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "tu5", "content": "ok"}]}, "toolUseResult": {"questions": [{"question": "作り物の置き場をどちらにしますか", "header": "置き場", "multiSelect": false, "options": [{"label": "上の箱 (推奨)", "description": "今の形のまま"}, {"label": "下の箱", "description": "分ける"}]}], "answers": {}}}
+{"type": "assistant", "message": {"role": "assistant", "content": [{"type": "text", "text": "⏳ 待ち\n答えを待つ。\nこの窓: 残りあり（置き場）→ 待つ（オーナー・今日まで）"}]}}
+{"type": "user", "message": {"role": "user", "content": "続けて"}}
+{"type": "assistant", "message": {"role": "assistant", "content": [{"type": "text", "text": "❓ 答えて\n上の箱と下の箱のどちらで進めますか？\nこの窓: 残りあり → 答える（上の問い）"}]}}

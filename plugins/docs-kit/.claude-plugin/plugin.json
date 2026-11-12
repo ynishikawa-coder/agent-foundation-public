@@ -1,0 +1,8 @@
+{
+  "name": "docs-kit",
+  "version": "1.0.0",
+  "description": "書類と確認の画面の道具 7 本（blueprint・compose-message・make-deck・mindmap・pdf-read・qa-html・theory-mock）。repo ごとの値は使う repo の根の config/skill-values.json から読み、無ければ中立の既定で動く。",
+  "author": {
+    "name": "agent-foundation"
+  }
+}

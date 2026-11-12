@@ -1,0 +1,383 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Blueprint</title>
+<style>
+:root{
+  --bg:#fff; --card:#fff; --ink:#1d2328; --muted:#5b6570; --line:#d9dee3; --soft:#f7f9fa;
+  --accent:#176b87; --accent-wash:#e4f1f5;
+  --keep:#146c2e; --keep-wash:#e7f3ea;
+  --lost:#b3261e; --lost-wash:#fcecea;
+  --gap-stripe:repeating-linear-gradient(135deg,#fff 0 7px,#fbe3e1 7px 10px);
+  --font:-apple-system,BlinkMacSystemFont,"Hiragino Sans","Noto Sans JP",sans-serif;
+  --mono:"SF Mono",ui-monospace,Menlo,monospace;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--font);line-height:1.6}
+.wrap{max-width:1240px;margin:0 auto;padding:20px 16px 60px}
+h1{font-size:1.35rem;margin:0 0 2px}
+.small{font-size:.8rem;color:var(--muted)}
+.modeb{display:inline-block;font-size:.72rem;font-weight:800;padding:1px 9px;border-radius:999px;margin-right:6px;vertical-align:1px}
+.modeb.current{background:var(--accent-wash);color:var(--accent)}
+.modeb.design{background:var(--lost-wash);color:var(--lost);border:1.5px dashed var(--lost)}
+.tabs{display:flex;gap:4px;margin:16px 0 0;border-bottom:2px solid var(--line);overflow-x:auto}
+.tab{font:inherit;font-size:.92rem;font-weight:700;border:none;background:none;color:var(--muted);padding:10px 16px;cursor:pointer;border-bottom:3px solid transparent;margin-bottom:-2px;white-space:nowrap}
+.tab.on{color:var(--accent);border-bottom-color:var(--accent)}
+.tab .cnt{font-size:.7rem;color:var(--lost);margin-left:4px}
+.panel{display:none;padding-top:16px}
+.panel.on{display:block}
+.intro{margin:0 0 14px;color:var(--muted);font-size:.9rem;max-width:90ch}
+.intro b{color:var(--ink)}
+.split{display:grid;grid-template-columns:minmax(300px,420px) 1fr;gap:18px;align-items:start}
+@media (max-width:900px){.split{grid-template-columns:1fr}}
+.left{position:sticky;top:12px}
+@media (max-width:900px){.left{position:static}}
+.wf{border:2px solid var(--ink);border-radius:8px;background:var(--card);font-size:.84rem}
+.wf .bar{border-bottom:2px solid var(--ink);padding:7px 12px;font-weight:700}
+.wf .in{padding:12px}
+.box{border:1.5px dashed var(--muted);border-radius:6px;padding:12px;text-align:center;color:var(--muted);margin-bottom:8px}
+.ui{font:inherit;display:inline-block;border:1.5px solid var(--ink);border-radius:5px;padding:3px 10px;margin:3px 4px 3px 0;font-size:.8rem;background:var(--soft);color:var(--ink);cursor:pointer}
+.ui.pri{background:var(--ink);color:var(--card)}
+.ui:hover{outline:3px solid var(--accent-wash);border-color:var(--accent)}
+.ui.fld{background:var(--accent-wash);border-color:var(--accent);font-family:var(--mono)}
+.frow{padding:5px 0;border-bottom:1px dotted var(--line);display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.q{border:1.5px solid var(--lost);border-radius:6px;padding:8px;margin:8px 0;background:var(--lost-wash)}
+.q.plain{border-color:var(--line);background:var(--soft)}
+.hint{font-size:.76rem;color:var(--accent);margin:8px 0 0}
+.steps{display:flex;flex-direction:column;gap:8px}
+details.st{background:var(--card);border:1px solid var(--line);border-radius:10px;transition:box-shadow .3s}
+details.st.flash{box-shadow:0 0 0 3px var(--accent)}
+details.st > summary{list-style:none;cursor:pointer;padding:10px 14px;display:flex;align-items:center;gap:10px}
+details.st > summary::-webkit-details-marker{display:none}
+.num{flex:none;width:28px;height:28px;border-radius:50%;background:var(--soft);border:1px solid var(--line);display:flex;align-items:center;justify-content:center;font-size:.72rem;font-weight:800;color:var(--muted)}
+.st.tbl .num{background:var(--accent);color:#fff;border-color:var(--accent)}
+.sm{flex:1;min-width:0}
+.sm .t{font-weight:700;font-size:.92rem;display:block}
+.sm .d{font-size:.8rem;color:var(--muted)}
+.chev{color:var(--muted);transition:transform .2s}
+details[open] .chev{transform:rotate(90deg)}
+.pill{flex:none;font-size:.72rem;font-weight:700;padding:2px 9px;border-radius:999px;white-space:nowrap}
+.keep{background:var(--keep-wash);color:var(--keep)}
+.lost{background:var(--lost-wash);color:var(--lost)}
+.calc{background:var(--soft);color:var(--muted);border:1px solid var(--line)}
+/* 決め残し札（未定）: 赤の破線の枠＋斜線の地＝塗りの赤（消える）と見分ける */
+.pill.gap{background:var(--gap-stripe);color:var(--lost);border:1.5px dashed var(--lost)}
+details.st.gap{border:2px dashed var(--lost);background:var(--gap-stripe)}
+details.st.gap .num{border-style:dashed;border-color:var(--lost)}
+.st.tbl.gap .num{background:#fff;color:var(--lost)}
+.miss{font-size:.78rem;font-weight:700;color:var(--lost);margin:0 0 8px}
+.hole{font-size:.7rem;font-weight:700;color:var(--lost);border:1px solid var(--lost);border-radius:4px;padding:0 5px;margin-left:4px;white-space:nowrap}
+.inside{padding:0 14px 14px 52px}
+@media (max-width:600px){.inside{padding:0 12px 12px}}
+.where{font-family:var(--mono);font-size:.76rem;color:var(--muted);margin:0 0 8px}
+.basis{font-family:var(--mono);font-size:.7rem;color:var(--muted);margin:8px 0 0}
+.inside p{margin:6px 0;font-size:.85rem}
+.inside ol{margin:4px 0;padding-left:20px;font-size:.85rem}
+.tw{overflow-x:auto;border:1px solid var(--line);border-radius:8px}
+table{border-collapse:collapse;width:100%;font-size:.78rem;background:var(--card)}
+th,td{border-bottom:1px solid var(--line);border-right:1px solid var(--line);padding:5px 8px;text-align:left;white-space:nowrap}
+th{background:var(--soft);font-size:.72rem}
+td.n{text-align:right;font-family:var(--mono)}
+td.m{font-family:var(--mono);font-size:.72rem;color:var(--muted)}
+td.bad{background:var(--lost-wash);color:var(--lost);font-weight:700}
+td.wrap,th.wrap{white-space:normal}
+tr.more td{color:var(--muted);text-align:center;font-style:italic}
+.tree{font-family:var(--mono);font-size:.82rem;background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px 16px;white-space:pre;overflow-x:auto;line-height:1.8}
+.tree .c{color:var(--muted)} .tree .k{color:var(--keep);font-weight:700}
+.legend{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:8px}
+/* 穴・未定の一覧（枠が末尾に足すタブ） */
+.list h2{font-size:1rem;margin:18px 0 6px}
+.list .row{display:flex;gap:10px;align-items:baseline;border-bottom:1px solid var(--line);padding:6px 0;font-size:.86rem;flex-wrap:wrap}
+.list .row a{color:var(--accent);cursor:pointer;text-decoration:underline}
+.list .empty{color:var(--muted);font-size:.85rem}
+.copybtn{font:inherit;font-weight:700;border:1.5px solid var(--accent);background:var(--accent);color:#fff;border-radius:6px;padding:6px 14px;cursor:pointer}
+.toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:var(--ink);color:#fff;padding:8px 16px;border-radius:8px;font-size:.85rem;opacity:0;transition:opacity .2s;pointer-events:none}
+.toast.on{opacity:1}
+.foot{margin-top:28px}
+/* ?selftest / ?dump（その時だけ出る） */
+#selftest,#bpdump{margin:0;padding:8px 14px;font:12px/1.5 ui-monospace,Menlo,monospace;background:#1d2330;color:#fff;white-space:pre-wrap}
+</style>
+</head>
+<body>
+<div class="wrap" id="app"></div>
+<div class="toast" id="toast"></div>
+
+<script>
+/* ================================================================
+   Blueprint 枠（engine）— /blueprint の正本
+   ・この枠（CSS・描画・札の決定・一覧・コピー・selftest・dump）は中身を知らない。
+   ・題材ごとに差し替えるのは「CONTENT START 〜 CONTENT END」の 1 区画だけ。
+   ・★札は枠が決める: META.mode==='design' の時、段の basis か where が空なら、
+     中身の fate が何でも決め残し札（未定）で描く。fate:'gap' も決め残し札。
+   ・枠の部品（中身から呼んでよい）:
+       tbl(head, rows, opt)   … 表。rows は [セル…] の配列（文字列の行は「… 続く」の行）。
+                                opt.num=[右寄せの列] / opt.mono=[等幅の列] / opt.wrap=[折り返す列] / opt.bad=[[行,列]…]
+       go(stepId, label, cls) … 右の段を開いて光らせるボタン（cls: '' / 'pri' / 'fld'）
+       tabgo(tabId, label, cls)… タブを移るボタン
+       hole(n)                … 本文の中の穴の印（HOLES のキー）
+       frow(html)             … ワイヤーの 1 行
+       box(html)              … ワイヤーの点線の箱
+   ・HTML の口: data-go="段id" / data-tab-go="タブid"
+   ================================================================ */
+const TABS=[];
+function tab(o){TABS.push(o)}
+const esc=s=>String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const fmt=v=>typeof v==='number'?v.toLocaleString('ja-JP'):(v==null?'':v);
+const go=(id,label,cls='')=>`<button class="ui${cls?' '+cls:''}" data-go="${id}">${label}</button>`;
+const tabgo=(id,label,cls='')=>`<button class="ui${cls?' '+cls:''}" data-tab-go="${id}">${label}</button>`;
+const hole=n=>`<span class="hole" data-hole="${esc(n)}">${/^\d+$/.test(String(n))?'穴'+n:esc(n)}</span>`;
+const frow=h=>`<div class="frow">${h}</div>`;
+const box=h=>`<div class="box">${h}</div>`;
+function tbl(h,rows,opt={}){
+  const has=(k,i)=>(opt[k]||[]).includes(i);
+  const bad=(r,c)=>(opt.bad||[]).some(([a,b])=>a===r&&b===c);
+  const th=h.map((x,i)=>`<th${has('wrap',i)?' class="wrap"':''}>${x}</th>`).join('');
+  const tr=rows.map((row,r)=>{
+    if(typeof row==='string')return row.startsWith('<tr')?row:`<tr class="more"><td colspan="${h.length}">${row}</td></tr>`;
+    return '<tr>'+row.map((v,c)=>{const cl=[bad(r,c)?'bad':has('num',c)?'n':has('mono',c)?'m':'',has('wrap',c)?'wrap':''].filter(Boolean).join(' ');
+      return `<td${cl?` class="${cl}"`:''}>${fmt(v)}</td>`}).join('')+'</tr>';
+  }).join('');
+  return `<div class="tw"><table><tr>${th}</tr>${tr}</table></div>`;
+}
+
+/* ==== CONTENT START ==== */
+/* ここから下（CONTENT END まで）が題材ごとの中身。見本＝架空の「備品の貸出帳」（現状版）。
+   段の id とタブ id は作り直しでも変えない。段の name は画面の言葉で書く（compare の鍵）。
+   現状版: basis は `path:行`（例 app/lib/x.ts:120）。設計版: basis は要件・決定の番号。
+   ★決まっていない所は埋めない＝basis / where を空のまま置く（枠が「未定」の札にする）。 */
+
+const META={
+  title:'備品の貸出帳 ― 借りるから返すまで',   /* 見出し・コピーの見出し */
+  by:'架空の見本',                            /* 見出しの下の一行（誰が・何のため） */
+  mode:'current',                              /* 'current'＝現状版（本番コードから）｜'design'＝設計版（要件・決定から） */
+  date:'2026-09-30',
+  source:'本番コード app/ 一式（架空）',        /* 何から起こしたか 1 行 */
+};
+
+/* 置き場タブ。tree も shelves も空なら出さない */
+const STORE={
+  intro:'保存先は<b>共有フォルダ 1 つ</b>です。下の <b>貸出帳.json</b> に入っている物だけが、開き直しても残ります。',
+  tree:`備品フォルダ/
+└─ 〈部署名〉/
+   ├─ <span class="k">貸出帳.json</span>   <span class="c">貸出と返却のすべて</span>
+   └─ 写真/           <span class="c">返却時の写真</span>`,
+  name:'貸出帳.json の棚', d:'この 1 ファイルの中身', fate:'keep',
+  shelves:[['loans','貸出の記録','T1'],['returns','返却の記録','T3']],
+  note:`借りる途中の下書きは、この棚に<b>ありません</b>${hole(1)}。`,
+};
+
+const HOLES={
+  1:['下書きが消える','借りる画面の入力途中は保存されず、開き直すと消える'],
+  2:['延滞の知らせが控えに残らない','送った知らせはメモリにしか無く、誰に送ったか後で分からない'],
+};
+
+tab({id:'p1',t:'① 借りる',
+intro:'備品を選んで借りると、<b>貸出の記録（T1）</b>が 1 行できます。',
+wf:()=>`${box('備品を選ぶ<br>'+go('s12','ノートPC-03 ▼','fld'))}
+${frow('返す予定日 '+go('s13','2026-10-07','fld'))}
+<div style="margin-top:10px">${go('s11','借りる','pri')}${tabgo('p2','② 返すへ')}</div>`,
+steps:[
+  {id:'s12',kind:'calc',name:'在庫を数える',d:'選んだ備品が今あるか',fate:'calc',where:'',basis:'app/stock.ts:18-40',holes:[],
+   body:()=>`<ol><li>貸出帳の未返却を数える</li><li>0 なら「借りられます」、1 以上なら「貸出中」</li></ol>`},
+  {id:'s13',kind:'table',name:'借りる下書き',d:'入力の途中',fate:'lost',where:'メモリ draft',basis:'app/lend.ts:12',holes:[1],
+   body:()=>tbl(['欄','中身（例）'],[['備品','ノートPC-03'],['返す予定日','2026-10-07']],{mono:[0]})+`<p>「借りる」を押すまで、どこにも書きません${hole(1)}。</p>`},
+  {id:'s11',kind:'table',name:'貸出の記録',d:'「借りる」で 1 行',fate:'keep',where:'貸出帳.json › loans[]',basis:'app/lend.ts:42-58',holes:[],
+   body:()=>tbl(['id','備品','借りた人','借りた日','返す予定日'],[['L1','ノートPC-03','利用者A','2026-09-30','2026-10-07'],'… 実データは数百行'],{mono:[0]})},
+]});
+
+tab({id:'p2',t:'② 返す',
+intro:'返すと<b>返却の記録（T3）</b>ができ、延滞があれば知らせを送ります。',
+wf:()=>`<div class="q"><b>ノートPC-03</b><br><span class="small">返す予定日を 2 日過ぎています</span>
+${frow(go('s21','返す','pri')+go('s23','延滞を知らせる'))}</div>
+<div style="margin-top:8px">${tabgo('p1','① 借りるへ戻る')}</div>`,
+steps:[
+  {id:'s21',kind:'table',name:'返却の記録',d:'「返す」で 1 行',fate:'keep',where:'貸出帳.json › returns[]',basis:'app/return.ts:30-51',holes:[],
+   body:()=>tbl(['id','貸出id','返した日','延滞日数'],[['R1','L1','2026-10-09',2]],{mono:[0,1],num:[3],bad:[[0,3]]})},
+  {id:'s22',kind:'calc',name:'延滞を判定する',d:'返した日 − 返す予定日',fate:'calc',where:'',basis:'app/return.ts:60',holes:[],
+   body:()=>`<ol><li>日数の差を取る（土日も数える）</li><li>1 以上なら延滞</li></ol>`},
+  {id:'s23',kind:'table',name:'延滞の知らせ',d:'送った相手と時刻',fate:'lost',ft:'この端末だけ',where:'メモリ notices',basis:'app/notify.ts:9',holes:[2],
+   body:()=>tbl(['宛先','時刻'],[['利用者A','2026-10-09 10:00']])},
+]});
+
+/* ==== CONTENT END ==== */
+
+/* ================================================================
+   ここから下は枠（中身を知らない）。触らない。
+   ================================================================ */
+const SELFTEST=/[?&]selftest\b/.test(location.search);
+const DUMP=/[?&]dump\b/.test(location.search);
+const MODE=META.mode==='design'?'design':'current';
+const MODE_LABEL={current:'現状版（本番コードから）',design:'設計版（要件・決定から）'}[MODE];
+const FATE_TEXT={keep:'保存される',lost:'消える',calc:'その場で計算',gap:'未定'};
+const LIST_ID='holes',LIST_T='穴・未定の一覧';
+const BASIS_RE=/^[^\s:：]+:\d+/;   /* 現状版の根拠＝path:行 */
+if(META.title)document.title='Blueprint '+META.title;
+
+const blank=v=>!String(v==null?'':v).trim();
+/* 枠が決める札: 設計版で basis か where が空 → 未定。fate:'gap' も未定 */
+function missing(s){const m=[];if(blank(s.basis))m.push('根拠');if(blank(s.where))m.push('書き先');return m}
+function fateOf(s){
+  if(s.fate==='gap')return 'gap';
+  if(MODE==='design'&&missing(s).length)return 'gap';
+  return FATE_TEXT[s.fate]?s.fate:'gap';
+}
+function stepName(s){return s.name||s.t||s.id}
+
+/* 段番号: 表＝T1…（全体の通し）、処理＝1,2…（タブごと）。label があればそれ */
+function numbering(){
+  let t=0;TABS.forEach(tb=>{let c=0;(tb.steps||[]).forEach(s=>{s._num=s.label||(s.kind==='table'?'T'+(++t):String(++c))})});
+}
+
+function holeMarks(html){const out=[];html.replace(/data-hole="([^"]*)"/g,(_,n)=>{out.push(n.replace(/&amp;/g,'&').replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&quot;/g,'"'))});return out}
+
+function stepHTML(s){
+  const f=fateOf(s);
+  const body=s.body?s.body():'';
+  const inl=holeMarks(body);
+  const rest=(s.holes||[]).map(String).filter(n=>!inl.includes(n));
+  s._holes=[...new Set([...(s.holes||[]).map(String),...inl])];
+  const miss=f==='gap'?missing(s):[];
+  const pill=f==='gap'?FATE_TEXT.gap:(s.ft||FATE_TEXT[f]);
+  return `<details class="st${s.kind==='table'?' tbl':''}${f==='gap'?' gap':''}" id="${s.id}"${s.open?' open':''}><summary><span class="num">${s._num}</span><span class="sm"><span class="t">${s.t||s.name}</span><span class="d">${s.d||''}</span></span><span class="pill ${f}">${pill}</span><span class="chev">›</span></summary>
+  <div class="inside">${f==='gap'?`<p class="miss">未定：${miss.length?miss.join('・')+'が決まっていない':'札が未定'}</p>`:''}${blank(s.where)?'':`<p class="where">${s.where}</p>`}
+  ${body}${rest.length?`<p>${rest.map(hole).join('')}</p>`:''}${blank(s.basis)?'':`<p class="basis">根拠：${s.basis}</p>`}</div></details>`;
+}
+
+function storeShown(){return typeof STORE==='object'&&STORE&&(!blank(STORE.tree)||(STORE.shelves||[]).length)}
+function storeHTML(){
+  const note=STORE.note||'';STORE._holes=holeMarks(note+(STORE.intro||''));
+  const f=FATE_TEXT[STORE.fate]?STORE.fate:'keep';
+  return `${STORE.intro?`<p class="intro">${STORE.intro}</p>`:''}<div class="split">
+<div class="tree">${STORE.tree||''}</div>
+<div class="steps">${(STORE.shelves||[]).length?`<details class="st tbl" open><summary><span class="num">棚</span><span class="sm"><span class="t">${STORE.name||'棚'}</span><span class="d">${STORE.d||''}</span></span><span class="pill ${f}">${FATE_TEXT[f]}</span><span class="chev">›</span></summary>
+<div class="inside">${tbl(['棚（キー）','中身','表'],STORE.shelves,{mono:[0]})}${note?`<p>${note}</p>`:''}</div></details>`:''}</div></div>`;
+}
+
+function tabHTML(tb){
+  const intro=tb.intro||'';tb._introHoles=holeMarks(intro);
+  const steps=(tb.steps||[]).map(stepHTML).join('');
+  return `<p class="intro">${intro}</p><div class="split">
+<div class="left"><div class="wf"><div class="bar">${tb.bar||tb.t}</div><div class="in">${tb.wf?tb.wf():''}</div></div>
+<p class="hint">↑ ボタンを押すと、右の行き先が開きます</p></div>
+<div class="steps">${steps}</div></div>`;
+}
+
+/* 一覧の元: 未定の段と、穴ごとの指している段 */
+function gapRows(){const r=[];TABS.forEach(tb=>(tb.steps||[]).forEach(s=>{if(fateOf(s)==='gap')r.push({tab:tb.t,s,miss:missing(s)})}));return r}
+function holeUsers(){
+  const u={};const add=(n,who)=>{(u[n]=u[n]||[]).includes(who)||u[n].push(who)};
+  if(storeShown())(STORE._holes||[]).forEach(n=>add(n,'置き場'));
+  TABS.forEach(tb=>{(tb._introHoles||[]).forEach(n=>add(n,tb.t));(tb.steps||[]).forEach(s=>(s._holes||[]).forEach(n=>add(n,stepName(s))))});
+  return u;
+}
+function listHTML(){
+  const g=gapRows(),u=holeUsers();
+  const gh=g.length?g.map(x=>`<div class="row"><span class="pill gap">未定</span><span>${x.tab} › <a data-go="${x.s.id}">${stepName(x.s)}</a></span><span class="small">欠け＝${x.miss.length?x.miss.join('・'):'札が未定'}</span></div>`).join(''):'<div class="empty">なし</div>';
+  const hk=Object.keys(HOLES);
+  const hh=hk.length?hk.map(n=>{const [t,d]=HOLES[n];const w=u[n]||[];
+    return `<div class="row">${hole(n)}<b>${t}</b><span class="small">${d||''}</span><span class="small">（${w.length?w.join('・'):'指している段なし'}）</span></div>`}).join(''):'<div class="empty">なし</div>';
+  return `<p class="intro">${MODE==='design'?'<b>未定</b>＝書き先か根拠が決まっていない段です。埋めずに決めてから直します。':'穴＝要件や実装の穴です。'}下のボタンで Markdown にしてチャットへ貼れます。</p>
+<button class="copybtn" id="copylist">一覧をコピー</button>
+${MODE==='design'||g.length?`<h2>未定（${g.length}）</h2>${gh}`:''}
+<h2>穴（${hk.length}）</h2>${hh}`;
+}
+function copyText(){
+  const g=gapRows(),u=holeUsers();
+  let out=`# ${META.title||'Blueprint'} — 穴・未定（${new Date().toLocaleString('ja-JP')}）\n\n## 未定\n`;
+  g.forEach(x=>{out+=`- ${x.tab} › ${stepName(x.s)}: 欠け=${x.miss.length?x.miss.join('・'):'札が未定'}\n`});
+  out+='\n## 穴\n';
+  Object.keys(HOLES).forEach(n=>{const [t,d]=HOLES[n];out+=`- 穴${n} ${t}: ${d||''}（${(u[n]||[]).join('、')}）\n`});
+  return out;
+}
+
+function toast(t){const e=document.getElementById('toast');e.textContent=t;e.classList.add('on');setTimeout(()=>e.classList.remove('on'),2200)}
+function openTab(id){
+  document.querySelectorAll('.tab').forEach(t=>t.classList.toggle('on',t.dataset.tab===id));
+  document.querySelectorAll('.panel').forEach(p=>p.classList.toggle('on',p.id===id));
+  if(!SELFTEST&&!DUMP){try{localStorage.setItem('bp-tab:'+(META.title||''),id)}catch(e){}}
+}
+function flash(id){
+  const d=document.getElementById(id);if(!d)return;
+  const p=d.closest('.panel');if(p&&!p.classList.contains('on'))openTab(p.id);
+  d.open=true;d.scrollIntoView({behavior:'smooth',block:'center'});
+  d.classList.remove('flash');void d.offsetWidth;d.classList.add('flash');
+  setTimeout(()=>d.classList.remove('flash'),1600);
+}
+
+/* 描画。errs があれば各タブの例外をそこへ集める（selftest） */
+function render(errs){
+  numbering();
+  const panels=[];const heads=[];
+  if(storeShown()){heads.push(['store','置き場']);
+    try{panels.push(['store',storeHTML()])}catch(e){if(!errs)throw e;errs.push('store: '+(e&&e.message||e));panels.push(['store',''])}}
+  TABS.forEach(tb=>{heads.push([tb.id,tb.t]);
+    try{panels.push([tb.id,tabHTML(tb)])}catch(e){if(!errs)throw e;errs.push(tb.id+': '+(e&&e.message||e));panels.push([tb.id,''])}});
+  const gn=gapRows().length,hn=Object.keys(HOLES).length;
+  heads.push([LIST_ID,LIST_T+`<span class="cnt">${MODE==='design'?'未定 '+gn+' ／ ':''}穴 ${hn}</span>`]);
+  panels.push([LIST_ID,`<div class="list">${listHTML()}</div>`]);
+  const legend=`<div class="legend">
+  <span class="pill keep">保存される</span><span class="small">開き直しても残る</span>
+  <span class="pill lost">消える／この端末だけ</span><span class="small">開き直す・別の端末で失われる</span>
+  <span class="pill calc">その場で計算</span>
+  ${MODE==='design'||gn?`<span class="pill gap">未定</span><span class="small">未定＝書き先か根拠が決まっていない</span>`:''}
+  <span class="small">／ <span class="hole" style="margin:0">穴N</span>＝「${LIST_T}」の番号</span></div>`;
+  document.getElementById('app').innerHTML=`<h1>${META.title||''}</h1>
+<p class="small"><span class="modeb ${MODE}">${MODE_LABEL}</span>System Blueprint ／ ${META.by||''}${META.date?' ／ '+META.date:''}</p>
+${legend}
+<div class="tabs" role="tablist">${heads.map(([id,t],i)=>`<button class="tab${i===0?' on':''}" data-tab="${id}">${t}</button>`).join('')}</div>
+${panels.map(([id,h],i)=>`<section class="panel${i===0?' on':''}" id="${id}">${h}</section>`).join('')}
+${META.source?`<p class="small foot">起こした元：${META.source}</p>`:''}`;
+  wire();
+}
+function wire(){
+  document.querySelectorAll('.tab').forEach(t=>t.onclick=()=>openTab(t.dataset.tab));
+  document.querySelectorAll('[data-tab-go]').forEach(b=>b.onclick=()=>{openTab(b.dataset.tabGo);window.scrollTo({top:0,behavior:'smooth'})});
+  document.querySelectorAll('[data-go]').forEach(b=>b.onclick=()=>flash(b.dataset.go));
+  const cb=document.getElementById('copylist');
+  if(cb)cb.onclick=()=>{const out=copyText();const done=()=>toast('コピーしました。チャットに貼ってください');
+    const fallback=t=>{const ta=document.createElement('textarea');ta.value=t;document.body.appendChild(ta);ta.select();try{document.execCommand('copy');done()}catch(e){toast('コピーできませんでした')}ta.remove()};
+    if(navigator.clipboard)navigator.clipboard.writeText(out).then(done,()=>fallback(out));else fallback(out)};
+}
+
+function pre(id,text){const p=document.createElement('pre');p.id=id;p.textContent=text;document.body.prepend(p)}
+
+/* ?selftest: 全タブを順に描き、NG を集めて <pre id="selftest"> に書く（localStorage には書かない） */
+function selftest(){
+  const errs=[];const oe=console.error;
+  console.error=(...a)=>{errs.push('(console.error) '+a.map(String).join(' '));oe.apply(console,a)};
+  window.addEventListener('error',e=>errs.push('(例外) '+e.message));
+  try{render(errs)}catch(e){errs.push('(描画): '+(e&&e.message||e))}
+  const stepIds=new Set(),tabIds=new Set(['store',LIST_ID]);let n=0;
+  TABS.forEach(tb=>{if(tabIds.has(tb.id))errs.push(tb.id+': タブ id が重複');tabIds.add(tb.id)});
+  TABS.forEach(tb=>(tb.steps||[]).forEach(s=>{n++;const at=tb.id+'/'+s.id;
+    if(stepIds.has(s.id))errs.push(at+': 段 id が重複');stepIds.add(s.id);
+    (s._holes||[]).forEach(h=>{if(!(h in HOLES))errs.push(at+': HOLES に無い穴番号 '+h)});
+    if(MODE==='current'){
+      if(blank(s.basis))errs.push(at+': 現状版で根拠（basis）が空');
+      else if(!BASIS_RE.test(String(s.basis).trim()))errs.push(at+': 現状版の根拠が path:行 の形でない（'+s.basis+'）');
+    }}));
+  TABS.forEach(tb=>(tb._introHoles||[]).forEach(h=>{if(!(h in HOLES))errs.push(tb.id+'/(intro): HOLES に無い穴番号 '+h)}));
+  if(storeShown())(STORE._holes||[]).forEach(h=>{if(!(h in HOLES))errs.push('store/(note): HOLES に無い穴番号 '+h)});
+  document.querySelectorAll('.panel').forEach(p=>{
+    p.querySelectorAll('[data-go]').forEach(el=>{if(!stepIds.has(el.dataset.go))errs.push(p.id+'/(ワイヤー): data-go の飛び先が無い '+el.dataset.go)});
+    p.querySelectorAll('[data-tab-go]').forEach(el=>{if(!tabIds.has(el.dataset.tabGo)||(el.dataset.tabGo==='store'&&!storeShown()))errs.push(p.id+'/(ワイヤー): data-tab-go の飛び先が無い '+el.dataset.tabGo)});
+  });
+  try{copyText()}catch(e){errs.push('(コピー): '+(e&&e.message||e))}
+  console.error=oe;
+  pre('selftest',errs.length?errs.map(x=>'SELFTEST NG '+x).join('\n'):`SELFTEST OK ${TABS.length+(storeShown()?1:0)+1} tabs ${n} steps`);
+}
+/* ?dump: 段の一覧（札は枠が決めた後）を JSON で <pre id="bpdump"> に書く＝compare の入力 */
+function dump(){
+  render();
+  const rows=[];TABS.forEach(tb=>(tb.steps||[]).forEach(s=>rows.push({tab:tb.t,id:s.id,name:stepName(s),where:String(s.where||''),fate:fateOf(s),basis:String(s.basis||'')})));
+  pre('bpdump',JSON.stringify(rows));
+}
+
+if(SELFTEST)selftest();
+else if(DUMP)dump();
+else{render();try{const t=localStorage.getItem('bp-tab:'+(META.title||''));if(t&&document.getElementById(t))openTab(t)}catch(e){}}
+</script>
+</body>
+</html>
