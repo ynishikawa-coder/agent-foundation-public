@@ -5,7 +5,7 @@
 値の表（在る時だけ読む・無ければ既定で動く）:
   repo の根の config/skill-values.json の "guard"。読む順は 環境変数 SKILL_VALUES → $CLAUDE_PROJECT_DIR → hook の cwd。
     context_limit            … 文脈の量の目安（token・既定 300000）
-    unattended_env           … 真なら「人のいない窓」とみなす環境変数の名の並び（既定 ["AF_UNATTENDED"]）
+    unattended_env           … 真なら「人のいない窓」（夜の自走など）とみなす環境変数の名の並び（既定 ["AF_UNATTENDED"]）
     state_dir                … 未回答の台帳を置く dir（既定 ~/.claude/af-guard。相対なら repo の根から）
     paid_markers_extra       … 有料の上流の印（鍵名・エンドポイント）の足し
     irreversible_bash_extra  … 戻せない Bash の足し [{"pattern": 正規表現, "why": 理由}]
@@ -29,7 +29,7 @@ DEFAULTS = {
     "irreversible_tools_extra": [],
 }
 
-# 窓の種類の決まり（session-watch の title-mark と同じ線）: 最初の頼みの文の返し先が別の窓なら人のいない窓。
+# 窓の種類の決まり（session-watch の title-mark と同じ線）: 最初の頼みの文の返し先が別の窓なら子の窓（文脈の知らせだけが読む）。
 RETURN_TO_WINDOW = re.compile(r"返し先\s*[=＝:：]\s*session_[A-Za-z0-9]+")
 CHILD_OF = re.compile(r"（親窓\s*session_[A-Za-z0-9]+\s*の子）")
 

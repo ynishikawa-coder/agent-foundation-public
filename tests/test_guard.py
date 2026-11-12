@@ -17,9 +17,11 @@ def env(tmp_path):
     """試験ごとに一時の箱・台帳の置き場・repo の根を分ける（実の印を汚さない）。"""
     proj = tmp_path / "proj"
     proj.mkdir()
+    (tmp_path / "scratch").mkdir()
     e = {k: v for k, v in os.environ.items() if not k.startswith(("AF_", "SKILL_VALUES", "CLAUDE_PROJECT_DIR"))}
     e.update({"AF_GUARD_TMP": str(tmp_path / "tmp"), "AF_GUARD_STATE": str(tmp_path / "state"),
-              "CLAUDE_PROJECT_DIR": str(proj), "PYTHONDONTWRITEBYTECODE": "1"})
+              "CLAUDE_PROJECT_DIR": str(proj), "PYTHONDONTWRITEBYTECODE": "1",
+              "TMPDIR": str(tmp_path / "scratch")})     # 作業場を tmp_path の下の 1 か所に絞る（repo は作業場の外）
     return e
 
 
@@ -102,8 +104,11 @@ def test_有料の印は値の表で足せる(env, tmp_path):
 
 
 # ── unanswered（未回答の台帳）と irreversible（離席中の戻せない操作）──
+DROP = "psql -c 'DROP TABLE t'"
+
+
 def test_在席中は戻せない操作も止めない(env):
-    assert not denied(env, bash("vercel deploy --prod"))
+    assert not denied(env, bash(DROP))
 
 
 def test_答えの無い問いは台帳に積まれ隣に1行鳴り次の窓で出し直させる(env):
@@ -124,18 +129,18 @@ def test_助手の中の問いは台帳に積まない(env):
     assert hook(env, "start", {"session_id": "s2"}) == {}
 
 
-@pytest.mark.parametrize("cmd", [
-    "vercel deploy --prod", "rm -rf /tmp/af-guard-no-such-dir", "git push --force origin x",
-    "gh release create v9", "psql -c 'DROP TABLE t'", "curl https://api.telegram.org/botX/sendMessage",
-    'rm "-rf" build', "git checkout -f main",
-])
+@pytest.mark.parametrize("cmd", [DROP, "supabase db reset", "ls | xargs rm -rf", "rm -rf $HOME/x"])
 def test_離席中は戻せない操作を止める(env, cmd):
     hook(env, "post", ask_result())
     assert denied(env, bash(cmd))
 
 
-@pytest.mark.parametrize("cmd", ["ls -la", "git status", "python3 -m pytest -q", "git branch -D old"])
-def test_離席中でも戻せる操作は通す(env, cmd):
+@pytest.mark.parametrize("cmd", [
+    "ls -la", "git status", "git branch -D old",
+    # 他の守り（permissions.deny）が常に止める物は重ねない
+    "vercel deploy --prod", "git push --force origin x", "gh release create v9",
+])
+def test_離席中でも戻せる操作と他が止める操作は通す(env, cmd):
     hook(env, "post", ask_result())
     assert not denied(env, bash(cmd))
 
@@ -149,15 +154,15 @@ def test_離席中はメールを送る道具も止め別の窓は止めない(e
 def test_答えが返ると離席の止めが解ける(env):
     hook(env, "post", ask_result())
     hook(env, "post", ask_result(answered=True))
-    assert not denied(env, bash("vercel deploy --prod"))
+    assert not denied(env, bash(DROP))
 
 
 def test_オーナーが打てば離席の止めが解ける(env, tmp_path):
     hook(env, "post", ask_result())
     later = "2999-01-01T00:00:00.000Z"
     tpath = write_log(tmp_path / "t.jsonl", [{"type": "user", "timestamp": later, "message": {"content": "戻りました"}}])
-    assert not denied(env, bash("vercel deploy --prod", tpath=tpath))
-    assert not denied(env, bash("vercel deploy --prod"))     # 窓は閉じた
+    assert not denied(env, bash(DROP, tpath=tpath))
+    assert not denied(env, bash(DROP))     # 窓は閉じた
 
 
 def test_離席の後に人の行が無ければ止めたまま(env, tmp_path):
@@ -166,13 +171,13 @@ def test_離席の後に人の行が無ければ止めたまま(env, tmp_path):
     tpath = write_log(tmp_path / "t.jsonl", [
         {"type": "user", "timestamp": old, "message": {"content": "前の頼み"}},
         {"type": "user", "timestamp": "2999-01-01T00:00:00Z", "toolUseResult": {}, "message": {"content": "返り"}}])
-    assert denied(env, bash("vercel deploy --prod", tpath=tpath))
+    assert denied(env, bash(DROP, tpath=tpath))
 
 
 def test_人のいない窓の印があれば離席の止めも台帳も働かない(env):
     env["AF_UNATTENDED"] = "1"
     assert hook(env, "post", ask_result()) == {}
-    assert not denied(env, bash("vercel deploy --prod"))
+    assert not denied(env, bash(DROP))
 
 
 def test_戻せない操作は値の表で足せる(env, tmp_path):
@@ -200,16 +205,29 @@ def repo(tmp_path):
 def test_git_で全部戻せる削除は離席中でも通す(env, repo):
     hook(env, "post", ask_result())
     assert not denied(env, bash("rm -rf build", cwd=str(repo)))
-    assert not denied(env, bash("git reset --hard", cwd=str(repo)))
+    assert not denied(env, bash("cd build && rm -rf *.txt", cwd=str(repo)))
+    assert not denied(env, bash("rm -rf no-such-dir", cwd=str(repo)))      # 消す物が無い
 
 
 def test_git_に無い物が混ざる削除は離席中に止める(env, repo):
     hook(env, "post", ask_result())
     (repo / "build" / "new.txt").write_text("未記録", encoding="utf-8")
     assert denied(env, bash("rm -rf build", cwd=str(repo)))
-    assert denied(env, bash("cd build && rm -rf .", cwd=str(repo)))
-    (repo / "build" / "a.txt").write_text("変えた", encoding="utf-8")
-    assert denied(env, bash("git reset --hard", cwd=str(repo)))
+    assert denied(env, bash("cd build && rm -rf *", cwd=str(repo)))
+    assert denied(env, bash("rm -rf " + str(repo), cwd=str(repo)))         # repo ごと
+
+
+def test_作業場と変更の無い作業部屋の掃除は離席中でも通す(env, repo, tmp_path):
+    hook(env, "post", ask_result())
+    scratch = tmp_path / "scratch" / "pad"
+    (scratch / "out").mkdir(parents=True)
+    (scratch / "out" / "x.log").write_text("一時", encoding="utf-8")
+    assert not denied(env, bash("cd %s && rm -rf out *.log" % scratch, cwd=str(repo)))
+    wt = tmp_path / "wt"
+    subprocess.run(["git", "-C", str(repo), "worktree", "add", "-q", str(wt)], check=True, capture_output=True)
+    assert not denied(env, bash("rm -rf " + str(wt), cwd=str(repo)))
+    (wt / "未記録.txt").write_text("x", encoding="utf-8")
+    assert denied(env, bash("rm -rf " + str(wt), cwd=str(repo)))
 
 
 # ── context_size（文脈の量）──
@@ -254,6 +272,22 @@ def test_助手の中では文脈を見ない(env, tmp_path):
     assert hook(env, "post", post_tool(tpath)) == {}
 
 
+def test_寿命を過ぎた問いは冒頭に出ない(env, tmp_path):
+    hook(env, "post", ask_result())
+    ledger = next((tmp_path / "state").rglob("unanswered-questions.json"))
+    data = json.loads(ledger.read_text(encoding="utf-8"))
+    for p in data["pending"]:
+        p["last_seen_at"] = "2000-01-01T00:00:00.000000Z"
+    ledger.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+    assert hook(env, "start", {"session_id": "s2"}) == {}
+
+
+def test_子の窓の問いも台帳に積み離席の止めが働く(env, tmp_path):
+    tpath = write_log(tmp_path / "c.jsonl", [{"type": "user", "message": {"content": "あなたは書く窓です（親窓 session_P1 の子）。"}}])
+    assert "答えのないまま閉じました" in hook(env, "post", ask_result(tpath=tpath))["additionalContext"]
+    assert denied(env, bash(DROP))
+
+
 def test_作業部屋で積んだ問いも本体の窓の冒頭に出る(env, repo, tmp_path):
     wt = tmp_path / "wt"
     subprocess.run(["git", "-C", str(repo), "worktree", "add", "-q", str(wt)], check=True, capture_output=True)
@@ -271,10 +305,10 @@ def test_時刻は字でなく時刻で比べる(env, tmp_path):
                                   encoding="utf-8")
     before = write_log(tmp_path / "b.jsonl", [{"type": "user", "timestamp": "2026-11-11T18:00:00+09:00",
                                                "message": {"content": "離席の前の行"}}])
-    assert denied(env, bash("vercel deploy --prod", tpath=before))      # 字では T18 > T09 だが、時刻では前
+    assert denied(env, bash(DROP, tpath=before))      # 字では T18 > T09 だが、時刻では前
     after = write_log(tmp_path / "a.jsonl", [{"type": "user", "timestamp": "2026-11-11T19:00:00+09:00",
                                               "message": {"content": "戻りました"}}])
-    assert not denied(env, bash("vercel deploy --prod", tpath=after))   # 時刻で後＝戻った
+    assert not denied(env, bash(DROP, tpath=after))   # 時刻で後＝戻った
 
 
 def test_1つの見張りが_import_で壊れても他の見張りは走る(env, tmp_path):

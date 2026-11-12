@@ -3,6 +3,6 @@
 {"type": "user", "message": {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "tu4", "content": "ok"}]}, "toolUseResult": {"ok": true}}
 {"type": "assistant", "message": {"role": "assistant", "content": [{"type": "tool_use", "id": "tu5", "name": "AskUserQuestion", "input": {"questions": [{"question": "作り物の置き場をどちらにしますか", "header": "置き場", "multiSelect": false, "options": [{"label": "上の箱 (推奨)", "description": "今の形のまま"}, {"label": "下の箱", "description": "分ける"}]}]}}]}}
 {"type": "user", "message": {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "tu5", "content": "ok"}]}, "toolUseResult": {"questions": [{"question": "作り物の置き場をどちらにしますか", "header": "置き場", "multiSelect": false, "options": [{"label": "上の箱 (推奨)", "description": "今の形のまま"}, {"label": "下の箱", "description": "分ける"}]}], "answers": {}}}
-{"type": "assistant", "message": {"role": "assistant", "content": [{"type": "text", "text": "⏳ 待ち\n答えを待つ。\nこの窓: 残りあり（置き場）→ 待つ（オーナー・今日まで）"}]}}
+{"type": "assistant", "message": {"role": "assistant", "content": [{"type": "text", "text": "⏳ 待ち\n答えを待つ。\nAI の残り: 置き場の答えの後に続き（今日中・この窓で）\nオーナーの残り: 答える: この窓"}]}}
 {"type": "user", "message": {"role": "user", "content": "続けて"}}
-{"type": "assistant", "message": {"role": "assistant", "content": [{"type": "text", "text": "❓ 答えて\n上の箱と下の箱のどちらで進めますか？\nこの窓: 残りあり → 答える（上の問い）"}]}}
+{"type": "assistant", "message": {"role": "assistant", "content": [{"type": "text", "text": "❓ 答えて\n上の箱と下の箱のどちらで進めますか？\nAI の残り: 答えの後に置き場を作る（今日中・この窓で）\nオーナーの残り: 答える: この窓"}]}}
