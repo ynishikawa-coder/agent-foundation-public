@@ -38,7 +38,6 @@ def frontmatter(path):
 def test_plugin_json_が読めて名前が合う():
     data = json.loads((PLUGIN / ".claude-plugin" / "plugin.json").read_text(encoding="utf-8"))
     assert data["name"] == "docs-kit"
-    assert re.fullmatch(r"\d+\.\d+\.\d+", data["version"]), data["version"]
     assert data.get("description")
 
 

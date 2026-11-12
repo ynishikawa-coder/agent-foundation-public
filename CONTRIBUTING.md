@@ -77,4 +77,4 @@
 
 ## 8. 版
 
-- 版の出し方は `docs/版の出し方.md`。変わった事は `CHANGELOG.md` の `## [Unreleased]` に、PR ごとに 1 行足す。
+- 版の印は main に入るたびに Actions が自動で打つ（`docs/版の出し方.md`）。版を出す PR は無い。使う側に関係する変更は `CHANGELOG.md` の先頭の「合流ごと」に、PR ごとに 1 行足す。
