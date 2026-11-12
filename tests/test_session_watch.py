@@ -103,8 +103,10 @@ def test_手で回す口は拾えば_exit_1_型どおりなら_exit_0():
     assert run("child_ok.jsonl").returncode == 0
 
 
-def test_返事を止める_hook_を持たない():
-    assert not (PLUGIN / "hooks").exists()
+def test_返事を止める_hook_を持たず_知らせる_hook_だけを持つ():
+    hooks = json.loads((PLUGIN / "hooks" / "hooks.json").read_text(encoding="utf-8"))["hooks"]
+    assert list(hooks) == ["UserPromptSubmit"]
+    assert hooks["UserPromptSubmit"][0]["hooks"][0]["command"].endswith("session_watch.py\" --remind")
     assert json.loads((PLUGIN / ".claude-plugin" / "plugin.json").read_text(encoding="utf-8"))["name"] == "session-watch"
 
 
@@ -124,3 +126,39 @@ def test_手の窓でない待ちは型を見ない():
     rs = set_title(rows("owner_ok.jsonl"), "🙋 作り物の続き", "🙋⏳ 作り物の続き")
     rs = set_last_text(rs, "⏳待ち（子の窓・今日中）\n子の窓の返しを待つ。\nAI の残り: 子の返しを受けて合流（今日中・この窓で）\nオーナーの残り: なし")
     assert codes(rs) == []
+
+
+# ── 題の印を付けるよう知らせる（UserPromptSubmit の hook・止めない）──
+CLOUD = {"CLAUDE_CODE_REMOTE": "true"}
+
+
+def test_クラウドの窓で題に種類が無ければ知らせる(tmp_path):
+    log = tmp_path / "t.jsonl"
+    log.write_text(json.dumps({"type": "user", "message": {"role": "user", "content": "作り物を直して（返し先=オーナー）"}},
+                              ensure_ascii=False) + "\n", encoding="utf-8")
+    text = sw.remind({"transcript_path": str(log)}, CLOUD)
+    assert "set_session_title" in text and "🙋（最初の頼みの返し先から）" in text
+
+
+def test_最初の頼みの前でも知らせ_種類が決まらなければ両方を書く():
+    text = sw.remind({"prompt": "作り物を直して"}, CLOUD)
+    assert "オーナーと話す窓なら 🙋" in text
+
+
+def test_題に種類を付けた窓とクラウドでない窓には知らせない():
+    assert sw.remind({"transcript_path": str(LOGS / "owner_ok.jsonl")}, CLOUD) is None
+    assert sw.remind({"prompt": "作り物を直して"}, {}) is None
+    untitled = set_title(rows("owner_ok.jsonl"), "🙋 作り物の続き", "作り物の続き")
+    assert not sw.titled(sw.Log(untitled))
+
+
+def test_知らせる口は止めず_JSON_で隣に出す():
+    run = lambda env: subprocess.run([sys.executable, str(SCRIPT), "--remind"], input='{"prompt": "作り物"}',
+                                     capture_output=True, text=True, env=env)
+    import os
+    out = run(dict(os.environ, CLAUDE_CODE_REMOTE="true"))
+    assert out.returncode == 0
+    body = json.loads(out.stdout)["hookSpecificOutput"]
+    assert body["hookEventName"] == "UserPromptSubmit" and "decision" not in out.stdout
+    bad = subprocess.run([sys.executable, str(SCRIPT), "--remind"], input="壊れた", capture_output=True, text=True)
+    assert bad.returncode == 0 and bad.stdout == ""

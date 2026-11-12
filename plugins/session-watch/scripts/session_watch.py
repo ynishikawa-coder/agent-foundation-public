@@ -13,10 +13,14 @@
 parent_session_id・origin）では決めない。会話ログの最初の頼みの文に書かれた返し先だけで決める:
   `返し先=オーナー` → 🙋 ／ `返し先=session_…` → 🤖 ／ `（親窓 session_… の子）` → 🤖 ／ 書いていない → 決めない。
 
-使い方: python3 session_watch.py <transcript.jsonl>  … 拾った物を 1 行ずつ出す（拾えば exit 1）
+使い方:
+  python3 session_watch.py <transcript.jsonl>  … 拾った物を 1 行ずつ出す（拾えば exit 1）
+  python3 session_watch.py --remind            … UserPromptSubmit の hook。クラウドの窓で、まだ題に種類（🙋／🤖）を
+                                                 付けていなければ、付けるよう AI に知らせる文を隣に出す（止めない）
 読めない・壊れた記録は黙って通す。
 """
 import json
+import os
 import re
 import sys
 
@@ -303,7 +307,48 @@ def watch(path):
         return []
 
 
+# ── 知らせる（UserPromptSubmit の hook・止めない）──────────────────
+REMIND = (
+    "[session-watch] この窓の題にまだ種類の印（%s／%s）が無い。最初の返事を書く前に、"
+    "%s の `set_session_title` で題を `<種類><状態> <作業名>` に付ける（自分の session id は `get_session` を "
+    "session_id を省いて読む）。種類: %s。形の細目は skill `session-watch:title-mark`。")
+
+
+def titled(log):
+    """この窓が題に種類の印を付けたことがあるか。"""
+    return any(k == "title" and split_title(v)[0] for k, v in log.events)
+
+
+def remind(data, env=None):
+    """出す文（str）か None。クラウドの窓（題の道具を持つ窓）で、まだ種類の印を付けていない時だけ。"""
+    env = os.environ if env is None else env
+    if str(env.get("CLAUDE_CODE_REMOTE", "")).lower() != "true":
+        return None
+    path = data.get("transcript_path") or ""
+    log = Log(read_rows(path)) if path and os.path.exists(path) else Log([])
+    if titled(log):
+        return None
+    kind = kind_of(log.first_prompt or str(data.get("prompt") or ""))
+    which = ("%s（最初の頼みの返し先から）" % kind) if kind else (
+        "オーナーと話す窓なら %s・別の窓へ返す窓なら %s" % (HUMAN, AI))
+    return REMIND % (HUMAN, AI, REMOTE_PREFIX.rstrip("_"), which)
+
+
+def hook_remind(stdin):
+    try:
+        data = json.loads(stdin.read() or "{}")
+        text = remind(data if isinstance(data, dict) else {})
+    except Exception:          # noqa: BLE001  見張りの故障で窓を止めない
+        return 0
+    if text:
+        print(json.dumps({"hookSpecificOutput": {"hookEventName": "UserPromptSubmit",
+                                                 "additionalContext": text}}, ensure_ascii=False))
+    return 0
+
+
 def main(argv):
+    if argv[1:] == ["--remind"]:
+        return hook_remind(sys.stdin)
     if len(argv) != 2:
         sys.stderr.write("使い方: session_watch.py <transcript.jsonl>\n")
         return 2

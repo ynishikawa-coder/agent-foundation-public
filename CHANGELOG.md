@@ -4,6 +4,9 @@
 
 ## [Unreleased]
 
+### 足した
+- session-watch: クラウドの窓で題に種類の印（🙋／🤖）がまだ無い間、頼みのたびに `set_session_title` で付けるよう AI に知らせる UserPromptSubmit の hook（`session_watch.py --remind`・止めない）。v0.3.0 で Stop の hook を外してから、題の印を付けさせる仕組みが 0 本で、核の決まりが効いていなかった。
+
 ## [v0.3.1] - 2026-11-12
 
 ### 変えた
