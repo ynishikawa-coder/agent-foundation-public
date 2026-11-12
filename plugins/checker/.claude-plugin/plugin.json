@@ -1,5 +1,5 @@
 {
   "name": "checker",
-  "version": "0.1.0",
+  "version": "0.3.1",
   "description": "チェック役。書いた窓と別の目で PR を見て green／red と札つきの所見を残す（read-only）。"
 }
