@@ -1,0 +1,402 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>理論モック</title>
+<style>
+:root{
+  --bg:#f4f5f7;--panel:#fff;--ink:#1d2330;--sub:#5b6475;--line:#dde1e8;--soft:#eef1f5;
+  --acc:#0f766e;--acc-soft:#e3f3f1;--warn:#b45309;--warn-soft:#fdf3e2;--bad:#b91c1c;--bad-soft:#fdecec;
+  --ok:#15803d;--ok-soft:#e7f6ec;--info:#1d4ed8;--info-soft:#e8effd;--memo:#6b7280;--memo-soft:#f3f4f6;
+  --app:#fbfcfd;--appbar:#16324f;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.6 -apple-system,"Hiragino Sans","Noto Sans JP",sans-serif}
+a{color:var(--info)}
+button{font:inherit;cursor:pointer}
+.wrap{display:grid;grid-template-columns:270px 1fr 360px;min-height:100vh}
+body.client .wrap{grid-template-columns:270px 1fr}
+body.client .internal{display:none!important}
+/* sidebar */
+nav{background:#fff;border-right:1px solid var(--line);padding:14px 10px 120px;position:sticky;top:0;height:100vh;overflow:auto}
+nav h1{font-size:15px;margin:0 6px 4px}
+nav .by{font-size:11px;color:var(--sub);margin:0 6px 10px}
+nav .grp{font-size:11px;color:var(--sub);margin:14px 6px 4px;font-weight:600;letter-spacing:.04em}
+nav a.it{display:flex;gap:8px;align-items:baseline;padding:5px 8px;border-radius:6px;color:var(--ink);text-decoration:none;font-size:13px}
+nav a.it:hover{background:var(--soft)}
+nav a.it.on{background:var(--acc-soft);color:var(--acc);font-weight:600}
+nav a.it .n{min-width:30px;color:var(--sub);font-size:12px}
+nav a.it .qn{margin-left:auto;font-size:10px;background:var(--warn-soft);color:var(--warn);border-radius:8px;padding:0 6px}
+.mode{margin:6px;display:flex;gap:4px;background:var(--soft);border-radius:8px;padding:3px}
+.mode button{flex:1;border:0;background:transparent;border-radius:6px;padding:5px 4px;font-size:12px;color:var(--sub)}
+.mode button.on{background:#fff;color:var(--ink);box-shadow:0 1px 2px #0002;font-weight:600}
+/* main */
+main{padding:18px 22px 140px;min-width:0}
+.scr-h{display:flex;align-items:baseline;gap:10px;margin-bottom:4px;flex-wrap:wrap}
+.scr-h .num{font-size:13px;color:#fff;background:var(--acc);border-radius:6px;padding:1px 8px}
+.scr-h h2{margin:0;font-size:20px}
+.lead{color:var(--sub);margin:0 0 12px}
+.flowbar{display:flex;gap:4px;flex-wrap:wrap;margin:0 0 12px}
+.flowbar a{font-size:12px;padding:3px 9px;border-radius:12px;background:#fff;border:1px solid var(--line);color:var(--sub);text-decoration:none}
+.flowbar a.on{background:var(--acc);color:#fff;border-color:var(--acc)}
+/* fake app window */
+.app{background:var(--app);border:1px solid #c9d0da;border-radius:10px;box-shadow:0 6px 24px #16324f14;overflow:hidden}
+.app-top{background:var(--appbar);color:#fff;display:flex;align-items:center;gap:14px;padding:8px 14px;font-size:13px;flex-wrap:wrap}
+.app-top .logo{font-weight:700;letter-spacing:.03em}
+.app-top .crumb{opacity:.85}
+.app-top .crumb a{color:#fff}
+.app-top .sp{margin-left:auto;display:flex;gap:10px;align-items:center;opacity:.9}
+.app-top select{font:inherit;font-size:12px;border-radius:5px;border:0;padding:2px 6px}
+.app-body{padding:16px}
+/* stepper */
+.stepper{display:flex;gap:0;margin:0 0 14px;overflow-x:auto}
+.stepper a{flex:1;min-width:84px;text-align:center;font-size:12px;padding:7px 4px;background:#fff;border:1px solid var(--line);margin-right:-1px;color:var(--sub);text-decoration:none;white-space:nowrap}
+.stepper a:first-child{border-radius:6px 0 0 6px}.stepper a:last-child{border-radius:0 6px 6px 0}
+.stepper a.done{background:var(--ok-soft);color:var(--ok)}
+.stepper a.cur{background:var(--acc);color:#fff;border-color:var(--acc);font-weight:600}
+.stepper a.wait{background:var(--warn-soft);color:var(--warn)}
+/* ui atoms */
+.row{display:flex;gap:12px;flex-wrap:wrap}
+.col{flex:1;min-width:260px}
+.box{background:#fff;border:1px solid var(--line);border-radius:8px;padding:12px 14px;margin-bottom:12px}
+.box h4{margin:0 0 8px;font-size:14px;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:12px}
+.kpi{background:#fff;border:1px solid var(--line);border-radius:8px;padding:10px 12px}
+.kpi .l{font-size:11px;color:var(--sub)}.kpi .v{font-size:20px;font-weight:700}.kpi .s{font-size:11px;color:var(--sub)}
+table{border-collapse:collapse;width:100%;font-size:12.5px;background:#fff}
+th,td{border-bottom:1px solid var(--line);padding:6px 8px;text-align:left;vertical-align:top}
+th{background:var(--soft);font-weight:600;font-size:12px;white-space:nowrap}
+td.n,th.n{text-align:right;font-variant-numeric:tabular-nums}
+tr.click{cursor:pointer}tr.click:hover td{background:#f7fafc}
+tr.hl td{background:var(--warn-soft)}
+tr.badrow td{background:var(--bad-soft)}
+.tw{overflow-x:auto;border:1px solid var(--line);border-radius:8px}
+.tw table{border:0}
+.b{display:inline-block;font-size:11px;border-radius:10px;padding:0 8px;line-height:18px;white-space:nowrap}
+.b.ok{background:var(--ok-soft);color:var(--ok)}.b.warn{background:var(--warn-soft);color:var(--warn)}
+.b.bad{background:var(--bad-soft);color:var(--bad)}.b.info{background:var(--info-soft);color:var(--info)}
+.b.memo{background:var(--memo-soft);color:var(--memo)}.b.acc{background:var(--acc-soft);color:var(--acc)}
+.btn{border:1px solid var(--line);background:#fff;border-radius:6px;padding:6px 12px;font-size:13px;color:var(--ink)}
+.btn:hover{border-color:#aab3c0}
+.btn.pri{background:var(--acc);border-color:var(--acc);color:#fff}
+.btn.pri:disabled{background:#9fb8b5;border-color:#9fb8b5;cursor:not-allowed}
+.btn.sm{padding:2px 8px;font-size:12px}
+.btn.warn{background:var(--warn-soft);border-color:#f0d3a6;color:var(--warn)}
+.actions{display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;margin-top:12px;padding-top:12px;border-top:1px solid var(--line)}
+.alert{border-radius:8px;padding:9px 12px;margin-bottom:12px;font-size:13px}
+.alert.warn{background:var(--warn-soft);color:#7c3a06}.alert.bad{background:var(--bad-soft);color:#7f1d1d}
+.alert.ok{background:var(--ok-soft);color:#14532d}.alert.info{background:var(--info-soft);color:#1e3a8a}
+.tabs{display:flex;gap:4px;border-bottom:1px solid var(--line);margin-bottom:12px;flex-wrap:wrap}
+.tabs button{border:1px solid transparent;border-bottom:0;background:transparent;padding:6px 12px;border-radius:6px 6px 0 0;color:var(--sub);font-size:13px}
+.tabs button.on{background:#fff;border-color:var(--line);color:var(--ink);font-weight:600;margin-bottom:-1px}
+.pane{display:none}.pane.on{display:block}
+.drop{border:2px dashed #b8c2cf;border-radius:10px;padding:22px;text-align:center;color:var(--sub);background:#fff}
+.field{display:grid;grid-template-columns:140px 1fr;gap:6px 10px;align-items:center;font-size:13px}
+.field input,.field select{font:inherit;font-size:13px;padding:4px 7px;border:1px solid var(--line);border-radius:5px;width:100%;max-width:280px}
+.field .chg{background:var(--warn-soft)}
+.pdf{background:#e9ecf1;border-radius:8px;padding:14px;min-height:320px;position:relative}
+.pdf .pg{background:#fff;margin:auto;max-width:300px;height:360px;border-radius:3px;box-shadow:0 2px 6px #0002;padding:14px;position:relative;font-size:10px;color:#8a93a3}
+.pdf .ln{height:6px;background:#e5e8ee;border-radius:3px;margin:7px 0}
+.pdf .hlbox{position:absolute;left:10px;right:10px;bottom:22px;height:70px;border:2px solid var(--warn);background:#fdf3e288;border-radius:4px}
+.timeline{border-left:2px solid var(--line);margin-left:6px;padding-left:14px}
+.timeline .ev{position:relative;margin-bottom:12px}
+.timeline .ev:before{content:"";position:absolute;left:-20px;top:6px;width:10px;height:10px;border-radius:50%;background:var(--acc)}
+.muted{color:var(--sub);font-size:12px}
+.slip{border:1px solid #9aa5b4;max-width:640px;background:#fff;font-size:12px}
+.slip .hd{display:flex;justify-content:space-between;padding:8px 12px;border-bottom:1px solid #9aa5b4;font-weight:600}
+.slip table td,.slip table th{border:1px solid #cfd5de}
+.dbchip{display:inline-flex;gap:4px;align-items:center;font-size:12px;border:1px solid #c7d7f7;background:var(--info-soft);color:var(--info);border-radius:14px;padding:1px 9px;text-decoration:none;margin:2px 4px 2px 0}
+.dbchip.none{border-color:#e5d3b3;background:var(--warn-soft);color:var(--warn)}
+.flowsvg{width:100%;height:auto}
+.reqgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px}
+.map{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:8px}
+.map a{display:block;background:#fff;border:1px solid var(--line);border-radius:8px;padding:8px 10px;text-decoration:none;color:var(--ink);font-size:12.5px}
+.map a b{color:var(--acc)}
+.map a:hover{border-color:var(--acc)}
+/* right panel */
+aside{background:#fff;border-left:1px solid var(--line);padding:16px 16px 140px;position:sticky;top:0;height:100vh;overflow:auto}
+aside h3{font-size:13px;margin:16px 0 6px;color:var(--sub);letter-spacing:.03em}
+aside h3:first-child{margin-top:0}
+aside ul{margin:0;padding-left:18px;font-size:13px}
+aside li{margin-bottom:3px}
+.q{border:1px solid var(--line);border-radius:8px;padding:9px 10px;margin-bottom:8px;font-size:13px;background:#fff}
+.q .qt{font-weight:600}
+.q .rec{font-size:12px;color:var(--acc);margin:4px 0}
+.q .why{font-size:12px;color:var(--sub)}
+.q .ans{display:flex;gap:4px;margin-top:6px}
+.q .ans button{flex:1;border:1px solid var(--line);background:#fff;border-radius:5px;font-size:12px;padding:3px}
+.q .ans button.on.o{background:var(--ok-soft);border-color:var(--ok);color:var(--ok);font-weight:600}
+.q .ans button.on.x{background:var(--bad-soft);border-color:var(--bad);color:var(--bad);font-weight:600}
+.q .ans button.on.h{background:var(--warn-soft);border-color:var(--warn);color:var(--warn);font-weight:600}
+.q textarea,.cmt{width:100%;margin-top:6px;font:inherit;font-size:12px;border:1px solid var(--line);border-radius:5px;padding:5px;min-height:34px;resize:vertical}
+.cmt{min-height:60px}
+/* bottom bar */
+.bar{position:fixed;left:0;right:0;bottom:0;background:#16324f;color:#fff;display:flex;gap:12px;align-items:center;padding:9px 16px;z-index:10;font-size:13px;flex-wrap:wrap}
+.bar .btn{background:#fff;color:#16324f;border:0}
+.bar .btn.ghost{background:transparent;color:#fff;border:1px solid #ffffff66}
+.toast{position:fixed;left:50%;bottom:60px;transform:translateX(-50%);background:#1d2330;color:#fff;padding:9px 16px;border-radius:8px;font-size:13px;opacity:0;transition:.25s;pointer-events:none;z-index:20}
+.toast.on{opacity:1}
+@media (max-width:1100px){.wrap{grid-template-columns:230px 1fr}aside{position:static;height:auto;grid-column:1/-1;border-left:0;border-top:1px solid var(--line)}}
+@media (max-width:720px){.wrap{grid-template-columns:1fr}nav{position:static;height:auto;padding-bottom:10px}main{padding:14px 16px 140px}}
+/* selftest（?selftest の時だけ出る） */
+#selftest{margin:0;padding:8px 14px;font:12px/1.5 ui-monospace,Menlo,monospace;background:#1d2330;color:#fff;white-space:pre-wrap}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <nav id="nav"></nav>
+  <main id="main"></main>
+  <aside id="side" class="internal"></aside>
+</div>
+<div class="bar">
+  <span id="cnt">回答 0 件</span>
+  <button class="btn" id="copy">回答とコメントをコピー</button>
+  <button class="btn ghost" id="clear">回答を消す</button>
+  <span class="muted" style="color:#c9d6e6">コピーした内容をそのままチャットに貼り戻してください（Q番号・画面番号つき）</span>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+/* ================================================================
+   理論モック 枠（engine）— /theory-mock の正本
+   ・この枠（CSS・描画・保存・コピー・selftest）は中身を知らない。
+   ・題材ごとに差し替えるのは「CONTENT START 〜 CONTENT END」の 1 区画だけ。
+   ・枠の部品（中身の body から呼んでよい）:
+       app(crumb, body, opt)  … 偽アプリの窓（opt.noselect=上部の選択欄を出さない／opt.step=工程バーの今の段を上書き）
+       go(id, label, cls)     … 画面へ飛ぶボタン
+       tbl(head, rows, opt)   … 表（opt.num=[右寄せにする列番号]）
+       cc(v) / yen(n)         … 数字セル / 3 桁区切り
+       lk(key)                … LINKS のチップ（url 無し＝黄の「見本なし」）
+       linkList(keys?)        … LINKS を説明つきで一覧（既定＝全部）
+       screenMap()            … 画面の地図（最初の画面のグループ以外を全部）
+       toast(text)            … 下に一言
+   ・HTML の口: data-go="画面id" / data-act="ACTS の名前" / data-toast="文言" /
+               data-tabs（ボタン data-t と .pane data-p の切替）
+   ================================================================ */
+const S=[];
+function def(o){S.push(o)}
+let CUR=null; /* 描画中の画面 */
+const yen=n=>n.toLocaleString('ja-JP');
+const cc=v=>`<td class="n">${typeof v==='number'?yen(v):v}</td>`;
+const go=(id,label,cls='btn')=>`<button class="${cls}" data-go="${id}">${label}</button>`;
+function lk(k){
+  const L=LINKS[k];if(!L)throw new Error('LINKS に無いキー: '+k);
+  const ic=L.icon||'🗄';
+  return L.url?`<a class="dbchip" href="${L.url}" target="_blank" rel="noopener">${ic} ${L.label}</a>`
+              :`<span class="dbchip none" title="見本なし">${ic} ${L.label}（見本なし）</span>`;
+}
+const linkList=(keys)=>(keys||Object.keys(LINKS)).map(k=>`<div style="display:flex;gap:8px;align-items:baseline;border-bottom:1px solid var(--line);padding:4px 0">${lk(k)}<span class="muted">${LINKS[k].note||''}</span></div>`).join('');
+const screenMap=()=>`<div class="map">${S.filter(s=>s.grp!==S[0].grp).map(s=>`<a href="#${s.id}"><b>${s.n}</b> ${s.t}</a>`).join('')}</div>`;
+const NUMH=/^[#＃]|額|数|計|円|時間|率|差/;
+function tbl(h,rows,opt={}){
+  const num=i=>(opt.num?opt.num.includes(i):NUMH.test(h[i]));
+  return `<div class="tw"><table><thead><tr>${h.map((x,i)=>`<th${num(i)?' class="n"':''}>${x}</th>`).join('')}</tr></thead><tbody>${rows.join('')}</tbody></table></div>`;
+}
+function flowSteps(){return (META.flow&&META.flow.steps)||[]}
+function stepper(cur){const st=(META.flow&&META.flow.state)||{};
+  return '<div class="stepper">'+flowSteps().map(([id,l])=>`<a href="#${id}" class="${id===cur?'cur':(st[id]||'')}">${l}${st[id]==='done'&&id!==cur?' ✓':''}</a>`).join('')+'</div>'}
+function app(crumb,body,opt={}){
+  const ap=META.app||{};const step=opt.step!==undefined?opt.step:(CUR&&CUR.step);
+  const sel=opt.noselect||!ap.selects?'':ap.selects.map(o=>`<select>${o.map(x=>`<option>${x}</option>`).join('')}</select>`).join('');
+  return `<div class="app"><div class="app-top"><span class="logo">${ap.logo||''}</span>
+  <span class="crumb">${crumb}</span>
+  <span class="sp">${sel}${ap.user?`<span>${ap.user}</span>`:''}</span></div>
+  <div class="app-body">${step&&flowSteps().length?stepper(step):''}${body}</div></div>`;
+}
+function toast(t){const e=document.getElementById('toast');e.textContent=t;e.classList.add('on');setTimeout(()=>e.classList.remove('on'),2200)}
+
+/* ==== CONTENT START ==== */
+/* ここから下（CONTENT END まで）が題材ごとの中身。見本＝架空の「会議室予約」。
+   Q 番号と画面 id は作り直しでも変えない（貼り戻しの鍵）。ダミーデータは実名・実額にしない。 */
+
+const META={
+  title:'会議室予約 理論モック',            /* 左上の題・コピーの見出し */
+  by:'架空の見本・全画面・2026-09-28',      /* 題の下の小さい一行 */
+  storageKey:'theory_mock_sample_room_v1',  /* 回答の保存名（同じ題材は同じ名＝前の回答が残る）。空なら題から作る */
+  home:'req',                               /* 最初に開く画面（空なら先頭） */
+  app:{                                     /* 偽アプリの上部 */
+    logo:'〇〇ポータル｜会議室',
+    selects:[['本社ビル','支社ビル'],['2026年10月','2026年9月']],
+    user:'👤 総務 担当',
+  },
+  flow:{                                    /* 工程バー（空配列なら出さない）。画面の step がここの id を指す */
+    steps:[['r1','① 空きを見る'],['r2','② 予約する'],['r3','③ 使う・返す']],
+    state:{r1:'done',r2:'',r3:''},          /* 'done' | 'wait' | '' */
+  },
+};
+
+/* 外部リンク（DB 見本・原本）。url が null＝黄の「見本なし」＝要件で中身を決める物 */
+const LINKS={
+  rooms:{label:'部屋マスター',url:'https://example.com/sheet#rooms',note:'部屋・定員・設備'},
+  resv:{label:'予約台帳',url:'https://example.com/sheet#resv',note:'1予約1行（誰が・いつ・どの部屋）'},
+  rule:{label:'予約ルール',url:null,note:'何日前から・何時間まで・キャンセル期限（見本なし）'},
+  guide:{label:'今の運用メモ（実物）',url:'https://example.com/doc',note:'紙の予約表の運用',icon:'📄'},
+};
+
+/* 決めたいこと: 番号:[題, 推奨, なぜ決める] */
+const Q={
+ 1:['誰が予約できるか','社員は全員予約できる。来客用の大会議室だけ総務の承認を挟む。','全員に開くか承認制かで、画面と通知の数が変わる'],
+ 2:['何日先まで予約できるか','30日先まで。定例は「毎週」で3か月分まとめて取れる。','先取りの独占と、定例の手間の両方に効く'],
+ 3:['使われなかった予約の扱い','開始15分で「使っています」が押されなければ自動で空きに戻す。','空予約で部屋が埋まるのが今いちばんの不満'],
+ 4:['紙の予約表をいつやめるか','2週間の並行で、紙にしか無い予約が0件になったらやめる。','終わりが決まっていないと二重管理が続く'],
+};
+
+/* ダミーデータ（実名・実額ではない） */
+const ROOMS=[
+ {id:'A',nm:'会議室A',cap:6,eq:'モニター'},
+ {id:'B',nm:'会議室B',cap:10,eq:'プロジェクター'},
+ {id:'L',nm:'大会議室',cap:30,eq:'マイク・カメラ'},
+];
+
+/* 中身側の動き（HTML の data-act="名前" から呼ばれる。el＝押された要素） */
+const ACTS={
+  reserve:(el)=>{META.flow.state.r2='done';toast('予約台帳に 1 行入りました（ダミー）');setTimeout(()=>location.hash='r3',700)},
+  checkin:(el)=>{el.textContent='使用中（10:02 から）';el.disabled=true;META.flow.state.r3='done';toast('「使っています」を記録しました')},
+};
+
+/* ---------- 画面 ---------- */
+def({id:'req',grp:'要件の整理',n:'要',t:'何を作るか（要件の整理）',
+lead:'このモックの前提。ここが合っていれば、あとの画面は「この要件をどの画面で満たすか」の話になります。',
+does:['目的・使う人・範囲・守る約束・完成の定義を1枚で確認','全画面の地図から各画面へ飛ぶ','DB（見本）を一覧で開く'],
+links:['rooms'],qs:[1,4],
+body:()=>`
+<div class="reqgrid">
+ <div class="box"><h4>🎯 目的（1行）</h4>紙の予約表をやめ、<b>空きが一目で分かり・その場で取れる</b>ようにする。</div>
+ <div class="box"><h4>👥 使う人</h4><ul style="margin:0;padding-left:18px"><li><b>社員</b>＝予約して使う人</li><li><b>総務</b>＝部屋と予約ルールを持つ人（承認は <a href="#all">Q1</a>）</li></ul></div>
+ <div class="box"><h4>📦 範囲</h4><b>やる:</b> 空き確認・予約・使用開始・キャンセル<br><b>やらない:</b> 備品の貸し出し・来客受付<br><b>後で:</b> カレンダー連携</div>
+ <div class="box"><h4>🧮 守る約束</h4><ul style="margin:0;padding-left:18px"><li>予約の元は予約台帳の1か所だけ</li><li>誰がいつ取った・消したかは全部残す</li></ul></div>
+ <div class="box"><h4>✅ 完成の定義</h4>2週間の並行で、紙にしか無い予約が0件（<a href="#all">Q4</a>）。</div>
+ <div class="box"><h4>📅 流れ</h4>① 空きを見る → ② 予約する → ③ 使う・返す<div class="muted" style="margin-top:6px">戻り: ③で使われなかった予約 → 自動で①の空きに戻る（Q3）</div></div>
+</div>
+<div class="box"><h4>🗺 画面の地図（クリックで開く）</h4>${screenMap()}</div>
+<div class="box"><h4>🗄 DB・原本（青＝見本あり／黄＝まだ見本が無い＝要件で中身を決める）</h4>${linkList()}</div>`});
+
+def({id:'r1',grp:'毎回の流れ',n:'①',t:'空きを見る',step:'r1',
+lead:'今日の部屋ごとの空きを1枚で。空いている枠を押すと②へ。',
+does:['部屋ごと・時間ごとの空きを見る','定員と設備で絞る','空き枠を押して予約へ'],
+links:['rooms','resv'],qs:[2],
+body:()=>app('空きを見る',`
+${tbl(['部屋','定員','設備','9時','10時','11時'],ROOMS.map(r=>`<tr><td><b>${r.nm}</b></td>${cc(r.cap)}<td>${r.eq}</td><td><span class="b bad">予約済</span></td><td>${go('r2','空き','btn sm pri')}</td><td>${go('r2','空き','btn sm')}</td></tr>`),{num:[1]})}
+<p class="muted">押すと②に飛びます（部屋と時間が入った状態）</p>`)});
+
+def({id:'r2',grp:'毎回の流れ',n:'②',t:'予約する',step:'r2',
+lead:'部屋と時間は①から入っている。用件と人数だけ書いて予約。',
+does:['部屋・時間・用件・人数を確かめる','定例なら「毎週」を選ぶ','予約する → 予約台帳に1行'],
+links:['resv','rule'],qs:[1,2],
+body:()=>app('空きを見る › 予約する',`
+<div class="tabs" data-tabs><button class="on" data-t="a">1回だけ</button><button data-t="b">定例（毎週）</button></div>
+<div class="pane on" data-p="a"><div class="field">
+<label>部屋</label><input value="会議室A（6名）">
+<label>時間</label><input value="10:00〜11:00">
+<label>用件</label><input placeholder="（例）週次の打ち合わせ" class="chg">
+<label>人数</label><input value="4">
+</div></div>
+<div class="pane" data-p="b"><div class="alert info">毎週 火曜 10:00〜11:00 を 3か月分（12回）まとめて取ります（Q2）</div></div>
+<div class="actions">${go('r1','①に戻る')}<button class="btn" data-toast="（モック）下書きに残しました">下書き</button><button class="btn pri" data-act="reserve">予約する</button></div>`)});
+
+def({id:'r3',grp:'毎回の流れ',n:'③',t:'使う・返す',step:'r3',
+lead:'開始時刻に「使っています」を押す。15分押されなければ自動で空きに戻る（Q3）。',
+does:['今日の自分の予約を見る','「使っています」を押す','早く終わったら「返す」'],
+links:['resv','guide'],qs:[3],
+body:()=>app('自分の予約',`
+<div class="alert warn">10:00 会議室A — 10:15 までに押さないと自動で空きに戻ります</div>
+<div class="actions"><button class="btn" data-toast="（モック）残り時間を空きに戻しました">返す</button><button class="btn pri" data-act="checkin">使っています</button></div>`)});
+
+/* ==== CONTENT END ==== */
+
+/* ================================================================
+   ここから下は枠（中身を知らない）。触らない。
+   ================================================================ */
+/* 「すり合わせ（全質問）」画面は枠が末尾に足す（中身に書かない） */
+def({id:'all',grp:'すり合わせ',n:'Q',t:'決めたいこと（要件の穴）一覧',
+lead:'各画面に散らばっている「まだ決まっていないこと」を全部並べた。推奨でよければ ○、違えば ×（一言）、決めきれなければ △。',
+does:[`全${Object.keys(Q).length}問に ○×△ を付ける`,'違う所は一言メモ','下のバーの「コピー」でまとめて貼り戻す'],
+links:[],qs:Object.keys(Q).map(Number),auto:1,body:()=>`<div class="muted">画面ごとの質問と同じ番号・同じ回答が連動します。</div>`});
+
+const SELFTEST=/[?&]selftest\b/.test(location.search);
+if(META.title)document.title=META.title;
+const LS=META.storageKey||('theory_mock_'+(META.title||'untitled'));
+let A={};if(!SELFTEST){try{A=JSON.parse(localStorage.getItem(LS)||'{}')}catch(e){}}
+const save=()=>{if(!SELFTEST){try{localStorage.setItem(LS,JSON.stringify(A))}catch(e){}}count()};
+function count(){const n=Object.keys(A).filter(k=>A[k]&&(A[k].v||A[k].m)).length;document.getElementById('cnt').textContent='回答・コメント '+n+' 件'}
+const usedBy=q=>S.filter(s=>(s.qs||[]).includes(q)&&!s.auto).map(s=>s.n);
+function qcard(n){if(!Q[n])throw new Error('Q に無い番号: Q'+n);const [t,rec,why]=Q[n];const a=A['q'+n]||{};
+ return `<div class="q" data-q="${n}"><div class="qt">Q${n}. ${t}</div><div class="rec">推奨: ${rec}</div><div class="why">なぜ決める: ${why}<br>関わる画面: ${usedBy(n).join('・')||'—'}</div>
+ <div class="ans">${[['o','○ 推奨でOK'],['x','× 違う'],['h','△ 保留']].map(([k,l])=>`<button class="${k}${a.v===k?' on':''}" data-v="${k}">${l}</button>`).join('')}</div>
+ <textarea placeholder="一言（違う時・補足）">${a.m||''}</textarea></div>`}
+function nav(cur){
+ let h=`<h1>${META.title||''}</h1><div class="by">${META.by||''}</div>
+ <div class="mode"><button id="m1" class="${document.body.classList.contains('client')?'':'on'}">社内すり合わせ</button><button id="m2" class="${document.body.classList.contains('client')?'on':''}">先方に見せる</button></div>`;
+ let g='';S.forEach(s=>{if(s.grp!==g){g=s.grp;h+=`<div class="grp">${g}</div>`}
+  h+=`<a class="it${s.id===cur?' on':''}" href="#${s.id}"><span class="n">${s.n}</span><span>${s.t}</span>${(s.qs||[]).length&&!s.auto?`<span class="qn internal">${s.qs.length}</span>`:''}</a>`});
+ document.getElementById('nav').innerHTML=h;
+ document.getElementById('m1').onclick=()=>{document.body.classList.remove('client');render()};
+ document.getElementById('m2').onclick=()=>{document.body.classList.add('client');render()};
+}
+function render(forceId){
+ const id=forceId||(location.hash||'#'+(META.home||S[0].id)).slice(1);const s=S.find(x=>x.id===id)||S[0];
+ CUR=s;nav(s.id);
+ const fl=flowSteps();
+ document.getElementById('main').innerHTML=`<div class="scr-h"><span class="num">${s.n}</span><h2>${s.t}</h2></div><p class="lead">${s.lead||''}</p>
+ ${s.step&&fl.length?`<div class="flowbar">${fl.map(([fid,l])=>`<a href="#${fid}" class="${fid===s.step?'on':''}">${l}</a>`).join('')}</div>`:''}
+ ${s.body()}
+ ${s.auto?`<div style="margin-top:12px">${s.qs.map(qcard).join('')}</div>`:''}`;
+ const cm=A['c_'+s.id]||{};
+ document.getElementById('side').innerHTML=`<h3>この画面でできること</h3><ul>${(s.does||[]).map(d=>`<li>${d}</li>`).join('')}</ul>
+ <h3>入る・見る DB</h3><div>${(s.links||[]).length?s.links.map(lk).join(''):'<span class="muted">—</span>'}</div>
+ ${!s.auto?`<h3>決めたいこと（この画面）</h3>${(s.qs||[]).map(qcard).join('')||'<span class="muted">なし</span>'}`:''}
+ <h3>この画面へのコメント</h3><textarea class="cmt" data-c="${s.id}" placeholder="足りない機能・要らない物・違和感など">${cm.m||''}</textarea>`;
+ wire();if(!SELFTEST)window.scrollTo(0,0);
+}
+function wire(){
+ document.querySelectorAll('[data-go]').forEach(el=>el.addEventListener('click',e=>{if(el.disabled)return;e.stopPropagation();location.hash=el.dataset.go}));
+ document.querySelectorAll('[data-tabs]').forEach(tb=>{const box=tb.parentElement;tb.querySelectorAll('button').forEach(b=>b.onclick=()=>{tb.querySelectorAll('button').forEach(x=>x.classList.toggle('on',x===b));box.querySelectorAll(':scope > .pane').forEach(p=>p.classList.toggle('on',p.dataset.p===b.dataset.t))})});
+ document.querySelectorAll('div.q').forEach(qe=>{const n=qe.dataset.q;qe.querySelectorAll('.ans button').forEach(b=>b.onclick=()=>{A['q'+n]=A['q'+n]||{};A['q'+n].v=A['q'+n].v===b.dataset.v?'':b.dataset.v;save();document.querySelectorAll(`.q[data-q="${n}"] .ans button`).forEach(x=>x.classList.toggle('on',x.dataset.v===A['q'+n].v))});
+  qe.querySelector('textarea').oninput=e=>{A['q'+n]=A['q'+n]||{};A['q'+n].m=e.target.value;save()}});
+ const c=document.querySelector('.cmt');if(c)c.oninput=e=>{A['c_'+c.dataset.c]={m:e.target.value};save()};
+ /* 中身側の動き: ACTS に無い名前は何もしない（エラーにしない） */
+ document.querySelectorAll('[data-act]').forEach(el=>el.addEventListener('click',e=>{if(el.disabled)return;const f=ACTS[el.dataset.act];if(typeof f==='function')f(el,e)}));
+ document.querySelectorAll('[data-toast]').forEach(el=>el.addEventListener('click',()=>{if(!el.disabled)toast(el.dataset.toast)}));
+}
+function copyText(){
+ const L={o:'○',x:'×',h:'△'};let out='# '+(META.title||'理論モック')+' — 回答（'+new Date().toLocaleString('ja-JP')+'）\n\n## 決めたいこと\n';
+ Object.keys(Q).forEach(n=>{const a=A['q'+n];if(a&&(a.v||a.m))out+=`- Q${n} ${Q[n][0]}: ${L[a.v]||'—'}${a.m?' ／ '+a.m.replace(/\n/g,' '):''}\n`});
+ out+='\n## 画面へのコメント\n';S.forEach(s=>{const a=A['c_'+s.id];if(a&&a.m)out+=`- ${s.n} ${s.t}: ${a.m.replace(/\n/g,' ')}\n`});
+ return out;
+}
+document.getElementById('copy').onclick=()=>{
+ const out=copyText();
+ const done=()=>toast('コピーしました。チャットに貼ってください');
+ if(navigator.clipboard)navigator.clipboard.writeText(out).then(done,()=>fallback(out));else fallback(out);
+ function fallback(t){const ta=document.createElement('textarea');ta.value=t;document.body.appendChild(ta);ta.select();try{document.execCommand('copy');done()}catch(e){alert(t)}ta.remove()}
+};
+document.getElementById('clear').onclick=()=>{if(confirm('回答とコメントを全部消しますか？')){A={};save();render()}};
+
+/* ?selftest: 全画面を順に描画し、例外と console.error を集めて <pre id="selftest"> に書く（localStorage には書かない） */
+function selftest(){
+ const errs=[];const oe=console.error;let at='(起動)';
+ console.error=(...a)=>{errs.push(at+': console.error '+a.map(String).join(' '));oe.apply(console,a)};
+ window.addEventListener('error',e=>errs.push(at+': '+e.message));
+ const ids=new Set();S.forEach(s=>{if(ids.has(s.id))errs.push(s.id+': 画面 id が重複');ids.add(s.id)});
+ flowSteps().forEach(([fid])=>{if(!ids.has(fid))errs.push('META.flow: 画面に無い id '+fid)});
+ if(META.home&&!ids.has(META.home))errs.push('META.home: 画面に無い id '+META.home);
+ for(const s of S){at=s.id;
+  try{render(s.id);
+   document.querySelectorAll('[data-go]').forEach(el=>{if(!ids.has(el.dataset.go))errs.push(s.id+': data-go の飛び先が無い '+el.dataset.go)});
+   document.querySelectorAll('[data-act]').forEach(el=>{const f=ACTS[el.dataset.act];if(typeof f==='function')f(el,new Event('click'))});
+  }catch(e){errs.push(s.id+': '+(e&&e.message||e))}}
+ at='(コピー)';try{copyText()}catch(e){errs.push('(コピー): '+(e&&e.message||e))}
+ console.error=oe;
+ const pre=document.createElement('pre');pre.id='selftest';
+ pre.textContent=errs.length?errs.map(x=>'SELFTEST NG '+x).join('\n'):'SELFTEST OK '+S.length+' screens';
+ document.body.prepend(pre);
+ render(META.home||S[0].id);
+}
+
+window.addEventListener('hashchange',()=>render());
+if(SELFTEST)selftest();else render();
+count();
+</script>
+</body>
+</html>

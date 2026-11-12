@@ -1,0 +1,38 @@
+{
+  "name": "agent-foundation",
+  "owner": {
+    "name": "agent-foundation"
+  },
+  "plugins": [
+    {
+      "name": "core",
+      "source": "./plugins/core",
+      "description": "振る舞いの核（起動時に核を差し込む・細目の在り処を知らせる）"
+    },
+    {
+      "name": "docs-kit",
+      "source": "./plugins/docs-kit",
+      "description": "blueprint・compose-message・make-deck・mindmap・pdf-read・qa-html・theory-mock"
+    },
+    {
+      "name": "dev-flow",
+      "source": "./plugins/dev-flow",
+      "description": "codex・preimpl-cleanup・register-rule・spec-doc・verify"
+    },
+    {
+      "name": "session-watch",
+      "source": "./plugins/session-watch",
+      "description": "title-mark・watch-log"
+    },
+    {
+      "name": "checker",
+      "source": "./plugins/checker",
+      "description": "review-pr"
+    },
+    {
+      "name": "guard",
+      "source": "./plugins/guard",
+      "description": "guard-rules"
+    }
+  ]
+}

@@ -1,0 +1,21 @@
+{
+  "dest": "artifact",
+  "title": "備品の貸し出しの決め方",
+  "questions": [
+    {
+      "key": "q1",
+      "kind": "judge",
+      "question": "返す期限と置き場所を教えてください",
+      "options": ["決まったら連絡"],
+      "decides": "返す期限の知らせを出す日"
+    },
+    {
+      "key": "q2",
+      "kind": "fact",
+      "question": "新しい棚が届く日はいつですか",
+      "options": ["分かる", "まだ分からない"],
+      "decides": "棚の入れ替えの日",
+      "supp": false
+    }
+  ]
+}
