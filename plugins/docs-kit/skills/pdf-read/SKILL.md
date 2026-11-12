@@ -46,8 +46,7 @@ description: PDF 完璧読取＝実務 PDF（集計表・請求書・帳票な�
 engine 置き場: engine を持つ製品の repo の中の engine の dir。どの repo かは repo の根（`git rev-parse --show-toplevel`）の `config/skill-values.json` の鍵 `docs-kit.pdf-read.engine_source`、engine の module の名は鍵 `docs-kit.pdf-read.engine_module` に在る（無い・空なら人に聞く）。以下 `<engine>` はその module の名。本物の置き場は製品の repo＝作業中の repo に写しを置かない。repo の中の dir はその repo の CLAUDE.md が正本。
 
 **受け取り方**（読む前に 1 回）:
-- クラウドの窓: `add_repo`（その製品の repo・read）で付け、返ってきた clone の命令で作業場所の外（例 `/home/user/<製品の repo>`）へ clone する。以下 `<engine の親>` は clone の中の engine の dir の親。
-- Mac の窓: 製品の repo の手元の clone を `git pull` してから同じく `<engine の親>` を使う。
+- `add_repo`（その製品の repo・read）で付け、返ってきた clone の命令で作業場所の外（例 `/home/user/<製品の repo>`）へ clone する。以下 `<engine の親>` は clone の中の engine の dir の親。
 - 拒まれた・付けられない時は読まずに止まり、親窓（無ければオーナー）へ 1 行で返す（engine の写しを自分で作らない）。
 
 ## 手順
