@@ -5,7 +5,7 @@
 ## [Unreleased]
 
 ### 変えた
-- docs-kit: skill の聞き方の文（compose-message の「1 問だけ」・qa-html／mindmap／theory-mock／blueprint の AskUserQuestion の並べ方）を核 §4 を指す形に畳み、pdf-read の Mac の窓の行を消した。PR の型の合流役を親窓にした。
+- docs-kit: skill の聞き方の文（compose-message の「1 問だけ」・qa-html／mindmap／theory-mock／blueprint の AskUserQuestion の並べ方・dev-flow の spec-doc の「1 回確定」）を核 §4 を指す形に畳み、pdf-read の Mac の窓の行を消した。PR の型の合流役を親窓にした。
 
 ## [v0.3.0] - 2026-11-12
 
