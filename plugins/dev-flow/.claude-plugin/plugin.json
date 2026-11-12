@@ -1,6 +1,5 @@
 {
   "name": "dev-flow",
-  "version": "0.4.0",
   "description": "開発の手順の道具 5 本（codex・preimpl-cleanup・register-rule・spec-doc・verify）。repo ごとの値は、その repo の根の config/skill-values.json に在る時だけ読む。",
   "author": {
     "name": "agent-foundation"

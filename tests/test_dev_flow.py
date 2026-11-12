@@ -34,7 +34,6 @@ def frontmatter(text):
 def test_plugin_json_の形():
     data = json.loads((PLUGIN / ".claude-plugin" / "plugin.json").read_text(encoding="utf-8"))
     assert data["name"] == "dev-flow"
-    assert re.fullmatch(r"\d+\.\d+\.\d+", data["version"])
     assert data.get("description")
 
 
