@@ -217,6 +217,13 @@ def test_git_に無い物が混ざる削除は離席中に止める(env, repo):
     assert denied(env, bash("rm -rf " + str(repo), cwd=str(repo)))         # repo ごと
 
 
+def test_rm_より前の命令が消す先を変える形は離席中に止める(env, repo):
+    hook(env, "post", ask_result())
+    (repo / "keep").write_text("未記録", encoding="utf-8")
+    assert denied(env, bash("mv keep gone && rm -rf gone", cwd=str(repo)))
+    assert not denied(env, bash("rm -rf build && echo 済み", cwd=str(repo)))   # rm の後ろは見ない
+
+
 def test_作業場と変更の無い作業部屋の掃除は離席中でも通す(env, repo, tmp_path):
     hook(env, "post", ask_result())
     scratch = tmp_path / "scratch" / "pad"

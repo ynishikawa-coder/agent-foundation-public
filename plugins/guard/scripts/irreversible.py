@@ -7,7 +7,8 @@
   強制 push・main への push・本番への出荷・sudo は、オーナーが居ても居なくても settings の permissions.deny の受け持ち（ここでは重ねない）。
   rm -r は消す先ごとに見て、どれも次のどれかなら通す: 在らない／一時の置き場（作業場）の中／git に全部記録済み
   （未記録の変更・未追跡・ignore の物が無い）／変更の無い git の作業部屋（worktree）。`cd` は追って場所を変え、glob は展開して見る。
-  判定できない時（展開 `$(`・変数・rm が区切りの先頭に無い〔`| xargs rm`・`sudo rm`〕・在らない先への cd）は止める側に倒す。
+  判定できない時（展開 `$(`・変数・rm が区切りの先頭に無い〔`| xargs rm`・`sudo rm`〕・在らない先への cd・
+  rm より前に cd 以外の命令がある〔`mv keep gone && rm -rf gone`〕）は止める側に倒す。
 
 射程の天井: 判定は列挙であって証明ではない（`find … -delete`・再帰なしの `rm -f`・`git restore .` などは素通り）。
   足したい形は値の表の irreversible_bash_extra / irreversible_tools_extra へ。
@@ -97,7 +98,7 @@ def rm_targets(cmd, cwd):
     segs = _segments(cmd)
     if segs is None or not cwd:
         return None
-    out = []
+    out, other = [], False
     for toks in segs:
         if toks[0] in ("cd", "pushd"):
             if len(toks) != 2 or "$" in toks[1]:
@@ -110,7 +111,10 @@ def rm_targets(cmd, cwd):
         if any(_is_rm(t) for t in toks[1:]):
             return None          # xargs rm・sudo rm・env rm など
         if not _is_rm(toks[0]):
+            other = True         # rm より前の命令が消す先を変えうる（mv・cp・git checkout など）
             continue
+        if other:
+            return None
         opts_done = False
         for t in toks[1:]:
             if not opts_done and t == "--":
