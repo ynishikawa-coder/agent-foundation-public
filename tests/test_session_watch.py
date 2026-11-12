@@ -186,3 +186,12 @@ def test_背で走らせた助手は残りを動かす手に数え_前で待つ�
 
 def test_返し先が別の窓の子窓には題の知らせを出さない():
     assert sw.remind({"prompt": "作り物を見て（親窓 session_X の子）"}, CLOUD) is None
+
+
+def test_Workflow_は残りを動かす手に数える():
+    close = "\nAI の残り: 流れの返しを受けて直す（今日中・この窓で）\nオーナーの残り: なし"
+    rs = set_last_text(rows("owner_ok.jsonl"), "✅終わった（一部）\n流れを回した。" + close)
+    wf = {"type": "assistant", "message": {"role": "assistant", "content": [
+        {"type": "tool_use", "id": "tuW", "name": "Workflow", "input": {"script": "作り物"}}]}}
+    assert "rest" in codes(rs)
+    assert "rest" not in codes(rs[:-1] + [wf, rs[-1]])
