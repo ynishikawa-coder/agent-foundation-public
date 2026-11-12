@@ -5,7 +5,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 PLUGIN = ROOT / "plugins" / "dev-flow"
-SKILLS = {"codex", "preimpl-cleanup", "register-rule", "spec-doc", "verify"}
+# 何の skill が在るべきかの正本は plugins/README.md の表（tests/test_plugins_list.py が照らす）。ここは在る物の形だけを見る。
+SKILLS = {p.name for p in (PLUGIN / "skills").iterdir() if p.is_dir()}
 # SKILL が指す付属の物（同じ dir に在ること）。
 ATTACHED = {
     "codex": ["codex_pack.py"],
@@ -35,11 +36,6 @@ def test_plugin_json_の形():
     assert data["name"] == "dev-flow"
     assert re.fullmatch(r"\d+\.\d+\.\d+", data["version"])
     assert data.get("description")
-
-
-def test_skills_は_5_本だけ():
-    actual = {p.name for p in (PLUGIN / "skills").iterdir() if p.is_dir()}
-    assert actual == SKILLS, sorted(actual)
 
 
 def test_各_SKILL_の名前と説明():

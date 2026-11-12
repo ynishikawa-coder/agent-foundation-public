@@ -10,13 +10,14 @@
       1 つでも返れば窓を閉じる。窓は irreversible が読む。
   resurface（SessionStart）
     - 台帳に残る問いを、文面と選択肢そのままで「この応答の最初に出し直す」よう渡す。
+    - 台帳の寿命は最後に出てから LEDGER_TTL_HOURS（古い問いが毎回鳴らない。1 時間答えの無い問いは親の窓が知らせる）。
   離席の窓（away）
     - 窓（セッション）ごとの印 1 個。止める側は在席中は stat 1 回で終わる。持ち越した問いは窓を開けない
       ＝1 件の未回答がずっと戻せない操作を塞ぐことは起きない。
 
 判定の線: 問い 1 つを単位に「その問いの文面が answers のキーに無い」＝答えが無い（afkTimeoutMs は見ない。
   時間切れの印つきでも一部だけ答えが返る返りがある）。
-締め（Stop）で答えの無い問いを止めるのは session-watch の unanswered が受け持つ（ここでは重ねない）。
+子の窓も問う窓（オーナーへ直に問う）として同じに扱う。値の表の unattended_env が真の窓だけ働かない。
 台帳の天井: 台帳は消せば消える（会話ログと違い追記だけではない）。台帳は思い出すための物で、通すための物ではない。
 壊れた時は全部黙って通す（答えを引き出すための層で、仕事を止める価値は無い）。
 """
@@ -36,6 +37,7 @@ LEDGER_NAME = "unanswered-questions.json"
 ANSWERED_KEEP = 20     # 観測用に残す「答えが返った問い」の上限（判定には使わない）
 CONTAIN_MIN = 16       # 文面の含有で同じ問いとみなす最低の長さ（短い問い同士の取り違えを防ぐ）
 MAX_SHOW = 4           # 冒頭で出し直させる上限（モーダルは 1 回 4 問まで）
+LEDGER_TTL_HOURS = 24  # 台帳の寿命（最後に出てから）
 _WS = re.compile(r"\s+")
 
 
@@ -123,6 +125,11 @@ def _empty():
     return {"schema": SCHEMA, "pending": [], "answered_recent": []}
 
 
+def _fresh(p):
+    ts = G.parse_ts(p.get("last_seen_at")) if isinstance(p, dict) else None
+    return ts is not None and (G.parse_ts(G.now_utc()) - ts).total_seconds() < LEDGER_TTL_HOURS * 3600
+
+
 def _parse(raw):
     try:
         d = json.loads(raw) if raw.strip() else _empty()
@@ -133,6 +140,7 @@ def _parse(raw):
     for k in ("pending", "answered_recent"):
         if not isinstance(d.get(k), list):
             d[k] = []
+    d["pending"] = [p for p in d["pending"] if _fresh(p)]      # 寿命を過ぎた問いは読む時に降ろす
     d["schema"] = SCHEMA
     return d
 
@@ -263,11 +271,11 @@ def read_away(session_id):
 # ── hook の口 ──
 REMINDER = """<unanswered-question>
 選択肢モーダルが答えのないまま閉じました（{n} 件）。オーナーは席を外しているとみなします。
-ここから先は元に戻せる作業だけを推奨案で進めてください。元に戻せない作業（本番への出荷・データの移行・
-社外への送信・課金・git で戻せない削除）は始めず、答えを待ちます。迷ったら「今これをやって、後で答えが逆だった時に
-戻せるか」で切ります。戻せない操作は、答えが返るかオーナーが何か打つまで機械が止めます。
+ここから先は戻せる作業だけを推奨案で進めてください。戻せない作業は始めず、答えを待ちます。迷ったら
+「今これをやって、後で答えが逆だった時に戻せるか」で切ります。DB の破棄・メールの送信・Notion の物理削除・
+git で戻せない削除は、答えが返るかオーナーが何か打つまで機械が止めます。
 閉じた問い: {stems}
-この問いは台帳に積みました。締めと次の窓の冒頭でもう一度出ます（台帳: {ledger}）。
+この問いは台帳に積みました。{ttl} 時間の間、次の窓の冒頭でもう一度出ます（台帳: {ledger}）。
 </unanswered-question>"""
 
 
@@ -292,7 +300,7 @@ def capture(data, vals):
     if not unanswered:
         return ""
     stems = " / ".join("「%s」" % i["question"][:48] for i in unanswered[:4])
-    return REMINDER.format(n=len(unanswered), stems=stems, ledger=path or "(置き場を決められず)")
+    return REMINDER.format(n=len(unanswered), stems=stems, ttl=LEDGER_TTL_HOURS, ledger=path or "(置き場を決められず)")
 
 
 def resurface(data, vals):
