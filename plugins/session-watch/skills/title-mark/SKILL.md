@@ -23,5 +23,5 @@ description: 窓の題の目印（`<種類><状態> <作業名>`）の付け方�
 | 無し | 上のどれでもない | — |
 
 - `🙋` の窓に `✅` は付けない。
-- 最初の返事の前に付ける。クラウドの窓でまだ種類の印が無い間は、UserPromptSubmit の hook（`session_watch.py --remind`）が頼みのたびに隣へ知らせる（止めない）。
+- 最初の返事の前に付ける。クラウドの窓でまだ種類の印が無い間は、UserPromptSubmit の hook（`session_watch.py --remind`）が頼みのたびに隣へ知らせる（止めない）。返し先が別の窓の子窓には知らせない（立てた親が `create_session` の title で付ける）。
 - 付け替えは窓自身が `set_session_title` でする（自分の session id と今の題は `get_session` を session_id を省いて読む）。題の例: `🤖 <作業名>`・`🤖❓ <作業名>`・`🤖✅ <作業名>`・`🙋 <作業名>`・`🙋⏳ 手: <何を>`。

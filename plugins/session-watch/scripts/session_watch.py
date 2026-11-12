@@ -7,7 +7,7 @@
   card     … 返事の 1 行目が 4 札（✅❓⏳🛑）のどれかで始まるか
   plain    … 答えを求める問いを、選択肢モーダル（AskUserQuestion）でなく平文で書いたか
   unanswered … モーダルで出した問いに、答えが返らないまま残っている物があるか
-  rest     … 締めの `AI の残り` が「なし」でないのに、このターンで残りを動かす手（子窓・送る・見張り・後で起こす）を打っていないか
+  rest     … 締めの `AI の残り` が「なし」でないのに、この窓で残りを動かす手（子窓・送る・見張り・後で起こす・背で走る助手）を一度も打っていないか
   hand     … 手の窓（題 `🙋⏳ 手: <何を>`）の返事に、目的・手順・済んだ目印・済んだ後が揃っているか
 
 窓の種類＝「オーナーが相手の窓か」（この窓が誰に返すか）。誰が立てたか（親の窓の有無・
@@ -57,7 +57,14 @@ CARD_LINE = re.compile(r"^[#>*\s]*(✅|❓|⏳|🛑)")
 
 # AI の残りを動かす手（子窓を立てる・頼む・PR を見張る・自分を後で起こす）。名の末尾で見る。
 MOVE_TOOLS = ("create_session", "send_message", "send_later", "create_trigger", "fire_trigger",
-              "subscribe_pr_activity", "ScheduleWakeup", "Monitor")
+              "subscribe_pr_activity", "ScheduleWakeup", "Monitor", "Workflow")
+
+
+def moves(name, inp):
+    """残りを動かす手か。助手（Agent）は背で走らせた時だけ（前で待つ助手はターンの中で終わる）。"""
+    if name.endswith(MOVE_TOOLS):
+        return True
+    return name == "Agent" and inp.get("run_in_background") is not False
 
 # 手の窓（題 `🙋⏳ 手: <何を>`）が書く 4 つ。
 HAND_TITLE = re.compile(r"^手[:：]")
@@ -166,6 +173,8 @@ class Log(object):
                     self.events.append(("ask", [q for q in qs if q]))
                 else:
                     self.events.append(("tool", name))
+                    if moves(name, inp):
+                        self.events.append(("move", name))
         self.turn = self.events[turn_start:]
 
     def closing_text(self):
@@ -294,9 +303,9 @@ def check(log):
             if k == "title":
                 last_title = v
         waiting = split_title(last_title)[1] in (ASKING, WAITING)
-        moved = any(k == "tool" and v.endswith(MOVE_TOOLS) for k, v in log.events)
+        moved = any(k == "move" for k, _ in log.events)
         if not (waiting or moved):
-            found.append(("rest", "AI の残りを書いたのに、このターンで動かしていない（子窓を立てて頼む・PR を見張る・"
+            found.append(("rest", "AI の残りを書いたのに、この窓で動かしていない（子窓を立てて頼む・PR を見張る・"
                                   "後で起こすのどれかを打ってから締める）: %s" % close.splitlines()[0][:60]))
 
     # 平文の問い（このターンにモーダルが無いのに、問いで締めた）
@@ -347,6 +356,8 @@ def remind(data, env=None):
     if titled(log):
         return None
     kind = kind_of(log.first_prompt or str(data.get("prompt") or ""))
+    if kind == AI:
+        return None    # 別の窓へ返す子窓は、立てた親が create_session の title で題を付ける
     which = ("%s（最初の頼みの返し先から）" % kind) if kind else (
         "オーナーと話す窓なら %s・別の窓へ返す窓なら %s" % (HUMAN, AI))
     return REMIND % (HUMAN, AI, REMOTE_PREFIX.rstrip("_"), which)
