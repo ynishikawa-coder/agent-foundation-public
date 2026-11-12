@@ -14,7 +14,7 @@ repo ごとに違う値は、repo の根（`git rev-parse --show-toplevel`）の
 | 鍵 | 使う所 | 無い時の既定 |
 |---|---|---|
 | `template_dir` | 型の一式（型ルールブック・生成コマンド `gen_spec_case.py`・gate `check_spec_doc.py`・config の schema）の置き場＝以下 `<型>` | 無し＝下の §型が無い repo で |
-| `branch_rule` | 分かれ道を聞く時の正本 | 選択肢モーダルで 1 回聞く |
+| `branch_rule` | 分かれ道を聞く時の正本 | 核 §4 の聞き方 |
 | `save_place` | 設計書を書く所・seal の後に残す所（行の並び） | 窓の scratchpad で書き、残す先はオーナーに聞く |
 | `screen_design` | 画面の設計の持ち場 | 画面は別の設計に持ち、05 から指す |
 | `decision_match` | 15 §6 の過去の決定との照合の口（行の並び） | 無し＝§6 に「未照合（照合の口なし）」と書く |
