@@ -4,7 +4,10 @@
 
 ## [Unreleased]
 
+## [v0.3.1] - 2026-11-12
+
 ### 変えた
+- 各 plugin の version（plugin.json）を土台の版 0.3.1 にそろえた（docs-kit は 1.0.0 から下がる・他は 0.1.0／0.2.0 から上がる）。以後は版を出す時に全部を版と同じ番号にする（docs/版の出し方.md）。
 - docs-kit: skill の聞き方の文（compose-message の「1 問だけ」・qa-html／mindmap／theory-mock／blueprint の AskUserQuestion の並べ方・dev-flow の spec-doc の「1 回確定」）を核 §4 を指す形に畳み、pdf-read の Mac の窓の行を消した。PR の型の合流役を親窓にした。
 
 ## [v0.3.0] - 2026-11-12
