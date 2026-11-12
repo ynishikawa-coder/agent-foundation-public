@@ -13,6 +13,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # commit の説明・名義を範囲で照らすため（scripts/checks/meta.sh）
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -21,4 +23,5 @@ jobs:
       - name: 検査（入口は check_all の 1 本）
         env:
           AF_DENY_WORDS: ${{ secrets.AF_DENY_WORDS }}
+          AF_DENY_BUNDLE: ${{ secrets.AF_DENY_BUNDLE }}
         run: bash scripts/check_all.sh

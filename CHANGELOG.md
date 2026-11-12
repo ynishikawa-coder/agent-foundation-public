@@ -4,6 +4,12 @@
 
 ## [Unreleased]
 
+### 足した
+- 置かない物の照らしを `scripts/hygiene.py` の 1 本にし、個人の情報（メール・電話・郵便番号・Notion と Google の文書の URL）と鍵の形（GitHub の新しい形・Google・Notion）を足した。public で世界に見える commit の説明・名義と PR の題・本文も CI で照らす（`scripts/checks/meta.sh`）。顧客の語は HMAC の束（secret `AF_DENY_BUNDLE`）でも渡せる。
+
+### 変えた（壊れる: secret が無いと CI が赤）
+- CI で顧客の語がどこからも渡っていない時、照合を飛ばして緑にせず赤にする（今までは secret が空のまま毎回飛ばしていた）。
+
 ### 変えた
 - docs-kit: skill の聞き方の文（compose-message の「1 問だけ」・qa-html／mindmap／theory-mock／blueprint の AskUserQuestion の並べ方・dev-flow の spec-doc の「1 回確定」）を核 §4 を指す形に畳み、pdf-read の Mac の窓の行を消した。PR の型の合流役を親窓にした。
 

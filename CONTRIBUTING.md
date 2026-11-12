@@ -43,9 +43,12 @@
 - **顧客の語と実物を置かない。** 顧客の名前・ID・実データ・画面の写しを入れない。例は作り物で書く。
 - **秘密を置かない。** 鍵・トークン・パスワード・接続文字列を、コード・試験・文書・PR 本文・ログのどこにも書かない。
 - **土台は特定の業務を知らない。** 業務の語（特定業務の用語・計算の決まり）は、それを使う側の repo に置く。土台には、どの業務でも使える振る舞いと道具だけを置く。
-- 置かない語は 2 か所から読んで、CI が止める（`tests/test_hygiene.py`）。
+- **個人の情報を置かない。** 個人を指すメールアドレス・電話番号・郵便番号・Notion のページや Google の文書の URL を書かない。commit の名義のメールは GitHub の noreply（`<id>+<名>@users.noreply.github.com`）か `noreply@anthropic.com` にする。
+- **public なので外側も見える。** ファイルだけでなく、commit の説明・名義と PR の題・本文も世界に見える。どれにも上の物を書かない。
+- 照らしの本体は `scripts/hygiene.py` の 1 本で、CI が止める（中身は `tests/test_hygiene.py`、外側の commit と PR は `scripts/checks/meta.sh`）。
+  - **秘密と個人の情報**: 形で見る（表は `scripts/hygiene.py`）。
   - **業務の語**: `tests/data/denylist.txt`。足したい語があれば、その 1 行を PR で足す。
-  - **顧客の語**: repo に書かない。環境から渡す。CI は repo の secret `AF_DENY_WORDS`（1 行 1 語）、手元は環境変数 `AF_DENY_WORDS`（同じ形）か、`AF_DENY_WORDS_FILE` に置いた手元のファイルの path。どれも無い時は顧客の語の照合を飛ばす。
+  - **顧客の語**: repo に書かない。環境から渡す。repo の secret `AF_DENY_BUNDLE`（使う側の repo の顧客の語の束 `pct1.…` と同じ値）か `AF_DENY_WORDS`（1 行 1 語）。手元は同じ名の環境変数か、`AF_DENY_WORDS_FILE` に置いた手元のファイルの path。**CI でどれも無い時は赤**（照合が飛んだまま緑にしない）。手元でどれも無い時だけ飛ばす。
 
 ## 5. 試験の置き方
 
