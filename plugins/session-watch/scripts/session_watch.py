@@ -7,6 +7,7 @@
   card     … 返事の 1 行目が 4 札（✅❓⏳🛑）のどれかで始まるか
   plain    … 答えを求める問いを、選択肢モーダル（AskUserQuestion）でなく平文で書いたか
   unanswered … モーダルで出した問いに、答えが返らないまま残っている物があるか
+  rest     … 締めの `AI の残り` が「なし」でないのに、このターンで残りを動かす手（子窓・送る・見張り・後で起こす）を打っていないか
   hand     … 手の窓（題 `🙋⏳ 手: <何を>`）の返事に、目的・手順・済んだ目印・済んだ後が揃っているか
 
 窓の種類＝「オーナーが相手の窓か」（この窓が誰に返すか）。誰が立てたか（親の窓の有無・
@@ -53,6 +54,10 @@ STRONG = re.compile(
     r"|どちらで|教えてください(?!.*(なら|たら)))")
 COND = re.compile(r"(なら|たら|れば|場合)[^。]*(教えて|声をかけて|言って)")
 CARD_LINE = re.compile(r"^[#>*\s]*(✅|❓|⏳|🛑)")
+
+# AI の残りを動かす手（子窓を立てる・頼む・PR を見張る・自分を後で起こす）。名の末尾で見る。
+MOVE_TOOLS = ("create_session", "send_message", "send_later", "create_trigger", "fire_trigger",
+              "subscribe_pr_activity", "ScheduleWakeup", "Monitor")
 
 # 手の窓（題 `🙋⏳ 手: <何を>`）が書く 4 つ。
 HAND_TITLE = re.compile(r"^手[:：]")
@@ -280,6 +285,19 @@ def check(log):
         if close is None:
             found.append(("close", "返事の最後が締めの 2 行（`AI の残り: …`／`オーナーの残り: …`）でない: %s"
                           % lines[-1][-60:]))
+
+    # 動かしていない AI の残り（核 §5: 締める前に AI が自分で動かす）
+    #   待ちの題（❓ オーナーの答え待ち／⏳ 手待ち・子の返し待ち）と、この窓で既に動かした手（子窓・見張り）は拾わない。
+    if close and not close.startswith("AI の残り: なし"):
+        last_title = None
+        for k, v in log.events:
+            if k == "title":
+                last_title = v
+        waiting = split_title(last_title)[1] in (ASKING, WAITING)
+        moved = any(k == "tool" and v.endswith(MOVE_TOOLS) for k, v in log.events)
+        if not (waiting or moved):
+            found.append(("rest", "AI の残りを書いたのに、このターンで動かしていない（子窓を立てて頼む・PR を見張る・"
+                                  "後で起こすのどれかを打ってから締める）: %s" % close.splitlines()[0][:60]))
 
     # 平文の問い（このターンにモーダルが無いのに、問いで締めた）
     if closing.strip() and not log.turn_asked() and is_plain_question(closing):

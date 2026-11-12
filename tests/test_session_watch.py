@@ -162,3 +162,14 @@ def test_知らせる口は止めず_JSON_で隣に出す():
     assert body["hookEventName"] == "UserPromptSubmit" and "decision" not in out.stdout
     bad = subprocess.run([sys.executable, str(SCRIPT), "--remind"], input="壊れた", capture_output=True, text=True)
     assert bad.returncode == 0 and bad.stdout == ""
+
+
+# ── 動かしていない AI の残り（核 §5）──
+def test_AI_の残りを書いて動かさずに締めると拾い_子窓を立てれば拾わない():
+    close = "\nAI の残り: レビューして合流（今日中・レビューの窓で）\nオーナーの残り: なし"
+    rs = set_last_text(rows("owner_ok.jsonl"), "✅終わった（一部）\nPR を出した。" + close)
+    assert "rest" in codes(rs)
+    spawn = {"type": "assistant", "message": {"role": "assistant", "content": [
+        {"type": "tool_use", "id": "tu9", "name": "mcp__claude-code-remote__create_session", "input": {"title": "🤖 レビュー"}}]}}
+    moved = rs[:-1] + [spawn, rs[-1]]
+    assert "rest" not in codes(moved)
