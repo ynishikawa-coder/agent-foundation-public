@@ -5,7 +5,7 @@ description: 主張を真実源で 1 度確かめる。着手前は受けた sel
 
 # /verify — 確かめてから言う
 
-達してないなら達してないと言う。silent failure は禁止。設計を疑う、機構を疑わない。
+達してないなら達してないと言う（黙った失敗の禁止は核の細目 §5）。設計を疑う、機構を疑わない。
 
 ## repo ごとの値（config/skill-values.json）
 
@@ -14,7 +14,7 @@ repo ごとに違う値は、repo の根（`git rev-parse --show-toplevel`）の
 | 鍵 | 使う所 | 無い時の既定 |
 |---|---|---|
 | `code_done_rule` | コードの完了の決め方の正本 | PR の CI 緑＋別の窓のレビュー 1 回 |
-| `completion_states_doc` | 4 状態の定義表の正本 | この SKILL の §2 |
+| `completion_states_doc` | 4 状態の定義表の正本 | 核の細目 §7 |
 | `completion_sop` | 上位の完了判定の正本 | 無し |
 | `report_writer` | Completion Report を書く役（書かない窓） | この窓が書く |
 | `report_place` | Completion Report の置き場の決まり | 会話の返事の中 |
@@ -71,17 +71,9 @@ repo ごとに違う値は、repo の根（`git rev-parse --show-toplevel`）の
 ## Unverified Items（確かめられなかった物と理由・無ければ「なし」）
 ## Runtime Stop Conditions Triggered（Stopped の時だけ）
 ## オーナーの業務がどう変わったか（真の完了条件）
-## 次の作業
-━━━ 🎯 次の作業 ━━━
-🏁 終わり方: <① 閉じる（残り: なし） / ② メモ渡し（残り: <中身>）>
-📊 状態: <4 状態のどれか>
-🚀 オーナーの初手: <採用 / 戻し / 部分採用 の 1 つ ＋ 具体の一手>
-⚠️ 人がやる残作業: <無ければ「なし」>
-📎 参照: <絶対 path か URL・無ければ「なし」>
-━━━━━━━━━━━━━━━
 ```
 
-末尾は 🎯 の箱 1 個で終える（置き場は表の `report_place`・チャットは ①/② の 1 行＋URL だけ）。Stopped / Failed の時は、学びを表の `learning_record` へ（無ければ返事の中に 1 行）。
+置き場は表の `report_place`。締めは核 §5 の 2 行（AI の残り／オーナーの残り）。Stopped / Failed の時は、学びを表の `learning_record` へ（無ければ返事の中に 1 行）。
 
 ## やりがちな間違い
 
