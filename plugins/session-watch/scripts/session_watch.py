@@ -55,7 +55,7 @@ STRONG = re.compile(
 COND = re.compile(r"(なら|たら|れば|場合)[^。]*(教えて|声をかけて|言って)")
 CARD_LINE = re.compile(r"^[#>*\s]*(✅|❓|⏳|🛑)")
 
-# AI の残りを動かす手（子窓を立てる・頼む・PR を見張る・自分を後で起こす）。名の末尾で見る。
+# AI の残りを動かす手（子窓や背で走る助手に頼む・PR を見張る・自分を後で起こす）。名の末尾で見る。
 MOVE_TOOLS = ("create_session", "send_message", "send_later", "create_trigger", "fire_trigger",
               "subscribe_pr_activity", "ScheduleWakeup", "Monitor", "Workflow")
 
@@ -305,7 +305,7 @@ def check(log):
         waiting = split_title(last_title)[1] in (ASKING, WAITING)
         moved = any(k == "move" for k, _ in log.events)
         if not (waiting or moved):
-            found.append(("rest", "AI の残りを書いたのに、この窓で動かしていない（子窓を立てて頼む・PR を見張る・"
+            found.append(("rest", "AI の残りを書いたのに、この窓で動かしていない（子窓や背で走る助手に頼む・PR を見張る・"
                                   "後で起こすのどれかを打ってから締める）: %s" % close.splitlines()[0][:60]))
 
     # 平文の問い（このターンにモーダルが無いのに、問いで締めた）
