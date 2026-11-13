@@ -1,19 +1,26 @@
 {
   "dest": "artifact",
+  "to": "サンプル株式会社 ご担当者様",
+  "from": "サンプル事務所 担当 見本",
+  "contact": "このメールに返信してください",
   "title": "備品の貸し出しの決め方",
+  "next": "11 月 22 日までに、決まりの写しをお送りします。",
+  "version": "2026-11-13.1",
   "questions": [
     {
       "key": "q1",
       "kind": "judge",
+      "group": "person",
       "question": "返す期限と置き場所を教えてください",
-      "options": ["決まったら連絡"],
+      "options": [{ "value": "later", "label": "決まったら連絡" }],
       "decides": "返す期限の知らせを出す日"
     },
     {
       "key": "q2",
       "kind": "fact",
-      "question": "新しい棚が届く日はいつですか",
-      "options": ["分かる", "まだ分からない"],
+      "group": "rule",
+      "question": "新しい棚が届く日は、どちらですか",
+      "options": [{ "value": "known", "label": "分かる" }, { "value": "later", "label": "まだ分からない" }],
       "decides": "棚の入れ替えの日",
       "supp": false
     }

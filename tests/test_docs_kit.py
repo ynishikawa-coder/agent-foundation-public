@@ -92,30 +92,39 @@ def test_make_deck_の差し込みが埋まる_欠ければ止まる(tmp_path):
 
 # ── qa-html の検査 ──────────────────────────────────────────────────
 
+# 型の差し込み（{{…}}）の頭 → 出てくる順に使う値（作り物）
 FILL = {
-    "宛名": ["オーナーへの確認"],
-    "題": ["備品の貸し出しの決め方", "備品の貸し出しの決め方"],
-    "前書き": ["貸し出しの決まりで確かめたい事が 3 件あります。"],
-    "send か copy": ["copy"],
-    "一言の見出し": ["送料の端数", "納品日", "返す期限"],
-    "問い 1 行": ["送料の端数は、どちらが正しいですか", "新しい棚の納品日はいつですか", "返す期限は、どう決めますか"],
-    "分かっている事": ["A なら 合計 1,200 円・B なら 合計 1,300 円です。", "注文は 10 月 1 日に出ています。", "今は期限が決まっていません。"],
-    "候補 A": ["切り捨て", "借りた日から 7 日"],
-    "候補 B": ["切り上げ", "借りた日から 14 日"],
-    "A ならどうなるか": ["合計 1,200 円"],
-    "B ならどうなるか": ["合計 1,300 円"],
-    "中身 1 行": ["多くの備品はこれで足ります", "大きい物も足ります"],
-    "分かる": ["分かる（補足に書く）"],
-    "分かったら次の": ["分かったら次の確認でまた伺います"],
-    "判断に要る細かい事": ["見積りの写しを付けています。"],
+    "件名": ["備品の貸し出しの決め方", "備品の貸し出しの決め方"],
+    "send か copy か artifact": ["copy"],
+    "宛名": ["サンプル株式会社 ご担当者様"],
+    "前書き": ["答えていただいた内容で、貸し出しの決まりを確定します。"],
+    "期限": ["11 月 20 日"],
+    "差出人": ["サンプル事務所 担当 見本"],
+    "連絡先": ["このメールに返信してください"],
+    "版": ["2026-11-13.1"],
+    "一言の見出し": ["送料の端数", "届く日", "返す期限"],
     "この答えで決まる事": ["請求の額", "棚の入れ替えの日", "返す期限の知らせを出す日"],
-    "…": [""],
+    "問い 1 行": ["送料の端数は、どちらで計算しますか", "新しい棚が届く日は、どちらですか", "返す期限は、どう決めますか"],
+    "分かっている事": ["見積りの送料は 1 箱 125.5 円です。", "注文は 10 月 1 日に出ています。", "今は期限が決まっていません。"],
+    "表の見出し": ["10 月の請求"],
+    "今の計算": ["切り捨てる"],
+    "直した場合": ["切り上げる"],
+    "行の名": ["合計"],
+    "数": ["1,200 円", "1,300 円"],
+    "判断に要る細かい事": ["見積りの写しを付けています。"],
+    "選択肢の鍵": ["down", "up", "d1020", "d1027", "d7", "d14"],
+    "中身の見出し": ["切り捨てる", "切り上げる", "10 月 20 日", "10 月 27 日", "借りた日から 7 日", "借りた日から 14 日"],
+    "その結果 1 行": ["合計 1,200 円", "合計 1,300 円", "多くの備品はこれで足ります", "大きい物も足ります"],
+    "この後のこと": ["11 月 22 日までに、決まりの写しをお送りします。"],
 }
 
 
-def filled_template():
+def filled_template(dest="copy"):
     """型（references/template.html）を作り物の中身で埋めた 1 枚。型の決まりが変わらない見張りを兼ねる。"""
-    text = (QA / "references" / "template.html").read_text(encoding="utf-8")
+    raw = (QA / "references" / "template.html").read_text(encoding="utf-8")
+    # 頭の説明（コメント）の中の {{…}} は差し込みでない＝埋めない
+    head_end = raw.index("-->") + 3
+    text = raw[head_end:]
     used = {k: 0 for k in FILL}
 
     def fill(m):
@@ -123,12 +132,15 @@ def filled_template():
         for k in sorted(FILL, key=len, reverse=True):
             if hole.startswith(k):
                 vals = FILL[k]
-                v = vals[min(used[k], len(vals) - 1)]
+                assert used[k] < len(vals), f"差し込み「{k}」の値が足りない"
                 used[k] += 1
-                return v
+                return dest if k == "send か copy か artifact" else vals[used[k] - 1]
         raise AssertionError(f"埋め方の無い差し込み: {hole}")
 
-    return re.sub(r"\{\{([^}]*)\}\}", fill, text)
+    out = raw[:head_end] + re.sub(r"\{\{([^}]*)\}\}", fill, text)
+    left = {k: len(v) - used[k] for k, v in FILL.items() if used[k] != len(v)}
+    assert not left, f"使われない値がある（型の差し込みが減った？）: {left}"
+    return out
 
 
 def run_check(path):
@@ -140,44 +152,65 @@ def run_check(path):
 
 
 @needs_node
-def test_型を埋めた_1_枚は緑(tmp_path):
+@pytest.mark.parametrize("dest", ["copy", "send", "artifact"])
+def test_型を埋めた_1_枚は緑(tmp_path, dest):
     page = tmp_path / "確認.html"
-    page.write_text(filled_template(), encoding="utf-8")
+    page.write_text(filled_template(dest), encoding="utf-8")
     out = run_check(page)
     assert out["red"] == [], out["red"]
-    assert out["dest"] == "copy" and out["questions"] == ["q1", "q2", "q3"]
+    assert out["dest"] == dest and out["questions"] == ["q1", "q2", "q3"]
 
 
 @needs_node
-@pytest.mark.parametrize("name, dest, n", [("good_artifact.html", "artifact", 1), ("good.json", "artifact", 2)])
-def test_確認のページの良い例は緑(name, dest, n):
-    out = run_check(DATA / name)
+def test_問いのデータの良い例は緑():
+    out = run_check(DATA / "good.json")
     assert out["red"] == [], out["red"]
-    assert out["dest"] == dest and len(out["questions"]) == n
+    assert out["dest"] == "artifact" and out["questions"] == ["q1", "q2"]
 
 
 @needs_node
 def test_問いのデータの悪い例は決まった赤だけ():
     out = run_check(DATA / "bad.json")
     assert not out["ok"]
-    expect = ["問い q1: 1 問に 2 つ以上", "問い q1: 選択肢が 1 つだけ", "問い q2: 資料の外の事実の問いに「該当しない」",
-              "問い q2: 自由記述の補足"]
+    expect = ["問い q1: 1 問に 2 つ以上", "問い q1: 選択肢が 1 つだけ", "問い q2: 並びが逆", "問い q2: 資料の外の事実の問いに「当てはまらない」",
+              "問い q2: ひとことの欄"]
     assert len(out["red"]) == len(expect), out["red"]
     for e in expect:
         assert any(r.startswith(e) for r in out["red"]), (e, out["red"])
 
 
+@needs_node
+def test_問いのデータの選択肢が文字だけなら赤(tmp_path):
+    data = json.loads((DATA / "good.json").read_text(encoding="utf-8"))
+    data["questions"][0]["options"] = ["借りた日から 7 日", "借りた日から 14 日"]
+    page = tmp_path / "q.json"
+    page.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+    red = run_check(page)["red"]
+    assert any("{\"value\",\"label\"}" in r for r in red), red
+
+
 # 1 か所だけ壊すと、その 1 つの赤だけが出る（壊した所以外の結果が変わらない見張り）
 MUTATIONS = [
     ('<body data-dest="copy"', '<body data-dest="mail"', "宛先の印が無い"),
-    ('id="copybtn"', 'id="copy-button"', "写す宛先なのに写すボタン"),
+    ('id="copybtn"', 'id="copy-button"', "写すボタン"),
+    ('<span class="contact">', "<span>", "連絡先"),
+    ('name="__版__"', 'name="__ver__"', "版"),
+    ("font-size:18px;line-height:1.6", "font-size:15px;line-height:1.6", "qa:css の中身が型と違う"),
+    ('<meta name="color-scheme" content="light">', '<meta name="color-scheme" content="light dark">', "暗い色の設定"),
+    ('style="--brand:#0f6e66"', 'style="--brand:#ffd43b"', "会社の色 #ffd43b は白地で読みにくい"),
+    ("<legend>", '<legend style="color:#c00">', "<legend> に style"),
     ('data-kind="judge"', 'data-kind="ask"', "問い q3: 問いの形"),
+    ('data-group="once"', 'data-group="rule"', "問い q3: 並びが逆"),
     ("返す期限は、どう決めますか", "返す期限と置き場所を教えてください", "問い q3: 1 問に 2 つ以上"),
-    ("新しい棚の納品日はいつですか", "新しい棚の納品日は合っていますか", "問い q2: 「合っていますか」"),
-    ("新しい棚の納品日はいつですか", "新しい棚の数を教えてください", "問い q2: 数を書かせる問い"),
-    ("<b>該当しない</b>", "<b>ほかの日</b>", "問い q2: 資料の外の事実の問いに「該当しない」"),
-    ('name="supp_q1"', 'name="note_q1"', "問い q1: 自由記述の補足"),
-    ("<p class=\"decides\">請求の額</p>", "", "問い q1: 「この答えで決まる事」"),
+    ("新しい棚が届く日は、どちらですか", "新しい棚が届く日は合っていますか", "問い q2: 「合っていますか」"),
+    ("新しい棚が届く日は、どちらですか", "新しい棚の数を教えてください", "問い q2: 数を書かせる問い"),
+    ("<b>当てはまらない</b>", "<b>ほかの日</b>", "問い q2: 資料の外の事実の問いに「当てはまらない」"),
+    ('name="q2" value="__unknown__"', 'name="q2" value="later"', "問い q2: 「分からない・社内で確かめてから答える」"),
+    ('value="d1020" required', 'value="d1020"', "問い q2: 答えずに送れる"),
+    ("<b>切り捨てる", "<b>A 切り捨てる", "問い q1: 選択肢に記号"),
+    ('value="d7"', 'value="7days!"', "問い q3: 選択肢の鍵（value）"),
+    ('name="supp_q1"', 'name="note_q1"', "問い q1: ひとことの欄"),
+    (' data-decides="請求の額"', "", "問い q1: この答えで決まる事"),
     ("今は期限が決まっていません。", "照合して決まっていません。", "内部の言葉「照合」"),
     ("今は期限が決まっていません。", "Q2026.11-37 の続きです。", "番号「Q2026.11-37」"),
 ]
@@ -195,8 +228,9 @@ def test_壊した所の赤だけが出る(tmp_path, old, new, expect):
 
 
 @needs_node
-def test_body_の印が根の要素の印に勝つ(tmp_path):
-    text = (DATA / "good_artifact.html").read_text(encoding="utf-8")
-    page = tmp_path / "p.html"
-    page.write_text('<body data-dest="artifact">' + text.replace('data-dest="artifact"', 'data-dest="mail"') + "</body>", encoding="utf-8")
-    assert run_check(page)["red"] == []
+def test_型の外の_script_は赤(tmp_path):
+    base = filled_template()
+    page = tmp_path / "確認.html"
+    page.write_text(base.replace("</form>", "</form><script>fetch('/x')</script>", 1), encoding="utf-8")
+    red = run_check(page)["red"]
+    assert len(red) == 1 and red[0].startswith("型の外に <script>"), red
