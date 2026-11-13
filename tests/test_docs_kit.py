@@ -427,7 +427,10 @@ def test_ひとことに書かせる選択肢を選ぶと欄の名が変わり�
     page.write_text(filled_template("copy"), encoding="utf-8")
     with _playwright()() as p:
         exe = os.environ.get("QA_CHROMIUM")   # 入った playwright と別の版のブラウザを使う時だけ
-        b = p.chromium.launch(**({"executable_path": exe} if exe else {}))
+        try:
+            b = p.chromium.launch(**({"executable_path": exe} if exe else {}))
+        except Exception as e:   # 入った playwright の版のブラウザが無い窓（QA_CHROMIUM で別の版を指せる）
+            pytest.skip(f"ブラウザを起こせない: {str(e).splitlines()[0]}")
         pg = b.new_page()
         pg.goto(page.as_uri())
         js = """([sel, ev, val]) => { const f = document.querySelector('fieldset.q[data-qkey="q1"]'); const el = f.querySelector(sel);
