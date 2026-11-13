@@ -50,8 +50,8 @@ export const RULES = {
   },
   // この答えで変わる事を書かなくてよい選択肢＝ひとことに書かせる逃げ道だけ（鍵と見出しの両方が合う時）
   "free_options": { "other": ["ほかの答え", "別の決め方"], "none": ["当てはまらない"] },
-  // ひとことに書かせる選択肢の字（見出し・添え書き・変わる事のどれか）。当たる選択肢には data-supp="need"（JSON は "supp": "need"）が要る
-  "supp_ask": /ひとこと|補足に書/,
+  // ひとことに書かせる選択肢＝鍵が free_options.other（ほかの答え・別の決め方）か、字（見出し・添え書き・変わる事）がこれに当たる物。data-supp="need"（JSON は "supp": "need"）が要る
+  "supp_ask": /ひとこと|補足に書|補足欄|下の欄/,
   "kinds": {
     "choose": "どちらが正しいですか＝こちらが計算した候補を並べる（候補 2 つ以上）",
     "mismatch": "資料どうしが食い違う＝「合っていますか」を使ってよいのはここだけ（候補 2 つ以上）",
@@ -406,7 +406,8 @@ export function readHtml(raw) {
         detail: small ? text(small[1]) : "",
         change: chg ? text(chg[1]) : "",
         rec: /tag-rec/.test(o[1]),
-        needSupp: /\bdata-supp\s*=\s*["']?need\b/i.test(inp),
+        needSupp: attr(inp, "data-supp") === "need",
+        suppBad: attr(inp, "data-supp") != null && attr(inp, "data-supp") !== "need" ? String(attr(inp, "data-supp")) : null,
       };
     });
     // 前提 ②③: まとまりの 1 行・何について・なぜ聞くか・見つけた事の資料・切り抜き・くわしく
@@ -482,7 +483,8 @@ export function readJson(data) {
           typeof o === "string"
             ? { value: null, head: o, all: o, detail: "" }
             : { value: o?.value ?? null, head: String(o?.label ?? ""), detail: String(o?.detail ?? ""), change: String(o?.change ?? "").trim(),
-                all: [o?.label, o?.detail, o?.change].filter(Boolean).join(" "), rec: !!o?.recommended, needSupp: o?.supp === "need" },
+                all: [o?.label, o?.detail, o?.change].filter(Boolean).join(" "), rec: !!o?.recommended, needSupp: o?.supp === "need",
+                suppBad: o?.supp != null && o?.supp !== "need" ? JSON.stringify(o.supp) : null },
         );
       const table = Array.isArray(q.table) ? q.table : [];
       return {
@@ -644,7 +646,8 @@ export function checkPage(page, { valuesPath = null } = {}) {
         if (!o.change) red.push(`${id}: 選択肢「${o.head.slice(0, 20)}」にこの答えで変わる事（誰の・何が・いくら ${page.format === "html" ? "small.chg" : '"change"'}）が無い`);
         else if (len(o.change) > limits.change_chars) red.push(`${id}: この答えで変わる事が ${len(o.change)} 字（${limits.change_chars} 字まで）: ${o.change.slice(0, 30)}…`);
       }
-      if (RULES.supp_ask.test(`${o.head} ${o.detail} ${o.change}`) && !o.needSupp)
+      if (o.suppBad) red.push(`${id}: 選択肢「${o.head.slice(0, 20)}」の ${page.format === "html" ? "data-supp" : '"supp"'} は "need" だけ（今 ${o.suppBad}）`);
+      else if (((RULES.free_options.other ?? []).includes(o.head) || RULES.supp_ask.test(`${o.head} ${o.detail} ${o.change}`)) && !o.needSupp)
         red.push(`${id}: ひとことに書かせる選択肢「${o.head.slice(0, 20)}」に ${page.format === "html" ? 'data-supp="need"' : '"supp": "need"'} が無い（欄が「なくても大丈夫です」のままで、書かずに送れる）`);
       if (rx("option_symbol").test(o.head)) red.push(`${id}: 選択肢に記号を付けない（中身の見出しで書く）: ${o.head.slice(0, 30)}`);
       if (o.value == null || !/^[A-Za-z0-9_]+$/.test(o.value) || o.value.startsWith("__")) red.push(`${id}: 選択肢の鍵（value）は半角英数字と _ だけ（__ で始めない）: ${o.head.slice(0, 20)}（今 ${o.value ?? "無し"}）`);

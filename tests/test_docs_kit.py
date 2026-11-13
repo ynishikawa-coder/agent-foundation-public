@@ -448,3 +448,30 @@ def test_ひとことに書かせる選択肢を選ぶと欄の名が変わり�
         pg.evaluate(js, ['input[value="__unknown__"]', "change", None])
         assert lab() == "誰に聞けば分かりますか（なくても大丈夫です）"
         b.close()
+
+
+@needs_node
+def test_添え書きの無いほかの答えにも印が要る(tmp_path):
+    page = tmp_path / "確認.html"
+    page.write_text(filled_template("send").replace(
+        'value="other" data-supp="need"><span><b>ほかの答え</b><small>下のひとことに書いてください</small>',
+        'value="other"><span><b>ほかの答え</b>', 1), encoding="utf-8")
+    red = run_check(page)["red"]
+    assert len(red) == 1 and "ほかの答え" in red[0] and 'data-supp="need" が無い' in red[0], red
+
+
+@needs_node
+def test_印の値は_need_だけ(tmp_path):
+    page = tmp_path / "確認.html"
+    page.write_text(filled_template("send").replace('value="other" data-supp="need"', 'value="other" data-supp="yes"', 1), encoding="utf-8")
+    red = run_check(page)["red"]
+    assert len(red) == 1 and 'data-supp は "need" だけ（今 yes）' in red[0], red
+    data = json.loads((DATA / "good.json").read_text(encoding="utf-8"))
+    for q in data["questions"]:
+        for o in q.get("options", []):
+            if o.get("supp") == "need":
+                o["supp"] = True
+    p = tmp_path / "q.json"
+    p.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+    red = run_check(p)["red"]
+    assert red and all('"supp" は "need" だけ（今 true）' in x for x in red), red

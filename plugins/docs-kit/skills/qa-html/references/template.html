@@ -241,7 +241,8 @@
     var sp = form.querySelector('[name="supp_' + key + '"]');
     return { key: key, vals: vals, labels: labels, supp: sp ? sp.value.trim() : '' };
   }
-  function needsSupp(c){ return !!c.querySelector('input[data-supp="need"]:checked'); }
+  // 「分からない」も選んでいる時（checkbox）は、ひとことは「誰に聞けば分かりますか」の任意の欄のまま
+  function needsSupp(c){ return !!c.querySelector('input[data-supp="need"]:checked') && valueOf(c).vals.indexOf(UNKNOWN) < 0; }
   function suppEmpty(c){ return needsSupp(c) && !valueOf(c).supp; }
   function answered(c){ return valueOf(c).vals.length > 0 && !suppEmpty(c); }
   function missing(){ return qs.filter(function(c){ return !answered(c); }); }
