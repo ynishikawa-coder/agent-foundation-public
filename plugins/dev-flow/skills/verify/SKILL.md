@@ -73,7 +73,7 @@ repo ごとに違う値は、repo の根（`git rev-parse --show-toplevel`）の
 ## オーナーの業務がどう変わったか（真の完了条件）
 ```
 
-置き場は表の `report_place`。締めは核 §5 の 2 行（AI の残り／オーナーの残り）。Stopped / Failed の時は、学びを表の `learning_record` へ（無ければ返事の中に 1 行）。
+置き場は表の `report_place`。締めは核 §5 の 2 行（AI がこの後やること／あなたがやること）。Stopped / Failed の時は、学びを表の `learning_record` へ（無ければ返事の中に 1 行）。
 
 ## やりがちな間違い
 
