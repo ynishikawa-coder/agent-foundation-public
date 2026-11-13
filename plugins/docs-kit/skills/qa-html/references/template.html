@@ -17,7 +17,7 @@
     前提が書けない問いは出さない（どれかが空なら検査が赤）
     legend＝問い 1 行／選択肢＝label.opt（value は半角英数字と _・最初の 1 つに required・中身の見出し <b>
       ＋この答えで変わる事 <small class="chg">（誰の・何が・いくら）・記号 A/B を付けない）
-    最後に「または」と「分からない」（value="__unknown__"）を必ず置く／ひとこと＝name="supp_鍵"（任意）
+    最後に「または」と「分からない」（value="__unknown__"）を必ず置く／ひとこと＝name="supp_鍵"（任意・ひとことに書かせる選択肢の input に data-supp="need"＝選ぶと欄が「この答えでは書いてください」になり、空では次へ進めない）
 ============================================================ -->
 <html lang="ja">
 <head>
@@ -138,7 +138,7 @@
 <div class="opts">
 <label class="opt"><input type="radio" name="q1" value="{{選択肢の鍵}}" required><span><b>{{中身の見出し}}<span class="tag-rec">おすすめ</span></b><small class="chg">{{この答えで変わる事（誰の・何が・いくら）}}</small></span></label>
 <label class="opt"><input type="radio" name="q1" value="{{選択肢の鍵}}"><span><b>{{中身の見出し}}</b><small class="chg">{{この答えで変わる事（誰の・何が・いくら）}}</small></span></label>
-<label class="opt"><input type="radio" name="q1" value="other"><span><b>ほかの答え</b><small>下のひとことに書いてください</small></span></label>
+<label class="opt"><input type="radio" name="q1" value="other" data-supp="need"><span><b>ほかの答え</b><small>下のひとことに書いてください</small></span></label>
 <p class="or">または</p>
 <label class="opt"><input type="radio" name="q1" value="__unknown__"><span><b>分からない・社内で確かめてから答える</b></span></label>
 </div>
@@ -174,7 +174,7 @@
 <div class="opts">
 <label class="opt"><input type="radio" name="q3" value="{{選択肢の鍵}}" required><span><b>{{中身の見出し}}</b><small class="chg">{{この答えで変わる事（誰の・何が・いくら）}}</small></span></label>
 <label class="opt"><input type="radio" name="q3" value="{{選択肢の鍵}}"><span><b>{{中身の見出し}}</b><small class="chg">{{この答えで変わる事（誰の・何が・いくら）}}</small></span></label>
-<label class="opt"><input type="radio" name="q3" value="other"><span><b>別の決め方</b><small>下のひとことに書いてください</small></span></label>
+<label class="opt"><input type="radio" name="q3" value="other" data-supp="need"><span><b>別の決め方</b><small>下のひとことに書いてください</small></span></label>
 <p class="or">または</p>
 <label class="opt"><input type="radio" name="q3" value="__unknown__"><span><b>分からない・社内で確かめてから答える</b></span></label>
 </div>
@@ -241,7 +241,10 @@
     var sp = form.querySelector('[name="supp_' + key + '"]');
     return { key: key, vals: vals, labels: labels, supp: sp ? sp.value.trim() : '' };
   }
-  function answered(c){ return valueOf(c).vals.length > 0; }
+  // 「分からない」も選んでいる時（checkbox）は、ひとことは「誰に聞けば分かりますか」の任意の欄のまま
+  function needsSupp(c){ return !!c.querySelector('input[data-supp="need"]:checked') && valueOf(c).vals.indexOf(UNKNOWN) < 0; }
+  function suppEmpty(c){ return needsSupp(c) && !valueOf(c).supp; }
+  function answered(c){ return valueOf(c).vals.length > 0 && !suppEmpty(c); }
   function missing(){ return qs.filter(function(c){ return !answered(c); }); }
   function freeText(){ var f = free && free.querySelector('[name="__自由記入__"]'); return f ? f.value.trim() : ''; }
 
@@ -339,7 +342,10 @@
     var err = null;
     if (c !== free) { err = document.createElement('p'); err.className = 'err'; err.textContent = 'どれか 1 つを選んでください（分からない時は「分からない」を選べます）'; c.appendChild(err); }
     c.appendChild(button('次へ', function(){
-      if (c !== free && !answered(c)) { c.classList.add('miss'); err.scrollIntoView({ block: 'center' }); return; }
+      if (c !== free && !answered(c)) {
+        err.textContent = suppEmpty(c) ? 'この答えでは、下のひとことに書いてください' : 'どれか 1 つを選んでください（分からない時は「分からない」を選べます）';
+        c.classList.add('miss'); err.scrollIntoView({ block: 'center' }); return;
+      }
       c.classList.remove('miss');
       go(fromReview ? review : steps[steps.indexOf(c) + 1]);
     }));
@@ -347,7 +353,8 @@
   });
   function syncUnknown(c){
     var sl = c.querySelector('.supp label'); if (!sl) return;
-    sl.textContent = valueOf(c).vals.indexOf(UNKNOWN) >= 0 ? '誰に聞けば分かりますか（なくても大丈夫です）' : sl.getAttribute('data-base');
+    sl.textContent = valueOf(c).vals.indexOf(UNKNOWN) >= 0 ? '誰に聞けば分かりますか（なくても大丈夫です）'
+      : needsSupp(c) ? 'ひとこと（この答えでは書いてください）' : sl.getAttribute('data-base');
   }
   qs.forEach(syncUnknown);
   function buildReview(){
@@ -361,18 +368,22 @@
     };
     qs.forEach(function(c, i){
       var v = valueOf(c), has = v.vals.length > 0;
-      add((i + 1) + '. ' + c.getAttribute('data-qlabel'), has ? v.labels.join('、') + (v.supp ? '（' + v.supp + '）' : '') : 'まだ答えていません', !has, c);
+      var gap = has && suppEmpty(c);
+      add((i + 1) + '. ' + c.getAttribute('data-qlabel'), has ? v.labels.join('、') + (v.supp ? '（' + v.supp + '）' : gap ? '（ひとことがまだです）' : '') : 'まだ答えていません', !has || gap, c);
     });
     if (free) add('ほかに伝えたい事', freeText() || 'なし', false, free);
     var m = missing().length;
     if (sendBtn) sendBtn.disabled = m > 0;
-    if (missNote) { missNote.hidden = m === 0; missNote.textContent = '答えていない問いが ' + m + ' つあります。答えると送れます（分からない時は「分からない」を選べます）。'; }
+    if (missNote) { missNote.hidden = m === 0; missNote.textContent = '答えていない問い（ひとことがまだの問いも）が ' + m + ' つあります。答えると送れます（分からない時は「分からない」を選べます）。'; }
   }
   form.addEventListener('change', function(e){
     var c = e.target.closest && e.target.closest('fieldset.q'); if (c) { if (answered(c)) c.classList.remove('miss'); syncUnknown(c); }
     save();
   });
-  form.addEventListener('input', save);
+  form.addEventListener('input', function(e){
+    var c = e.target.closest && e.target.closest('fieldset.q'); if (c && answered(c)) c.classList.remove('miss');
+    save();
+  });
   form.addEventListener('keydown', function(e){ if (e.key === 'Enter' && e.target.tagName === 'INPUT') e.preventDefault(); });
   form.addEventListener('submit', function(e){
     if (missing().length) { e.preventDefault(); go(review); return; }

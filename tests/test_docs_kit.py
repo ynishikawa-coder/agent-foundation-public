@@ -1,6 +1,7 @@
 """docs-kit プラグインが「プラグインとして入る形」か、と qa-html の検査（check.mjs）の自分の試験。"""
 import ast
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -402,3 +403,75 @@ def test_型の外の_script_は赤(tmp_path):
     page.write_text(base.replace("</form>", "</form><script>fetch('/x')</script>", 1), encoding="utf-8")
     red = run_check(page)["red"]
     assert len(red) == 2 and red[0].startswith("<script> はページ全体でちょうど 1 つ") and red[1].startswith("型の外に許していない要素 <script>"), red
+
+
+@needs_node
+def test_ひとことに書かせる選択肢に印が無いと赤(tmp_path):
+    page = tmp_path / "確認.html"
+    page.write_text(filled_template("send").replace('value="other" data-supp="need">', 'value="other">', 1), encoding="utf-8")
+    red = run_check(page)["red"]
+    assert len(red) == 1 and red[0].startswith("問い q1: ひとことに書かせる選択肢「ほかの答え」に data-supp=\"need\" が無い"), red
+
+
+def _playwright():
+    try:
+        from playwright.sync_api import sync_playwright
+        return sync_playwright
+    except ImportError:
+        return None
+
+
+@pytest.mark.skipif(_playwright() is None, reason="playwright が無い（型の JS を実ブラウザで動かす）")
+def test_ひとことに書かせる選択肢を選ぶと欄の名が変わり空では進めない(tmp_path):
+    page = tmp_path / "確認.html"
+    page.write_text(filled_template("copy"), encoding="utf-8")
+    with _playwright()() as p:
+        exe = os.environ.get("QA_CHROMIUM")   # 入った playwright と別の版のブラウザを使う時だけ
+        try:
+            b = p.chromium.launch(**({"executable_path": exe} if exe else {}))
+        except Exception as e:   # 入った playwright の版のブラウザが無い窓（QA_CHROMIUM で別の版を指せる）
+            pytest.skip(f"ブラウザを起こせない: {str(e).splitlines()[0]}")
+        pg = b.new_page()
+        pg.goto(page.as_uri())
+        js = """([sel, ev, val]) => { const f = document.querySelector('fieldset.q[data-qkey="q1"]'); const el = f.querySelector(sel);
+            if (val === null) el.checked = true; else el.value = val; el.dispatchEvent(new Event(ev, { bubbles: true })); }"""
+        lab = lambda: pg.evaluate("""() => document.querySelector('fieldset.q[data-qkey="q1"] .supp label').textContent""")
+        nxt = lambda: pg.evaluate("""() => { const f = document.querySelector('fieldset.q[data-qkey="q1"]');
+            [...f.querySelectorAll('button')].pop().click(); return [f.classList.contains('miss'), f.querySelector('.err').textContent]; }""")
+        assert lab() == "ひとこと（なくても大丈夫です）"
+        pg.evaluate(js, ['input[value="other"]', "change", None])
+        assert lab() == "ひとこと（この答えでは書いてください）"
+        miss, err = nxt()
+        assert miss and "下のひとことに書いてください" in err
+        pg.evaluate(js, ['textarea[name="supp_q1"]', "input", "月の合計で丸める"])
+        assert nxt()[0] is False
+        pg.evaluate(js, ['input[value="__unknown__"]', "change", None])
+        assert lab() == "誰に聞けば分かりますか（なくても大丈夫です）"
+        b.close()
+
+
+@needs_node
+def test_添え書きの無いほかの答えにも印が要る(tmp_path):
+    page = tmp_path / "確認.html"
+    page.write_text(filled_template("send").replace(
+        'value="other" data-supp="need"><span><b>ほかの答え</b><small>下のひとことに書いてください</small>',
+        'value="other"><span><b>ほかの答え</b>', 1), encoding="utf-8")
+    red = run_check(page)["red"]
+    assert len(red) == 1 and "ほかの答え" in red[0] and 'data-supp="need" が無い' in red[0], red
+
+
+@needs_node
+def test_印の値は_need_だけ(tmp_path):
+    page = tmp_path / "確認.html"
+    page.write_text(filled_template("send").replace('value="other" data-supp="need"', 'value="other" data-supp="yes"', 1), encoding="utf-8")
+    red = run_check(page)["red"]
+    assert len(red) == 1 and 'data-supp は "need" だけ（今 yes）' in red[0], red
+    data = json.loads((DATA / "good.json").read_text(encoding="utf-8"))
+    for q in data["questions"]:
+        for o in q.get("options", []):
+            if o.get("supp") == "need":
+                o["supp"] = True
+    p = tmp_path / "q.json"
+    p.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+    red = run_check(p)["red"]
+    assert red and all('"supp" は "need" だけ（今 true）' in x for x in red), red
