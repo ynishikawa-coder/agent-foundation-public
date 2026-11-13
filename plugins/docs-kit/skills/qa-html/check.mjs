@@ -261,12 +261,15 @@ export function readHtml(raw) {
   const tpl = templateRegions();
   for (const name of FIXED) {
     const got = region(raw, name);
+    const marks = raw.split(`<!--${name}-->`).length - 1;
+    if (marks > 1) shape.push(`型の ${name} の印が ${marks} 回ある（ちょうど 1 回）`);
     if (got == null) shape.push(`型の ${name} の印が無い（型を丸ごと写す）`);
     else if (got !== tpl[name])
       shape.push(`${name} の中身が型と違う（宛先で変えてよいのは 差出人・宛名・連絡先・会社の色${name === "qa:foot" ? "・この後のこと" : ""} だけ）`);
   }
   // 型の外（動かない 3 か所は上で型と突き合わせた＝ここでは見ない）
-  const outside = mask(raw.replace(/<!--qa:(css|js|foot)-->[\s\S]*?<!--\/qa:\1-->/g, " "));
+  //   外すのは突き合わせた最初の 1 つの間だけ（2 つ目の印の間は外さない＝照らしに入る）
+  const outside = mask(FIXED.reduce((t, n) => t.replace(new RegExp(`<!--${n}-->[\\s\\S]*?<!--/${n}-->`), " "), raw));
   if (/<style\b/i.test(outside)) shape.push("型の外に <style> がある（見た目は型の 1 つだけ）");
   if (/<script\b/i.test(outside)) shape.push("型の外に <script> がある（動きは型の 1 つだけ・送信の JS も書かない）");
   if (/<link\b[^>]*rel\s*=\s*["']?stylesheet/i.test(outside)) shape.push("外の見た目（link stylesheet）を読んでいる");

@@ -223,6 +223,9 @@ MUTATIONS = [
     ("決まりの写しをお送りします。", "決まりの写しをお送りします。<script>fetch('/x')</script>", "「この後のこと」（.next）に書けるのは"),
     ("決まりの写しをお送りします。", '決まりの写しをお送りします。<img src="x" onerror="fetch(\'/x\')">', "「この後のこと」（.next）に書けるのは"),
     ("決まりの写しをお送りします。", "決まりの写しをお送りします。<script>fetch('/x')</script>", "「この後のこと」（.next）に書けるのは", '<p class="lead">', '<p class="lead"><span class="next">ok</span>'),
+    ("</body>", "<!--qa:css--><p>x</p><!--/qa:css--></body>", "型の qa:css の印が 2 回ある"),
+    ("</body>", "<!--qa:js--><p>x</p><!--/qa:js--></body>", "型の qa:js の印が 2 回ある"),
+    ("</body>", "<!--qa:foot--><p>x</p><!--/qa:foot--></body>", "型の qa:foot の印が 2 回ある"),
     ('<details class="more">', '<details class="more"/onclick="fetch(\'/x\')">', "型の外に動き（on… の属性）"),
     ('type="radio" name="q2" value="none"', 'type="checkbox" name="q2" value="none" required', "問い q2: checkbox に required"),
 ]
@@ -240,6 +243,24 @@ def test_壊した所の赤だけが出る(tmp_path, old, new, expect, more):
     page.write_text(base, encoding="utf-8")
     out = run_check(page)
     assert len(out["red"]) == 1 and out["red"][0].startswith(expect), out["red"]
+
+
+# 2 つ目の印の間に書いた物は、印の重なりと中身の両方で赤になる（中身を照らしから外さない）
+SECOND_MARKS = [
+    ("qa:css", "<style>body{background:#000}</style>", "型の外に <style>"),
+    ("qa:js", "<script>fetch('/x')</script>", "型の外に <script>"),
+    ("qa:foot", '<img src="x" onerror="fetch(\'/x\')">', "型の外に動き（on… の属性）"),
+]
+
+
+@needs_node
+@pytest.mark.parametrize("name, inner, expect", SECOND_MARKS, ids=[m[0] for m in SECOND_MARKS])
+def test_2_つ目の印の間の中身も照らす(tmp_path, name, inner, expect):
+    page = tmp_path / "確認.html"
+    page.write_text(filled_template().replace("</body>", f"<!--{name}-->{inner}<!--/{name}--></body>", 1), encoding="utf-8")
+    red = run_check(page)["red"]
+    assert len(red) == 2, red
+    assert red[0].startswith(f"型の {name} の印が 2 回ある") and any(r.startswith(expect) for r in red), red
 
 
 @needs_node
