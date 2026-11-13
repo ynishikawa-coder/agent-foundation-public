@@ -258,7 +258,8 @@ class Guard:
     def check_history(self, revs: list[str]) -> list[str]:
         """各 commit で足された行（ファイルの名と行）。merge の commit も各親との差で見る（-m）。
 
-        path は引用符なしで取る（core.quotePath=false）。見出し（+++）は `diff --git` から最初の `@@` までの間でだけ読む
+        path は引用符なしで取る（core.quotePath=false）。それでも `"`・タブ・改行・`\\` を含む名は C の形の引用で出るので解く
+        （解けない名も行は捨てず、仮の名で照らす）。見出し（+++）は `diff --git` から最初の `@@` までの間でだけ読む
         （中身が `++ ` で始まる足された行を見出しと取り違えない）。"""
         hits = []
         log = self.git("-c", "core.quotePath=false", "log", "-p", "-m", "--no-color", "--no-ext-diff",
@@ -271,7 +272,7 @@ class Guard:
                     path, in_header = None, True
                 elif in_header:
                     if line.startswith("+++ "):
-                        path = line[6:] if line.startswith("+++ b/") else None
+                        path = diff_path(line[4:])
                         if path:
                             added.setdefault(path, [])
                     elif line.startswith("@@"):
@@ -298,6 +299,37 @@ class Guard:
             hits += self.text_hits(f"commit {sha} の名義", f"{an}\n{cn}")
             hits += self.text_hits(f"commit {sha} の説明", body)
         return hits
+
+
+UNREADABLE_PATH = "名を読めないファイル"
+_C_ESCAPES = {"a": 7, "b": 8, "t": 9, "n": 10, "v": 11, "f": 12, "r": 13, '"': 34, "\\": 92}
+
+
+def diff_path(spec: str) -> str | None:
+    """`+++ ` の後ろ（`b/…`・`"b/…"`・`/dev/null`）から path を取る。消したファイル（/dev/null）は None。
+    読めない形でも足された行を捨てないよう、None でなく仮の名を返す。"""
+    if spec == "/dev/null":
+        return None
+    if spec.startswith('"') and spec.endswith('"') and len(spec) >= 2:
+        body, out, i = spec[1:-1], bytearray(), 0
+        try:
+            while i < len(body):
+                c = body[i]
+                if c != "\\":
+                    out += c.encode("utf-8")
+                    i += 1
+                elif body[i + 1] in _C_ESCAPES:
+                    out.append(_C_ESCAPES[body[i + 1]])
+                    i += 2
+                elif body[i + 1:i + 4].isdigit() and len(body[i + 1:i + 4]) == 3:
+                    out.append(int(body[i + 1:i + 4], 8))
+                    i += 4
+                else:
+                    return UNREADABLE_PATH
+            spec = out.decode("utf-8", errors="replace")
+        except (IndexError, ValueError):
+            return UNREADABLE_PATH
+    return spec[2:] if spec.startswith("b/") else UNREADABLE_PATH
 
 
 def load_event() -> dict:

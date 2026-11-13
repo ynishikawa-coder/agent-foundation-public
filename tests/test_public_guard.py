@@ -360,6 +360,23 @@ def test_プラス2つで始まる行で見出しを取り違えない(tmp_path)
     assert any(h.startswith("commit ") and "a.md" in h and "GitHub のトークン" in h for h in hits), hits
 
 
+@pytest.mark.parametrize("name", ['q"t.md', "ta\tb.md", "ba\\ck.md"])
+def test_引用符つきで出る名のファイルの歴史も照らす(tmp_path, name):
+    repo = _repo(tmp_path)
+    _commit(repo, {name: f"鍵 {TOKEN}\n"})
+    _commit(repo, remove=[name])
+    hits = _run(repo, {}, rev_range="ALL")
+    assert any(h.startswith("commit ") and name in h and "GitHub のトークン" in h for h in hits), hits
+
+
+def test_diff_pathは引用を解き読めない名も捨てない():
+    assert guard.diff_path("/dev/null") is None
+    assert guard.diff_path("b/a.md") == "a.md"
+    assert guard.diff_path('"b/q\\"t\\tx\\346\\227\\245.md"') == 'q"t\tx日.md'
+    assert guard.diff_path('"b/x\\q"') == guard.UNREADABLE_PATH
+    assert guard.diff_path("c/odd") == guard.UNREADABLE_PATH
+
+
 def test_mergeでだけ足された行も照らす(tmp_path):
     repo = _repo(tmp_path)
     _git(repo, "checkout", "-q", "-b", "side")
