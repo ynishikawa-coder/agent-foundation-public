@@ -100,18 +100,36 @@ GAP = re.compile("(?<=[%s])[\\s・･]+(?=[%s])" % (_K, _K))
 
 
 def decode_bundle(value: str):
-    """(鍵, 束の set)。形が違えば ValueError。"""
-    parts = (value or "").strip().split(".")
+    """(鍵, 束の set)。形が違えば ValueError（理由には値を入れない＝どこが違うかだけ）。"""
+    text = (value or "").strip()
+    parts = text.split(".")
     if len(parts) != 3 or parts[0] != BUNDLE_PREFIX:
-        raise ValueError("束の形が違う")
+        raise ValueError(_shape_reason(text, parts))
     try:
         key = base64.urlsafe_b64decode(parts[1])
         raw = base64.urlsafe_b64decode(parts[2])
     except ValueError as e:
-        raise ValueError("束の形が違う") from e
-    if len(key) < 16 or not raw or len(raw) % DIGEST:
-        raise ValueError("束の形が違う")
+        raise ValueError("鍵か束の所が base64 として読めない（途中で切れた・余計な字が混じった）") from e
+    if len(key) < 16:
+        raise ValueError("鍵の所が短い（16 バイト未満）")
+    if not raw or len(raw) % DIGEST:
+        raise ValueError(f"束の所の長さが {DIGEST} バイトの倍数でない（途中で切れた）")
     return key, {raw[i:i + DIGEST] for i in range(0, len(raw), DIGEST)}
+
+
+def _shape_reason(text: str, parts: list[str]) -> str:
+    """形の違いの理由。値そのものは返さない。"""
+    if not text:
+        return "値が空"
+    if text[0] in "'\"" or text[-1] in "'\"":
+        return "前後に引用符が付いている（引用符を外した中身だけを貼る）"
+    if "=" in text.split(".")[0]:
+        return "先頭に名前と = が付いている（= の後ろの値だけを貼る）"
+    if len(text.splitlines()) > 1:
+        return f"値が {len(text.splitlines())} 行ある（1 行の値だけを貼る）"
+    if not text.startswith(BUNDLE_PREFIX + "."):
+        return f"先頭が {BUNDLE_PREFIX}. でない（別の値を貼っている）"
+    return f"区切りの . が {len(parts) - 1} 個（2 個のはず）"
 
 
 def env_bundle():
@@ -298,8 +316,8 @@ def main(argv=None) -> int:
                                capture_output=True, text=True, check=True).stdout.strip())
     try:
         env_bundle()
-    except ValueError:
-        print("✗ AF_DENY_BUNDLE の形が違う（pct1.<鍵>.<束>）")
+    except ValueError as e:
+        print(f"✗ AF_DENY_BUNDLE の形が違う（pct1.<鍵>.<束> の 1 行）: {e}")
         return 2
     if customer_source_missing():
         if in_ci():

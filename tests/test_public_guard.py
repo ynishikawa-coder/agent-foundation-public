@@ -206,6 +206,19 @@ def test_束の形が違えば止まる(tmp_path):
     assert _cli(_repo(tmp_path), {"AF_DENY_BUNDLE": "pct1.壊れた.値"}).returncode == 2
 
 
+@pytest.mark.parametrize("wrap, reason", [
+    ('"{}"', "引用符"),
+    ("AF_DENY_BUNDLE={}", "名前と ="),
+    ("{}\n{}", "行ある"),
+    ("x{}", "先頭が"),
+])
+def test_束の形の違いは値を出さずに理由を言う(tmp_path, wrap, reason):
+    good = _bundle_of(["見本商事"])
+    res = _cli(_repo(tmp_path), {"AF_DENY_BUNDLE": wrap.format(good, good)})
+    assert res.returncode == 2 and reason in res.stdout, res.stdout
+    assert good.split(".")[1] not in res.stdout and good.split(".")[2] not in res.stdout
+
+
 def test_顧客の語は赤の時も出力に出ない(tmp_path):
     repo = _repo(tmp_path)
     _commit(repo, {"a.md": "今日は見本商事さんへ行く\n"}, msg="見本商事の件")
