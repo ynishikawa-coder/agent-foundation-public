@@ -98,23 +98,33 @@ FILL = {
     "send か copy か artifact": ["copy"],
     "宛名": ["サンプル株式会社 ご担当者様"],
     "前書き": ["答えていただいた内容で、貸し出しの決まりを確定します。"],
+    "読んだ資料": ["見積り書（10 月分）・10 月 1 日に受け取り", "注文書の控え・10 月 1 日に受け取り", "貸し出しの決まり・9 月 10 日に受け取り"],
+    "答えるまでの扱い": ["答えが届くまで、この点は確定せずにお待ちします。"],
     "期限": ["11 月 20 日"],
     "差出人": ["サンプル事務所 担当 見本"],
     "連絡先": ["このメールに返信してください"],
     "版": ["2026-11-13.1"],
     "一言の見出し": ["送料の端数", "届く日", "返す期限"],
-    "この答えで決まる事": ["請求の額", "棚の入れ替えの日", "返す期限の知らせを出す日"],
+    "まとまりの 1 行": ["決まりと合わない所です", "届いた物の確かめです", "今回の催しの分だけの事です"],
+    "何について: 誰": ["全員", "見本さん", "全員"],
+    "何について: いつ": ["10 月分", "10 月分", "10 月分"],
+    "何について: 何": ["送料", "棚が届く日"],
     "問い 1 行": ["送料の端数は、どちらで計算しますか", "新しい棚が届く日は、どちらですか", "返す期限は、どう決めますか"],
-    "分かっている事": ["見積りの送料は 1 箱 125.5 円です。", "注文は 10 月 1 日に出ています。", "今は期限が決まっていません。"],
+    "見つけた事": ["見積り書の 2 枚目は、送料 1 箱 125.5 円です。", "見積り書と注文書の控えに、届く日の書きがありません。", "今は期限が決まっていません。"],
     "表の見出し": ["10 月の請求"],
     "今の計算": ["切り捨てる"],
     "直した場合": ["切り上げる"],
     "行の名": ["合計"],
     "数": ["1,200 円", "1,300 円"],
-    "判断に要る細かい事": ["見積りの写しを付けています。"],
+    "切り抜きの画像": ["data:image/png;base64,iVBORw0KGgo="],
+    "切り抜きに写っている事": ["見積り書の送料の行"],
+    "切り抜きの資料名と場所": ["見積り書 2 枚目"],
+    "判断に要る細かい事": ["見積りの写しを付けています。", "注文は 10 月 1 日に出ています。", "大きい物は 7 日では足りない事があります。"],
+    "原文": ["送料 1 箱 125.5 円（税別）"],
     "選択肢の鍵": ["down", "up", "d1020", "d1027", "d7", "d14"],
     "中身の見出し": ["切り捨てる", "切り上げる", "10 月 20 日", "10 月 27 日", "借りた日から 7 日", "借りた日から 14 日"],
-    "その結果 1 行": ["合計 1,200 円", "合計 1,300 円", "多くの備品はこれで足ります", "大きい物も足ります"],
+    "この答えで変わる事": ["10 月の請求が合計 1,200 円", "10 月の請求が合計 1,300 円", "棚の入れ替えが 10 月 21 日", "棚の入れ替えが 10 月 28 日",
+                       "返す日の知らせが借りた日から 7 日目", "返す日の知らせが借りた日から 14 日目"],
     "この後のこと": ["11 月 22 日までに、決まりの写しをお送りします。"],
 }
 
@@ -172,7 +182,8 @@ def test_問いのデータの良い例は緑():
 def test_問いのデータの悪い例は決まった赤だけ():
     out = run_check(DATA / "bad.json")
     assert not out["ok"]
-    expect = ["問い q1: 1 問に 2 つ以上", "問い q1: 選択肢が 1 つだけ", "問い q2: 並びが逆", "問い q2: 資料の外の事実の問いに「当てはまらない」",
+    expect = ["答えるまでの扱いが無い", "問い q1: なぜ聞くか", "問い q1: 1 問に 2 つ以上", "問い q1: 選択肢が 1 つだけ", "問い q2: 並びが逆",
+              "問い q2: 切り抜き 1 の画像が無い", "問い q2: 選択肢「まだ分からない」にこの答えで変わる事", "問い q2: 資料の外の事実の問いに「当てはまらない」",
               "問い q2: ひとことの欄"]
     assert len(out["red"]) == len(expect), out["red"]
     for e in expect:
@@ -187,6 +198,36 @@ def test_問いのデータの選択肢が文字だけなら赤(tmp_path):
     page.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
     red = run_check(page)["red"]
     assert any("{\"value\",\"label\"}" in r for r in red), red
+
+
+@needs_node
+def test_前提が書けない問いのデータは赤(tmp_path):
+    """何について・見つけた事・資料・なぜ聞くか・くわしく・変わる事が空なら出さない（前提が書けない問いは出さない）。"""
+    data = json.loads((DATA / "good.json").read_text(encoding="utf-8"))
+    q = data["questions"][0]
+    for k in ["about", "known", "docs", "why", "more"]:
+        q.pop(k)
+    q["options"][0].pop("change")
+    data["questions"][1]["clips"][1]["shows"] = ["見本さん", "ほかの人"]
+    page = tmp_path / "q.json"
+    page.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+    red = run_check(page)["red"]
+    expect = ["問い q1: 何について", "問い q1: なぜ聞くか", "問い q1: 見つけた事（資料名・場所・値）が無い", "問い q1: 見つけた事が読んだ資料を指していない",
+              "問い q1: くわしく", "問い q1: 選択肢「借りた日から 7 日」にこの答えで変わる事", "問い q2: 切り抜き 2 に問いの人の外の名「ほかの人」"]
+    assert len(red) == len(expect), red
+    for e in expect:
+        assert any(r.startswith(e) for r in red), (e, red)
+
+
+@needs_node
+def test_なぜ聞くかの文は会社の表で替えられる(tmp_path):
+    page = tmp_path / "確認.html"
+    page.write_text(filled_template().replace(">今回だけの事を確かめます<", ">この月だけの事を確かめます<", 1), encoding="utf-8")
+    assert run_check(page)["red"][0].startswith("問い q3: なぜ聞くかの文は決まった文")
+    values = tmp_path / "config" / "skill-values.json"
+    values.parent.mkdir()
+    values.write_text(json.dumps({"docs-kit": {"qa-html": {"why": {"once": "この月だけの事を確かめます"}}}}, ensure_ascii=False), encoding="utf-8")
+    assert run_check(page)["red"] == []
 
 
 # 1 か所だけ壊すと、その 1 つの赤だけが出る（壊した所以外の結果が変わらない見張り）
@@ -210,12 +251,34 @@ MUTATIONS = [
     ("<b>切り捨てる", "<b>A 切り捨てる", "問い q1: 選択肢に記号"),
     ('value="d7"', 'value="7days!"', "問い q3: 選択肢の鍵（value）"),
     ('name="supp_q1"', 'name="note_q1"', "問い q1: ひとことの欄"),
-    (' data-decides="請求の額"', "", "問い q1: この答えで決まる事"),
+    # 前提の 3 段（はじめの画面・まとまり・1 問の 4 欄・切り抜き・変わる事）
+    ('<p class="hold">', '<p class="note">', "答えるまでの扱いが無い"),
+    ('<li data-doc="d3">', '<li data-doc="d-4">増えた資料</li><li data-doc="d3">', "読んだ資料の鍵（data-doc）"),
+    ('data-docs="d2 d3"', 'data-docs="d2 d9"', "問い q2: 見つけた事の資料「d9」が読んだ資料の一覧に無い"),
+    ('data-docs="d2 d3"', 'data-docs=""', "問い q2: 見つけた事が読んだ資料を指していない"),
+    ("見積り書と注文書の控えに、届く日の書きがありません。", "", "問い q2: 見つけた事（資料名・場所・値）が無い"),
+    ("今は期限が決まっていません。", "今は期限が決まっていません。" + "借りた物を返す日の決まりは、どの資料にも書かれていませんでした。" * 2, "問い q3: 見つけた事の 1 行が"),
+    ("資料に書いてありません</p>", "資料が足りません</p>", "問い q2: なぜ聞くかの文は決まった文"),
+    ('data-why="once"', 'data-why="month"', "問い q3: なぜ聞くか"),
+    ('data-kind="choose"', 'data-kind="mismatch"', "問い q1: 食い違いの問い（mismatch）"),
+    ('<p class="about"><span>全員</span><span>10 月分</span></p>', "", "問い q3: 何について"),
+    ("<span>送料</span>", "<span>送料</span><span>請求</span>", "問い q1: 何についての札が 4 つ"),
+    ('<p class="glead">届いた物の確かめです</p>', "", "問い q2: まとまりの最初の問いに"),
+    ("届いた物の確かめです", "届いた物の<br>確かめです", "問い q2: まとまりの 1 行が 2 行"),
+    ('data-group="once"', 'data-group="person"', "問い q3: まとまりの 1 行はまとまりの最初の問いだけ"),
+    ('<details class="more"><summary>くわしく</summary>注文は 10 月 1 日に出ています。</details>', "", "問い q2: くわしく"),
+    ("注文は 10 月 1 日に出ています。", "注文は 10 月 1 日です。<br>届く日は未定です。<br>棚は 2 台です。<br>置き場は 1 階です。", "問い q2: くわしくが 4 行"),
+    ('<small class="chg">棚の入れ替えが 10 月 28 日</small>', "", "問い q2: 選択肢「10 月 27 日」にこの答えで変わる事"),
+    ('data-shows=""', 'data-shows="見本さん"', "問い q1: 切り抜き 1 に問いの人の外の名「見本さん」"),
+    ('alt="見積り書の送料の行"', 'alt="見本さんの送料の行"', "問い q1: 切り抜き 1 の説明に問いの人の外の名「見本さん」"),
+    ('data-doc="d1" data-shows', 'data-doc="d7" data-shows', "問い q1: 切り抜き 1 の資料「d7」"),
+    ("</figure></div>", "</figure>" + '<figure class="clip" data-doc="d2" data-shows=""><img src="data:image/png;base64,AAAA" alt="注文書の控え"></figure>' * 2 + "</div>", "問い q1: 切り抜きが 3 枚"),
+    ("</figure></div>", "</figure>" + '<figure class="clip" data-doc="d2" data-shows=""><img src="data:image/png;base64,AAAA" alt="注文書の控え"><figcaption>注文書の控え</figcaption></figure></div>', None),
     ("今は期限が決まっていません。", "照合して決まっていません。", "内部の言葉「照合」"),
     ("今は期限が決まっていません。", "Q2026.11-37 の続きです。", "番号「Q2026.11-37」"),
     ('<details class="more">', '<details class="more" ontoggle="fetch(\'/x\')">', "型の外に許していない属性"),
-    ("見積りの写しを付けています。", '<a href="javascript:alert(1)">見積りの写し</a>', "許していない URL"),
-    ("見積りの写しを付けています。", '<img src="https://example.com/a.png" alt="見積り">', "外のリソース・許していない src"),
+    ("送料 1 箱 125.5 円（税別）", '<a href="javascript:alert(1)">見積りの写し</a>', "許していない URL"),
+    ("送料 1 箱 125.5 円（税別）", '<img src="https://example.com/a.png" alt="見積り">', "外のリソース・許していない src"),
     ('<meta name="color-scheme" content="light">', '<meta content="light dark" name="color-scheme">', "暗い色の設定"),
     ('<section class="done" id="qa-done" hidden>', '<section class="done" id="qa-done">', "qa:foot の中身が型と違う"),
     ("<h2>答えを確かめてください</h2>", "<h2>これで送ります</h2>", "qa:foot の中身が型と違う"),
@@ -226,15 +289,15 @@ MUTATIONS = [
     ("</body>", "<!--qa:css--><p>x</p><!--/qa:css--></body>", "型の qa:css の印が 2 回ある"),
     ("</body>", "<!--qa:js--><p>x</p><!--/qa:js--></body>", "型の qa:js の印が 2 回ある"),
     ("</body>", "<!--qa:foot--><p>x</p><!--/qa:foot--></body>", "型の qa:foot の印が 2 回ある"),
-    ("見積りの写しを付けています。", '<iframe srcdoc="&lt;script&gt;fetch(1)&lt;/script&gt;"></iframe>', "型の外に許していない要素 <iframe>"),
-    ("見積りの写しを付けています。", '<iframe src="data:text/html,x"></iframe>', "型の外に許していない要素 <iframe>"),
-    ("見積りの写しを付けています。", '<embed src="data:text/html,x">', "型の外に許していない要素 <embed>"),
+    ("送料 1 箱 125.5 円（税別）", '<iframe srcdoc="&lt;script&gt;fetch(1)&lt;/script&gt;"></iframe>', "型の外に許していない要素 <iframe>"),
+    ("送料 1 箱 125.5 円（税別）", '<iframe src="data:text/html,x"></iframe>', "型の外に許していない要素 <iframe>"),
+    ("送料 1 箱 125.5 円（税別）", '<embed src="data:text/html,x">', "型の外に許していない要素 <embed>"),
     ('<meta name="color-scheme" content="light">', '<meta name="color-scheme" content="light"><meta http-equiv="refresh" content="0;url=https://example.com/">', "型の外に許していない属性「http-equiv」"),
-    ("見積りの写しを付けています。", '<img src="data:image/png;base64,iVBORw0KGgo=" alt="見積り" srcset="https://example.com/a.png 2x">', "型の外に許していない属性「srcset」"),
-    ("見積りの写しを付けています。", '<a href="https://example.com/mitsumori">見積りの写し</a>', None),
-    ("見積りの写しを付けています。", '<img src="data:image/png;base64,AAAA" SRC="data:image/png;base64,BBBB" alt="x">', "同じ属性「src」が 2 回ある"),
-    ("見積りの写しを付けています。", '<a href="#a" href="#b">見積り</a>', "同じ属性「href」が 2 回ある"),
-    ("見積りの写しを付けています。", '<a href="http://example.com/">見積り</a>', "許していない URL"),
+    ("送料 1 箱 125.5 円（税別）", '<img src="data:image/png;base64,iVBORw0KGgo=" alt="見積り" srcset="https://example.com/a.png 2x">', "型の外に許していない属性「srcset」"),
+    ("送料 1 箱 125.5 円（税別）", '<a href="https://example.com/mitsumori">見積りの写し</a>', None),
+    ("送料 1 箱 125.5 円（税別）", '<img src="data:image/png;base64,AAAA" SRC="data:image/png;base64,BBBB" alt="x">', "同じ属性「src」が 2 回ある"),
+    ("送料 1 箱 125.5 円（税別）", '<a href="#a" href="#b">見積り</a>', "同じ属性「href」が 2 回ある"),
+    ("送料 1 箱 125.5 円（税別）", '<a href="http://example.com/">見積り</a>', "許していない URL"),
     ('<meta name="color-scheme" content="light">', '<meta name="color-scheme" content="light"><meta name="referrer" content="none">', "許していない meta"),
     ("<p class=\"lead\">", "<!-- a --!> x --><p class=\"lead\">", "崩れたコメント"),
     ("<p class=\"lead\">", "<!--> x --><p class=\"lead\">", "崩れたコメント"),
@@ -309,7 +372,7 @@ DOUBLE_ATTRS = [
 @pytest.mark.parametrize("inject, expect", DOUBLE_ATTRS, ids=["src", "href"])
 def test_同じ属性の_2_つ目で隠せない(tmp_path, inject, expect):
     page = tmp_path / "確認.html"
-    page.write_text(filled_template().replace("見積りの写しを付けています。", inject, 1), encoding="utf-8")
+    page.write_text(filled_template().replace("送料 1 箱 125.5 円（税別）", inject, 1), encoding="utf-8")
     red = run_check(page)["red"]
     assert any(r.startswith("同じ属性") for r in red) and any(r.startswith(expect) for r in red), red
 

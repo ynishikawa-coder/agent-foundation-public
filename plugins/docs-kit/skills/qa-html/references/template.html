@@ -9,9 +9,14 @@
   問いの箱 1 つ＝1 問（fieldset.q）:
     data-qkey＝問いの鍵（半角英数字と _・答えの name と同じ）／data-qlabel＝一言の見出し／data-kind＝choose・mismatch・fact・judge
     data-group＝rule（会社の決まり）→ person（人ごとの事実）→ once（今回だけの事）の順に並べる（見出しを替える時は data-glabel）
-    data-decides＝この答えで決まる事（画面に出さない・控えに残す）
-    legend＝問い 1 行／.known＝分かっている事 2 行まで＋数字の小さな表／details.more＝くわしく（たたむ）
-    選択肢＝label.opt（value は半角英数字と _・最初の 1 つに required・中身の見出し <b>＋結果 1 行 <small>・記号 A/B を付けない）
+  前提は 3 段: ①はじめの画面＝読んだ資料の一覧（.docs の li[data-doc]）と答えるまでの扱い（.hold）
+    ②まとまり＝各まとまりの最初の問いに .glead（1 行）だけ ③1 問＝固定の 4 欄
+      何について（.about の span 1〜3 つ・人の名は span.who）／見つけた事（.known・data-docs＝読んだ資料の鍵・2 行まで）
+      ＋切り抜き（figure.clip・1 問 2 枚まで・data-doc・data-shows＝写っている人の名＝問いの人だけ・ほかの人は塗る）
+      ／なぜ聞くか（.why の data-why＝mismatch・missing・law・once と決まった文）／くわしく（details.more・3 行＋原文は .orig）
+    前提が書けない問いは出さない（どれかが空なら検査が赤）
+    legend＝問い 1 行／選択肢＝label.opt（value は半角英数字と _・最初の 1 つに required・中身の見出し <b>
+      ＋この答えで変わる事 <small class="chg">（誰の・何が・いくら）・記号 A/B を付けない）
     最後に「または」と「分からない」（value="__unknown__"）を必ず置く／ひとこと＝name="supp_鍵"（任意）
 ============================================================ -->
 <html lang="ja">
@@ -33,6 +38,21 @@
   .box{background:var(--soft);border-radius:12px;padding:12px 14px;margin:0 0 14px;font-size:16px}
   .from{border:1px solid var(--line);border-radius:12px;padding:12px 14px;margin:0 0 14px;font-size:16px;color:var(--sub)}
   .from b{color:var(--ink)}
+  .docs{border:1px solid var(--line);border-radius:12px;padding:12px 14px;margin:0 0 14px;font-size:16px}
+  .docs h2{font-size:16px;margin:0 0 6px}
+  .docs ul{margin:0 0 6px;padding-left:20px}
+  .docs p{margin:0;color:var(--sub)}
+  .hold{font-size:16px;margin:0 0 14px}
+  .glead{font-size:16px;color:var(--sub);margin:0 0 8px}
+  .about{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 8px}
+  .about span{font-size:14px;background:#eef2f6;border-radius:6px;padding:2px 8px;color:var(--sub)}
+  .why{clear:both;font-size:16px;background:#fff7e6;border-left:4px solid #b45309;border-radius:0 8px 8px 0;padding:6px 10px;margin:0 0 10px;color:#7c3a06}
+  .clips{clear:both;display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px;margin:0 0 12px}
+  figure.clip{margin:0;border:1px solid var(--line);border-radius:8px;padding:6px;background:#fff;cursor:zoom-in}
+  figure.clip img{display:block;width:100%;height:auto}
+  figure.clip figcaption{font-size:13px;color:var(--sub);margin-top:4px}
+  figure.clip.big{position:fixed;top:12px;left:12px;right:12px;bottom:12px;z-index:5;overflow:auto;cursor:zoom-out;box-shadow:0 8px 30px rgba(0,0,0,.25)}
+  details.more .orig{margin-top:6px;padding-left:10px;border-left:3px solid var(--line);font-size:15px}
   fieldset.q{border:0;border-top:1px solid var(--line);padding:22px 0 10px;margin:0;min-width:0}
   fieldset.q[data-group]::before{display:block;font-size:14px;font-weight:700;color:var(--brand);letter-spacing:.04em;margin:0 0 4px}
   fieldset.q[data-group=rule]::before{content:"会社の決まり"}
@@ -52,6 +72,7 @@
   label.opt input{flex:0 0 auto;width:22px;height:22px;margin:3px 0 0;accent-color:var(--brand)}
   label.opt b{display:block}
   label.opt small{display:block;font-size:15px;color:var(--sub)}
+  label.opt small.chg::before{content:"変わる事: ";font-weight:700}
   .tag-rec{font-size:13px;font-weight:700;background:var(--brand);color:#fff;border-radius:6px;padding:1px 7px;margin-left:8px;vertical-align:2px}
   .or{text-align:center;color:var(--faint);font-size:15px;margin:0}
   .q input[type=text],.q input[type=date],.q input[type=month],.q input[type=number],.q select,textarea{width:100%;border:2px solid var(--line);border-radius:10px;padding:10px 12px;font:inherit;font-size:17px;background:#fff;color:var(--ink)}
@@ -92,6 +113,10 @@
   <p class="to">{{宛名（例 〇〇株式会社 ご担当者様）}}</p>
   <h1>{{件名}}</h1>
   <p class="lead">{{前書き 1 文（例「答えていただいた内容で、〇〇を確定します。」）}}</p>
+  <div class="docs"><h2>読んだ資料（この中から聞いています）</h2>
+  <ul><li data-doc="d1">{{読んだ資料 1（名・期間・受け取った日）}}</li><li data-doc="d2">{{読んだ資料 2}}</li><li data-doc="d3">{{読んだ資料 3}}</li></ul>
+  <p>ほかに新しい資料がある時は、最後の「ほかに伝えたい事」で教えてください。</p></div>
+  <p class="hold">{{答えるまでの扱い（例「答えが届くまで、この点は確定せずにお待ちします。」）}}</p>
   <div class="box">{{期限（例 11 月 20 日）}} までにお願いします。</div>
   <div class="from"><b>差出人</b> {{差出人（会社名・担当者）}}<br><b>分からない時</b> <span class="contact">{{連絡先（電話かメール）}}</span></div>
 </header>
@@ -100,15 +125,19 @@
 <input type="hidden" name="__版__" value="{{版（例 2026-11-13.1・問いを直したら上げる）}}">
 <input type="hidden" name="__受付番号__" value="">
 
-<!-- (a) どちらが正しいですか＝こちらで計算した候補と、その結果を並べる -->
-<fieldset class="q" data-qkey="q1" data-qlabel="{{一言の見出し}}" data-kind="choose" data-group="rule" data-decides="{{この答えで決まる事 1 行}}">
+<!-- (a) どちらが正しいですか＝こちらで計算した候補と、その答えで変わる事を並べる（この例は 今の決まりが法律の決まりと合っていません） -->
+<fieldset class="q" data-qkey="q1" data-qlabel="{{一言の見出し}}" data-kind="choose" data-group="rule">
+<p class="glead">{{まとまりの 1 行（例「規程に書いていない・法律と合わない所です」）}}</p>
+<p class="about"><span>{{何について: 誰（例 全員）}}</span><span>{{何について: いつ}}</span><span>{{何について: 何}}</span></p>
 <legend>{{問い 1 行（例「送料の端数は、どちらで計算しますか」）}}</legend>
-<div class="known">{{分かっている事 2 行まで}}
+<p class="why" data-why="law">今の決まりが法律の決まりと合っていません</p>
+<div class="known" data-docs="d1">{{見つけた事（資料名・場所・値）2 行まで}}
 <table><tr><th>{{表の見出し}}</th><th>{{今の計算}}</th><th>{{直した場合}}</th></tr><tr><td>{{行の名}}</td><td>{{数}}</td><td>{{数}}</td></tr></table></div>
-<details class="more"><summary>くわしく</summary>{{判断に要る細かい事（決まり・資料の抜粋・語の説明）}}</details>
+<div class="clips"><figure class="clip" data-doc="d1" data-shows=""><img src="{{切り抜きの画像（data:image/png;base64,…・該当に黄の印・ほかの人は塗る）}}" alt="{{切り抜きに写っている事}}"><figcaption>{{切り抜きの資料名と場所}}</figcaption></figure></div>
+<details class="more"><summary>くわしく</summary>{{判断に要る細かい事 3 行まで（決まり・計算の元・語の説明）}}<div class="orig">{{原文（資料の抜粋）}}</div></details>
 <div class="opts">
-<label class="opt"><input type="radio" name="q1" value="{{選択肢の鍵}}" required><span><b>{{中身の見出し}}<span class="tag-rec">おすすめ</span></b><small>{{その結果 1 行}}</small></span></label>
-<label class="opt"><input type="radio" name="q1" value="{{選択肢の鍵}}"><span><b>{{中身の見出し}}</b><small>{{その結果 1 行}}</small></span></label>
+<label class="opt"><input type="radio" name="q1" value="{{選択肢の鍵}}" required><span><b>{{中身の見出し}}<span class="tag-rec">おすすめ</span></b><small class="chg">{{この答えで変わる事（誰の・何が・いくら）}}</small></span></label>
+<label class="opt"><input type="radio" name="q1" value="{{選択肢の鍵}}"><span><b>{{中身の見出し}}</b><small class="chg">{{この答えで変わる事（誰の・何が・いくら）}}</small></span></label>
 <label class="opt"><input type="radio" name="q1" value="other"><span><b>ほかの答え</b><small>下のひとことに書いてください</small></span></label>
 <p class="or">または</p>
 <label class="opt"><input type="radio" name="q1" value="__unknown__"><span><b>分からない・社内で確かめてから答える</b></span></label>
@@ -116,13 +145,17 @@
 <div class="supp"><label for="supp_q1">ひとこと（なくても大丈夫です）</label><textarea id="supp_q1" name="supp_q1" rows="2"></textarea></div>
 </fieldset>
 
-<!-- (b) 資料の外にしか無い事実＝「当てはまらない」を置く -->
-<fieldset class="q" data-qkey="q2" data-qlabel="{{一言の見出し}}" data-kind="fact" data-group="person" data-decides="{{この答えで決まる事 1 行}}">
+<!-- (b) 資料の外にしか無い事実＝「当てはまらない」を置く（この例は 資料に書いてありません＝探した資料を見つけた事に書く） -->
+<fieldset class="q" data-qkey="q2" data-qlabel="{{一言の見出し}}" data-kind="fact" data-group="person">
+<p class="glead">{{まとまりの 1 行}}</p>
+<p class="about"><span class="who">{{何について: 誰（人の名）}}</span><span>{{何について: いつ}}</span><span>{{何について: 何}}</span></p>
 <legend>{{問い 1 行（例「〇〇さんの入社日は、どちらですか」）}}</legend>
-<div class="known">{{分かっている事 2 行まで}}</div>
+<p class="why" data-why="missing">資料に書いてありません</p>
+<div class="known" data-docs="d2 d3">{{見つけた事（探した資料と、こちらの見込み）2 行まで}}</div>
+<details class="more"><summary>くわしく</summary>{{判断に要る細かい事 3 行まで}}</details>
 <div class="opts">
-<label class="opt"><input type="radio" name="q2" value="{{選択肢の鍵}}" required><span><b>{{中身の見出し}}</b></span></label>
-<label class="opt"><input type="radio" name="q2" value="{{選択肢の鍵}}"><span><b>{{中身の見出し}}</b></span></label>
+<label class="opt"><input type="radio" name="q2" value="{{選択肢の鍵}}" required><span><b>{{中身の見出し}}</b><small class="chg">{{この答えで変わる事（誰の・何が・いくら）}}</small></span></label>
+<label class="opt"><input type="radio" name="q2" value="{{選択肢の鍵}}"><span><b>{{中身の見出し}}</b><small class="chg">{{この答えで変わる事（誰の・何が・いくら）}}</small></span></label>
 <label class="opt"><input type="radio" name="q2" value="none"><span><b>当てはまらない</b></span></label>
 <p class="or">または</p>
 <label class="opt"><input type="radio" name="q2" value="__unknown__"><span><b>分からない・社内で確かめてから答える</b></span></label>
@@ -130,13 +163,17 @@
 <div class="supp"><label for="supp_q2">ひとこと（なくても大丈夫です）</label><textarea id="supp_q2" name="supp_q2" rows="2"></textarea></div>
 </fieldset>
 
-<!-- (c) 読んでも決まりが分からない時の判断＝候補 2 つ以上・おすすめは 1 つまで -->
-<fieldset class="q" data-qkey="q3" data-qlabel="{{一言の見出し}}" data-kind="judge" data-group="once" data-decides="{{この答えで決まる事 1 行}}">
+<!-- (c) 読んでも決まりが分からない時の判断＝候補 2 つ以上・おすすめは 1 つまで（この例は 今回だけの事を確かめます） -->
+<fieldset class="q" data-qkey="q3" data-qlabel="{{一言の見出し}}" data-kind="judge" data-group="once">
+<p class="glead">{{まとまりの 1 行}}</p>
+<p class="about"><span>{{何について: 誰（例 全員）}}</span><span>{{何について: いつ}}</span></p>
 <legend>{{問い 1 行（例「〇〇は、どう決めますか」）}}</legend>
-<div class="known">{{分かっている事 2 行まで}}</div>
+<p class="why" data-why="once">今回だけの事を確かめます</p>
+<div class="known" data-docs="d1">{{見つけた事（資料名・場所・値）2 行まで}}</div>
+<details class="more"><summary>くわしく</summary>{{判断に要る細かい事 3 行まで}}</details>
 <div class="opts">
-<label class="opt"><input type="radio" name="q3" value="{{選択肢の鍵}}" required><span><b>{{中身の見出し}}</b><small>{{その結果 1 行}}</small></span></label>
-<label class="opt"><input type="radio" name="q3" value="{{選択肢の鍵}}"><span><b>{{中身の見出し}}</b><small>{{その結果 1 行}}</small></span></label>
+<label class="opt"><input type="radio" name="q3" value="{{選択肢の鍵}}" required><span><b>{{中身の見出し}}</b><small class="chg">{{この答えで変わる事（誰の・何が・いくら）}}</small></span></label>
+<label class="opt"><input type="radio" name="q3" value="{{選択肢の鍵}}"><span><b>{{中身の見出し}}</b><small class="chg">{{この答えで変わる事（誰の・何が・いくら）}}</small></span></label>
 <label class="opt"><input type="radio" name="q3" value="other"><span><b>別の決め方</b><small>下のひとことに書いてください</small></span></label>
 <p class="or">または</p>
 <label class="opt"><input type="radio" name="q3" value="__unknown__"><span><b>分からない・社内で確かめてから答える</b></span></label>
@@ -359,6 +396,7 @@
     if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(out.value).then(function(){ flash('写しました ✓'); }, function(){ flash(ok ? '写しました ✓' : '枠を全部選んで写してください'); });
     else flash(ok ? '写しました ✓' : '枠を全部選んで写してください');
   });
+  [].forEach.call(document.querySelectorAll('figure.clip'), function(f){ f.addEventListener('click', function(){ f.classList.toggle('big'); }); });
   var pb = document.getElementById('printbtn'); if (pb) pb.addEventListener('click', function(){ window.print(); });
   if (done) { var from = header && header.querySelector('.from'); if (from) done.appendChild(from.cloneNode(true)); }
   window.addEventListener('hashchange', render);
