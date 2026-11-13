@@ -304,8 +304,12 @@ export function readHtml(raw) {
   else if (!/^[0-9A-Za-z._-]+$/.test(version) && !/^\{\{/.test(version)) shape.push(`版は半角英数字と . _ - だけ（今 ${version}）`);
   if (!/<input\b[^>]*\bname\s*=\s*["']__受付番号__["']/i.test(html)) shape.push('受付番号の欄（<input type="hidden" name="__受付番号__">）が無い');
   // 送る前の確認・受付・送るボタンは qa:foot（型と突き合わせ済み）。差してよいのは「この後のこと」だけ
-  const next = byClass(mask(raw), "next")[0]; // script を落とす前の写しで見る（中に script を書いても見逃さない）
-  if (!next || !text(next.inner)) shape.push("受付の「この後のこと」（.next）が無い");
+  // 「この後のこと」は qa:foot の間の .next をちょうど 1 つ・script を落とす前の写しで見る（中の script も、外の囮も見逃さない）
+  const foot = /<!--qa:foot-->([\s\S]*?)<!--\/qa:foot-->/.exec(raw)?.[1] ?? "";
+  const nexts = byClass(mask(foot), "next");
+  const next = nexts.length === 1 ? nexts[0] : null;
+  if (nexts.length > 1) shape.push(`受付の「この後のこと」（.next）は 1 つだけ（今 ${nexts.length}）`);
+  else if (!next || !text(next.inner)) shape.push("受付の「この後のこと」（.next）が無い");
   else if (/<(?!br\s*\/?>)[a-z!/]/i.test(mask(next.inner))) shape.push("「この後のこと」（.next）に書けるのは字と <br> だけ");
 
   const visible = textLines(html.replace(/<(head)\b[\s\S]*?<\/head\s*>/i, (m) => (/<title>([\s\S]*?)<\/title>/i.exec(m)?.[1] ?? "")));

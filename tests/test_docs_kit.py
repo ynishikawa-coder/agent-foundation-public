@@ -222,18 +222,22 @@ MUTATIONS = [
     ('id="sendbtn">', 'id="sendbtn" onclick="fetch(\'/x\')">', "qa:foot の中身が型と違う"),
     ("決まりの写しをお送りします。", "決まりの写しをお送りします。<script>fetch('/x')</script>", "「この後のこと」（.next）に書けるのは"),
     ("決まりの写しをお送りします。", '決まりの写しをお送りします。<img src="x" onerror="fetch(\'/x\')">', "「この後のこと」（.next）に書けるのは"),
+    ("決まりの写しをお送りします。", "決まりの写しをお送りします。<script>fetch('/x')</script>", "「この後のこと」（.next）に書けるのは", '<p class="lead">', '<p class="lead"><span class="next">ok</span>'),
     ('<details class="more">', '<details class="more"/onclick="fetch(\'/x\')">', "型の外に動き（on… の属性）"),
     ('type="radio" name="q2" value="none"', 'type="checkbox" name="q2" value="none" required', "問い q2: checkbox に required"),
 ]
 
 
 @needs_node
-@pytest.mark.parametrize("old, new, expect", MUTATIONS, ids=[m[2] for m in MUTATIONS])
-def test_壊した所の赤だけが出る(tmp_path, old, new, expect):
+@pytest.mark.parametrize("old, new, expect, more", [(*m[:3], m[3:]) for m in MUTATIONS], ids=[m[2] for m in MUTATIONS])
+def test_壊した所の赤だけが出る(tmp_path, old, new, expect, more):
+    """more＝同時に入れる 2 つ目の書き換え（old2, new2）。囮を置いて照らしをすり抜けられないかを見る。"""
     base = filled_template()
-    assert old in base, old
+    for o, n in [(old, new), *zip(more[::2], more[1::2])]:
+        assert o in base, o
+        base = base.replace(o, n, 1)
     page = tmp_path / "確認.html"
-    page.write_text(base.replace(old, new, 1), encoding="utf-8")
+    page.write_text(base, encoding="utf-8")
     out = run_check(page)
     assert len(out["red"]) == 1 and out["red"][0].startswith(expect), out["red"]
 
