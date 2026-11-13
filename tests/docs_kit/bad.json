@@ -1,20 +1,39 @@
 {
   "dest": "artifact",
+  "to": "サンプル株式会社 ご担当者様",
+  "from": "サンプル事務所 担当 見本",
+  "contact": "このメールに返信してください",
   "title": "備品の貸し出しの決め方",
+  "next": "11 月 22 日までに、決まりの写しをお送りします。",
+  "version": "2026-11-13.1",
+  "docs": [{ "key": "d1", "name": "貸し出しの記録（10 月分）" }],
   "questions": [
     {
       "key": "q1",
       "kind": "judge",
+      "group": "person",
+      "glead": "人ごとの事です",
+      "about": ["見本さん", "返す期限"],
+      "who": "見本さん",
       "question": "返す期限と置き場所を教えてください",
-      "options": ["決まったら連絡"],
-      "decides": "返す期限の知らせを出す日"
+      "known": ["貸し出しの記録に返す期限の欄がありません。"],
+      "docs": ["d1"],
+      "more": "記録は 10 月分です。",
+      "options": [{ "value": "later", "label": "決まったら連絡", "change": "返す期限の知らせを後で出します" }]
     },
     {
       "key": "q2",
       "kind": "fact",
-      "question": "新しい棚が届く日はいつですか",
-      "options": ["分かる", "まだ分からない"],
-      "decides": "棚の入れ替えの日",
+      "group": "rule",
+      "glead": "決まりの事です",
+      "about": ["全員", "棚が届く日"],
+      "why": "missing",
+      "question": "新しい棚が届く日は、どちらですか",
+      "known": ["貸し出しの記録に届く日の書きがありません。"],
+      "docs": ["d1"],
+      "more": "記録は 10 月分です。",
+      "clips": [{ "doc": "d1", "src": "https://example.com/a.png", "alt": "記録の 1 行", "shows": [] }],
+      "options": [{ "value": "known", "label": "分かる", "change": "届く日を表に入れます" }, { "value": "later", "label": "まだ分からない" }],
       "supp": false
     }
   ]
