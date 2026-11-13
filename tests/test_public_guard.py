@@ -366,7 +366,10 @@ def test_mergeでだけ足された行も照らす(tmp_path):
     _commit(repo, {"a.md": "一\n"})
     _git(repo, "checkout", "-q", "-")
     _commit(repo, {"a.md": "二\n"})
-    subprocess.run(["git", "merge", "-q", "side"], cwd=repo, capture_output=True)
+    env = {**os.environ, "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": OK_MAIL,
+           "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": OK_MAIL}
+    res = subprocess.run(["git", "merge", "-q", "side"], cwd=repo, env=env, capture_output=True, text=True)
+    assert (repo / ".git" / "MERGE_HEAD").exists(), res.stdout + res.stderr  # 衝突で merge の途中に居る
     (repo / "a.md").write_text(f"鍵 {TOKEN}\n", encoding="utf-8")
     _git(repo, "add", "a.md")
     _git(repo, "commit", "-q", "--no-edit")
