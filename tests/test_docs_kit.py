@@ -220,6 +220,16 @@ def test_前提が書けない問いのデータは赤(tmp_path):
 
 
 @needs_node
+def test_食い違いの切り抜きは_2_枚(tmp_path):
+    data = json.loads((DATA / "good.json").read_text(encoding="utf-8"))
+    data["questions"][1]["clips"].pop()
+    page = tmp_path / "q.json"
+    page.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+    red = run_check(page)["red"]
+    assert len(red) == 1 and red[0].startswith("問い q2: 食い違いの切り抜きは 2 枚"), red
+
+
+@needs_node
 def test_なぜ聞くかの文は会社の表で替えられる(tmp_path):
     page = tmp_path / "確認.html"
     page.write_text(filled_template().replace(">今回だけの事を確かめます<", ">この月だけの事を確かめます<", 1), encoding="utf-8")
@@ -245,7 +255,7 @@ MUTATIONS = [
     ("返す期限は、どう決めますか", "返す期限と置き場所を教えてください", "問い q3: 1 問に 2 つ以上"),
     ("新しい棚が届く日は、どちらですか", "新しい棚が届く日は合っていますか", "問い q2: 「合っていますか」"),
     ("新しい棚が届く日は、どちらですか", "新しい棚の数を教えてください", "問い q2: 数を書かせる問い"),
-    ("<b>当てはまらない</b>", "<b>ほかの日</b>", "問い q2: 資料の外の事実の問いに「当てはまらない」"),
+    ("<b>当てはまらない</b>", '<b>ほかの日</b><small class="chg">届く日を表に入れます</small>', "問い q2: 資料の外の事実の問いに「当てはまらない」"),
     ('name="q2" value="__unknown__"', 'name="q2" value="later"', "問い q2: 「分からない・社内で確かめてから答える」"),
     ('value="d1020" required', 'value="d1020"', "問い q2: 答えずに送れる"),
     ("<b>切り捨てる", "<b>A 切り捨てる", "問い q1: 選択肢に記号"),
@@ -265,7 +275,7 @@ MUTATIONS = [
     ("<span>送料</span>", "<span>送料</span><span>請求</span>", "問い q1: 何についての札が 4 つ"),
     ('<p class="glead">届いた物の確かめです</p>', "", "問い q2: まとまりの最初の問いに"),
     ("届いた物の確かめです", "届いた物の<br>確かめです", "問い q2: まとまりの 1 行が 2 行"),
-    ('data-group="once"', 'data-group="person"', "問い q3: まとまりの 1 行はまとまりの最初の問いだけ"),
+    ('data-group="person"', 'data-group="rule"', "問い q2: まとまりの 1 行はまとまりの最初の問いだけ"),
     ('<details class="more"><summary>くわしく</summary>注文は 10 月 1 日に出ています。</details>', "", "問い q2: くわしく"),
     ("注文は 10 月 1 日に出ています。", "注文は 10 月 1 日です。<br>届く日は未定です。<br>棚は 2 台です。<br>置き場は 1 階です。", "問い q2: くわしくが 4 行"),
     ('<small class="chg">棚の入れ替えが 10 月 28 日</small>', "", "問い q2: 選択肢「10 月 27 日」にこの答えで変わる事"),
@@ -274,6 +284,14 @@ MUTATIONS = [
     ('data-doc="d1" data-shows', 'data-doc="d7" data-shows', "問い q1: 切り抜き 1 の資料「d7」"),
     ("</figure></div>", "</figure>" + '<figure class="clip" data-doc="d2" data-shows=""><img src="data:image/png;base64,AAAA" alt="注文書の控え"></figure>' * 2 + "</div>", "問い q1: 切り抜きが 3 枚"),
     ("</figure></div>", "</figure>" + '<figure class="clip" data-doc="d2" data-shows=""><img src="data:image/png;base64,AAAA" alt="注文書の控え"><figcaption>注文書の控え</figcaption></figure></div>', None),
+    ('data-doc="d1" data-shows=""', 'data-doc="d1"', "問い q1: 切り抜き 1 に写っている人の名"),
+    ('<span class="who">見本さん</span>', "<span>見本さん</span>", "問い q2: 人ごとの事実の問いに問いの人"),
+    ('<fieldset class="q" data-qkey="q2"', '<p class="glead">問いの間の説明</p><fieldset class="q" data-qkey="q2"', "まとまりの 1 行（.glead）が問いの箱の外に 1 つ"),
+    ('<p class="why" data-why="missing">資料に書いてありません</p>', '<p class="why" data-why="missing">資料に書いてありません</p><p class="why" data-why="law">好きに書いた理由</p>', "問い q2: .why が 2 つ"),
+    ('<div class="known" data-docs="d2 d3">', '<div class="known" data-docs="d2">短い</div><div class="known" data-docs="d2 d3">', "問い q2: .known が 2 つ"),
+    ("<span>送料</span></p>", "<span>送料</span></p><p class=\"about\"><span>a</span><span>b</span><span>c</span><span>d</span></p>", "問い q1: .about が 2 つ"),
+    ("</details>\n<div class=\"opts\">\n<label class=\"opt\"><input type=\"radio\" name=\"q3\"", "</details><details class=\"more\"><summary>x</summary>1<br>2<br>3<br>4</details>\n<div class=\"opts\">\n<label class=\"opt\"><input type=\"radio\" name=\"q3\"", "問い q3: .more が 2 つ"),
+    ('name="q2" value="d1027"><span><b>10 月 27 日</b><small class="chg">棚の入れ替えが 10 月 28 日</small>', 'name="q2" value="other"><span><b>10 月 27 日</b>', "問い q2: 選択肢「10 月 27 日」にこの答えで変わる事"),
     ("今は期限が決まっていません。", "照合して決まっていません。", "内部の言葉「照合」"),
     ("今は期限が決まっていません。", "Q2026.11-37 の続きです。", "番号「Q2026.11-37」"),
     ('<details class="more">', '<details class="more" ontoggle="fetch(\'/x\')">', "型の外に許していない属性"),

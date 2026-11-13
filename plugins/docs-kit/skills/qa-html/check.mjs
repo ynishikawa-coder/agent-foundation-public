@@ -48,8 +48,8 @@ export const RULES = {
     "law": "今の決まりが法律の決まりと合っていません",
     "once": "今回だけの事を確かめます"
   },
-  // この答えで変わる事を書かなくてよい選択肢の鍵（ひとことに書かせる逃げ道）
-  "free_values": ["other", "none"],
+  // この答えで変わる事を書かなくてよい選択肢＝ひとことに書かせる逃げ道だけ（鍵と見出しの両方が合う時）
+  "free_options": { "other": ["ほかの答え", "別の決め方"], "none": ["当てはまらない"] },
   "kinds": {
     "choose": "どちらが正しいですか＝こちらが計算した候補を並べる（候補 2 つ以上）",
     "mismatch": "資料どうしが食い違う＝「合っていますか」を使ってよいのはここだけ（候補 2 つ以上）",
@@ -408,6 +408,8 @@ export function readHtml(raw) {
     });
     // 前提 ②③: まとまりの 1 行・何について・なぜ聞くか・見つけた事の資料・切り抜き・くわしく
     const gleads = byClass(q.inner, "glead").map((g) => textLines(g.inner));
+    // 4 欄の箱は 1 問に 1 つずつ（2 つ目に書いて上限・決まった文をすり抜けさせない）
+    const boxes = Object.fromEntries(["about", "why", "known", "more", "clips"].map((c) => [c, byClass(q.inner, c).length]));
     const aboutEl = byClass(q.inner, "about")[0];
     const aboutSpans = aboutEl ? [...aboutEl.inner.matchAll(/<span\b[^>]*>([\s\S]*?)<\/span\s*>/gi)] : [];
     const whyEl = byClass(q.inner, "why")[0];
@@ -415,7 +417,7 @@ export function readHtml(raw) {
     const clips = byClass(q.inner, "clip").map((f) => {
       const img = /<img\b[^>]*>/i.exec(f.inner)?.[0] ?? null;
       const cap = /<figcaption\b[^>]*>([\s\S]*?)<\/figcaption\s*>/i.exec(f.inner);
-      return { doc: attr(f.tag, "data-doc"), shows: (attr(f.tag, "data-shows") ?? "").split(/[\s、,]+/).filter(Boolean), img: !!img, src: img ? attr(img, "src") : null,
+      return { doc: attr(f.tag, "data-doc"), hasShows: attr(f.tag, "data-shows") != null, shows: (attr(f.tag, "data-shows") ?? "").split(/[\s、,]+/).filter(Boolean), img: !!img, src: img ? attr(img, "src") : null,
         alt: img ? attr(img, "alt") ?? "" : "", caption: cap ? text(cap[1]) : "" };
     });
     const freeInputs = [...q.inner.matchAll(/<input\b[^>]*\btype\s*=\s*["']?(text|date|month|number)\b[^>]*>|<select\b[^>]*>|<textarea\b[^>]*\bname\s*=\s*["'](?!supp_)[^>]*>/gi)].map((i) => i[0]);
@@ -428,6 +430,7 @@ export function readHtml(raw) {
       known: known ? textLines(known.inner.replace(/<table\b[\s\S]*?<\/table\s*>/gi, "")) : [],
       knownDocs: known ? (attr(known.tag, "data-docs") ?? "").split(/\s+/).filter(Boolean) : [],
       gleads,
+      boxes,
       about: aboutSpans.map((x) => text(x[1])),
       who: aboutSpans.filter((x) => /\bclass\s*=\s*["'][^"']*\bwho\b/i.test(x[0])).map((x) => text(x[1])).filter(Boolean),
       why: whyEl ? attr(whyEl.tag, "data-why") : null,
@@ -446,6 +449,10 @@ export function readHtml(raw) {
       supp: new RegExp(`\\bname\\s*=\\s*["']supp_${m[1]}["']`).test(q.inner),
     });
   }
+  // まとまりの 1 行は問いの箱の中だけ（問いの間に説明を挟まない）
+  const gleadAll = byClass(html, "glead").length;
+  const gleadIn = questions.reduce((n, q) => n + q.gleads.length, 0);
+  if (gleadAll !== gleadIn) shape.push(`まとまりの 1 行（.glead）が問いの箱の外に ${gleadAll - gleadIn} つある（説明を問いの間に挟まない）`);
   return { format: "html", dest, holes, shape, brand, docs, hold, texts: [...visible, ...attrTexts], questions };
 }
 
@@ -489,7 +496,8 @@ export function readJson(data) {
         why: q.why ?? null,
         whyText: null, // 型の側が決まった文を出す
         more: q.more == null || !String(q.more).trim() ? null : lines(q.more),
-        clips: (Array.isArray(q.clips) ? q.clips : []).map((c) => ({ doc: c?.doc ?? null, shows: Array.isArray(c?.shows) ? c.shows.map(String) : [], img: true, src: c?.src ?? null,
+        boxes: {},
+        clips: (Array.isArray(q.clips) ? q.clips : []).map((c) => ({ doc: c?.doc ?? null, hasShows: Array.isArray(c?.shows), shows: Array.isArray(c?.shows) ? c.shows.map(String) : [], img: true, src: c?.src ?? null,
           alt: String(c?.alt ?? ""), caption: String(c?.caption ?? "") })),
         tableRows: table.length,
         options,
@@ -573,8 +581,10 @@ export function checkPage(page, { valuesPath = null } = {}) {
     }
 
     // 前提 ③: 1 問の固定の 4 欄（何について・見つけた事・なぜ聞くか・くわしく）。書けない問いは出さない
+    for (const [c, n] of Object.entries(q.boxes)) if (n > 1) red.push(`${id}: .${c} が ${n} つある（1 問に 1 つ）`);
     if (!q.about.length || q.about.some((a) => !a)) red.push(`${id}: 何について（誰・いつ・何の札 ${page.format === "html" ? ".about の span" : '"about"'}）が無い・空（前提が書けない問いは出さない）`);
     else if (q.about.length > limits.about_tags) red.push(`${id}: 何についての札が ${q.about.length} つ（${limits.about_tags} つまで）`);
+    if (q.group === "person" && !q.who.length) red.push(`${id}: 人ごとの事実の問いに問いの人（${page.format === "html" ? "span.who" : '"who"'}）が無い`);
     for (const w of q.who) if (!q.about.includes(w)) red.push(`${id}: 問いの人「${w}」が何についての札に無い`);
     if (!WHYS.includes(q.why)) red.push(`${id}: なぜ聞くか（${page.format === "html" ? ".why の data-why" : '"why"'}）が ${WHYS.join("・")} のどれでもない（今 ${q.why ?? "無し"}）`);
     else if (q.whyText != null && q.whyText !== whyText[q.why]) red.push(`${id}: なぜ聞くかの文は決まった文「${whyText[q.why]}」のまま（今 ${q.whyText}）`);
@@ -586,11 +596,13 @@ export function checkPage(page, { valuesPath = null } = {}) {
     else if (q.more.length > limits.more_lines) red.push(`${id}: くわしくが ${q.more.length} 行（${limits.more_lines} 行まで・資料の原文は ${page.format === "html" ? ".orig" : "切り抜き"} へ）`);
     // 切り抜き: 1 問 2 枚まで・一覧の資料・写っている名は問いの人だけ（ほかの人は塗る）
     if (q.clips.length > limits.clips) red.push(`${id}: 切り抜きが ${q.clips.length} 枚（${limits.clips} 枚まで）`);
+    if (q.why === "mismatch" && q.clips.length === 1) red.push(`${id}: 食い違いの切り抜きは 2 枚を横に並べる（今 1 枚・出さないなら 0 枚）`);
     const others = [...new Set(qs.filter((o) => o !== q).flatMap((o) => whoOf.get(o.key) ?? []))].filter((n) => !q.who.includes(n));
     q.clips.forEach((c, i) => {
       const cid = `${id}: 切り抜き ${i + 1}`;
       if (!c.img || !c.src || !new RegExp(ALLOW.img_src).test(c.src)) red.push(`${cid} の画像が無い・ページに埋め込んでいない（data:image/… だけ）`);
       if (!c.alt) red.push(`${cid} に写っている事（alt）が無い`);
+      if (!c.hasShows) red.push(`${cid} に写っている人の名（${page.format === "html" ? 'data-shows・誰も写らなければ data-shows=""' : '"shows"・誰も写らなければ []'}）が無い`);
       if (!c.doc || !docKeys.includes(c.doc)) red.push(`${cid} の資料「${c.doc ?? "無し"}」が読んだ資料の一覧に無い`);
       for (const n of c.shows) if (!q.who.includes(n)) red.push(`${cid} に問いの人の外の名「${n}」が写っている（ほかの人の行は塗る）`);
       for (const n of others) if ([c.alt, c.caption].some((t) => t.includes(n))) red.push(`${cid} の説明に問いの人の外の名「${n}」がある（ほかの人の行は塗る）`);
@@ -625,7 +637,7 @@ export function checkPage(page, { valuesPath = null } = {}) {
     for (const o of real) {
       if (len(o.head) > limits.option_chars) red.push(`${id}: 選択肢の見出しが ${len(o.head)} 字（${limits.option_chars} 字まで・中身は結果の 1 行へ）: ${o.head.slice(0, 30)}…`);
       if (len(o.detail) > limits.option_detail_chars) red.push(`${id}: 選択肢の添え書きが ${len(o.detail)} 字（${limits.option_detail_chars} 字まで）: ${o.detail.slice(0, 30)}…`);
-      if (!RULES.free_values.includes(o.value) && o.head !== RULES.unknown.label) {
+      if (!(RULES.free_options[o.value] ?? []).includes(o.head) && o.head !== RULES.unknown.label) {
         if (!o.change) red.push(`${id}: 選択肢「${o.head.slice(0, 20)}」にこの答えで変わる事（誰の・何が・いくら ${page.format === "html" ? "small.chg" : '"change"'}）が無い`);
         else if (len(o.change) > limits.change_chars) red.push(`${id}: この答えで変わる事が ${len(o.change)} 字（${limits.change_chars} 字まで）: ${o.change.slice(0, 30)}…`);
       }

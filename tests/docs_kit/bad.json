@@ -13,7 +13,8 @@
       "kind": "judge",
       "group": "person",
       "glead": "人ごとの事です",
-      "about": ["全員", "返す期限"],
+      "about": ["見本さん", "返す期限"],
+      "who": "見本さん",
       "question": "返す期限と置き場所を教えてください",
       "known": ["貸し出しの記録に返す期限の欄がありません。"],
       "docs": ["d1"],
@@ -31,7 +32,7 @@
       "known": ["貸し出しの記録に届く日の書きがありません。"],
       "docs": ["d1"],
       "more": "記録は 10 月分です。",
-      "clips": [{ "doc": "d1", "src": "https://example.com/a.png", "alt": "記録の 1 行" }],
+      "clips": [{ "doc": "d1", "src": "https://example.com/a.png", "alt": "記録の 1 行", "shows": [] }],
       "options": [{ "value": "known", "label": "分かる", "change": "届く日を表に入れます" }, { "value": "later", "label": "まだ分からない" }],
       "supp": false
     }
