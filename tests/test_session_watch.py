@@ -111,6 +111,14 @@ def test_あなたがやることがあれば済むまで進めない事を書�
                                               "あなたがやること: 設定を 1 つ。これが済むまで公開に進めません。")
     assert "close" not in codes(c)
 
+
+def test_あなたがやることがある締めでは言い回しの平文の問いを拾う():
+    body = "⏳待ち（オーナー・今日中）\n置き場は上の箱と下の箱のどちらがよいか教えてください\n"
+    c = set_last_text(rows("owner_ok.jsonl"), body + "AI がこの後やること: なし\nあなたがやること: 上の問いに答える。これが済むまで置き場を作れません。")
+    assert sw.is_plain_question(c[-1]["message"]["content"][0]["text"])
+    c = set_last_text(rows("owner_ok.jsonl"), body + "AI がこの後やること: なし\nあなたがやること: なし。この窓は閉じて大丈夫です。")
+    assert not sw.is_plain_question(c[-1]["message"]["content"][0]["text"])
+
 def test_手で回す口は拾えば_exit_1_型どおりなら_exit_0():
     run = lambda name: subprocess.run([sys.executable, str(SCRIPT), str(LOGS / name)], capture_output=True, text=True)
     bad = run("plain_unanswered.jsonl")

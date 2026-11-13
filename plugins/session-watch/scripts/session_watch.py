@@ -244,8 +244,8 @@ def is_plain_question(text):
     end = bool(QEND.search(s))
     card = bool(re.match(r"\s*(\*\*)?❓", s))
     phrase = bool(STRONG.search("\n".join(lines[-2:]))) and not COND.search(lines[-1])
-    if close and "答える" not in close:
-        phrase = False   # オーナーへの問いが無い締めは、言い回しだけでは問いにしない
+    if close and OWNER_NONE.match(close.splitlines()[-1]):
+        phrase = False   # あなたがやることが「なし」の締めは、言い回しだけでは問いにしない
     return end or card or phrase
 
 
