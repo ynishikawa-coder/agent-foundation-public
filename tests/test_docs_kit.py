@@ -220,6 +220,9 @@ MUTATIONS = [
     ('<section class="done" id="qa-done" hidden>', '<section class="done" id="qa-done">', "qa:foot の中身が型と違う"),
     ("<h2>答えを確かめてください</h2>", "<h2>これで送ります</h2>", "qa:foot の中身が型と違う"),
     ('id="sendbtn">', 'id="sendbtn" onclick="fetch(\'/x\')">', "qa:foot の中身が型と違う"),
+    ("決まりの写しをお送りします。", "決まりの写しをお送りします。<script>fetch('/x')</script>", "「この後のこと」（.next）に書けるのは"),
+    ("決まりの写しをお送りします。", '決まりの写しをお送りします。<img src="x" onerror="fetch(\'/x\')">', "「この後のこと」（.next）に書けるのは"),
+    ('<details class="more">', '<details class="more"/onclick="fetch(\'/x\')">', "型の外に動き（on… の属性）"),
     ('type="radio" name="q2" value="none"', 'type="checkbox" name="q2" value="none" required', "問い q2: checkbox に required"),
 ]
 
@@ -238,7 +241,7 @@ def test_壊した所の赤だけが出る(tmp_path, old, new, expect):
 @needs_node
 def test_この後のことは差し替えても緑(tmp_path):
     page = tmp_path / "確認.html"
-    page.write_text(filled_template().replace("11 月 22 日までに、決まりの写しをお送りします。", "来週中にお電話します。", 1), encoding="utf-8")
+    page.write_text(filled_template().replace("11 月 22 日までに、決まりの写しをお送りします。", "来週中に<br>お電話します。", 1), encoding="utf-8")
     assert run_check(page)["red"] == []
 
 

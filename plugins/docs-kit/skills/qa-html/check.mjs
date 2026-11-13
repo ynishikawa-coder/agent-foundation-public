@@ -270,7 +270,7 @@ export function readHtml(raw) {
   if (/<style\b/i.test(outside)) shape.push("型の外に <style> がある（見た目は型の 1 つだけ）");
   if (/<script\b/i.test(outside)) shape.push("型の外に <script> がある（動きは型の 1 つだけ・送信の JS も書かない）");
   if (/<link\b[^>]*rel\s*=\s*["']?stylesheet/i.test(outside)) shape.push("外の見た目（link stylesheet）を読んでいる");
-  const onAttr = /<[a-z][a-z0-9]*\b[^>]*?\son[a-z]+\s*=/i.exec(outside);
+  const onAttr = /<[a-z][a-z0-9]*\b[^>]*?[\s/]on[a-z]+\s*=/i.exec(outside);
   if (onAttr) shape.push(`型の外に動き（on… の属性）がある（動きは型の 1 つだけ）: ${onAttr[0].slice(0, 40)}`);
   if (/(?:href|src|action|formaction)\s*=\s*["']?\s*javascript:/i.test(outside)) shape.push("javascript: の URL がある（動きは型の 1 つだけ）");
   const ext = /<[a-z][a-z0-9]*\b[^>]*\s(?:src|srcset|poster|data)\s*=\s*["']?\s*(?:https?:)?\/\/[^\s"'>]*/i.exec(outside);
@@ -304,8 +304,9 @@ export function readHtml(raw) {
   else if (!/^[0-9A-Za-z._-]+$/.test(version) && !/^\{\{/.test(version)) shape.push(`版は半角英数字と . _ - だけ（今 ${version}）`);
   if (!/<input\b[^>]*\bname\s*=\s*["']__受付番号__["']/i.test(html)) shape.push('受付番号の欄（<input type="hidden" name="__受付番号__">）が無い');
   // 送る前の確認・受付・送るボタンは qa:foot（型と突き合わせ済み）。差してよいのは「この後のこと」だけ
-  const next = byClass(html, "next")[0];
+  const next = byClass(mask(raw), "next")[0]; // script を落とす前の写しで見る（中に script を書いても見逃さない）
   if (!next || !text(next.inner)) shape.push("受付の「この後のこと」（.next）が無い");
+  else if (/<(?!br\s*\/?>)[a-z!/]/i.test(mask(next.inner))) shape.push("「この後のこと」（.next）に書けるのは字と <br> だけ");
 
   const visible = textLines(html.replace(/<(head)\b[\s\S]*?<\/head\s*>/i, (m) => (/<title>([\s\S]*?)<\/title>/i.exec(m)?.[1] ?? "")));
   const attrTexts = [...html.matchAll(/\bdata-(?:qlabel|decides|glabel)\s*=\s*(?:"([^"]*)"|'([^']*)')/gi)].map((m) => decode(m[1] ?? m[2]));

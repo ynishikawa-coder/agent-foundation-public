@@ -91,10 +91,10 @@ repo の根（`git rev-parse --show-toplevel`）の `config/skill-values.json` �
 
 ## 作り方（skip 禁止）
 
-1. **`references/template.html` を丸ごと複製**する。`<body data-dest>` を `send`・`copy`・`artifact` のどれかにし、`{{…}}` と問いの箱だけ差し替える。`qa:css`・`qa:js` の間は**1 字も変えない**。`qa:foot` の間は `{{この後のこと}}` だけ差す。型の外に `style`・`script`・`on…` の属性・`javascript:` を書かない（会社の色は body の `--brand` だけ）。
+1. **`references/template.html` を丸ごと複製**する。`<body data-dest>` を `send`・`copy`・`artifact` のどれかにし、`{{…}}` と問いの箱だけ差し替える。`qa:css`・`qa:js` の間は**1 字も変えない**。`qa:foot` の間は `{{この後のこと}}` だけ差す（字と `<br>` だけ）。型の外に `style`・`script`・`on…` の属性・`javascript:` を書かない（会社の色は body の `--brand` だけ）。
 2. **header**: 宛名（`.to`）・件名（`h1`）・前書き 1 文・期限・差出人（`.from`）と連絡先（`.contact`）。全 N 問・目安の分は型が出す。
 3. **版**: `<input type="hidden" name="__版__" value="…">` に版（例 `2026-11-13.1`）を入れる。**問いを直したら版を上げる**（どの問いの形への答えかを後から辿るため）。
-4. **問いの箱を組む**（1 問＝1 つの `fieldset.q`）: `data-qkey`＝問いの鍵（半角英数字と `_`・答えの `name` と同じ・元の表の行の鍵と同じにする）／`data-qlabel`＝一言の見出し／`data-kind`＝上の形／`data-group`＝並べ方／`data-decides`＝この答えで決まる事（画面に出さない）／`legend`＝問い 1 行／`.known`＝分かっている事（数字は `<table>`）／`details.more`＝くわしく／選択肢 `label.opt`（`value`＝選択肢の鍵・半角英数字と `_`・最初の 1 つに `required`）／「または」と「分からない」／ひとこと `name="supp_鍵"`。最後に `name="__自由記入__"` の箱を 1 つ。
+4. **問いの箱を組む**（1 問＝1 つの `fieldset.q`）: `data-qkey`＝問いの鍵（半角英数字と `_`・答えの `name` と同じ・元の表の行の鍵と同じにする）／`data-qlabel`＝一言の見出し／`data-kind`＝上の形／`data-group`＝並べ方／`data-decides`＝この答えで決まる事（画面に出さない）／`legend`＝問い 1 行／`.known`＝分かっている事（数字は `<table>`）／`details.more`＝くわしく／選択肢 `label.opt`（`value`＝選択肢の鍵・半角英数字と `_`・最初の 1 つに `required`）／「または」と「分からない」／ひとこと `name="supp_鍵"`。最後に `name="__自由記入__"` の箱を 1 つ。選択肢は radio を使う（checkbox は required を付けられず、JS が切られた端末では答えずに送れる＝幾つも選ばせる時だけ）。
 5. **検査**: `node <この skill の dir>/check.mjs <file.html>`（Artifact 型に問いをデータで渡す時は `<file.json>`。送る形は表の `customer.check_cmd`＝この検査に配る口の契約と画面の写真を足した物）。**緑でなければ渡さない**。
 6. **送る前の別の目**: 窓の中の助手（Agent ツール）に、作った文脈を渡さず **HTML だけ**を渡し、答える人の立場で読ませる。見る点は 3 つ: ①どう答えても聞き直さずに済むか ②選択肢とひとことで答えが 1 つに決まるか ③既に知っている事・要らない事を聞いていないか。直したら 5 からやり直す。
 7. **保存と渡し方**: 置き場は表の `save_dir`（無ければ窓の scratchpad・`common.save_dir_avoid` には置かない）、名前は `確認_<件名>_<YYYYMMDD>.html`。写す形は表の `delivery` で 1 行＋「おすすめと、特に判断が要る点」を数行（HTML の中身をチャットに再展開しない）。送る形は表の `customer.publish_cmd` で配る URL を作り、お客さんにその URL だけを渡す。
