@@ -25,7 +25,7 @@ AF_DENY_BUNDLE="<顧客の語の束の環境変数>" python3 <土台>/public-gua
 
 ## 2. 新しい repo を作る（持ち主の手）
 
-非公開の repo を公開に切り替えない（歴史・名義・閉じた PR が全部見える）。手の窓で頼む:
+非公開の repo を公開に切り替えない（歴史・名義・閉じた PR が全部見える）。手の窓で、Claude in Chrome に貼る文 1 個で頼む（細目 §4 の手の窓）:
 
 1. GitHub の New repository で、名を決めて **Private で** 作る（中は空・README を付けない）。公開へは 4 の後、5 で切り替える。
 2. 窓の環境から触れるよう、その repo を窓に足す（AI が `add_repo` を呼べるよう名を返してもらう）。
@@ -39,7 +39,7 @@ AF_DENY_BUNDLE="<顧客の語の束の環境変数>" python3 <土台>/public-gua
 
 ## 4. secret（持ち主の手）
 
-手の窓で、画面と押す所を番号つきで頼む:
+秘密の値は Chrome に渡さない＝ここだけ人の手。手の窓で、開く URL（`https://github.com/<owner>/<repo>/settings/secrets/actions/new`）を直に書いて頼む:
 
 1. Settings → Secrets and variables → Actions → New repository secret: 名 `AF_DENY_BUNDLE`、値は顧客の語の束の `pct1.` で始まる 1 行だけ（名前と `=` や引用符を付けない・窓に貼らない）。
 
@@ -47,11 +47,11 @@ AF_DENY_BUNDLE="<顧客の語の束の環境変数>" python3 <土台>/public-gua
 
 ## 5. 公開に切り替え、すぐ守る（持ち主の手）
 
-個人の無料の plan では非公開の repo に ruleset が効かないので、守りは公開に切り替えた直後に入れる（間も CI の検査は回る）。
+個人の無料の plan では非公開の repo に ruleset が効かないので、守りは公開に切り替えた直後に入れる（間も CI の検査は回る）。1 と 2 は 1 つの手の窓で、Claude in Chrome に貼る文 1 個にまとめて頼む（公開の確定と Create の前で止まってオーナーに見せる）。3 は AI が回す。
 
 1. Settings → General → Danger Zone → Change visibility → Public。
 2. Settings → Rules → Rulesets → New branch ruleset: 対象 Default branch・Enforcement Active・「Require a pull request before merging」・「Require status checks to pass」に `public-guard`・「Block force pushes」と「Restrict deletions」。
-3. 土台の Actions の `patrol` を手で回し（Run workflow）、外れ 0 を確かめる。
+3. 土台の Actions の `patrol` を AI が回し（Run workflow）、外れ 0 を確かめる。
 
 済んだ目印: 次の PR の checks の欄で `public-guard` が必須（Required）と出る・`patrol` が緑。
 
