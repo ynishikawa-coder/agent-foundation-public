@@ -213,9 +213,9 @@ MUTATIONS = [
     (' data-decides="請求の額"', "", "問い q1: この答えで決まる事"),
     ("今は期限が決まっていません。", "照合して決まっていません。", "内部の言葉「照合」"),
     ("今は期限が決まっていません。", "Q2026.11-37 の続きです。", "番号「Q2026.11-37」"),
-    ('<details class="more">', '<details class="more" ontoggle="fetch(\'/x\')">', "型の外に動き（on… の属性）"),
-    ("見積りの写しを付けています。", '<a href="javascript:alert(1)">見積りの写し</a>', "javascript: の URL"),
-    ("見積りの写しを付けています。", '<img src="https://example.com/a.png" alt="見積り">', "外のリソースを読んでいる"),
+    ('<details class="more">', '<details class="more" ontoggle="fetch(\'/x\')">', "型の外に許していない属性"),
+    ("見積りの写しを付けています。", '<a href="javascript:alert(1)">見積りの写し</a>', "許していない URL"),
+    ("見積りの写しを付けています。", '<img src="https://example.com/a.png" alt="見積り">', "外のリソース・許していない src"),
     ('<meta name="color-scheme" content="light">', '<meta content="light dark" name="color-scheme">', "暗い色の設定"),
     ('<section class="done" id="qa-done" hidden>', '<section class="done" id="qa-done">', "qa:foot の中身が型と違う"),
     ("<h2>答えを確かめてください</h2>", "<h2>これで送ります</h2>", "qa:foot の中身が型と違う"),
@@ -226,15 +226,22 @@ MUTATIONS = [
     ("</body>", "<!--qa:css--><p>x</p><!--/qa:css--></body>", "型の qa:css の印が 2 回ある"),
     ("</body>", "<!--qa:js--><p>x</p><!--/qa:js--></body>", "型の qa:js の印が 2 回ある"),
     ("</body>", "<!--qa:foot--><p>x</p><!--/qa:foot--></body>", "型の qa:foot の印が 2 回ある"),
+    ("見積りの写しを付けています。", '<iframe srcdoc="&lt;script&gt;fetch(1)&lt;/script&gt;"></iframe>', "型の外に許していない要素 <iframe>"),
+    ("見積りの写しを付けています。", '<iframe src="data:text/html,x"></iframe>', "型の外に許していない要素 <iframe>"),
+    ("見積りの写しを付けています。", '<embed src="data:text/html,x">', "型の外に許していない要素 <embed>"),
+    ('<meta name="color-scheme" content="light">', '<meta name="color-scheme" content="light"><meta http-equiv="refresh" content="0;url=https://example.com/">', "型の外に許していない属性「http-equiv」"),
+    ("見積りの写しを付けています。", '<img src="data:image/png;base64,iVBORw0KGgo=" alt="見積り" srcset="https://example.com/a.png 2x">', "型の外に許していない属性「srcset」"),
+    ("見積りの写しを付けています。", '<a href="https://example.com/mitsumori">見積りの写し</a>', None),
+    ('<meta name="color-scheme" content="light">', '<meta name="color-scheme" content="light"><meta name="referrer" content="none">', "許していない meta"),
     ("<p class=\"lead\">", "<!-- a --!> x --><p class=\"lead\">", "崩れたコメント"),
     ("<p class=\"lead\">", "<!--> x --><p class=\"lead\">", "崩れたコメント"),
-    ('<details class="more">', '<details class="more"/onclick="fetch(\'/x\')">', "型の外に動き（on… の属性）"),
+    ('<details class="more">', '<details class="more"/onclick="fetch(\'/x\')">', "型の外に許していない属性"),
     ('type="radio" name="q2" value="none"', 'type="checkbox" name="q2" value="none" required', "問い q2: checkbox に required"),
 ]
 
 
 @needs_node
-@pytest.mark.parametrize("old, new, expect, more", [(*m[:3], m[3:]) for m in MUTATIONS], ids=[m[2] for m in MUTATIONS])
+@pytest.mark.parametrize("old, new, expect, more", [(*m[:3], m[3:]) for m in MUTATIONS], ids=[m[2] or f"緑: {m[1][:20]}" for m in MUTATIONS])
 def test_壊した所の赤だけが出る(tmp_path, old, new, expect, more):
     """more＝同時に入れる 2 つ目の書き換え（old2, new2）。囮を置いて照らしをすり抜けられないかを見る。"""
     base = filled_template()
@@ -244,14 +251,17 @@ def test_壊した所の赤だけが出る(tmp_path, old, new, expect, more):
     page = tmp_path / "確認.html"
     page.write_text(base, encoding="utf-8")
     out = run_check(page)
+    if expect is None:  # 許す物の表で通る書き換え（例: 根拠の資料へのリンク）
+        assert out["red"] == [], out["red"]
+        return
     assert len(out["red"]) == 1 and out["red"][0].startswith(expect), out["red"]
 
 
 # 2 つ目の印の間に書いた物は、印の重なりと中身の両方で赤になる（中身を照らしから外さない）
 SECOND_MARKS = [
-    ("qa:css", "<style>body{background:#000}</style>", "型の外に <style>"),
-    ("qa:js", "<script>fetch('/x')</script>", "型の外に <script>"),
-    ("qa:foot", '<img src="x" onerror="fetch(\'/x\')">', "型の外に動き（on… の属性）"),
+    ("qa:css", "<style>body{background:#000}</style>", "型の外に許していない要素 <style>"),
+    ("qa:js", "<script>fetch('/x')</script>", "型の外に許していない要素 <script>"),
+    ("qa:foot", '<img src="x" onerror="fetch(\'/x\')">', "型の外に許していない属性"),
 ]
 
 
@@ -281,7 +291,7 @@ def test_崩れたコメントに隠した_script_も赤(tmp_path, inject):
     page = tmp_path / "確認.html"
     page.write_text(filled_template().replace("</form>", "</form>" + inject, 1), encoding="utf-8")
     red = run_check(page)["red"]
-    for e in ["型の外に <script>", "<script> はページ全体でちょうど 1 つ", "崩れたコメント"]:
+    for e in ["型の外に許していない要素 <script>", "<script> はページ全体でちょうど 1 つ", "崩れたコメント"]:
         assert any(r.startswith(e) for r in red), (e, red)
 
 
@@ -291,4 +301,4 @@ def test_型の外の_script_は赤(tmp_path):
     page = tmp_path / "確認.html"
     page.write_text(base.replace("</form>", "</form><script>fetch('/x')</script>", 1), encoding="utf-8")
     red = run_check(page)["red"]
-    assert len(red) == 2 and red[0].startswith("型の外に <script>") and red[1].startswith("<script> はページ全体でちょうど 1 つ"), red
+    assert len(red) == 2 and red[0].startswith("<script> はページ全体でちょうど 1 つ") and red[1].startswith("型の外に許していない要素 <script>"), red

@@ -91,7 +91,7 @@ repo の根（`git rev-parse --show-toplevel`）の `config/skill-values.json` �
 
 ## 作り方（skip 禁止）
 
-1. **`references/template.html` を丸ごと複製**する。`<body data-dest>` を `send`・`copy`・`artifact` のどれかにし、`{{…}}` と問いの箱だけ差し替える。`qa:css`・`qa:js` の間は**1 字も変えない**。`qa:foot` の間は `{{この後のこと}}` だけ差す（字と `<br>` だけ）。型の外に `style`・`script`・`on…` の属性・`javascript:` を書かない（会社の色は body の `--brand` だけ）。
+1. **`references/template.html` を丸ごと複製**する。`<body data-dest>` を `send`・`copy`・`artifact` のどれかにし、`{{…}}` と問いの箱だけ差し替える。`qa:css`・`qa:js` の間は**1 字も変えない**。`qa:foot` の間は `{{この後のこと}}` だけ差す（字と `<br>` だけ）。型の外に書けるのは `check.mjs` の許す物の表 `ALLOW` の要素と属性だけ（`style`・`script`・`iframe`・`on…` の属性・`javascript:` などは赤・リンクは https・mailto・tel・# だけ・写真は img の `data:image/` だけ・会社の色は body の `--brand` だけ）。
 2. **header**: 宛名（`.to`）・件名（`h1`）・前書き 1 文・期限・差出人（`.from`）と連絡先（`.contact`）。全 N 問・目安の分は型が出す。
 3. **版**: `<input type="hidden" name="__版__" value="…">` に版（例 `2026-11-13.1`）を入れる。**問いを直したら版を上げる**（どの問いの形への答えかを後から辿るため）。
 4. **問いの箱を組む**（1 問＝1 つの `fieldset.q`）: `data-qkey`＝問いの鍵（半角英数字と `_`・答えの `name` と同じ・元の表の行の鍵と同じにする）／`data-qlabel`＝一言の見出し／`data-kind`＝上の形／`data-group`＝並べ方／`data-decides`＝この答えで決まる事（画面に出さない）／`legend`＝問い 1 行／`.known`＝分かっている事（数字は `<table>`）／`details.more`＝くわしく／選択肢 `label.opt`（`value`＝選択肢の鍵・半角英数字と `_`・最初の 1 つに `required`）／「または」と「分からない」／ひとこと `name="supp_鍵"`。最後に `name="__自由記入__"` の箱を 1 つ。選択肢は radio を使う（checkbox は required を付けられず、JS が切られた端末では答えずに送れる＝幾つも選ばせる時だけ）。

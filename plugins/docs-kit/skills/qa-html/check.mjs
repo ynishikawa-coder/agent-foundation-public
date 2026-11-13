@@ -3,8 +3,8 @@
 //   repo ごとに足す語・上限は repo の根の config/skill-values.json の docs-kit.qa-html.internal_words・limits。
 // 赤にする物（形の約束は SKILL.md §型の約束）:
 //   型: 宛先の印（data-dest＝send・copy・artifact）が無い／qa:css・qa:js・qa:foot が型（references/template.html）と違う
-//     （qa:foot は「この後のこと」だけ差してよい）／型の外に style・script・on… の属性・javascript: を書いた／
-//     外のリソース（src が http・//）／暗い色の設定／会社の色（--brand）が body の style の外・白地で読めない濃さ／
+//     （qa:foot は「この後のこと」だけ差してよい）／型の外に許す物の表（ALLOW）に無い要素・属性・URL を書いた
+//     （script・style・iframe・on… の属性・javascript:・外のリソースなど）／暗い色の設定／会社の色（--brand）が body の style の外・白地で読めない濃さ／
 //     差出人・宛名・連絡先が無い／版（__版__）が無い／送る前の確認と受付の部品が無い
 //   問い: 問いの形（data-kind）が 4 つ以外／並び（data-group）が 会社の決まり→人ごとの事実→今回だけの事 でない／
 //     内部の言葉／番号で過去の問いを指す／数を書かせる問い／長さ・問いの数の上限超え／選択肢が 1 つだけ／
@@ -248,6 +248,48 @@ function checkBrand(color, red) {
   if (c < RULES.brand_min_contrast) red.push(`会社の色 ${color} は白地で読みにくい（濃さの比 ${c.toFixed(1)}・${RULES.brand_min_contrast} 以上）`);
 }
 
+// 型の外（突き合わせた 3 か所の外）に書いてよい物の表。表に無い物は全部赤＝悪い物の名前を探すのでなく、許す物だけを通す。
+export const ALLOW = {
+  elements: ["html", "head", "meta", "title", "body", "div", "header", "section", "p", "h1", "h2", "h3", "b", "strong", "small", "span", "br",
+    "ul", "ol", "li", "dl", "dt", "dd", "a", "img", "figure", "figcaption", "table", "thead", "tbody", "tr", "th", "td",
+    "details", "summary", "form", "fieldset", "legend", "label", "input", "textarea", "select", "option"],
+  attributes: ["class", "id", "lang", "name", "type", "value", "required", "checked", "selected", "disabled", "readonly", "for", "rows",
+    "maxlength", "min", "max", "step", "placeholder", "autocomplete", "inputmode", "spellcheck", "href", "src", "alt", "width", "height",
+    "colspan", "rowspan", "open", "hidden", "title", "charset", "content", "style"],
+  attribute_prefixes: ["data-", "aria-"],
+  input_types: ["radio", "checkbox", "text", "date", "month", "number", "hidden"],
+  meta: { charset: true, names: ["viewport", "color-scheme"] },
+  href: "^(?:https?://|mailto:|tel:|#)[^\\s<>\"'&]*$",
+  img_src: "^data:image/(?:png|jpeg|gif|webp);base64,[A-Za-z0-9+/=]+$",
+};
+function allowlistReds(outside) {
+  const red = [];
+  const els = new Set(ALLOW.elements);
+  const ats = new Set(ALLOW.attributes);
+  for (const m of outside.matchAll(/<([A-Za-z][A-Za-z0-9-]*)((?:"[^"]*"|'[^']*'|[^'">])*)>/g)) {
+    const tag = m[1].toLowerCase();
+    const show = m[0].slice(0, 50);
+    if (!els.has(tag)) {
+      red.push(`型の外に許していない要素 <${tag}>（見た目と動きは型の中だけ）: ${show}`);
+      continue;
+    }
+    const before = red.length;
+    const attrs = {};
+    for (const a of m[2].matchAll(/([^\s"'=/>]+)(?:\s*=\s*("[^"]*"|'[^']*'|[^\s>]+))?/g)) {
+      const name = a[1].toLowerCase();
+      const val = a[2] == null ? "" : a[2].replace(/^["']|["']$/g, "");
+      attrs[name] = val;
+      if (!ats.has(name) && !ALLOW.attribute_prefixes.some((p) => name.startsWith(p))) red.push(`型の外に許していない属性「${name}」: ${show}`);
+    }
+    if ("style" in attrs && tag !== "body") red.push(`<${tag}> に style がある（色や形は変えない・会社の色は body の --brand だけ）`);
+    if (tag === "meta" && red.length === before && !("charset" in attrs) && !ALLOW.meta.names.includes((attrs.name ?? "").toLowerCase())) red.push(`許していない meta: ${show}`);
+    if (tag === "input" && !ALLOW.input_types.includes((attrs.type ?? "text").toLowerCase())) red.push(`許していない入力の欄 type="${attrs.type}": ${show}`);
+    if ("href" in attrs && !new RegExp(ALLOW.href, "i").test(attrs.href)) red.push(`許していない URL（https・mailto・tel・# だけ）: ${show}`);
+    if ("src" in attrs && (tag !== "img" || !new RegExp(ALLOW.img_src).test(attrs.src))) red.push(`外のリソース・許していない src（写真は img の data:image/ だけ）: ${show}`);
+  }
+  return red;
+}
+
 // ── 読み取り 1: HTML（型を写した 1 枚） → 問いの形と、型の約束の赤
 export function readHtml(raw) {
   const html = dropCode(mask(raw));
@@ -271,24 +313,15 @@ export function readHtml(raw) {
   //   外すのは突き合わせた最初の 1 つの間だけ（2 つ目の印の間は外さない＝照らしに入る）
   //   コメントを伏せずに生の文字で見る（ブラウザと検査でコメントの閉じ方が違っても、隠した物を見逃さない）
   const outside = FIXED.reduce((t, n) => t.replace(new RegExp(`<!--${n}-->[\\s\\S]*?<!--/${n}-->`), " "), raw);
-  if (/<style\b/i.test(outside)) shape.push("型の外に <style> がある（見た目は型の 1 つだけ）");
-  if (/<script\b/i.test(outside)) shape.push("型の外に <script> がある（動きは型の 1 つだけ・送信の JS も書かない）");
   for (const [tag, n] of [["style", 1], ["script", 1]]) {
     const got = (raw.match(new RegExp(`<${tag}\\b`, "gi")) ?? []).length;
     if (got !== n) shape.push(`<${tag}> はページ全体でちょうど ${n} つ（型の中の 1 つ・今 ${got}）`);
   }
   if (/--!>|<!--->|<!-->/.test(raw)) shape.push("崩れたコメント（--!> ・<!--> ・<!--->）がある（ブラウザと読み方が食い違う）");
   if (/<link\b[^>]*rel\s*=\s*["']?stylesheet/i.test(outside)) shape.push("外の見た目（link stylesheet）を読んでいる");
-  const onAttr = /<[a-z][a-z0-9]*\b[^>]*?[\s/]on[a-z]+\s*=/i.exec(outside);
-  if (onAttr) shape.push(`型の外に動き（on… の属性）がある（動きは型の 1 つだけ）: ${onAttr[0].slice(0, 40)}`);
-  if (/(?:href|src|action|formaction)\s*=\s*["']?\s*javascript:/i.test(outside)) shape.push("javascript: の URL がある（動きは型の 1 つだけ）");
-  const ext = /<[a-z][a-z0-9]*\b[^>]*\s(?:src|srcset|poster|data)\s*=\s*["']?\s*(?:https?:)?\/\/[^\s"'>]*/i.exec(outside);
-  if (ext) shape.push(`外のリソースを読んでいる（画像は data URI で埋める）: ${ext[0].slice(0, 60)}`);
+  for (const r of allowlistReds(outside)) shape.push(r);
   if (/prefers-color-scheme\s*:\s*dark|color-scheme\s*:\s*[^;"'}]*dark|<meta\b(?=[^>]*\bname\s*=\s*["']color-scheme["'])[^>]*\bcontent\s*=\s*["'][^"']*dark/i.test(raw))
     shape.push("暗い色の設定がある（明るい色で固定）");
-  for (const m of html.matchAll(/<([a-z][a-z0-9]*)\b[^>]*\sstyle\s*=\s*(?:"[^"]*"|'[^']*')[^>]*>/gi)) {
-    if (m[1].toLowerCase() !== "body") shape.push(`<${m[1]}> に style がある（色や形は変えない・会社の色は body の --brand だけ）`);
-  }
   const bodyStyle = attr(body, "style");
   let brand = null;
   if (bodyStyle != null) {
