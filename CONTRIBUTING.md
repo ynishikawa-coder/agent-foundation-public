@@ -34,7 +34,7 @@
 ### main の守りの設定（推奨・repo の持ち主が GitHub の設定で入れる）
 
 - `main` への直の push を禁止し、PR を必須にする。
-- 必須の検査に CI の `check`（`.github/workflows/ci.yml`）を入れる。
+- 必須の検査に CI の `check` と `public-guard`（`.github/workflows/ci.yml`）を入れる。`public-guard` が必須でないと見回りが知らせる（`docs/公開の検査.md`）。
 - merge の仕方は squash だけを許す。
 - `main` の force push と削除を禁止する。
 
@@ -43,9 +43,12 @@
 - **顧客の語と実物を置かない。** 顧客の名前・ID・実データ・画面の写しを入れない。例は作り物で書く。
 - **秘密を置かない。** 鍵・トークン・パスワード・接続文字列を、コード・試験・文書・PR 本文・ログのどこにも書かない。
 - **土台は特定の業務を知らない。** 業務の語（特定業務の用語・計算の決まり）は、それを使う側の repo に置く。土台には、どの業務でも使える振る舞いと道具だけを置く。
-- 置かない語は 2 か所から読んで、CI が止める（`tests/test_hygiene.py`）。
+- **個人の情報を置かない。** 個人を指すメールアドレス・電話番号・郵便番号・Notion のページや Google の文書の URL を書かない。commit の名義のメールは GitHub の noreply（`<id>+<名>@users.noreply.github.com`）か `noreply@anthropic.com` にする。
+- **public なので外側も見える。** ファイルだけでなく、commit の説明・名義と PR の題・本文も世界に見える。どれにも上の物を書かない。
+- 照らしは公開の検査（`public-guard/guard.py`・`docs/公開の検査.md`）の 1 本。CI の job `public-guard` が中身・歴史・commit と PR の外側を照らして止める。手元は `scripts/checks/public_guard.sh`。
+  - **秘密と個人の情報**: 形で見る（表は `public-guard/guard.py`）。
   - **業務の語**: `tests/data/denylist.txt`。足したい語があれば、その 1 行を PR で足す。
-  - **顧客の語**: repo に書かない。環境から渡す。CI は repo の secret `AF_DENY_WORDS`（1 行 1 語）、手元は環境変数 `AF_DENY_WORDS`（同じ形）か、`AF_DENY_WORDS_FILE` に置いた手元のファイルの path。どれも無い時は顧客の語の照合を飛ばす。
+  - **顧客の語**: repo に書かない。repo の secret `AF_DENY_BUNDLE`（Javis の顧客の語の束 `pct1.…` と同じ値）か `AF_DENY_WORDS`（1 行 1 語）から渡す。手元は同じ名の環境変数か `AF_DENY_WORDS_FILE`。**CI でどれも無い時は赤**。手元でどれも無い時だけ飛ばす。
 
 ## 5. 試験の置き方
 
@@ -65,7 +68,7 @@
 ## 6. 検査の入口（CI）
 
 - CI は `.github/workflows/ci.yml`。`main` への push と、すべての PR で走る。
-- CI が呼ぶ入口は `bash scripts/check_all.sh` の 1 本だけ。中で pytest（`tests/`）と、`scripts/checks/*.sh` があればそれを順に走らせる。
+- CI の job は 2 つ: `check`（入口は `bash scripts/check_all.sh` の 1 本）と `public-guard`（公開の検査）。`check_all.sh` は中で pytest（`tests/`）と、`scripts/checks/*.sh` があればそれを順に走らせる。
 - 検査を足す時は `scripts/checks/<名前>.sh` を足すか、`tests/` に試験を足す。`ci.yml` と `check_all.sh` は書き換えなくてよい。
 - `check_all.sh` の最後の行が `check_all: 緑` なら通り、`check_all: 赤 …` なら止まり。
 

@@ -1,7 +1,7 @@
 # 土台に置かない語の表。1 行 1 語。大文字・小文字は区別しない。
-# この表だけは語を書いてよい唯一の所（tests/test_hygiene.py がこのファイルを見ない）。
+# この表だけは語を書いてよい唯一の所（公開の検査はこのファイルを語の照らしから外す）。
 # 業務の語だけを置く。足す時は、この 1 行を PR で足す。
-# 顧客の語はここに書かない（repo に残るため）。環境から渡す: CONTRIBUTING.md §4 の AF_DENY_WORDS / AF_DENY_WORDS_FILE。
+# 顧客の語はここに書かない（repo に残るため）。環境から渡す: CONTRIBUTING.md §4 の AF_DENY_BUNDLE / AF_DENY_WORDS / AF_DENY_WORDS_FILE。
 #
 # 特定の業務の語
 給与

@@ -4,6 +4,7 @@ on:
   push:
     branches: [main]
   pull_request:
+    types: [opened, edited, synchronize, reopened]
 
 permissions:
   contents: read
@@ -19,6 +20,22 @@ jobs:
       - name: 試験の道具を入れる
         run: python3 -m pip install --quiet pytest
       - name: 検査（入口は check_all の 1 本）
-        env:
-          AF_DENY_WORDS: ${{ secrets.AF_DENY_WORDS }}
         run: bash scripts/check_all.sh
+
+  # 公開の検査（docs/公開の検査.md）。他の公開 repo と同じ action を、この repo では今の枝の物で呼ぶ。
+  # job の名 public-guard を変えない（main の守りの必須の検査と、見回りがこの名で見る）。
+  public-guard:
+    name: public-guard
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: ./public-guard
+        with:
+          checkout: "false"
+          deny-bundle: ${{ secrets.AF_DENY_BUNDLE }}
+          deny-words: ${{ secrets.AF_DENY_WORDS }}
+          deny-words-file: tests/data/denylist.txt
+          pattern-skip: public-guard/guard.py tests/test_public_guard.py

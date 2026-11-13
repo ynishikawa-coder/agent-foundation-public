@@ -12,7 +12,7 @@
 | 名前 | 種類 | 持つ窓 | 状態 | 置き場 | 中身 |
 |---|---|---|---|---|---|
 | docs-kit | plugin | A3 | 出した | plugins/docs-kit/ | blueprint・compose-message・make-deck・mindmap・pdf-read・qa-html・theory-mock |
-| dev-flow | plugin | A4 | 出した | plugins/dev-flow/ | codex・design-mode・preimpl-cleanup・register-rule・spec-doc・verify |
+| dev-flow | plugin | A4 | 出した | plugins/dev-flow/ | codex・design-mode・preimpl-cleanup・public-repo・register-rule・spec-doc・verify |
 | session-watch | plugin | A4 | 出した | plugins/session-watch/ | title-mark・watch-log |
 | checker | plugin | A4 | 出した | plugins/checker/ | review-pr |
 | guard | plugin | A5 | 出した | plugins/guard/ | guard-rules |

@@ -1,0 +1,47 @@
+name: public-guard
+description: 公開の repo に置かない物（秘密・個人の情報・顧客の語・置かない語）を、中身・歴史・commit と PR の外側で照らして止める
+# 呼び方と守りの設定は docs/公開の検査.md。呼ぶ側は版の印（vX.Y.Z）で固定して呼ぶ（main を読まない）。
+inputs:
+  deny-bundle:
+    description: 顧客の語の束 pct1.… （呼ぶ側の secret AF_DENY_BUNDLE を渡す）
+    required: false
+    default: ""
+  deny-words:
+    description: 顧客の語の平文（1 行 1 語・呼ぶ側の secret AF_DENY_WORDS を渡す）
+    required: false
+    default: ""
+  deny-words-file:
+    description: repo の根からの path。その repo に置かない語の表（1 行 1 語・無ければ空）
+    required: false
+    default: ""
+  pattern-skip:
+    description: 形の照らしから外す path（空白区切り・形を書いた検査の道具だけに使う。顧客の語の照らしは外さない）
+    required: false
+    default: ""
+  checkout:
+    description: "false なら取り出しを呼ぶ側に任せる（歴史を全部取る fetch-depth: 0 が要る）"
+    required: false
+    default: "true"
+runs:
+  using: composite
+  steps:
+    - if: inputs.checkout == 'true'
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+        persist-credentials: false
+    - name: 公開の検査
+      shell: bash
+      env:
+        AF_DENY_BUNDLE: ${{ inputs.deny-bundle }}
+        AF_DENY_WORDS: ${{ inputs.deny-words }}
+        IN_WORDS_FILE: ${{ inputs.deny-words-file }}
+        IN_SKIP: ${{ inputs.pattern-skip }}
+        GUARD: ${{ github.action_path }}/guard.py
+      run: |
+        set -euo pipefail
+        args=()
+        [ -n "${IN_WORDS_FILE}" ] && args+=(--deny-words-file "${IN_WORDS_FILE}")
+        # shellcheck disable=SC2206
+        [ -n "${IN_SKIP}" ] && args+=(--pattern-skip ${IN_SKIP})
+        python3 "${GUARD}" "${args[@]}"
