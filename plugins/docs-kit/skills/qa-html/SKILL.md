@@ -85,6 +85,8 @@ repo の根（`git rev-parse --show-toplevel`）の `config/skill-values.json` �
 
 どの形も、最後に「または」で区切って **「分からない・社内で確かめてから答える」**（`value="__unknown__"`）を置く。選ぶと、ひとことの欄が「誰に聞けば分かりますか」に変わる。
 
+- **ひとことに書かせる選択肢**（「ほかの答え」「別の決め方」や、見出し・添え書き・変わる事で「ひとことに」「補足に書く」と頼む物）は、その `input` に `data-supp="need"`（JSON は選択肢に `"supp": "need"`）を付ける。選ぶと欄の名が「ひとこと（この答えでは書いてください）」に変わり、空のままでは次へ進めず送れない（印の無い物は `check.mjs` が赤）。
+
 - **選択肢に A・B などの記号を付けない**。中身が分かる見出し（`<b>`）と、この答えで変わる事 1 行（`<small class="chg">`）で書く。問いや見つけた事でも「A なら」と記号で指さない。
 - **「合っていますか」は資料どうしが食い違う時だけ**（`data-kind="mismatch"`＝(a) の仲間・食い違う 2 つを見つけた事に書き、候補に両方を置く）。
 - **数を書かせる問いにしない**。数はこちらで計算して候補に出す。数字は見つけた事の小さな表（今の計算／直した場合／差）で比べられるようにする。
@@ -208,7 +210,8 @@ repo の根（`git rev-parse --show-toplevel`）の `config/skill-values.json` �
       "question": "問い 1 行", "known": ["見つけた事（資料名・場所・値・2 行まで）"], "docs": ["d1"],
       "table": [["", "今の計算", "直した場合"], ["合計", "1,200 円", "1,300 円"]],
       "clips": [{ "doc": "d1", "src": "data:image/png;base64,…", "alt": "写っている事", "caption": "資料名と場所", "shows": ["問いの人の名"] }],
-      "options": [{ "value": "down", "label": "中身の見出し", "change": "この答えで変わる事 1 行", "recommended": true }],
+      "options": [{ "value": "down", "label": "中身の見出し", "change": "この答えで変わる事 1 行", "recommended": true },
+                  { "value": "other", "label": "別の決め方", "detail": "下のひとことに書いてください", "supp": "need" }],
       "input": "text|date|month|number（選ばせない時だけ）",
       "more": "くわしく", "supp": true }
   ]

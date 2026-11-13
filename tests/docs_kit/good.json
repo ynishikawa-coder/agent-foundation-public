@@ -31,7 +31,7 @@
       "options": [
         { "value": "d7", "label": "借りた日から 7 日", "change": "遅れの知らせが 7 日目に出ます", "recommended": true },
         { "value": "d14", "label": "借りた日から 14 日", "change": "遅れの知らせが 14 日目に出ます" },
-        { "value": "other", "label": "別の決め方", "detail": "下のひとことに書いてください" }
+        { "value": "other", "label": "別の決め方", "detail": "下のひとことに書いてください", "supp": "need" }
       ],
       "supp": true
     },
@@ -56,7 +56,7 @@
       "options": [
         { "value": "d1020", "label": "10 月 20 日", "change": "見本さんの棚の入れ替えが 10 月 21 日" },
         { "value": "d1027", "label": "10 月 27 日", "change": "見本さんの棚の入れ替えが 10 月 28 日" },
-        { "value": "none", "label": "当てはまらない", "detail": "下のひとことに書いてください" }
+        { "value": "none", "label": "当てはまらない", "detail": "下のひとことに書いてください", "supp": "need" }
       ]
     }
   ]
