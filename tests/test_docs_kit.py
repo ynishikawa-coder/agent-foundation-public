@@ -232,6 +232,9 @@ MUTATIONS = [
     ('<meta name="color-scheme" content="light">', '<meta name="color-scheme" content="light"><meta http-equiv="refresh" content="0;url=https://example.com/">', "型の外に許していない属性「http-equiv」"),
     ("見積りの写しを付けています。", '<img src="data:image/png;base64,iVBORw0KGgo=" alt="見積り" srcset="https://example.com/a.png 2x">', "型の外に許していない属性「srcset」"),
     ("見積りの写しを付けています。", '<a href="https://example.com/mitsumori">見積りの写し</a>', None),
+    ("見積りの写しを付けています。", '<img src="data:image/png;base64,AAAA" SRC="data:image/png;base64,BBBB" alt="x">', "同じ属性「src」が 2 回ある"),
+    ("見積りの写しを付けています。", '<a href="#a" href="#b">見積り</a>', "同じ属性「href」が 2 回ある"),
+    ("見積りの写しを付けています。", '<a href="http://example.com/">見積り</a>', "許していない URL"),
     ('<meta name="color-scheme" content="light">', '<meta name="color-scheme" content="light"><meta name="referrer" content="none">', "許していない meta"),
     ("<p class=\"lead\">", "<!-- a --!> x --><p class=\"lead\">", "崩れたコメント"),
     ("<p class=\"lead\">", "<!--> x --><p class=\"lead\">", "崩れたコメント"),
@@ -293,6 +296,22 @@ def test_崩れたコメントに隠した_script_も赤(tmp_path, inject):
     red = run_check(page)["red"]
     for e in ["型の外に許していない要素 <script>", "<script> はページ全体でちょうど 1 つ", "崩れたコメント"]:
         assert any(r.startswith(e) for r in red), (e, red)
+
+
+# 同じ属性が 2 回ある時、ブラウザは前の値を使う＝前の値も照らし、重なりも赤
+DOUBLE_ATTRS = [
+    ('<img src="https://example.com/a.png" SRC="data:image/png;base64,AAAA" alt="x">', "外のリソース・許していない src"),
+    ('<a href="javascript:alert(1)" href="#">見積り</a>', "許していない URL"),
+]
+
+
+@needs_node
+@pytest.mark.parametrize("inject, expect", DOUBLE_ATTRS, ids=["src", "href"])
+def test_同じ属性の_2_つ目で隠せない(tmp_path, inject, expect):
+    page = tmp_path / "確認.html"
+    page.write_text(filled_template().replace("見積りの写しを付けています。", inject, 1), encoding="utf-8")
+    red = run_check(page)["red"]
+    assert any(r.startswith("同じ属性") for r in red) and any(r.startswith(expect) for r in red), red
 
 
 @needs_node

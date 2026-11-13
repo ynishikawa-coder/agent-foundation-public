@@ -259,7 +259,7 @@ export const ALLOW = {
   attribute_prefixes: ["data-", "aria-"],
   input_types: ["radio", "checkbox", "text", "date", "month", "number", "hidden"],
   meta: { charset: true, names: ["viewport", "color-scheme"] },
-  href: "^(?:https?://|mailto:|tel:|#)[^\\s<>\"'&]*$",
+  href: "^(?:https://|mailto:|tel:|#)[^\\s<>\"'&]*$",
   img_src: "^data:image/(?:png|jpeg|gif|webp);base64,[A-Za-z0-9+/=]+$",
 };
 function allowlistReds(outside) {
@@ -278,7 +278,8 @@ function allowlistReds(outside) {
     for (const a of m[2].matchAll(/([^\s"'=/>]+)(?:\s*=\s*("[^"]*"|'[^']*'|[^\s>]+))?/g)) {
       const name = a[1].toLowerCase();
       const val = a[2] == null ? "" : a[2].replace(/^["']|["']$/g, "");
-      attrs[name] = val;
+      if (name in attrs) red.push(`同じ属性「${name}」が 2 回ある（ブラウザは前の値を使う）: ${show}`);
+      else attrs[name] = val;
       if (!ats.has(name) && !ALLOW.attribute_prefixes.some((p) => name.startsWith(p))) red.push(`型の外に許していない属性「${name}」: ${show}`);
     }
     if ("style" in attrs && tag !== "body") red.push(`<${tag}> に style がある（色や形は変えない・会社の色は body の --brand だけ）`);
