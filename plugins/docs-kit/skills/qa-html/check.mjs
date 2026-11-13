@@ -5,7 +5,7 @@
 //   型: 宛先の印（data-dest＝send・copy・artifact）が無い／qa:css・qa:js・qa:foot が型（references/template.html）と違う
 //     （qa:foot は「この後のこと」だけ差してよい）／型の外に許す物の表（ALLOW）に無い要素・属性・URL を書いた
 //     （script・style・iframe・on… の属性・javascript:・外のリソースなど）／暗い色の設定／会社の色（--brand）が body の style の外・白地で読めない濃さ／
-//     差出人・宛名・連絡先が無い／版（__版__）が無い／送る前の確認と受付の部品が無い
+//     宛名が無い／差出人・連絡先の欄が残っている（外した欄）／版（__版__）が無い／送る前の確認と受付の部品が無い
 //   前提（3 段）: 読んだ資料の一覧（.docs の li[data-doc]）・答えるまでの扱い（.hold）が無い／まとまりの 1 行（.glead）が
 //     各まとまりの最初の問いに 1 つでない／1 問の 4 欄（何について .about・見つけた事 .known と data-docs・なぜ聞くか .why・
 //     くわしく details.more）のどれかが空・上限超え・見つけた事が一覧に無い資料を指す／なぜ聞くかが決まった 4 文でない／
@@ -26,6 +26,9 @@ import { fileURLToPath } from "node:url";
 
 // ── 問いの決まりの表（1 か所）。会社ごとに足す語は config/skill-values.json の docs-kit.qa-html.internal_words
 //    （文字列か {語, 正規表現, 言い換え}）、上限は docs-kit.qa-html.limits で上書きする。
+// 外した欄（2026-11-14 オーナー決定: 差出人・連絡先の欄は要らない）。HTML の class と JSON の鍵が同じ名。
+const DROPPED = [["from", "差出人"], ["contact", "連絡先"]];
+
 export const RULES = {
   "limits": {
     "question_chars": 40,
@@ -328,7 +331,7 @@ export function readHtml(raw) {
     if (marks > 1) shape.push(`型の ${name} の印が ${marks} 回ある（ちょうど 1 回）`);
     if (got == null) shape.push(`型の ${name} の印が無い（型を丸ごと写す）`);
     else if (got !== tpl[name])
-      shape.push(`${name} の中身が型と違う（宛先で変えてよいのは 差出人・宛名・連絡先・会社の色${name === "qa:foot" ? "・この後のこと" : ""} だけ）`);
+      shape.push(`${name} の中身が型と違う（宛先で変えてよいのは 宛名・会社の色${name === "qa:foot" ? "・この後のこと" : ""} だけ）`);
   }
   // 型の外（動かない 3 か所は上で型と突き合わせた＝ここでは見ない）
   //   外すのは突き合わせた最初の 1 つの間だけ（2 つ目の印の間は外さない＝照らしに入る）
@@ -351,12 +354,11 @@ export function readHtml(raw) {
     else brand = b[1];
   }
 
-  // 差出人・宛名・連絡先・版・送る前の確認と受付
+  // 宛名・版・送る前の確認と受付（差出人・連絡先の欄は外した＝残っていれば赤・配る人が送る文で名乗る）
   const header = /<header\b[^>]*>[\s\S]*?<\/header\s*>/i.exec(html)?.[0] ?? "";
-  for (const [cls, name] of [["to", "宛名"], ["from", "差出人"], ["contact", "連絡先"]]) {
-    const el = byClass(header, cls)[0];
-    if (!el || !text(el.inner)) shape.push(`${name}（header の .${cls}）が無い`);
-  }
+  const toEl = byClass(header, "to")[0];
+  if (!toEl || !text(toEl.inner)) shape.push("宛名（header の .to）が無い");
+  for (const [cls, name] of DROPPED) if (byClass(html, cls).length) shape.push(`${name}の欄（.${cls}）は外した（宛先で変えるのは宛名と会社の色だけ・名乗りは配る人の送る文で）`);
   // 前提 ①: 読んだ資料の一覧と答えるまでの扱い
   const docsEl = byClass(header, "docs")[0];
   const docs = docsEl ? [...docsEl.inner.matchAll(/<li\b[^>]*>([\s\S]*?)<\/li\s*>/gi)].map((m) => ({ key: attr(m[0], "data-doc"), name: text(m[1]) })) : null;
@@ -466,9 +468,10 @@ const lines = (v) => (Array.isArray(v) ? v : typeof v === "string" ? v.split("\n
 export function readJson(data) {
   const shape = [];
   const qsIn = Array.isArray(data?.questions) ? data.questions : [];
-  for (const [k, name] of [["to", "宛名"], ["from", "差出人"], ["contact", "連絡先"], ["title", "件名"], ["next", "この後のこと"]]) {
+  for (const [k, name] of [["to", "宛名"], ["title", "件名"], ["next", "この後のこと"]]) {
     if (!String(data?.[k] ?? "").trim()) shape.push(`${name}（"${k}"）が無い`);
   }
+  for (const [k, name] of DROPPED) if (data && Object.hasOwn(data, k)) shape.push(`${name}（"${k}"）は外した（宛先で変えるのは宛名と会社の色だけ）`);
   const version = data?.version;
   if (version == null || !String(version).trim()) shape.push('版（"version"）が無い');
   else if (!/^[0-9A-Za-z._-]+$/.test(String(version))) shape.push(`版は半角英数字と . _ - だけ（今 ${version}）`);
@@ -516,7 +519,7 @@ export function readJson(data) {
     });
   const docsIn = Array.isArray(data?.docs) ? data.docs : null;
   const docs = docsIn ? docsIn.map((d) => ({ key: d?.key ?? null, name: String(d?.name ?? "").trim() })) : null;
-  const texts = [data?.to, data?.from, data?.contact, data?.title, data?.lead, data?.due, data?.next, data?.hold, ...(docsIn ?? []).flatMap((d) => [d?.name, d?.received]),
+  const texts = [data?.to, data?.title, data?.lead, data?.due, data?.next, data?.hold, ...(docsIn ?? []).flatMap((d) => [d?.name, d?.received]),
     ...qsIn.flatMap((q) => [q?.label, q?.glabel, q?.glead, ...(Array.isArray(q?.about) ? q.about : []), q?.question, ...lines(q?.known), q?.more,
     ...(Array.isArray(q?.clips) ? q.clips.flatMap((c) => [c?.alt, c?.caption]) : []),
     ...(Array.isArray(q?.table) ? q.table.flat().map(String) : []),

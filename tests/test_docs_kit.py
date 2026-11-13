@@ -102,8 +102,6 @@ FILL = {
     "読んだ資料": ["見積り書（10 月分）・10 月 1 日に受け取り", "注文書の控え・10 月 1 日に受け取り", "貸し出しの決まり・9 月 10 日に受け取り"],
     "答えるまでの扱い": ["答えが届くまで、この点は確定せずにお待ちします。"],
     "期限": ["11 月 20 日"],
-    "差出人": ["サンプル事務所 担当 見本"],
-    "連絡先": ["このメールに返信してください"],
     "版": ["2026-11-13.1"],
     "一言の見出し": ["送料の端数", "届く日", "返す期限"],
     "まとまりの 1 行": ["決まりと合わない所です", "届いた物の確かめです", "今回の催しの分だけの事です"],
@@ -221,6 +219,18 @@ def test_前提が書けない問いのデータは赤(tmp_path):
 
 
 @needs_node
+def test_問いのデータに外した欄があれば赤(tmp_path):
+    """差出人・連絡先の欄は外した（宛先で変えるのは宛名と会社の色だけ）＝鍵が残っていれば赤。"""
+    for k, name in [("from", "差出人"), ("contact", "連絡先")]:
+        data = json.loads((DATA / "good.json").read_text(encoding="utf-8"))
+        data[k] = "サンプル事務所"
+        page = tmp_path / f"q_{k}.json"
+        page.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+        red = run_check(page)["red"]
+        assert len(red) == 1 and red[0].startswith(f'{name}（"{k}"）は外した'), red
+
+
+@needs_node
 def test_食い違いの切り抜きは_2_枚(tmp_path):
     data = json.loads((DATA / "good.json").read_text(encoding="utf-8"))
     data["questions"][1]["clips"].pop()
@@ -245,7 +255,10 @@ def test_なぜ聞くかの文は会社の表で替えられる(tmp_path):
 MUTATIONS = [
     ('<body data-dest="copy"', '<body data-dest="mail"', "宛先の印が無い"),
     ('id="copybtn"', 'id="copy-button"', "qa:foot の中身が型と違う"),
-    ('<span class="contact">', "<span>", "連絡先"),
+    ('<p class="to">サンプル株式会社 ご担当者様</p>', '<p class="to"></p>', "宛名（header の .to）が無い"),
+    # 外した欄（差出人・連絡先）が残っていれば赤
+    ('<p class="hold">', '<p class="from">サンプル事務所 担当 見本</p><p class="hold">', "差出人の欄（.from）は外した"),
+    ('<p class="hold">', '<p class="contact">このメールに返信してください</p><p class="hold">', "連絡先の欄（.contact）は外した"),
     ('name="__版__"', 'name="__ver__"', "版"),
     ("font-size:18px;line-height:1.6", "font-size:15px;line-height:1.6", "qa:css の中身が型と違う"),
     ('<meta name="color-scheme" content="light">', '<meta name="color-scheme" content="light dark">', "暗い色の設定"),

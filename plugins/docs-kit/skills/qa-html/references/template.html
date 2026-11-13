@@ -2,7 +2,7 @@
 <!-- ============================================================
   確認ページ（回答型 HTML）の型 — qa-html skill の正本（どの宛先も 1 本・形の約束は SKILL.md §型の約束）
   流れ: はじめ → 1 画面 1 問 → 送る前の確認 → 受付（JS が切られた端末では全問を縦に並べ、そのまま送れる）
-  宛先で変えてよいのは 4 つだけ: 差出人（.from）・宛名（.to）・連絡先（.contact）・色 1 つ（body の style の --brand）
+  宛先で変えてよいのは 2 つだけ: 宛名（.to）・色 1 つ（body の style の --brand）。差出人・連絡先の欄は置かない（配る人が送る文で名乗る）
   宛先の印 <body data-dest="…">: send＝配る口へ送る／copy＝答えを写して貼り戻す／artifact＝確認のページ（Artifact）が受ける
   使い方: 丸ごと複製し、{{…}} と問いの箱だけ差し替える。qa:css と qa:js の間は 1 字も変えない（検査が型と突き合わせる）。
     qa:foot の間は {{この後のこと}} だけ差す。ほかの所に style・script を書かない。
@@ -36,8 +36,6 @@
   header.top h1{font-size:24px;line-height:1.4;margin:0 0 10px}
   header.top .lead{margin:0 0 12px}
   .box{background:var(--soft);border-radius:12px;padding:12px 14px;margin:0 0 14px;font-size:16px}
-  .from{border:1px solid var(--line);border-radius:12px;padding:12px 14px;margin:0 0 14px;font-size:16px;color:var(--sub)}
-  .from b{color:var(--ink)}
   .docs{border:1px solid var(--line);border-radius:12px;padding:12px 14px;margin:0 0 14px;font-size:16px}
   .docs h2{font-size:16px;margin:0 0 6px}
   .docs ul{margin:0 0 6px;padding-left:20px}
@@ -118,7 +116,6 @@
   <p>ほかに新しい資料がある時は、最後の「ほかに伝えたい事」で教えてください。</p></div>
   <p class="hold">{{答えるまでの扱い（例「答えが届くまで、この点は確定せずにお待ちします。」）}}</p>
   <div class="box">{{期限（例 11 月 20 日）}} までにお願いします。</div>
-  <div class="from"><b>差出人</b> {{差出人（会社名・担当者）}}<br><b>分からない時</b> <span class="contact">{{連絡先（電話かメール）}}</span></div>
 </header>
 
 <form>
@@ -335,7 +332,7 @@
     var mins = Math.max(1, Math.round(qs.length * 0.8));
     var size = document.createElement('div'); size.className = 'box';
     size.innerHTML = '全 <b>' + qs.length + ' 問</b>・目安 <b>約 ' + mins + ' 分</b><br>途中で閉じても、同じリンクを開けば続きから答えられます。';
-    header.insertBefore(size, header.querySelector('.box') || header.querySelector('.from'));
+    header.insertBefore(size, header.querySelector('.box'));
     header.appendChild(button(restored && qs.some(answered) ? '続きから答える' : '始める', function(){ var m = missing(); go(m.length ? m[0] : review); }));
   }
   qs.concat(free ? [free] : []).forEach(function(c){
@@ -409,7 +406,6 @@
   });
   [].forEach.call(document.querySelectorAll('figure.clip'), function(f){ f.addEventListener('click', function(){ f.classList.toggle('big'); }); });
   var pb = document.getElementById('printbtn'); if (pb) pb.addEventListener('click', function(){ window.print(); });
-  if (done) { var from = header && header.querySelector('.from'); if (from) done.appendChild(from.cloneNode(true)); }
   window.addEventListener('hashchange', render);
   render();
 })();
