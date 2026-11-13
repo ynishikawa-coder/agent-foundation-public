@@ -192,7 +192,7 @@ def test_問いのデータの選択肢が文字だけなら赤(tmp_path):
 # 1 か所だけ壊すと、その 1 つの赤だけが出る（壊した所以外の結果が変わらない見張り）
 MUTATIONS = [
     ('<body data-dest="copy"', '<body data-dest="mail"', "宛先の印が無い"),
-    ('id="copybtn"', 'id="copy-button"', "写すボタン"),
+    ('id="copybtn"', 'id="copy-button"', "qa:foot の中身が型と違う"),
     ('<span class="contact">', "<span>", "連絡先"),
     ('name="__版__"', 'name="__ver__"', "版"),
     ("font-size:18px;line-height:1.6", "font-size:15px;line-height:1.6", "qa:css の中身が型と違う"),
@@ -213,6 +213,14 @@ MUTATIONS = [
     (' data-decides="請求の額"', "", "問い q1: この答えで決まる事"),
     ("今は期限が決まっていません。", "照合して決まっていません。", "内部の言葉「照合」"),
     ("今は期限が決まっていません。", "Q2026.11-37 の続きです。", "番号「Q2026.11-37」"),
+    ('<details class="more">', '<details class="more" ontoggle="fetch(\'/x\')">', "型の外に動き（on… の属性）"),
+    ("見積りの写しを付けています。", '<a href="javascript:alert(1)">見積りの写し</a>', "javascript: の URL"),
+    ("見積りの写しを付けています。", '<img src="https://example.com/a.png" alt="見積り">', "外のリソースを読んでいる"),
+    ('<meta name="color-scheme" content="light">', '<meta content="light dark" name="color-scheme">', "暗い色の設定"),
+    ('<section class="done" id="qa-done" hidden>', '<section class="done" id="qa-done">', "qa:foot の中身が型と違う"),
+    ("<h2>答えを確かめてください</h2>", "<h2>これで送ります</h2>", "qa:foot の中身が型と違う"),
+    ('id="sendbtn">', 'id="sendbtn" onclick="fetch(\'/x\')">', "qa:foot の中身が型と違う"),
+    ('type="radio" name="q2" value="none"', 'type="checkbox" name="q2" value="none" required', "問い q2: checkbox に required"),
 ]
 
 
@@ -225,6 +233,13 @@ def test_壊した所の赤だけが出る(tmp_path, old, new, expect):
     page.write_text(base.replace(old, new, 1), encoding="utf-8")
     out = run_check(page)
     assert len(out["red"]) == 1 and out["red"][0].startswith(expect), out["red"]
+
+
+@needs_node
+def test_この後のことは差し替えても緑(tmp_path):
+    page = tmp_path / "確認.html"
+    page.write_text(filled_template().replace("11 月 22 日までに、決まりの写しをお送りします。", "来週中にお電話します。", 1), encoding="utf-8")
+    assert run_check(page)["red"] == []
 
 
 @needs_node

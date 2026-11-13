@@ -2,8 +2,9 @@
 // qa-html の確認ページの検査（外部依存ゼロ・node だけで動く）。決まりの表はこのファイルの頭の RULES の 1 か所。
 //   repo ごとに足す語・上限は repo の根の config/skill-values.json の docs-kit.qa-html.internal_words・limits。
 // 赤にする物（形の約束は SKILL.md §型の約束）:
-//   型: 宛先の印（data-dest＝send・copy・artifact）が無い／qa:css・qa:js が型（references/template.html）と違う／
-//     型の外に style・script を書いた／暗い色の設定／会社の色（--brand）が body の style の外・白地で読めない濃さ／
+//   型: 宛先の印（data-dest＝send・copy・artifact）が無い／qa:css・qa:js・qa:foot が型（references/template.html）と違う
+//     （qa:foot は「この後のこと」だけ差してよい）／型の外に style・script・on… の属性・javascript: を書いた／
+//     外のリソース（src が http・//）／暗い色の設定／会社の色（--brand）が body の style の外・白地で読めない濃さ／
 //     差出人・宛名・連絡先が無い／版（__版__）が無い／送る前の確認と受付の部品が無い
 //   問い: 問いの形（data-kind）が 4 つ以外／並び（data-group）が 会社の決まり→人ごとの事実→今回だけの事 でない／
 //     内部の言葉／番号で過去の問いを指す／数を書かせる問い／長さ・問いの数の上限超え／選択肢が 1 つだけ／
@@ -201,10 +202,6 @@ function byClass(html, cls) {
   for (const m of html.matchAll(re)) out.push(elementAt(html, m.index));
   return out.filter(Boolean);
 }
-const byId = (html, id) => {
-  const m = new RegExp(`<[a-z][a-z0-9]*\\b[^>]*\\bid\\s*=\\s*["']${id}["'][^>]*>`, "i").exec(html);
-  return m ? elementAt(html, m.index) : null;
-};
 
 // 宛先: send＝素のフォームで配る口へ・copy＝答えを写して貼り戻す・artifact＝確認のページ（Artifact）が答えを受ける
 export const DESTS = ["send", "copy", "artifact"];
@@ -215,16 +212,20 @@ function compileWords(company) {
   );
 }
 
-// 型の動かない所（qa:css・qa:js）の中身。空白の違いは見ない。
+// 型の動かない所（qa:css・qa:js・qa:foot）の中身。空白の違いは見ない。qa:foot は「この後のこと」（.next）の中身だけ差してよい。
 const region = (raw, name) => {
   const m = new RegExp(`<!--${name}-->([\\s\\S]*?)<!--/${name}-->`).exec(raw);
-  return m ? m[1].replace(/\s+/g, " ").trim() : null;
+  if (!m) return null;
+  let t = m[1];
+  if (name === "qa:foot") t = t.replace(/(<p\b[^>]*\bclass\s*=\s*["']next["'][^>]*>)[\s\S]*?(<\/p\s*>)/i, "$1…$2");
+  return t.replace(/\s+/g, " ").trim();
 };
+const FIXED = ["qa:css", "qa:js", "qa:foot"];
 let templateCache = null;
 const templateRegions = () =>
   (templateCache ??= (() => {
     const t = readFileSync(TEMPLATE, "utf8");
-    return { "qa:css": region(t, "qa:css"), "qa:js": region(t, "qa:js") };
+    return Object.fromEntries(FIXED.map((n) => [n, region(t, n)]));
   })());
 
 // 白地に対する色の濃さ（WCAG の比）
@@ -258,16 +259,23 @@ export function readHtml(raw) {
 
   // 型の動かない所
   const tpl = templateRegions();
-  for (const name of ["qa:css", "qa:js"]) {
+  for (const name of FIXED) {
     const got = region(raw, name);
     if (got == null) shape.push(`型の ${name} の印が無い（型を丸ごと写す）`);
-    else if (got !== tpl[name]) shape.push(`${name} の中身が型と違う（宛先で変えてよいのは 差出人・宛名・連絡先・会社の色 だけ）`);
+    else if (got !== tpl[name])
+      shape.push(`${name} の中身が型と違う（宛先で変えてよいのは 差出人・宛名・連絡先・会社の色${name === "qa:foot" ? "・この後のこと" : ""} だけ）`);
   }
-  const outside = mask(raw.replace(/<!--qa:(css|js)-->[\s\S]*?<!--\/qa:\1-->/g, " "));
+  // 型の外（動かない 3 か所は上で型と突き合わせた＝ここでは見ない）
+  const outside = mask(raw.replace(/<!--qa:(css|js|foot)-->[\s\S]*?<!--\/qa:\1-->/g, " "));
   if (/<style\b/i.test(outside)) shape.push("型の外に <style> がある（見た目は型の 1 つだけ）");
   if (/<script\b/i.test(outside)) shape.push("型の外に <script> がある（動きは型の 1 つだけ・送信の JS も書かない）");
   if (/<link\b[^>]*rel\s*=\s*["']?stylesheet/i.test(outside)) shape.push("外の見た目（link stylesheet）を読んでいる");
-  if (/prefers-color-scheme\s*:\s*dark|color-scheme\s*:\s*[^;"'}]*dark|name\s*=\s*["']color-scheme["'][^>]*content\s*=\s*["'][^"']*dark/i.test(raw))
+  const onAttr = /<[a-z][a-z0-9]*\b[^>]*?\son[a-z]+\s*=/i.exec(outside);
+  if (onAttr) shape.push(`型の外に動き（on… の属性）がある（動きは型の 1 つだけ）: ${onAttr[0].slice(0, 40)}`);
+  if (/(?:href|src|action|formaction)\s*=\s*["']?\s*javascript:/i.test(outside)) shape.push("javascript: の URL がある（動きは型の 1 つだけ）");
+  const ext = /<[a-z][a-z0-9]*\b[^>]*\s(?:src|srcset|poster|data)\s*=\s*["']?\s*(?:https?:)?\/\/[^\s"'>]*/i.exec(outside);
+  if (ext) shape.push(`外のリソースを読んでいる（画像は data URI で埋める）: ${ext[0].slice(0, 60)}`);
+  if (/prefers-color-scheme\s*:\s*dark|color-scheme\s*:\s*[^;"'}]*dark|<meta\b(?=[^>]*\bname\s*=\s*["']color-scheme["'])[^>]*\bcontent\s*=\s*["'][^"']*dark/i.test(raw))
     shape.push("暗い色の設定がある（明るい色で固定）");
   for (const m of html.matchAll(/<([a-z][a-z0-9]*)\b[^>]*\sstyle\s*=\s*(?:"[^"]*"|'[^']*')[^>]*>/gi)) {
     if (m[1].toLowerCase() !== "body") shape.push(`<${m[1]}> に style がある（色や形は変えない・会社の色は body の --brand だけ）`);
@@ -295,11 +303,7 @@ export function readHtml(raw) {
   if (version == null) shape.push('版（<input type="hidden" name="__版__">）が無い');
   else if (!/^[0-9A-Za-z._-]+$/.test(version) && !/^\{\{/.test(version)) shape.push(`版は半角英数字と . _ - だけ（今 ${version}）`);
   if (!/<input\b[^>]*\bname\s*=\s*["']__受付番号__["']/i.test(html)) shape.push('受付番号の欄（<input type="hidden" name="__受付番号__">）が無い');
-  for (const [id, name] of [["qa-review", "送る前の確認"], ["qa-sum", "答えの一覧"], ["qa-done", "受付"], ["qa-rno", "受付番号"], ["copybtn", "写すボタン"], ["out", "答えの控え"]]) {
-    if (!byId(html, id)) shape.push(`${name}（id=${id}）が無い`);
-  }
-  const send = /<button\b[^>]*\bid\s*=\s*["']sendbtn["'][^>]*>/i.exec(html);
-  if (!send || !/\stype\s*=\s*["']submit["']/i.test(send[0])) shape.push('送るボタン（<button type="submit" id="sendbtn">）が無い');
+  // 送る前の確認・受付・送るボタンは qa:foot（型と突き合わせ済み）。差してよいのは「この後のこと」だけ
   const next = byClass(html, "next")[0];
   if (!next || !text(next.inner)) shape.push("受付の「この後のこと」（.next）が無い");
 
@@ -342,7 +346,9 @@ export function readHtml(raw) {
       choices: inputs.length || sel.length,
       oneChoice: (inputs.length > 0 && inputs.length < 2) || (!inputs.length && sel.length === 1),
       freeInput: freeInputs.length > 0,
-      required: [...inputs, ...freeInputs].some((t) => hasAttr(t, "required")),
+      // radio と入力の欄は required で送れなくする。checkbox は required にすると「その 1 つを必ず選ぶ」になる＝型の JS が見る
+      required: inputs.every((t) => /type\s*=\s*["']?checkbox/i.test(t)) && !freeInputs.length ? inputs.length > 0 : [...inputs, ...freeInputs].some((t) => hasAttr(t, "required")),
+      checkboxRequired: inputs.some((t) => /type\s*=\s*["']?checkbox/i.test(t) && hasAttr(t, "required")),
       unknownLast: opts.length > 0 && opts[opts.length - 1].value === UNKNOWN,
       supp: new RegExp(`\\bname\\s*=\\s*["']supp_${m[1]}["']`).test(q.inner),
     });
@@ -464,6 +470,7 @@ export function checkPage(page, { valuesPath = null } = {}) {
     if (q.oneChoice) red.push(`${id}: 選択肢が 1 つだけ（「分からない」の外に 2 つ以上）`);
     if (!q.choices && !q.freeInput) red.push(`${id}: 答える欄が無い`);
     if (!q.required) red.push(`${id}: 答えずに送れる（最初の選択肢か入力の欄に required を付ける）`);
+    if (q.checkboxRequired) red.push(`${id}: checkbox に required を付けない（その 1 つを選ばないと送れなくなる）`);
     const real = q.options.filter((o) => o.value !== UNKNOWN);
     if (real.filter((o) => o.rec).length > 1) red.push(`${id}: おすすめは 1 つまで`);
     const vals = [];

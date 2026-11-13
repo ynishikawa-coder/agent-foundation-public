@@ -11,7 +11,7 @@ description: お客さんなど選択肢の画面を使えない相手に判断�
 
 - **流れ**: はじめ（差出人・件名・全 N 問・目安の分・期限）→ **1 画面 1 問** → 送る前の確認（全部の答えと「変える」）→ 受付（受付番号・この後のこと・控え）。JS が切られた端末では全問を縦に並べ、そのまま送れる。
 - **見た目**: 明るい色で固定（相手の端末が暗い設定でも明るく出す）・本文 18px・行間 1.6・選択肢は行ぜんぶが押せて高さ 48px 以上。
-- **宛先で変えてよいのは 4 つだけ**: 差出人（`.from`）・宛名（`.to`）・連絡先（`.contact`）・会社の色 1 つ（`<body style="--brand:#rrggbb">`）。ほかの見た目と動きは型のまま（検査が型と突き合わせる）。
+- **宛先で変えてよいのは 4 つだけ**: 差出人（`.from`）・宛名（`.to`）・連絡先（`.contact`）・会社の色 1 つ（`<body style="--brand:#rrggbb">`）。ほかの見た目と動きは型のまま（検査が `qa:css`・`qa:js`・`qa:foot` を型と突き合わせる）。
 - **未回答があると送れない**。全問に「分からない・社内で確かめてから答える」を置き、どう答えても次へ進める。
 
 宛先の印 `<body data-dest="…">` は 3 つ:
@@ -91,7 +91,7 @@ repo の根（`git rev-parse --show-toplevel`）の `config/skill-values.json` �
 
 ## 作り方（skip 禁止）
 
-1. **`references/template.html` を丸ごと複製**する。`<body data-dest>` を `send`・`copy`・`artifact` のどれかにし、`{{…}}` と問いの箱だけ差し替える。`qa:css`・`qa:js` の間は**1 字も変えない**。`qa:foot` の間は `{{この後のこと}}` だけ差す。型の外に `style`・`script` を書かない（会社の色は body の `--brand` だけ）。
+1. **`references/template.html` を丸ごと複製**する。`<body data-dest>` を `send`・`copy`・`artifact` のどれかにし、`{{…}}` と問いの箱だけ差し替える。`qa:css`・`qa:js` の間は**1 字も変えない**。`qa:foot` の間は `{{この後のこと}}` だけ差す。型の外に `style`・`script`・`on…` の属性・`javascript:` を書かない（会社の色は body の `--brand` だけ）。
 2. **header**: 宛名（`.to`）・件名（`h1`）・前書き 1 文・期限・差出人（`.from`）と連絡先（`.contact`）。全 N 問・目安の分は型が出す。
 3. **版**: `<input type="hidden" name="__版__" value="…">` に版（例 `2026-11-13.1`）を入れる。**問いを直したら版を上げる**（どの問いの形への答えかを後から辿るため）。
 4. **問いの箱を組む**（1 問＝1 つの `fieldset.q`）: `data-qkey`＝問いの鍵（半角英数字と `_`・答えの `name` と同じ・元の表の行の鍵と同じにする）／`data-qlabel`＝一言の見出し／`data-kind`＝上の形／`data-group`＝並べ方／`data-decides`＝この答えで決まる事（画面に出さない）／`legend`＝問い 1 行／`.known`＝分かっている事（数字は `<table>`）／`details.more`＝くわしく／選択肢 `label.opt`（`value`＝選択肢の鍵・半角英数字と `_`・最初の 1 つに `required`）／「または」と「分からない」／ひとこと `name="supp_鍵"`。最後に `name="__自由記入__"` の箱を 1 つ。
@@ -182,5 +182,5 @@ repo の根（`git rev-parse --show-toplevel`）の `config/skill-values.json` �
 ## 関連
 
 - `references/template.html` — 1 つの型の正本（はじめ・1 画面 1 問・送る前の確認・受付・保存・答えの形を作る JS）
-- `check.mjs` — 検査（node だけで動く・HTML と問いの JSON の両方を読む・`import { checkQa, checkQaJson, checkFile }` でほかの検査からも呼べる）。頭の `RULES` が問いの決まりの表の 1 か所。`qa:css`・`qa:js` は型と突き合わせる
+- `check.mjs` — 検査（node だけで動く・HTML と問いの JSON の両方を読む・`import { checkQa, checkQaJson, checkFile }` でほかの検査からも呼べる）。頭の `RULES` が問いの決まりの表の 1 か所。`qa:css`・`qa:js`・`qa:foot`（「この後のこと」を除く）は型と突き合わせる
 - theory-mock（画面を見ながら決める時）・mindmap（構造そのものを組み替える時）
