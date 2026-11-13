@@ -188,7 +188,8 @@ def test_pushの範囲はbeforeからafter(tmp_path):
 def _cli(repo, env_extra, *args):
     env = {k: v for k, v in os.environ.items() if k not in ENV_KEYS}
     env.update(env_extra)
-    return subprocess.run([sys.executable, str(GUARD), "--repo", str(repo), "--range", "ALL", *args],
+    rng = [] if "--range" in args else ["--range", "ALL"]
+    return subprocess.run([sys.executable, str(GUARD), "--repo", str(repo), *rng, *args],
                           env=env, capture_output=True, text=True)
 
 
@@ -336,3 +337,53 @@ def test_中身だけを照らせる(tmp_path):
     _commit(repo, remove=["a.md"])
     assert not guard.run(repo, "ALL", None, [], {}, files_only=True)
     assert guard.run(repo, "ALL", None, [], {})
+
+
+# ---- レビュー（PR #12）で見つかった抜けの見張り -----------------------------------------
+
+TOKEN = "ghp_" + "a" * 36
+
+
+def test_日本語の名のファイルの歴史も照らす(tmp_path):
+    repo = _repo(tmp_path)
+    _commit(repo, {"設計.md": f"鍵 {TOKEN}\n"})
+    _commit(repo, remove=["設計.md"])
+    hits = _run(repo, {}, rev_range="ALL")
+    assert any("設計.md" in h and "GitHub のトークン" in h for h in hits), hits
+
+
+def test_プラス2つで始まる行で見出しを取り違えない(tmp_path):
+    repo = _repo(tmp_path)
+    _commit(repo, {"a.md": f"++ 見出しのふり\n鍵 {TOKEN}\n"})
+    _commit(repo, remove=["a.md"])
+    hits = _run(repo, {}, rev_range="ALL")
+    assert any(h.startswith("commit ") and "a.md" in h and "GitHub のトークン" in h for h in hits), hits
+
+
+def test_mergeでだけ足された行も照らす(tmp_path):
+    repo = _repo(tmp_path)
+    _git(repo, "checkout", "-q", "-b", "side")
+    _commit(repo, {"a.md": "一\n"})
+    _git(repo, "checkout", "-q", "-")
+    _commit(repo, {"a.md": "二\n"})
+    subprocess.run(["git", "merge", "-q", "side"], cwd=repo, capture_output=True)
+    (repo / "a.md").write_text(f"鍵 {TOKEN}\n", encoding="utf-8")
+    _git(repo, "add", "a.md")
+    _git(repo, "commit", "-q", "--no-edit")
+    _commit(repo, remove=["a.md"])
+    assert any("GitHub のトークン" in h for h in _run(repo, {}, rev_range="ALL"))
+
+
+def test_名に顧客の語があるファイルは名を伏せる(tmp_path):
+    repo = _repo(tmp_path)
+    _commit(repo, {"見本商事の台帳.md": "ふつうの文\n"})
+    for extra in ({"AF_DENY_WORDS": "見本商事"}, {"AF_DENY_BUNDLE": _bundle_of(["見本商事"])}):
+        res = _cli(repo, extra)
+        out = res.stdout + res.stderr
+        assert res.returncode == 1, out
+        assert "見本商事" not in out and "名に置かない物があるファイル #" in out, out
+
+
+def test_照らす範囲が読めない時は理由を出して赤(tmp_path):
+    res = _cli(_repo(tmp_path), {}, "--range", "0" * 40 + ".." + "1" * 40)
+    assert res.returncode == 1 and "照らす範囲を読めない" in res.stdout, res.stdout + res.stderr

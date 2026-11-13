@@ -216,6 +216,12 @@ class Guard:
         hits += customer_hits(where, text, self.cust_words, self.bundle)
         return hits
 
+    def place(self, path: str) -> str:
+        """出力に出す場所の名。path そのものに置かない物があれば伏せる（公開の Actions のログは誰でも読める）。"""
+        if self.text_hits("", path, None if path in self.skip else path):
+            return "名に置かない物があるファイル #" + hashlib.sha256(path.encode("utf-8")).hexdigest()[:10]
+        return path
+
     # 中身
     def tracked_files(self):
         out = subprocess.run(["git", "ls-files", "-z"], cwd=self.repo, capture_output=True, check=True).stdout
@@ -231,7 +237,7 @@ class Guard:
     def check_files(self) -> list[str]:
         hits = []
         for rel, text in self.tracked_files():
-            hits += self.text_hits(rel, rel + "\n" + text, rel)
+            hits += self.text_hits(self.place(rel), rel + "\n" + text, rel)
         return hits
 
     # 歴史と外側
@@ -250,21 +256,30 @@ class Guard:
         return ["origin/main..HEAD"]
 
     def check_history(self, revs: list[str]) -> list[str]:
-        """各 commit で足された行（ファイルの名と行）。"""
+        """各 commit で足された行（ファイルの名と行）。merge の commit も各親との差で見る（-m）。
+
+        path は引用符なしで取る（core.quotePath=false）。見出し（+++）は `diff --git` から最初の `@@` までの間でだけ読む
+        （中身が `++ ` で始まる足された行を見出しと取り違えない）。"""
         hits = []
-        log = self.git("log", "-p", "--no-color", "--no-ext-diff", "--format=\x1e%h", *revs)
+        log = self.git("-c", "core.quotePath=false", "log", "-p", "-m", "--no-color", "--no-ext-diff",
+                       "--no-renames", "--format=\x1e%h", *revs)
         for chunk in filter(None, log.split("\x1e")):
             sha, _, diff = chunk.partition("\n")
-            path, added = None, {}
+            path, in_header, added = None, False, {}
             for line in diff.splitlines():
-                if line.startswith("+++ "):
-                    path = line[6:] if line.startswith("+++ b/") else None
-                    if path:
-                        added.setdefault(path, [])
+                if line.startswith("diff --git "):
+                    path, in_header = None, True
+                elif in_header:
+                    if line.startswith("+++ "):
+                        path = line[6:] if line.startswith("+++ b/") else None
+                        if path:
+                            added.setdefault(path, [])
+                    elif line.startswith("@@"):
+                        in_header = False
                 elif path and line.startswith("+"):
                     added[path].append(line[1:])
             for path, lines in added.items():
-                hits += self.text_hits(f"commit {sha} の {path}", path + "\n" + "\n".join(lines), path)
+                hits += self.text_hits(f"commit {sha} の {self.place(path)}", path + "\n" + "\n".join(lines), path)
         return hits
 
     def check_meta(self, revs: list[str], event: dict) -> list[str]:
@@ -324,7 +339,11 @@ def main(argv=None) -> int:
             print(f"✗ 顧客の語がどこからも渡っていない（{CUSTOMER_HINT}）")
             return 1
         print("（手元: 顧客の語が環境に無いので、顧客の語の照合だけ飛ばす）")
-    hits = run(repo, a.rev_range, a.deny_words_file, a.pattern_skip, files_only=a.files_only)
+    try:
+        hits = run(repo, a.rev_range, a.deny_words_file, a.pattern_skip, files_only=a.files_only)
+    except subprocess.CalledProcessError as e:
+        print(f"✗ git が照らす範囲を読めない（force push の後で前の commit が無い・取り出しが浅い等）: {' '.join(e.cmd[1:4])}")
+        return 1
     if hits:
         print("✗ 公開の repo に置かない物:\n  " + "\n  ".join(hits))
         return 1
