@@ -269,9 +269,15 @@ export function readHtml(raw) {
   }
   // 型の外（動かない 3 か所は上で型と突き合わせた＝ここでは見ない）
   //   外すのは突き合わせた最初の 1 つの間だけ（2 つ目の印の間は外さない＝照らしに入る）
-  const outside = mask(FIXED.reduce((t, n) => t.replace(new RegExp(`<!--${n}-->[\\s\\S]*?<!--/${n}-->`), " "), raw));
+  //   コメントを伏せずに生の文字で見る（ブラウザと検査でコメントの閉じ方が違っても、隠した物を見逃さない）
+  const outside = FIXED.reduce((t, n) => t.replace(new RegExp(`<!--${n}-->[\\s\\S]*?<!--/${n}-->`), " "), raw);
   if (/<style\b/i.test(outside)) shape.push("型の外に <style> がある（見た目は型の 1 つだけ）");
   if (/<script\b/i.test(outside)) shape.push("型の外に <script> がある（動きは型の 1 つだけ・送信の JS も書かない）");
+  for (const [tag, n] of [["style", 1], ["script", 1]]) {
+    const got = (raw.match(new RegExp(`<${tag}\\b`, "gi")) ?? []).length;
+    if (got !== n) shape.push(`<${tag}> はページ全体でちょうど ${n} つ（型の中の 1 つ・今 ${got}）`);
+  }
+  if (/--!>|<!--->|<!-->/.test(raw)) shape.push("崩れたコメント（--!> ・<!--> ・<!--->）がある（ブラウザと読み方が食い違う）");
   if (/<link\b[^>]*rel\s*=\s*["']?stylesheet/i.test(outside)) shape.push("外の見た目（link stylesheet）を読んでいる");
   const onAttr = /<[a-z][a-z0-9]*\b[^>]*?[\s/]on[a-z]+\s*=/i.exec(outside);
   if (onAttr) shape.push(`型の外に動き（on… の属性）がある（動きは型の 1 つだけ）: ${onAttr[0].slice(0, 40)}`);

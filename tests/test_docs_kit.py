@@ -220,12 +220,14 @@ MUTATIONS = [
     ('<section class="done" id="qa-done" hidden>', '<section class="done" id="qa-done">', "qa:foot の中身が型と違う"),
     ("<h2>答えを確かめてください</h2>", "<h2>これで送ります</h2>", "qa:foot の中身が型と違う"),
     ('id="sendbtn">', 'id="sendbtn" onclick="fetch(\'/x\')">', "qa:foot の中身が型と違う"),
-    ("決まりの写しをお送りします。", "決まりの写しをお送りします。<script>fetch('/x')</script>", "「この後のこと」（.next）に書けるのは"),
+    ("決まりの写しをお送りします。", "決まりの写しをお送りします。<a href=\"#\">x</a>", "「この後のこと」（.next）に書けるのは"),
     ("決まりの写しをお送りします。", '決まりの写しをお送りします。<img src="x" onerror="fetch(\'/x\')">', "「この後のこと」（.next）に書けるのは"),
-    ("決まりの写しをお送りします。", "決まりの写しをお送りします。<script>fetch('/x')</script>", "「この後のこと」（.next）に書けるのは", '<p class="lead">', '<p class="lead"><span class="next">ok</span>'),
+    ("決まりの写しをお送りします。", "決まりの写しをお送りします。<b>x</b>", "「この後のこと」（.next）に書けるのは", '<p class="lead">', '<p class="lead"><span class="next">ok</span>'),
     ("</body>", "<!--qa:css--><p>x</p><!--/qa:css--></body>", "型の qa:css の印が 2 回ある"),
     ("</body>", "<!--qa:js--><p>x</p><!--/qa:js--></body>", "型の qa:js の印が 2 回ある"),
     ("</body>", "<!--qa:foot--><p>x</p><!--/qa:foot--></body>", "型の qa:foot の印が 2 回ある"),
+    ("<p class=\"lead\">", "<!-- a --!> x --><p class=\"lead\">", "崩れたコメント"),
+    ("<p class=\"lead\">", "<!--> x --><p class=\"lead\">", "崩れたコメント"),
     ('<details class="more">', '<details class="more"/onclick="fetch(\'/x\')">', "型の外に動き（on… の属性）"),
     ('type="radio" name="q2" value="none"', 'type="checkbox" name="q2" value="none" required', "問い q2: checkbox に required"),
 ]
@@ -259,7 +261,6 @@ def test_2_つ目の印の間の中身も照らす(tmp_path, name, inner, expect
     page = tmp_path / "確認.html"
     page.write_text(filled_template().replace("</body>", f"<!--{name}-->{inner}<!--/{name}--></body>", 1), encoding="utf-8")
     red = run_check(page)["red"]
-    assert len(red) == 2, red
     assert red[0].startswith(f"型の {name} の印が 2 回ある") and any(r.startswith(expect) for r in red), red
 
 
@@ -270,10 +271,24 @@ def test_この後のことは差し替えても緑(tmp_path):
     assert run_check(page)["red"] == []
 
 
+# ブラウザはコメントを --!> や <!--> でも閉じる＝検査がコメントと読んでも、中の script は動く
+BROKEN_COMMENTS = ["<!-- a --!><script>fetch('/x')</script><!-- b -->", "<!--><script>fetch('/x')</script><!-- b -->"]
+
+
+@needs_node
+@pytest.mark.parametrize("inject", BROKEN_COMMENTS, ids=["--!>", "<!-->"])
+def test_崩れたコメントに隠した_script_も赤(tmp_path, inject):
+    page = tmp_path / "確認.html"
+    page.write_text(filled_template().replace("</form>", "</form>" + inject, 1), encoding="utf-8")
+    red = run_check(page)["red"]
+    for e in ["型の外に <script>", "<script> はページ全体でちょうど 1 つ", "崩れたコメント"]:
+        assert any(r.startswith(e) for r in red), (e, red)
+
+
 @needs_node
 def test_型の外の_script_は赤(tmp_path):
     base = filled_template()
     page = tmp_path / "確認.html"
     page.write_text(base.replace("</form>", "</form><script>fetch('/x')</script>", 1), encoding="utf-8")
     red = run_check(page)["red"]
-    assert len(red) == 1 and red[0].startswith("型の外に <script>"), red
+    assert len(red) == 2 and red[0].startswith("型の外に <script>") and red[1].startswith("<script> はページ全体でちょうど 1 つ"), red
