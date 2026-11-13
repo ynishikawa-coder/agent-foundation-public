@@ -4,6 +4,7 @@
 
 ## 合流ごと（v0.4.1 から・新しい物が上）
 
+- 壊れる: 公開の検査を足した。核 §1 に「公開の repo は、いつ誰に見られてもよい状態に保つ」。検査の本体 `public-guard/guard.py` を、他の公開 repo が版の印で呼べる action `public-guard` にした（中身・足された行の歴史・commit の名義と説明・PR の題と本文を、鍵・個人の情報・顧客の語の束で照らす。名義は noreply だけ通す）。CI で顧客の語（secret `AF_DENY_BUNDLE`）が無い時は赤。毎日の見回り `patrol` が、呼び口か main の守りが外れた公開 repo を issue で知らせる。作る手順は skill `dev-flow:public-repo`。旧 `scripts/hygiene.py`・`scripts/checks/meta.sh`・`tests/test_hygiene.py` は畳んだ。
 - 版の出し方を畳んだ: main に入るたびに Actions が小の位を 1 上げた印を自動で打つ。版を出す PR・CHANGELOG の版の見出し・plugin.json の version をそろえる手は無くした（docs/版の出し方.md）。
 
 ## [v0.4.0] - 2026-11-13
