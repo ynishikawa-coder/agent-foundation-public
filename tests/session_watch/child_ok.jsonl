@@ -5,4 +5,4 @@
 {"type": "user", "message": {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "tu2", "content": "ok"}]}, "toolUseResult": "hi"}
 {"type": "assistant", "message": {"role": "assistant", "content": [{"type": "tool_use", "id": "tu3", "name": "mcp__claude-code-remote__set_session_title", "input": {"session_id": "session_CHILD01", "title": "🤖✅ 作り物の作業"}}]}}
 {"type": "user", "message": {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "tu3", "content": "ok"}]}, "toolUseResult": {"ok": true}}
-{"type": "assistant", "message": {"role": "assistant", "content": [{"type": "text", "text": "✅ 終わった\n作り物の作業を終えて親窓へ返した。\nAI の残り: なし\nオーナーの残り: なし"}]}}
+{"type": "assistant", "message": {"role": "assistant", "content": [{"type": "text", "text": "✅ 終わった\n作り物の作業を終えて親窓へ返した。\nAI がこの後やること: なし\nあなたがやること: なし。この窓は閉じて大丈夫です。"}]}}

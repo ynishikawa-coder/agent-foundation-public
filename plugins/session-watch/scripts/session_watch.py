@@ -3,11 +3,12 @@
 
 拾う物（どれも会話ログの中だけで決まる＝環境の値・外の台帳・get_session の返りを見ない）:
   title    … 窓の題の目印（`<種類><状態> <作業名>`）が決まりどおりか
-  close    … 返事の最後が締めの 2 行（`AI の残り: …`／`オーナーの残り: …`）か
+  close    … 返事の最後が締めの 2 行（`AI がこの後やること: …`／`あなたがやること: …`）か。あなたがやることが「なし」なら窓を閉じてよいかを、
+             「なし」でなければ「これが済むまで <何> に進めません」を書いているか
   card     … 返事の 1 行目が 4 札（✅❓⏳🛑）のどれかで始まるか
   plain    … 答えを求める問いを、選択肢モーダル（AskUserQuestion）でなく平文で書いたか
   unanswered … モーダルで出した問いに、答えが返らないまま残っている物があるか
-  rest     … 締めの `AI の残り` が「なし」でないのに、この窓で残りを動かす手（子窓・送る・見張り・後で起こす・背で走る助手）を一度も打っていないか
+  rest     … 締めの `AI がこの後やること` が「なし」でないのに、この窓で残りを動かす手（子窓・送る・見張り・後で起こす・背で走る助手）を一度も打っていないか
   hand     … 手の窓（題 `🙋⏳ 手: <何を>`）の返事に、目的・手順・済んだ目印・済んだ後が揃っているか
 
 窓の種類＝「オーナーが相手の窓か」（この窓が誰に返すか）。誰が立てたか（親の窓の有無・
@@ -43,8 +44,12 @@ RETURN_TO = re.compile(r"返し先\s*[=＝:：]\s*(オーナー|session_[A-Za-z0
 CHILD_OF = re.compile(r"（親窓\s*session_[A-Za-z0-9]+\s*の子）")
 
 # 締めの 2 行の型（ここ 1 か所）。前後の ` と ** は許す。
-CLOSE_AI = re.compile(r"^[`*]*AI の残り: ?\S")
-CLOSE_OWNER = re.compile(r"^[`*]*オーナーの残り: ?\S")
+CLOSE_AI = re.compile(r"^[`*]*AI がこの後やること: ?\S")
+CLOSE_OWNER = re.compile(r"^[`*]*あなたがやること: ?\S")
+# あなたがやることの中身: なし→窓を閉じてよいか／ある→済むまで何に進めないか。
+OWNER_NONE = re.compile(r"^[`*]*あなたがやること: ?なし")
+CLOSE_OK = ("閉じて大丈夫", "閉じないで")
+BLOCKS = "済むまで"
 
 # 平文の問いの型: 末尾が ？／❓ 札で始まる／最後 2 行に問いの言い回し（条件つきの頼みは除く）。
 QEND = re.compile(r"[？?]\s*[)）」』*_`]*\s*$")
@@ -55,7 +60,7 @@ STRONG = re.compile(
 COND = re.compile(r"(なら|たら|れば|場合)[^。]*(教えて|声をかけて|言って)")
 CARD_LINE = re.compile(r"^[#>*\s]*(✅|❓|⏳|🛑)")
 
-# AI の残りを動かす手（子窓や背で走る助手に頼む・PR を見張る・自分を後で起こす）。名の末尾で見る。
+# AI がこの後やることを動かす手（子窓や背で走る助手に頼む・PR を見張る・自分を後で起こす）。名の末尾で見る。
 MOVE_TOOLS = ("create_session", "send_message", "send_later", "create_trigger", "fire_trigger",
               "subscribe_pr_activity", "ScheduleWakeup", "Monitor", "Workflow")
 
@@ -278,8 +283,8 @@ def check(log):
                 found.append(("title", "%s の窓に %s は付けない（閉じるかはオーナーが決める）" % (HUMAN, DONE)))
             if tm == ASKING and not open_ask and answered:
                 found.append(("title", "答えが返ったのに題に %s が残っている" % ASKING))
-            if (kind or tk) == AI and close and close.startswith("AI の残り: なし") and tm != DONE:
-                found.append(("title", "%s の窓が AI の残りなしで締めるのに、題の状態が %s でない" % (AI, DONE)))
+            if (kind or tk) == AI and close and close.startswith("AI がこの後やること: なし") and tm != DONE:
+                found.append(("title", "%s の窓が AI がこの後やることなしで締めるのに、題の状態が %s でない" % (AI, DONE)))
             if tm == WAITING and HAND_TITLE.match(split_title(title)[2]) and closing.strip():
                 lack = [p for p in HAND_PARTS if p not in closing]
                 if lack:
@@ -292,12 +297,18 @@ def check(log):
         if not CARD_LINE.match(lines[0]):
             found.append(("card", "返事の 1 行目が 4 札（%s）で始まらない: %s" % ("／".join(CARDS), lines[0][:40])))
         if close is None:
-            found.append(("close", "返事の最後が締めの 2 行（`AI の残り: …`／`オーナーの残り: …`）でない: %s"
+            found.append(("close", "返事の最後が締めの 2 行（`AI がこの後やること: …`／`あなたがやること: …`）でない: %s"
                           % lines[-1][-60:]))
+        else:
+            owner = close.splitlines()[-1]
+            if OWNER_NONE.match(owner) and not any(w in owner for w in CLOSE_OK):
+                found.append(("close", "あなたがやることが「なし」なのに、この窓を閉じてよいか（閉じて大丈夫／まだ閉じないで）を書いていない"))
+            if not OWNER_NONE.match(owner) and BLOCKS not in owner:
+                found.append(("close", "あなたがやることがあるのに、「これが済むまで <何> に進めません」を書いていない"))
 
-    # 動かしていない AI の残り（核 §5: 締める前に AI が自分で動かす）
+    # 動かしていない AI がこの後やること（核 §5: 締める前に AI が自分で動かす）
     #   待ちの題（❓ オーナーの答え待ち／⏳ 手待ち・子の返し待ち）と、この窓で既に動かした手（子窓・見張り）は拾わない。
-    if close and not close.startswith("AI の残り: なし"):
+    if close and not close.startswith("AI がこの後やること: なし"):
         last_title = None
         for k, v in log.events:
             if k == "title":
@@ -305,7 +316,7 @@ def check(log):
         waiting = split_title(last_title)[1] in (ASKING, WAITING)
         moved = any(k == "move" for k, _ in log.events)
         if not (waiting or moved):
-            found.append(("rest", "AI の残りを書いたのに、この窓で動かしていない（子窓や背で走る助手に頼む・PR を見張る・"
+            found.append(("rest", "AI がこの後やることを書いたのに、この窓で動かしていない（子窓や背で走る助手に頼む・PR を見張る・"
                                   "後で起こすのどれかを打ってから締める）: %s" % close.splitlines()[0][:60]))
 
     # 平文の問い（このターンにモーダルが無いのに、問いで締めた）

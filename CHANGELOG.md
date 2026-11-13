@@ -4,6 +4,8 @@
 
 ## 合流ごと（v0.4.1 から・新しい物が上）
 
+- 壊れる: 核 §5 の締めの 2 行を、オーナーが最後だけ読んで分かる言葉にした: `AI がこの後やること: …` と `あなたがやること: …`。あなたがやることが「なし」なら窓を閉じてよいか（閉じて大丈夫／まだ閉じないで）を、ある時は「これが済むまで <何> に進めません」を書く。session-watch の close の点検もこの形を見る。核 §2 に「初めて読む人がその返事だけで分かるように書く・物は本当の名前で呼ぶ」を足した。
+
 - 直した: 細目 §4 の手の窓に「1 つの頼みに 1 つの窓」「画面で済む手は Claude in Chrome に貼る文 1 個」「オーナーの手はワンクリックかコピペ 1 回まで・前置きを足さない」を足した。skill `dev-flow:public-repo` の公開と守りの手を Chrome の文 1 個に、`patrol` を AI が回す形にした。
 
 - 壊れる: 公開の検査を足した。核 §1 に「公開の repo は、いつ誰に見られてもよい状態に保つ」。検査の本体 `public-guard/guard.py` を、他の公開 repo が版の印で呼べる action `public-guard` にした（中身・足された行の歴史・commit の名義と説明・PR の題と本文を、鍵・個人の情報・顧客の語の束で照らす。名義は noreply だけ通す）。CI で顧客の語（secret `AF_DENY_BUNDLE`）が無い時は赤。毎日の見回り `patrol` が、呼び口か main の守りが外れた公開 repo を issue で知らせる。作る手順は skill `dev-flow:public-repo`。旧 `scripts/hygiene.py`・`scripts/checks/meta.sh`・`tests/test_hygiene.py` は畳んだ。

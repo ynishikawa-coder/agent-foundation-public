@@ -3,4 +3,4 @@
 {"type": "user", "message": {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "tu6", "content": "ok"}]}, "toolUseResult": {"ccr": {"id": "session_NEXT03", "title": "作り物の続き", "parent_session_id": "session_PREV03", "origin": "mcp"}}}
 {"type": "assistant", "message": {"role": "assistant", "content": [{"type": "tool_use", "id": "tu7", "name": "mcp__claude-code-remote__set_session_title", "input": {"session_id": "session_NEXT03", "title": "🙋 作り物の続き"}}]}}
 {"type": "user", "message": {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "tu7", "content": "ok"}]}, "toolUseResult": {"ok": true}}
-{"type": "assistant", "message": {"role": "assistant", "content": [{"type": "text", "text": "✅ 終わった\n引き継ぎを受けて、作り物の続きを終えた。\nAI の残り: なし\nオーナーの残り: なし"}]}}
+{"type": "assistant", "message": {"role": "assistant", "content": [{"type": "text", "text": "✅ 終わった\n引き継ぎを受けて、作り物の続きを終えた。\nAI がこの後やること: なし\nあなたがやること: なし。この窓は閉じて大丈夫です。"}]}}

@@ -88,13 +88,28 @@ def test_題の目印の誤りを拾う():
 
 
 def test_締めの2行と1行目の札を拾う():
-    c = set_last_text(rows("child_ok.jsonl"), "終わりました。\nAI の残り: なし\nオーナーの残り: なし")
+    c = set_last_text(rows("child_ok.jsonl"), "終わりました。\nAI がこの後やること: なし\nあなたがやること: なし。この窓は閉じて大丈夫です。")
     assert codes(c) == ["card"]
     c = set_last_text(rows("child_ok.jsonl"), "✅ 終わった\nこの窓: 残りなし")       # 古い 1 行の締め
     assert "close" in codes(c)
-    c = set_last_text(rows("child_ok.jsonl"), "✅ 終わった\nAI の残り: なし")         # オーナーの残りが無い
+    c = set_last_text(rows("child_ok.jsonl"), "✅ 終わった\nAI がこの後やること: なし")         # あなたがやることが無い
     assert "close" in codes(c)
 
+
+
+def test_あなたがやることなしは窓を閉じてよいかを書く():
+    c = set_last_text(rows("child_ok.jsonl"), "✅ 終わった\nAI がこの後やること: なし\nあなたがやること: なし")
+    assert "close" in codes(c)
+    c = set_last_text(rows("child_ok.jsonl"), "✅ 終わった\nAI がこの後やること: なし\nあなたがやること: なし。この窓は閉じて大丈夫です。")
+    assert "close" not in codes(c)
+
+
+def test_あなたがやることがあれば済むまで進めない事を書く():
+    c = set_last_text(rows("owner_ok.jsonl"), "⏳待ち（オーナー・今日中）\n設定を頼んだ。\nAI がこの後やること: なし\nあなたがやること: 設定を 1 つ")
+    assert "close" in codes(c)
+    c = set_last_text(rows("owner_ok.jsonl"), "⏳待ち（オーナー・今日中）\n設定を頼んだ。\nAI がこの後やること: なし\n"
+                                              "あなたがやること: 設定を 1 つ。これが済むまで公開に進めません。")
+    assert "close" not in codes(c)
 
 def test_手で回す口は拾えば_exit_1_型どおりなら_exit_0():
     run = lambda name: subprocess.run([sys.executable, str(SCRIPT), str(LOGS / name)], capture_output=True, text=True)
@@ -113,7 +128,7 @@ def test_返事を止める_hook_を持たず_知らせる_hook_だけを持つ(
 # ── 手の窓（題 `🙋⏳ 手: <何を>`）──
 def test_手の窓に型が欠ければ拾い_揃えば拾わない():
     rs = set_title(rows("owner_ok.jsonl"), "🙋 作り物の続き", "🙋⏳ 手: 作り物の設定")
-    close = "\nAI の残り: 済んだら頼んだ窓へ返す（今日中・この窓で）\nオーナーの残り: 手: この窓"
+    close = "\nAI がこの後やること: 済んだら頼んだ窓へ返す（今日中・この窓で）\nあなたがやること: この窓で設定を 1 つする。これが済むまで先へ進めません。"
     bad = set_last_text(rs, "⏳待ち（オーナー・今日中）\n作り物の設定を直してください。" + close)
     found = sw.check(sw.Log(bad))
     assert [c for c, _ in found] == ["hand"] and "済んだ目印" in found[0][1]
@@ -124,7 +139,7 @@ def test_手の窓に型が欠ければ拾い_揃えば拾わない():
 
 def test_手の窓でない待ちは型を見ない():
     rs = set_title(rows("owner_ok.jsonl"), "🙋 作り物の続き", "🙋⏳ 作り物の続き")
-    rs = set_last_text(rs, "⏳待ち（子の窓・今日中）\n子の窓の返しを待つ。\nAI の残り: 子の返しを受けて合流（今日中・この窓で）\nオーナーの残り: なし")
+    rs = set_last_text(rs, "⏳待ち（子の窓・今日中）\n子の窓の返しを待つ。\nAI がこの後やること: 子の返しを受けて合流（今日中・この窓で）\nあなたがやること: なし。この窓で AI が続けるので、まだ閉じないでください。")
     assert codes(rs) == []
 
 
@@ -164,9 +179,9 @@ def test_知らせる口は止めず_JSON_で隣に出す():
     assert bad.returncode == 0 and bad.stdout == ""
 
 
-# ── 動かしていない AI の残り（核 §5）──
+# ── 動かしていない AI がこの後やること（核 §5）──
 def test_AI_の残りを書いて動かさずに締めると拾い_子窓を立てれば拾わない():
-    close = "\nAI の残り: レビューして合流（今日中・レビューの窓で）\nオーナーの残り: なし"
+    close = "\nAI がこの後やること: レビューして合流（今日中・レビューの窓で）\nあなたがやること: なし。この窓は閉じて大丈夫です。"
     rs = set_last_text(rows("owner_ok.jsonl"), "✅終わった（一部）\nPR を出した。" + close)
     assert "rest" in codes(rs)
     spawn = {"type": "assistant", "message": {"role": "assistant", "content": [
@@ -176,7 +191,7 @@ def test_AI_の残りを書いて動かさずに締めると拾い_子窓を立�
 
 
 def test_背で走らせた助手は残りを動かす手に数え_前で待つ助手は数えない():
-    close = "\nAI の残り: 調べを受けて直す（今日中・この窓で）\nオーナーの残り: なし"
+    close = "\nAI がこの後やること: 調べを受けて直す（今日中・この窓で）\nあなたがやること: なし。この窓で AI が続けるので、まだ閉じないでください。"
     rs = set_last_text(rows("owner_ok.jsonl"), "✅終わった（一部）\n調べを頼んだ。" + close)
     agent = lambda bg: {"type": "assistant", "message": {"role": "assistant", "content": [
         {"type": "tool_use", "id": "tuA", "name": "Agent", "input": {"prompt": "作り物", "run_in_background": bg}}]}}
@@ -189,7 +204,7 @@ def test_返し先が別の窓の子窓には題の知らせを出さない():
 
 
 def test_Workflow_は残りを動かす手に数える():
-    close = "\nAI の残り: 流れの返しを受けて直す（今日中・この窓で）\nオーナーの残り: なし"
+    close = "\nAI がこの後やること: 流れの返しを受けて直す（今日中・この窓で）\nあなたがやること: なし。この窓で AI が続けるので、まだ閉じないでください。"
     rs = set_last_text(rows("owner_ok.jsonl"), "✅終わった（一部）\n流れを回した。" + close)
     wf = {"type": "assistant", "message": {"role": "assistant", "content": [
         {"type": "tool_use", "id": "tuW", "name": "Workflow", "input": {"script": "作り物"}}]}}
