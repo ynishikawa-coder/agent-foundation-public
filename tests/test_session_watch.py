@@ -218,3 +218,56 @@ def test_Workflow_は残りを動かす手に数える():
         {"type": "tool_use", "id": "tuW", "name": "Workflow", "input": {"script": "作り物"}}]}}
     assert "rest" in codes(rs)
     assert "rest" not in codes(rs[:-1] + [wf, rs[-1]])
+
+
+# ── 頼んだ窓のあなたがやること（手の窓の URL だけ・細目 §4）──
+AI_DONE = "\nAI がこの後やること: なし\n"
+STEPS = [
+    "あなたがやること: 1. 作り物の画面を開く 2. 値を貼る。これが済むまで合流に進めません。",
+    "あなたがやること: 作り物の設定を開いて、下の値を貼って保存を押す。これが済むまで合流に進めません。\n```\n作り物の値\n```",
+    "あなたがやること: 設定 → 作り物 → 追加 で値を入れる。これが済むまで合流に進めません。",
+]
+NO_STEPS = [
+    "あなたがやること: 手の窓 https://claude.ai/code/session_HAND01 で設定を 1 つする。これが済むまで合流に進めません。",
+    "あなたがやること: なし。この窓は閉じて大丈夫です。",
+    "あなたがやること: 上の選択肢の画面で問いに答える。これが済むまで合流に進めません。",
+    "あなたがやること: 作り物の PR を見る。これが済むまで合流に進めません。",
+]
+
+
+def reply(rs, owner):
+    return set_last_text(rs, "⏳待ち（オーナー・今日中）\n作り物の PR を出した。" + AI_DONE + owner)
+
+
+def test_あなたがやることに手順を直に書けば拾い_URL_なし_問いだけは拾わない():
+    rs = rows("owner_ok.jsonl")
+    for owner in STEPS:
+        found = [m for c, m in sw.check(sw.Log(reply(rs, owner))) if c == "hand"]   # 締めの後のコードブロックは close も拾う
+        assert len(found) == 1 and "手の窓の URL だけ" in found[0] and "細目 §4" in found[0], owner
+    for owner in NO_STEPS:
+        assert "hand" not in codes(reply(rs, owner)), owner
+
+
+def test_手の窓自身のあなたがやることは手順を見ない():
+    rs = set_title(rows("owner_ok.jsonl"), "🙋 作り物の続き", "🙋⏳ 手: 作り物の設定")
+    body = "⏳待ち（オーナー・今日中）\n目的: 作り物が動く。\n手順:\n1. 開く\n済んだ目印: 出る\n済んだ後: 返す。"
+    rs = set_last_text(rs, body + "\nAI がこの後やること: 済んだら返す（今日中・この窓で）\n"
+                       "あなたがやること: 上の手順 1 を開いて押す。これが済むまで先へ進めません。")
+    assert "hand" not in codes(rs)
+    assert sw.remind_hand(sw.Log(rs)) is None
+
+
+def test_前の返事に手順を直に書いた窓へ次の頼みで知らせる(tmp_path):
+    rs = reply(rows("owner_ok.jsonl"), STEPS[0])
+    log = tmp_path / "t.jsonl"
+    nxt = {"type": "user", "message": {"role": "user", "content": "次を頼む"}}
+    for extra in ([], [nxt]):            # 新しい頼みが記録に載る前でも後でも、前の返事を見る
+        log.write_text("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in rs + extra), encoding="utf-8")
+        text = sw.remind({"transcript_path": str(log)}, CLOUD)
+        assert text and text.startswith("[session-watch] 前の返事の") and "🙋⏳ 手: <何を>" in text
+        assert "set_session_title" not in text          # 題は付いている＝題の知らせと重ねない
+    ok = reply(rows("owner_ok.jsonl"), NO_STEPS[0])
+    log.write_text("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in ok), encoding="utf-8")
+    assert sw.remind({"transcript_path": str(log)}, CLOUD) is None
+    log.write_text("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in rs), encoding="utf-8")
+    assert sw.remind({"transcript_path": str(log)}, {}) is None   # クラウドでない窓には出さない
