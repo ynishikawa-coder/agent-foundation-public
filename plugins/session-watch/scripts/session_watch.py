@@ -9,7 +9,8 @@
   plain    … 答えを求める問いを、選択肢モーダル（AskUserQuestion）でなく平文で書いたか
   unanswered … モーダルで出した問いに、答えが返らないまま残っている物があるか
   rest     … 締めの `AI がこの後やること` が「なし」でないのに、この窓で残りを動かす手（子窓・送る・見張り・後で起こす・背で走る助手）を一度も打っていないか
-  hand     … 手の窓（題 `🙋⏳ 手: <何を>`）の返事に、目的・手順・済んだ目印・済んだ後が揃っているか
+  hand     … 手の窓（題 `🙋⏳ 手: <何を>`）の返事に、目的・手順・済んだ目印・済んだ後が揃っているか。
+             手の窓でない窓が、あなたがやることに人の手の手順を直に書き、手の窓の URL を書いていないか
 
 窓の種類＝「オーナーが相手の窓か」（この窓が誰に返すか）。誰が立てたか（親の窓の有無・
 parent_session_id・origin）では決めない。会話ログの最初の頼みの文に書かれた返し先だけで決める:
@@ -18,7 +19,9 @@ parent_session_id・origin）では決めない。会話ログの最初の頼み
 使い方:
   python3 session_watch.py <transcript.jsonl>  … 拾った物を 1 行ずつ出す（拾えば exit 1）
   python3 session_watch.py --remind            … UserPromptSubmit の hook。クラウドの窓で、まだ題に種類（🙋／🤖）を
-                                                 付けていなければ、付けるよう AI に知らせる文を隣に出す（止めない）
+                                                 付けていなければ、付けるよう AI に知らせる文を隣に出す。前の返事の
+                                                 あなたがやることに人の手の手順を直に書いていれば、手の窓で頼むよう
+                                                 知らせる（どちらも止めない）
 読めない・壊れた記録は黙って通す。
 """
 import json
@@ -74,6 +77,12 @@ def moves(name, inp):
 # 手の窓（題 `🙋⏳ 手: <何を>`）が書く 4 つ。
 HAND_TITLE = re.compile(r"^手[:：]")
 HAND_PARTS = ("目的", "手順", "済んだ目印", "済んだ後")
+# 頼んだ窓のあなたがやること: 手の窓の URL だけを書く（細目 §4）。手順を直に書いたかを型で見る。
+HAND_URL = re.compile(r"claude\.ai/code/session_[A-Za-z0-9]+")
+STEP_NUM = re.compile(r"(?:^|\s)(?:[1-9][.)．）](?!\d)\s*\S|[①-⑨])", re.M)
+STEP_VERB = re.compile(r"(開[くいけ]|貼[るっり]|足[すし]|押[すし]|入れ|入力|追加|クリック|コピー|選[ぶん]|設定[しす]|保存|ログイン)")
+STEP_ARROW = re.compile(r"[→＞>]")
+ANSWER = re.compile(r"(答え|問い|選択肢)")
 
 
 # ── 記録を読む ──────────────────────────────────────────────
@@ -234,6 +243,30 @@ def split_close(text):
     return "\n".join(lines), None
 
 
+def owner_section(text):
+    """返事の最後の `あなたがやること:` の行から末尾まで（コードブロックも含む）の中身。無ければ None。"""
+    lines = (text or "").rstrip().splitlines()
+    for i in range(len(lines) - 1, -1, -1):
+        if CLOSE_OWNER.match(lines[i].strip()):
+            head = re.sub(r"^[`*]*あなたがやること: ?", "", lines[i].strip())
+            return "\n".join([head] + lines[i + 1:])
+    return None
+
+
+def owner_steps(text):
+    """あなたがやることに人の手の手順を直に書き、手の窓の URL が無いか。
+    手順らしい物＝番号付きの手順・コードブロック・→ の並び・手の動詞が 2 つ以上。
+    「なし」・URL がある・答える事（問い）だけは拾わない。"""
+    sec = owner_section(text)
+    if sec is None or OWNER_NONE.match("あなたがやること: " + sec.strip()) or HAND_URL.search(sec):
+        return False
+    if "```" in sec:
+        return True                      # 貼る文がある＝手順
+    if ANSWER.search(sec):
+        return False                     # 問いに答える事（番号の付いた選択肢を含む）は手の窓に回さない
+    return bool(STEP_NUM.search(sec)) or len(STEP_ARROW.findall(sec)) >= 2 or len(STEP_VERB.findall(sec)) >= 2
+
+
 def is_plain_question(text):
     """締めの 1 行を外した本文が、答えを求める問いで終わっているか。"""
     body, close = split_close(text)
@@ -290,6 +323,10 @@ def check(log):
                 if lack:
                     found.append(("hand", "手の窓の返事に %s が無い（目的・手順〔貼る文は全部〕・済んだ目印・済んだ後を書く）"
                                   % "・".join(lack)))
+
+    # 頼んだ窓のあなたがやること（手の窓の URL だけ・細目 §4）
+    if not in_hand_window(log) and owner_steps(closing):
+        found.append(("hand", HAND_ASK))
 
     # 締めの 2 行と 1 行目の札（このターンに返事がある時だけ）
     if closing.strip():
@@ -352,6 +389,36 @@ REMIND = (
     "session_id を省いて読む）。種類: %s。形の細目は skill `session-watch:title-mark`。")
 
 
+HAND_ASK = ("あなたがやることに人の手の手順を直に書いた。人の手は手の窓（題 🙋⏳ 手: <何を>・1 つの頼みに 1 つの窓）"
+            "で頼み、あなたがやることには手の窓の URL だけを書く（細目 §4）")
+HAND_REMIND = "[session-watch] 前の返事の" + HAND_ASK + "。"
+
+
+def in_hand_window(log):
+    """この窓が手の窓（題 `🙋⏳ 手: <何を>`）か。手の窓は手順を自分の返事に書く。"""
+    last = None
+    for k, v in log.events:
+        if k == "title":
+            last = v
+    _, mark, name = split_title(last)
+    return mark == WAITING and bool(HAND_TITLE.match(name))
+
+
+def last_reply(log):
+    """最後に締めた返事（最後の道具より後ろの本文）。新しい頼みが記録に載った後でも、その前の返事を返す。"""
+    out, prev = [], []
+    for kind, val in log.events:
+        if kind == "owner":
+            if out:
+                prev = out
+            out = []
+        elif kind in ("tool", "title", "ask"):
+            out = []
+        elif kind == "text":
+            out.append(val)
+    return "\n".join(out or prev)
+
+
 def titled(log):
     """この窓が題に種類の印を付けたことがあるか。"""
     return any(k == "title" and split_title(v)[0] for k, v in log.events)
@@ -364,6 +431,11 @@ def remind(data, env=None):
         return None
     path = data.get("transcript_path") or ""
     log = Log(read_rows(path)) if path and os.path.exists(path) else Log([])
+    out = [t for t in (remind_title(log, data), remind_hand(log)) if t]
+    return "\n".join(out) if out else None
+
+
+def remind_title(log, data):
     if titled(log):
         return None
     kind = kind_of(log.first_prompt or str(data.get("prompt") or ""))
@@ -372,6 +444,13 @@ def remind(data, env=None):
     which = ("%s（最初の頼みの返し先から）" % kind) if kind else (
         "オーナーと話す窓なら %s・別の窓へ返す窓なら %s" % (HUMAN, AI))
     return REMIND % (HUMAN, AI, REMOTE_PREFIX.rstrip("_"), which)
+
+
+def remind_hand(log):
+    """前の返事のあなたがやることに人の手の手順を直に書いていれば知らせる（手の窓自身は除く）。"""
+    if in_hand_window(log) or not owner_steps(last_reply(log)):
+        return None
+    return HAND_REMIND
 
 
 def hook_remind(stdin):
