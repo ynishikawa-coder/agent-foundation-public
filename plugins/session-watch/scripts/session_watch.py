@@ -79,7 +79,7 @@ HAND_TITLE = re.compile(r"^手[:：]")
 HAND_PARTS = ("目的", "手順", "済んだ目印", "済んだ後")
 # 頼んだ窓のあなたがやること: 手の窓の URL だけを書く（細目 §4）。手順を直に書いたかを型で見る。
 HAND_URL = re.compile(r"claude\.ai/code/session_[A-Za-z0-9]+")
-STEP_NUM = re.compile(r"(?:^|\s)(?:[1-9][.)．）]\s*\S|[①-⑨])", re.M)
+STEP_NUM = re.compile(r"(?:^|\s)(?:[1-9][.)．）](?!\d)\s*\S|[①-⑨])", re.M)
 STEP_VERB = re.compile(r"(開[くいけ]|貼[るっり]|足[すし]|押[すし]|入れ|入力|追加|クリック|コピー|選[ぶん]|設定[しす]|保存|ログイン)")
 STEP_ARROW = re.compile(r"[→＞>]")
 ANSWER = re.compile(r"(答え|問い|選択肢)")
@@ -260,10 +260,11 @@ def owner_steps(text):
     sec = owner_section(text)
     if sec is None or OWNER_NONE.match("あなたがやること: " + sec.strip()) or HAND_URL.search(sec):
         return False
-    hard = "```" in sec or bool(STEP_NUM.search(sec)) or len(STEP_ARROW.findall(sec)) >= 2
-    if not hard and ANSWER.search(sec):
-        return False
-    return hard or len(STEP_VERB.findall(strip_code(sec))) >= 2
+    if "```" in sec:
+        return True                      # 貼る文がある＝手順
+    if ANSWER.search(sec):
+        return False                     # 問いに答える事（番号の付いた選択肢を含む）は手の窓に回さない
+    return bool(STEP_NUM.search(sec)) or len(STEP_ARROW.findall(sec)) >= 2 or len(STEP_VERB.findall(sec)) >= 2
 
 
 def is_plain_question(text):
