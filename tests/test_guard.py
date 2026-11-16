@@ -390,9 +390,15 @@ def test_qa_page_型の印があれば中身が崩れていても止まる(env, 
     assert "確認ページの型の印" in deny_reason(env, publish(page))
 
 
-def test_qa_page_radioと送る仕組みが揃えば問いのページと見る(env, tmp_path):
+@pytest.mark.parametrize("body", [
+    '<form><input type="radio" name="a" value="x"></form>',
+    '<input type="radio" name="a"><script>sendPrompt("答え")</script>',
+    '<input type="radio" name="a"><script>fetch("/a", {method: "POST", body: "x"})</script>',
+    '<input type="radio" name="a"><script>window.claude.db.set("a", 1)</script>',
+])
+def test_qa_page_radioと答えを外へ出す仕組みが揃えば問いのページと見る(env, tmp_path, body):
     page = tmp_path / "poll.html"
-    page.write_text('<form><input type="radio" name="a" value="x"></form>', encoding="utf-8")
+    page.write_text(body, encoding="utf-8")
     env = dict(env, AF_QA_CHECK=str(tmp_path / "無い.mjs"))
     assert "見つからず" in deny_reason(env, publish(page))
 
@@ -400,6 +406,10 @@ def test_qa_page_radioと送る仕組みが揃えば問いのページと見る(
 @pytest.mark.parametrize("name, body, extra", [
     ("表だけのページ", "<table><tr><td>1</td></tr></table><script>fetch('/x')</script>", {}),
     ("radio だけで送る仕組みが無い", '<input type="radio" name="a">', {}),
+    ("radio で表示を切り替え fetch で読むだけ", '<label><input type="radio" name="span" value="w">週</label>'
+     '<script>fetch("data.json").then(r=>r.json());window.claude.loadData("x")</script>', {}),
+    ("qa-html を説明するページ", '<p>型は document に qa:submit を投げ、data-dest="artifact" と書く。</p>'
+     '<input type="radio" name="v"><script>fetch("x.json")</script>', {}),
     ("JSON だが問いの並びでない", '{"rows": [{"options": [1, 2]}]}', {}),
     ("asset の上げ", '<form><input type="radio" name="a"></form>', {"asset": True, "url": "https://example.invalid/a"}),
     ("publish でない", '<form><input type="radio" name="a"></form>', {"action": "read"}),
@@ -445,6 +455,10 @@ def test_qa_page_入れた_plugin_の形でも検査を見つける(tmp_path):
     old = os.environ.pop("AF_QA_CHECK", None)
     try:
         assert qa_page.find_check(str(guard_root)) == str(tmp_path / "market" / "docs-kit" / "aaa" / rel)
+        other = tmp_path / "market" / "guard" / "ccc"         # 同じ版の docs-kit が無い時は新しい物
+        other.mkdir()
+        os.utime(tmp_path / "market" / "docs-kit" / "aaa" / rel, (1, 1))
+        assert qa_page.find_check(str(other)) == str(tmp_path / "market" / "docs-kit" / "bbb" / rel)
     finally:
         if old is not None:
             os.environ["AF_QA_CHECK"] = old

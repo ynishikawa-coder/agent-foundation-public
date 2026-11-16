@@ -6,8 +6,9 @@
 
 見る物: Artifact の publish（action が無いか "publish"・asset の上げは除く）で、file_path が .html か .json の時だけ。
 問いのページの見分け（誤検知を少なくするため、どれか 1 つが要る）:
-  HTML: ① 型の印（<body data-dest="send|copy|artifact">・qa:submit）
-        ② 選ぶ問い（radio）と、答えを返す仕組み（form・qa:submit・window.claude・sendPrompt・fetch・postMessage・clipboard）の両方
+  HTML: ① 型の印（<body data-dest="send|copy|artifact">・CustomEvent('qa:submit')）
+        ② 選ぶ問い（radio）と、答えを外へ出す仕組み（form・qa:submit・sendPrompt・window.claude の書く呼び出し・POST 等の fetch・clipboard への書き込み）の両方
+           （読むだけの fetch や表示の切り替えの radio は数えない）
         ③ <script id="state"> などの JSON に、問いの並び（qs・questions）で、選択肢（options・choices）を持つ物
   JSON: 問いの並び（questions・qs）で、選択肢を持つ物（Artifact 型へ渡す問いのデータ）
 検査が走らない（check.mjs が見つからない・node が無い・検査が壊れた）時も止める＝緑を確かめられない物は出さない。
@@ -28,9 +29,15 @@ PAGE_EXT = (".html", ".htm", ".json")
 TIMEOUT = 30
 RED_SHOWN = 12
 
-TYPE_MARK = re.compile(r"<body[^>]*\bdata-dest\s*=\s*[\"']?(?:send|copy|artifact)\b|qa:submit", re.I)
+QA_SUBMIT = r"CustomEvent\s*\(\s*[\"']qa:submit[\"']"
+TYPE_MARK = re.compile(r"<body\b[^>]*\bdata-dest\s*=\s*[\"']?(?:send|copy|artifact)\b|" + QA_SUBMIT, re.I)
 RADIO = re.compile(r"""type\s*[=:]\s*\\?["']?radio\b|["']radio["']""", re.I)
-SENDER = re.compile(r"<form\b|qa:submit|window\.claude|\bsendPrompt\b|\bfetch\s*\(|\bpostMessage\s*\(|navigator\.clipboard", re.I)
+# 答えを外へ出す仕組みだけ（読むだけの fetch・window.claude の読み・表示の切り替えは数えない）
+SENDER = re.compile(
+    r"<form\b|" + QA_SUBMIT + r"|\bsendPrompt\s*\("
+    r"|window\.claude\.(?:\w+\.)*(?:send|submit|ask|prompt|set|write|save|update|add|put|insert|append)\w*\s*\("
+    r"|\bmethod\s*:\s*[\"'](?:POST|PUT|PATCH)[\"']|navigator\.clipboard\.write",
+    re.I)
 JSON_SCRIPT = re.compile(r"<script\b([^>]*)>(.*?)</script>", re.I | re.S)
 Q_KEYS = ("questions", "qs")
 OPT_KEYS = ("options", "choices", "opts")
@@ -59,7 +66,7 @@ def why_question_page(path, raw):
         except ValueError:
             return ""
     if TYPE_MARK.search(raw):
-        return "確認ページの型の印（data-dest・qa:submit）"
+        return "確認ページの型の印（data-dest・CustomEvent('qa:submit')）"
     for attrs, body in JSON_SCRIPT.findall(raw):
         if "json" in attrs.lower() or re.search(r"\bid\s*=\s*[\"']?state\b", attrs, re.I):
             try:
@@ -68,7 +75,7 @@ def why_question_page(path, raw):
             except ValueError:
                 pass
     if RADIO.search(raw) and SENDER.search(raw):
-        return "選ぶ問い（radio）と答えを返す仕組みの両方"
+        return "選ぶ問い（radio）と答えを外へ出す仕組みの両方"
     return ""
 
 
