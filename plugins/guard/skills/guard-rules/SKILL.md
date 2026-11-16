@@ -1,6 +1,6 @@
 ---
 name: guard-rules
-description: 守りの hook（guard の 4 つ）に止められた・知らされた時の直し方と、値の表での変え方。「戻せない操作が止められた」「試験に PAID_UPSTREAM_GUARD と言われた」「文脈が目安を越えたと出た」「答えの無い問いを出し直せと出た」時、または guard の値（文脈の目安・人のいない窓の印・足す印）を変えたい時に使う。
+description: 守りの hook（guard の 5 つ）に止められた・知らされた時の直し方と、値の表での変え方。「戻せない操作が止められた」「試験に PAID_UPSTREAM_GUARD と言われた」「問いのページが qa-html の検査を通っていないと Artifact の publish を止められた」「文脈が目安を越えたと出た」「答えの無い問いを出し直せと出た」時、または guard の値（文脈の目安・人のいない窓の印・足す印・問いのページの検査から外す file）を変えたい時に使う。
 ---
 
 # 守りの hook（guard）
@@ -11,6 +11,7 @@ description: 守りの hook（guard の 4 つ）に止められた・知らさ�
 |---|---|---|---|
 | irreversible（離席中の戻せない操作） | PreToolUse | この窓で選択肢モーダルが答えのないまま閉じ、オーナーがまだ戻っていない間だけ、DB の破棄・メールの送信・Notion の物理削除・git で戻せない rm -r を止める（作業場〔一時の置き場〕と変更の無い作業部屋の掃除は通す） | 戻せる作業を先に進める。その操作が要るなら同じ問いをモーダルで出し直し、答えが返ってから行う（答えが返るかオーナーが打てば解ける） |
 | paid_upstream（試験から有料の上流） | PreToolUse | 試験らしい path へ書く中身に、AI の API の鍵名・公式のエンドポイントがあれば止める | 既定を録画の再生か偽物にする。本物が要るなら環境変数 1 本で切り替える関所を通し、その file に `PAID_UPSTREAM_GUARD` を書く |
+| qa_page（問いのページの検査） | PreToolUse | Artifact の publish（file_path が .html・.json）の前に、そのページが問いのページ（型の印 `<body data-dest>`・`CustomEvent('qa:submit')`／`<script>` の JSON に `questions`・`qs` と選択肢／radio と答えを外へ出す仕組み〔form・sendPrompt・window.claude の書く呼び出し・POST 等の fetch・clipboard への書き込み〕の両方／問いのデータの JSON。読むだけの fetch や表示の切り替えの radio は数えない）なら qa-html の `check.mjs` をかけ、赤なら止める。検査が見つからない・node が無い・検査が壊れた時も止める（緑を確かめられない物は出さない） | ①聞く前に引き（細目 §4）、答え済み・資料で決まる・道具の都合の問いを消す ②オーナーへの問いなら選択肢の画面で聞く ③ページで出すなら skill `docs-kit:qa-html` の型を写して作り直し、止めた文に出る `node <check.mjs> <file>` が緑になってから出し直す。検査が無いなら plugin docs-kit と node を入れる（`AF_QA_CHECK` で path を渡せる）。問いのページでないのに止まった時だけ、値の表の `qa_page_exempt` で外す（PR とレビューを通す） |
 | context_size（文脈の量） | PostToolUse | 文脈が目安を越えた最初の 1 回だけ知らせる | 人のいる窓は区切りで引き継ぎを書き後継の窓へ替える。人のいない窓は今の段を終えて引き継ぎを書き止まる |
 | unanswered（未回答の台帳） | PostToolUse・SessionStart | モーダルが答えのないまま閉じた問いを台帳に積み、24 時間の間、次の窓の冒頭で出し直させる。答えが返れば降ろす。子の窓の問いも同じ | 冒頭で渡された文面と選択肢をそのまま AskUserQuestion で出し直す（要約しない） |
 
@@ -28,7 +29,8 @@ repo の根の `config/skill-values.json` の `"guard"`（無ければ既定で�
     "state_dir": "~/.claude/af-guard",
     "paid_markers_extra": [],
     "irreversible_bash_extra": [{"pattern": "\\bmy-db\\s+--wipe\\b", "why": "DB の破棄"}],
-    "irreversible_tools_extra": []
+    "irreversible_tools_extra": [],
+    "qa_page_exempt": ["/quiz/[^/]+\\.html$"]
   }
 }
 ```
@@ -40,3 +42,4 @@ repo の根の `config/skill-values.json` の `"guard"`（無ければ既定で�
 
 - 戻せない操作の判定は列挙であって証明ではない（`find … -delete`・再帰なしの `rm -f`・`git restore .` などは素通り）。足したい形は値の表へ。
 - 試験から有料の上流の見張りは、自分のサーバを経た中継と、Bash のリダイレクトで書く形を見ない。
+- 問いのページの見張りは、Artifact の道具の publish の `file_path` だけを見る（`files` で足す別のページ・型から作る Artifact のデータの store・Artifact の外で配るページは見ない）。問いのページの見分けは印による推し量りで、印を持たない問いのページ（radio を使わずボタンだけで答えるページなど）は素通りする。
