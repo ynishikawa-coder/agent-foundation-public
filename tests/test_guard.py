@@ -327,3 +327,124 @@ def test_1つの見張りが_import_で壊れても他の見張りは走る(env,
     p = subprocess.run([sys.executable, str(broken / "guard.py"), "pre"], input=json.dumps(payload),
                        capture_output=True, text=True, env=env)
     assert json.loads(p.stdout)["hookSpecificOutput"]["permissionDecision"] == "deny"
+
+
+# ── qa_page（問いのページを Artifact で出す前の qa-html の検査）──
+import importlib.util  # noqa: E402
+import shutil  # noqa: E402
+
+needs_node = pytest.mark.skipif(not shutil.which("node"), reason="node が無い（qa-html の検査は node で動く）")
+DOCS_KIT_DATA = ROOT / "tests" / "docs_kit"
+
+# 独自の道具で作った問いのページ（作り物）: 型を写さず、<script id="state"> に問いの並び qs を持ち、JS で radio を組む
+STATE_PAGE = """<!doctype html><html><body><div id="app"></div>
+<script id="state" type="application/json">{"title":"確認","qs":[{"id":"q1","text":"週の起算日はどれですか","options":["日曜","月曜"]}]}</script>
+<script>const s=JSON.parse(document.getElementById('state').textContent);
+document.getElementById('app').innerHTML=s.qs.map(q=>q.options.map(o=>`<label><input type="radio" name="${q.id}">${o}</label>`).join('')).join('');</script>
+</body></html>"""
+
+
+def filled_qa_page(dest="artifact"):
+    """docs-kit の試験の作り物（型を埋めた緑の 1 枚）を借りる。"""
+    spec = importlib.util.spec_from_file_location("af_test_docs_kit", ROOT / "tests" / "test_docs_kit.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod.filled_template(dest)
+
+
+def publish(path, cwd="", **extra):
+    return {"tool_name": "Artifact", "cwd": cwd, "tool_input": {"file_path": str(path), **extra}}
+
+
+def deny_reason(env, payload):
+    return hook(env, "pre", payload).get("permissionDecisionReason", "")
+
+
+@needs_node
+def test_qa_page_型を写さない独自の問いのページは止まる(env, tmp_path):
+    page = tmp_path / "kakunin.html"
+    page.write_text(STATE_PAGE, encoding="utf-8")
+    why = deny_reason(env, publish("kakunin.html", cwd=str(tmp_path)))
+    assert "qa-html の検査を通っていない" in why and "<script> の JSON に questions／qs" in why
+    assert "型の qa:css の印が無い" in why
+
+
+@needs_node
+@pytest.mark.parametrize("dest", ["artifact", "copy"])
+def test_qa_page_型どおりの緑のページは通る(env, tmp_path, dest):
+    page = tmp_path / "確認.html"
+    page.write_text(filled_qa_page(dest), encoding="utf-8")
+    assert not denied(env, publish(page))
+
+
+@needs_node
+def test_qa_page_問いのデータは検査の緑と赤で分かれる(env):
+    assert not denied(env, publish(DOCS_KIT_DATA / "good.json"))
+    assert denied(env, publish(DOCS_KIT_DATA / "bad.json"))
+
+
+@needs_node
+def test_qa_page_型の印があれば中身が崩れていても止まる(env, tmp_path):
+    page = tmp_path / "確認.html"
+    page.write_text(filled_qa_page("artifact").replace("__unknown__", "unknown"), encoding="utf-8")
+    assert "確認ページの型の印" in deny_reason(env, publish(page))
+
+
+def test_qa_page_radioと送る仕組みが揃えば問いのページと見る(env, tmp_path):
+    page = tmp_path / "poll.html"
+    page.write_text('<form><input type="radio" name="a" value="x"></form>', encoding="utf-8")
+    env = dict(env, AF_QA_CHECK=str(tmp_path / "無い.mjs"))
+    assert "見つからず" in deny_reason(env, publish(page))
+
+
+@pytest.mark.parametrize("name, body, extra", [
+    ("表だけのページ", "<table><tr><td>1</td></tr></table><script>fetch('/x')</script>", {}),
+    ("radio だけで送る仕組みが無い", '<input type="radio" name="a">', {}),
+    ("JSON だが問いの並びでない", '{"rows": [{"options": [1, 2]}]}', {}),
+    ("asset の上げ", '<form><input type="radio" name="a"></form>', {"asset": True, "url": "https://example.invalid/a"}),
+    ("publish でない", '<form><input type="radio" name="a"></form>', {"action": "read"}),
+])
+def test_qa_page_問いのページでない物と_publish_でない物は見ない(env, tmp_path, name, body, extra):
+    page = tmp_path / ("p.json" if body.startswith("{") else "p.html")
+    page.write_text(body, encoding="utf-8")
+    env = dict(env, AF_QA_CHECK=str(tmp_path / "無い.mjs"))     # 見たら必ず止まる形にして、見ていない事を確かめる
+    assert not denied(env, publish(page, **extra)), name
+
+
+def test_qa_page_検査が無い時は止まる(env, tmp_path):
+    page = tmp_path / "kakunin.html"
+    page.write_text(STATE_PAGE, encoding="utf-8")
+    env = dict(env, AF_QA_CHECK=str(tmp_path / "無い.mjs"))
+    assert "緑を確かめられない" in deny_reason(env, publish(page))
+
+
+def test_qa_page_値の表で外した_file_は見ない(env, tmp_path):
+    proj = Path(env["CLAUDE_PROJECT_DIR"])
+    (proj / "config").mkdir()
+    (proj / "config" / "skill-values.json").write_text(
+        json.dumps({"guard": {"qa_page_exempt": [r"/quiz/[^/]+\.html$"]}}), encoding="utf-8")
+    (tmp_path / "quiz").mkdir()
+    page = tmp_path / "quiz" / "q.html"
+    page.write_text(STATE_PAGE, encoding="utf-8")
+    env = dict(env, AF_QA_CHECK=str(tmp_path / "無い.mjs"))
+    assert not denied(env, publish(page))
+
+
+def test_qa_page_入れた_plugin_の形でも検査を見つける(tmp_path):
+    sys.path.insert(0, str(PLUGIN / "scripts"))
+    try:
+        import qa_page
+    finally:
+        sys.path.pop(0)
+    rel = Path("skills") / "qa-html" / "check.mjs"
+    for ver in ("aaa", "bbb"):
+        (tmp_path / "market" / "docs-kit" / ver / rel).parent.mkdir(parents=True)
+        (tmp_path / "market" / "docs-kit" / ver / rel).write_text("//", encoding="utf-8")
+    guard_root = tmp_path / "market" / "guard" / "aaa"
+    guard_root.mkdir(parents=True)
+    old = os.environ.pop("AF_QA_CHECK", None)
+    try:
+        assert qa_page.find_check(str(guard_root)) == str(tmp_path / "market" / "docs-kit" / "aaa" / rel)
+    finally:
+        if old is not None:
+            os.environ["AF_QA_CHECK"] = old

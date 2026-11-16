@@ -10,6 +10,7 @@
     paid_markers_extra       … 有料の上流の印（鍵名・エンドポイント）の足し
     irreversible_bash_extra  … 戻せない Bash の足し [{"pattern": 正規表現, "why": 理由}]
     irreversible_tools_extra … 戻せない道具の名の足し [{"pattern": 正規表現, "why": 理由}]
+    qa_page_exempt           … 問いのページの検査から外す file（path に当てる正規表現の並び・問いのページでない物だけ）
 """
 from __future__ import annotations
 
@@ -27,6 +28,7 @@ DEFAULTS = {
     "paid_markers_extra": [],
     "irreversible_bash_extra": [],
     "irreversible_tools_extra": [],
+    "qa_page_exempt": [],
 }
 
 # 窓の種類の決まり（session-watch の title-mark と同じ線）: 最初の頼みの文の返し先が別の窓なら子の窓（文脈の知らせだけが読む）。
