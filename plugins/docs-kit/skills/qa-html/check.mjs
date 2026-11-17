@@ -20,12 +20,18 @@
 //     選択肢に A・B などの記号／選択肢の鍵（value）の形・重なり／「分からない」（__unknown__）が無い・最後でない／
 //     答えずに送れる（required が無い）／1 問に 2 つ以上／「合っていますか」を食い違いの外で使う／
 //     資料の外の事実に「当てはまらない」が無い／ひとこと（supp_鍵）が無い／鍵の重なり
+//   前の答え: 引いた結果（--prior・ページの隣の <名>.prior.json）の answered に在る鍵が問いに残っている／引いた結果が読めない・
+//     形が違う・命令が落ちた・別の版のページで引いた／--prior に渡した file が無い／値の表に prior_check_cmd が在る時だけ、
+//     引いた結果が無い・引いた結果の無い問いがある（値の表に無く引いた結果も無ければ見ない＝今までどおり）
 // 読める物は 2 つで、問いの決まりは同じ 1 か所（checkPage）が見る:
 //   ① 1 枚の HTML（型を写した物・<body data-dest="send|copy|artifact">・確認のページ（Artifact）も同じ HTML）
 //   ② 問いのデータ（JSON・Artifact 型に中身をデータで渡す時。形は SKILL.md §問いのデータ）
-// 使い方: node check.mjs <file.html|file.json> [--json] [--values <skill-values.json>]
+// 使い方: node check.mjs <file.html|file.json> [--json] [--values <skill-values.json>] [--prior <引いた結果.json>] [--run-prior] [--prior-input]
+//   前の答えを照らす（作り方 0）: 値の表の docs-kit.qa-html.prior_check_cmd を --run-prior で走らせ、引いた結果をページの隣の
+//   <名>.prior.json（--prior で替える）に書いてから検査する。--prior-input は命令へ渡す JSON を出すだけ。
 //   別の検査（配る口の検査など）からは import { checkQa, checkQaJson, checkFile } で呼ぶ。
-import { existsSync, readFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -473,6 +479,7 @@ export function readHtml(raw) {
     const freeInputs = [...q.inner.matchAll(/<input\b[^>]*\btype\s*=\s*["']?(text|date|month|number)\b[^>]*>|<select\b[^>]*>|<textarea\b[^>]*\bname\s*=\s*["'](?!supp_)[^>]*>/gi)].map((i) => i[0]);
     questions.push({
       key: m[1],
+      label: (attr(q.tag, "data-qlabel") ?? "").trim(),
       kind: attr(q.tag, "data-kind"),
       group: attr(q.tag, "data-group"),
       question: legend ? text(legend[1]) : "",
@@ -507,7 +514,7 @@ export function readHtml(raw) {
   const gleadAll = byClass(html, "glead").length;
   const gleadIn = questions.reduce((n, q) => n + q.gleads.length, 0);
   if (gleadAll !== gleadIn) shape.push(`まとまりの 1 行（.glead）が問いの箱の外に ${gleadAll - gleadIn} つある（説明を問いの間に挟まない）`);
-  return { format: "html", dest, holes, shape, brand, docs, hold, texts: [...visible, ...attrTexts], estTexts, questions };
+  return { format: "html", version, dest, holes, shape, brand, docs, hold, texts: [...visible, ...attrTexts], estTexts, questions };
 }
 
 // ── 読み取り 2: 問いのデータ（JSON）。確認のページを Artifact 型で作り、問いをデータで渡す時の形（SKILL.md §問いのデータ）。
@@ -540,6 +547,7 @@ export function readJson(data) {
       const table = Array.isArray(q.table) ? q.table : [];
       return {
         key: String(q.key ?? ""),
+        label: String(q.label ?? "").trim(),
         kind: q.kind ?? null,
         group: q.group ?? null,
         question: String(q.question ?? "").trim(),
@@ -582,11 +590,11 @@ export function readJson(data) {
     .flatMap((x) => lines(x));
   const estTexts = qsIn.flatMap((q) => (q?.estimate ? [q.estimate.value, q.estimate.basis] : [])).flatMap((x) => lines(x));
   const holes = [...new Set(JSON.stringify(data ?? {}).match(/\{\{[^}]*\}\}/g) ?? [])];
-  return { format: "json", dest: data?.dest ?? null, holes, shape, brand: data?.brand ?? null, docs, hold: String(data?.hold ?? "").trim(), texts, estTexts, questions };
+  return { format: "json", version: version == null ? null : String(version), dest: data?.dest ?? null, holes, shape, brand: data?.brand ?? null, docs, hold: String(data?.hold ?? "").trim(), texts, estTexts, questions };
 }
 
 // ── 決まり: 問いの形（HTML でも JSON でも同じ物）を 1 か所で見る
-export function checkPage(page, { valuesPath = null } = {}) {
+export function checkPage(page, { valuesPath = null, prior = null } = {}) {
   const company = loadCompany(valuesPath);
   const limits = { ...RULES.limits, ...(company.limits ?? {}) };
   const words = compileWords(company);
@@ -773,36 +781,147 @@ export function checkPage(page, { valuesPath = null } = {}) {
     }
     if (!q.supp) red.push(`${id}: ひとことの欄（name="supp_${q.key}"）が無い`);
   }
+  checkPrior(qs, company, prior, red, page.version);
   return { ok: red.length === 0, format: page.format, dest, questions: keys, red: [...new Set(red)], warn };
+}
+
+// ── 前の答えを照らす口（作り方 0 を機械にする・値の表の docs-kit.qa-html.prior_check_cmd）
+//   命令は標準入力に priorInput の JSON（形 qa-prior/1）を受け、標準出力に
+//   {"answered": {"問いの鍵": "前の答えの ID か URL"}, "checked": {"問いの鍵": "引いた結果（ID・URL・引いた言葉）"}} を返す。
+//   answered に在る鍵が問いに残っていれば赤。値の表に命令が在る時だけ、引いた結果（answered か checked）の無い問いも赤。
+//   値の表に命令が無く --prior も無ければ何も見ない（今までどおり）。
+export const PRIOR_FORMAT = "qa-prior/1";
+export function priorInput(page) {
+  return {
+    format: PRIOR_FORMAT,
+    questions: page.questions.map((q) => ({ key: q.key, label: q.label ?? "", question: q.question, about: q.about, known: q.known, group: q.group, kind: q.kind })),
+  };
+}
+// 引いた結果の置き場の既定＝ページの隣（確認_x.html → 確認_x.prior.json）。guard の qa_page もページの path だけで同じ物を読む。
+export const priorPathFor = (file) => resolve(file).replace(/(\.(html?|json))?$/i, "") + ".prior.json";
+const isMap = (x) => x != null && typeof x === "object" && !Array.isArray(x);
+// 引いた結果を読む。形が違えば { error }。
+export function readPrior(data) {
+  if (!isMap(data)) return { error: "JSON の物（{…}）でない" };
+  if (data.error != null) return { error: `命令が落ちた回の結果: ${data.error}` };
+  const out = { answered: new Map(), checked: new Map(), pageVersion: data.page_version == null ? null : String(data.page_version) };
+  for (const k of ["answered", "checked"]) {
+    if (data[k] == null) continue;
+    if (!isMap(data[k])) return { error: `"${k}" は {"問いの鍵": "引いた結果"} の形で書く` };
+    for (const [key, ref] of Object.entries(data[k])) {
+      if (typeof ref !== "string") return { error: `"${k}" の「${key}」の値は文字（引いた結果）で書く` };
+      out[k].set(key, ref.trim());
+    }
+  }
+  return out;
+}
+function checkPrior(qs, company, prior, red, version) {
+  const cmd = String(company.prior_check_cmd ?? "").trim();
+  if (!prior) {
+    if (cmd) red.push("前の答えを照らした結果が無い（値の表に prior_check_cmd がある）: node check.mjs <file> --run-prior で引いてから検査する");
+    return;
+  }
+  if (prior.error) {
+    red.push(`前の答えを照らした結果が読めない（${prior.from ?? "--prior"}）: ${prior.error}`);
+    return;
+  }
+  if (prior.pageVersion != null && version != null && prior.pageVersion !== String(version)) {
+    red.push(`前の答えを照らした結果が別の版（${prior.pageVersion}）のページで引いた物: 今の版（${version}）で --run-prior を引き直す`);
+    return;
+  }
+  for (const q of qs) {
+    const id = `問い ${q.key}`;
+    if (prior.answered.has(q.key)) red.push(`${id}: 前の答えで答え済み（${prior.answered.get(q.key) || "引いた結果が空"}）＝問いから外す（作り方 0）`);
+    else if (cmd && !prior.checked.get(q.key)) red.push(`${id}: 前の答えを照らした結果が無い（--run-prior で引き直す）`);
+  }
+}
+// 値の表の命令を走らせ、引いた結果を返す。走らない・JSON でない時は { error }。
+export function runPrior(page, cmd, { cwd = process.cwd(), timeoutMs = 120000 } = {}) {
+  const r = spawnSync(cmd, { shell: true, cwd, input: JSON.stringify(priorInput(page)), encoding: "utf8", timeout: timeoutMs });
+  if (r.error) return { error: `命令が走らない: ${r.error.message}`, raw: null };
+  if (r.status !== 0) return { error: `命令が ${r.status ?? r.signal} で終わった: ${String(r.stderr ?? "").trim().slice(0, 200)}`, raw: null };
+  let data;
+  try {
+    data = JSON.parse(r.stdout);
+  } catch (e) {
+    return { error: `命令の出力が JSON でない: ${e.message}`, raw: null };
+  }
+  return { ...readPrior(data), raw: data };
 }
 
 // 入口（ほかの検査は import して呼ぶ）
 export const checkQa = (raw, opts) => checkPage(readHtml(raw), opts);
 export const checkQaJson = (data, opts) => checkPage(readJson(typeof data === "string" ? JSON.parse(data) : data), opts);
-export function checkFile(path, opts) {
+export function readPage(path) {
   const raw = readFileSync(path, "utf8");
   if (/\.json$/i.test(path) || /^\s*\{/.test(raw)) {
     let data;
     try {
       data = JSON.parse(raw);
     } catch (e) {
-      return { ok: false, format: "json", dest: null, questions: [], red: [`JSON として読めない: ${e.message}`], warn: [] };
+      return { error: `JSON として読めない: ${e.message}` };
     }
-    return checkQaJson(data, opts);
+    return readJson(data);
   }
-  return checkQa(raw, opts);
+  return readHtml(raw);
+}
+// 引いた結果を file から読む。file が無ければ null（＝引いていない）。
+export function loadPrior(path, { explicit = false } = {}) {
+  if (!path || !existsSync(path)) return explicit ? { error: "file が無い", from: path } : null;
+  try {
+    return { ...readPrior(JSON.parse(readFileSync(path, "utf8"))), from: path };
+  } catch (e) {
+    return { error: `JSON として読めない: ${e.message}`, from: path };
+  }
+}
+// opts.priorPath を渡さなければ、ページの隣（priorPathFor）に在る時だけ読む。
+export function checkFile(path, { priorPath, priorExplicit = false, ...opts } = {}) {
+  const page = readPage(path);
+  if (page.error) return { ok: false, format: "json", dest: null, questions: [], red: [page.error], warn: [] };
+  const prior = opts.prior ?? loadPrior(priorPath ?? priorPathFor(path), { explicit: priorExplicit && !!priorPath });
+  return checkPage(page, { ...opts, prior });
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const args = process.argv.slice(2);
-  const file = args.find((a, i) => !a.startsWith("--") && args[i - 1] !== "--values");
+  const takesValue = new Set(["--values", "--prior"]);
+  const file = args.find((a, i) => !a.startsWith("--") && !takesValue.has(args[i - 1]));
   if (!file) {
-    console.error("使い方: check.mjs <file.html|file.json> [--json] [--values <skill-values.json>]");
+    console.error("使い方: check.mjs <file.html|file.json> [--json] [--values <skill-values.json>] [--prior <引いた結果.json>] [--run-prior] [--prior-input]");
     process.exit(2);
   }
-  const vi = args.indexOf("--values");
-  const valuesPath = vi >= 0 ? args[vi + 1] : findValues(dirname(resolve(file)), process.cwd());
-  const res = checkFile(file, { valuesPath });
+  const at = (flag) => (args.indexOf(flag) >= 0 ? args[args.indexOf(flag) + 1] : undefined);
+  for (const flag of takesValue) {
+    if (args.includes(flag) && (at(flag) == null || at(flag).startsWith("--"))) {
+      console.error(`${flag} の後に file を書く`);
+      process.exit(2);
+    }
+  }
+  // guard の qa_page は cwd をページの dir にして呼ぶ＝ページが repo の外（窓の scratchpad）でも値の表を見つけるため、窓の repo も起点に足す
+  const valuesPath = at("--values") ?? findValues(dirname(resolve(file)), process.cwd(), process.env.CLAUDE_PROJECT_DIR);
+  const priorPath = at("--prior") ?? priorPathFor(file);
+  let opts = { valuesPath, priorPath, priorExplicit: args.includes("--prior") };
+  if (args.includes("--prior-input") || args.includes("--run-prior")) {
+    const page = readPage(file);
+    if (page.error) {
+      console.error(page.error);
+      process.exit(2);
+    }
+    if (args.includes("--prior-input")) {
+      console.log(JSON.stringify(priorInput(page), null, 2));
+      process.exit(0);
+    }
+    const cmd = String(loadCompany(valuesPath).prior_check_cmd ?? "").trim();
+    if (!cmd) {
+      console.error("--run-prior: 値の表（config/skill-values.json）に docs-kit.qa-html.prior_check_cmd が無い");
+      process.exit(2);
+    }
+    const got = runPrior(page, cmd, { cwd: valuesPath ? dirname(dirname(resolve(valuesPath))) : process.cwd() });
+    // 落ちた時も書き換える（前の回の結果を残すと、後でページの path だけで呼ぶ guard が古い結果で緑にする）
+    writeFileSync(priorPath, JSON.stringify(got.raw ? { ...got.raw, page_version: page.version } : { error: got.error }, null, 2) + "\n");
+    opts = { valuesPath, prior: { ...got, from: `prior_check_cmd → ${priorPath}` } };
+  }
+  const res = checkFile(file, opts);
   if (args.includes("--json")) console.log(JSON.stringify({ file: resolve(file), ...res }, null, 2));
   else {
     console.log(`${res.ok ? "🟢 緑" : "🔴 赤"}  ${resolve(file)}（${res.format}・問い ${res.questions.length}・宛先 ${res.dest ?? "?"}）`);
