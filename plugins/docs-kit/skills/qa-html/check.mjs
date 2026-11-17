@@ -20,8 +20,9 @@
 //     選択肢に A・B などの記号／選択肢の鍵（value）の形・重なり／「分からない」（__unknown__）が無い・最後でない／
 //     答えずに送れる（required が無い）／1 問に 2 つ以上／「合っていますか」を食い違いの外で使う／
 //     資料の外の事実に「当てはまらない」が無い／ひとこと（supp_鍵）が無い／鍵の重なり
-//   前の答え: 引いた結果（--prior・ページの隣の <名>.prior.json）の answered に在る鍵が問いに残っている／値の表に prior_check_cmd が
-//     在る時だけ、引いた結果が無い・引いた結果の無い問いがある（値の表に無く引いた結果も無ければ見ない＝今までどおり）
+//   前の答え: 引いた結果（--prior・ページの隣の <名>.prior.json）の answered に在る鍵が問いに残っている／引いた結果が読めない・
+//     形が違う・命令が落ちた・別の版のページで引いた／--prior に渡した file が無い／値の表に prior_check_cmd が在る時だけ、
+//     引いた結果が無い・引いた結果の無い問いがある（値の表に無く引いた結果も無ければ見ない＝今までどおり）
 // 読める物は 2 つで、問いの決まりは同じ 1 か所（checkPage）が見る:
 //   ① 1 枚の HTML（型を写した物・<body data-dest="send|copy|artifact">・確認のページ（Artifact）も同じ HTML）
 //   ② 問いのデータ（JSON・Artifact 型に中身をデータで渡す時。形は SKILL.md §問いのデータ）
@@ -513,7 +514,7 @@ export function readHtml(raw) {
   const gleadAll = byClass(html, "glead").length;
   const gleadIn = questions.reduce((n, q) => n + q.gleads.length, 0);
   if (gleadAll !== gleadIn) shape.push(`まとまりの 1 行（.glead）が問いの箱の外に ${gleadAll - gleadIn} つある（説明を問いの間に挟まない）`);
-  return { format: "html", dest, holes, shape, brand, docs, hold, texts: [...visible, ...attrTexts], estTexts, questions };
+  return { format: "html", version, dest, holes, shape, brand, docs, hold, texts: [...visible, ...attrTexts], estTexts, questions };
 }
 
 // ── 読み取り 2: 問いのデータ（JSON）。確認のページを Artifact 型で作り、問いをデータで渡す時の形（SKILL.md §問いのデータ）。
@@ -589,7 +590,7 @@ export function readJson(data) {
     .flatMap((x) => lines(x));
   const estTexts = qsIn.flatMap((q) => (q?.estimate ? [q.estimate.value, q.estimate.basis] : [])).flatMap((x) => lines(x));
   const holes = [...new Set(JSON.stringify(data ?? {}).match(/\{\{[^}]*\}\}/g) ?? [])];
-  return { format: "json", dest: data?.dest ?? null, holes, shape, brand: data?.brand ?? null, docs, hold: String(data?.hold ?? "").trim(), texts, estTexts, questions };
+  return { format: "json", version: version == null ? null : String(version), dest: data?.dest ?? null, holes, shape, brand: data?.brand ?? null, docs, hold: String(data?.hold ?? "").trim(), texts, estTexts, questions };
 }
 
 // ── 決まり: 問いの形（HTML でも JSON でも同じ物）を 1 か所で見る
@@ -780,7 +781,7 @@ export function checkPage(page, { valuesPath = null, prior = null } = {}) {
     }
     if (!q.supp) red.push(`${id}: ひとことの欄（name="supp_${q.key}"）が無い`);
   }
-  checkPrior(qs, company, prior, red);
+  checkPrior(qs, company, prior, red, page.version);
   return { ok: red.length === 0, format: page.format, dest, questions: keys, red: [...new Set(red)], warn };
 }
 
@@ -802,7 +803,8 @@ const isMap = (x) => x != null && typeof x === "object" && !Array.isArray(x);
 // 引いた結果を読む。形が違えば { error }。
 export function readPrior(data) {
   if (!isMap(data)) return { error: "JSON の物（{…}）でない" };
-  const out = { answered: new Map(), checked: new Map() };
+  if (data.error != null) return { error: `命令が落ちた回の結果: ${data.error}` };
+  const out = { answered: new Map(), checked: new Map(), pageVersion: data.page_version == null ? null : String(data.page_version) };
   for (const k of ["answered", "checked"]) {
     if (data[k] == null) continue;
     if (!isMap(data[k])) return { error: `"${k}" は {"問いの鍵": "引いた結果"} の形で書く` };
@@ -813,7 +815,7 @@ export function readPrior(data) {
   }
   return out;
 }
-function checkPrior(qs, company, prior, red) {
+function checkPrior(qs, company, prior, red, version) {
   const cmd = String(company.prior_check_cmd ?? "").trim();
   if (!prior) {
     if (cmd) red.push("前の答えを照らした結果が無い（値の表に prior_check_cmd がある）: node check.mjs <file> --run-prior で引いてから検査する");
@@ -821,6 +823,10 @@ function checkPrior(qs, company, prior, red) {
   }
   if (prior.error) {
     red.push(`前の答えを照らした結果が読めない（${prior.from ?? "--prior"}）: ${prior.error}`);
+    return;
+  }
+  if (prior.pageVersion != null && version != null && prior.pageVersion !== String(version)) {
+    red.push(`前の答えを照らした結果が別の版（${prior.pageVersion}）のページで引いた物: 今の版（${version}）で --run-prior を引き直す`);
     return;
   }
   for (const q of qs) {
@@ -860,8 +866,8 @@ export function readPage(path) {
   return readHtml(raw);
 }
 // 引いた結果を file から読む。file が無ければ null（＝引いていない）。
-export function loadPrior(path) {
-  if (!path || !existsSync(path)) return null;
+export function loadPrior(path, { explicit = false } = {}) {
+  if (!path || !existsSync(path)) return explicit ? { error: "file が無い", from: path } : null;
   try {
     return { ...readPrior(JSON.parse(readFileSync(path, "utf8"))), from: path };
   } catch (e) {
@@ -869,10 +875,10 @@ export function loadPrior(path) {
   }
 }
 // opts.priorPath を渡さなければ、ページの隣（priorPathFor）に在る時だけ読む。
-export function checkFile(path, { priorPath, ...opts } = {}) {
+export function checkFile(path, { priorPath, priorExplicit = false, ...opts } = {}) {
   const page = readPage(path);
   if (page.error) return { ok: false, format: "json", dest: null, questions: [], red: [page.error], warn: [] };
-  const prior = opts.prior ?? loadPrior(priorPath ?? priorPathFor(path));
+  const prior = opts.prior ?? loadPrior(priorPath ?? priorPathFor(path), { explicit: priorExplicit && !!priorPath });
   return checkPage(page, { ...opts, prior });
 }
 
@@ -885,9 +891,16 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
     process.exit(2);
   }
   const at = (flag) => (args.indexOf(flag) >= 0 ? args[args.indexOf(flag) + 1] : undefined);
-  const valuesPath = at("--values") ?? findValues(dirname(resolve(file)), process.cwd());
+  for (const flag of takesValue) {
+    if (args.includes(flag) && (at(flag) == null || at(flag).startsWith("--"))) {
+      console.error(`${flag} の後に file を書く`);
+      process.exit(2);
+    }
+  }
+  // guard の qa_page は cwd をページの dir にして呼ぶ＝ページが repo の外（窓の scratchpad）でも値の表を見つけるため、窓の repo も起点に足す
+  const valuesPath = at("--values") ?? findValues(dirname(resolve(file)), process.cwd(), process.env.CLAUDE_PROJECT_DIR);
   const priorPath = at("--prior") ?? priorPathFor(file);
-  let opts = { valuesPath, priorPath };
+  let opts = { valuesPath, priorPath, priorExplicit: args.includes("--prior") };
   if (args.includes("--prior-input") || args.includes("--run-prior")) {
     const page = readPage(file);
     if (page.error) {
@@ -904,7 +917,8 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
       process.exit(2);
     }
     const got = runPrior(page, cmd, { cwd: valuesPath ? dirname(dirname(resolve(valuesPath))) : process.cwd() });
-    if (got.raw) writeFileSync(priorPath, JSON.stringify(got.raw, null, 2) + "\n");
+    // 落ちた時も書き換える（前の回の結果を残すと、後でページの path だけで呼ぶ guard が古い結果で緑にする）
+    writeFileSync(priorPath, JSON.stringify(got.raw ? { ...got.raw, page_version: page.version } : { error: got.error }, null, 2) + "\n");
     opts = { valuesPath, prior: { ...got, from: `prior_check_cmd → ${priorPath}` } };
   }
   const res = checkFile(file, opts);

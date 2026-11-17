@@ -370,6 +370,60 @@ def test_問いのデータにも同じ口(tmp_path):
     assert (tmp_path / "q.prior.json").exists()
 
 
+@needs_node
+def test_prior_に渡した_file_が無ければ赤(tmp_path):
+    page = tmp_path / "確認.html"
+    page.write_text(filled_template(), encoding="utf-8")
+    red = run_check_args(page, "--prior", str(tmp_path / "無い.json"))["red"]
+    assert len(red) == 1 and red[0].startswith("前の答えを照らした結果が読めない") and "file が無い" in red[0], red
+    res = subprocess.run([NODE, str(CHECK), str(page), "--prior"], capture_output=True, text=True)
+    assert res.returncode == 2 and "--prior の後に file を書く" in res.stderr
+
+
+@needs_node
+def test_命令が落ちたら前の回の結果を残さない(tmp_path):
+    page = tmp_path / "確認.html"
+    page.write_text(filled_template(), encoding="utf-8")
+    write_values(tmp_path, {"prior_check_cmd": prior_cmd(tmp_path)})
+    assert run_check_args(page, "--run-prior")["red"] == []
+    for broken in ["false", f"{shlex.quote(sys.executable)} -c 'print(\"x\")'"]:  # 落ちる／JSON を返さない
+        write_values(tmp_path, {"prior_check_cmd": broken})
+        assert run_check_args(page, "--run-prior")["red"][0].startswith("前の答えを照らした結果が読めない")
+        write_values(tmp_path, {})  # 値の表から命令を外しても、ページの path だけの検査（guard）は古い結果で緑にならない
+        red = run_check(page)["red"]
+        assert len(red) == 1 and "命令が落ちた回の結果" in red[0], red
+
+
+@needs_node
+def test_別の版のページで引いた結果は赤(tmp_path):
+    page = tmp_path / "確認.html"
+    page.write_text(filled_template(), encoding="utf-8")
+    write_values(tmp_path, {"prior_check_cmd": prior_cmd(tmp_path)})
+    assert run_check_args(page, "--run-prior")["red"] == []
+    page.write_text(filled_template().replace('value="2026-11-13.1"', 'value="2026-11-13.2"', 1), encoding="utf-8")
+    red = run_check(page)["red"]
+    assert red == ["前の答えを照らした結果が別の版（2026-11-13.1）のページで引いた物: 今の版（2026-11-13.2）で --run-prior を引き直す"], red
+
+
+@needs_node
+def test_guard_と同じ呼び方でも値の表を見つける(tmp_path):
+    """guard の qa_page は cwd をページの dir にして呼ぶ。ページが repo の外（窓の scratchpad）でも、窓の repo の値の表の命令が効く。"""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    write_values(repo, {"prior_check_cmd": prior_cmd(tmp_path)})
+    scratch = tmp_path / "scratch"
+    scratch.mkdir()
+    page = scratch / "確認.html"
+    page.write_text(filled_template(), encoding="utf-8")
+    env = {**os.environ, "CLAUDE_PROJECT_DIR": str(repo)}
+    res = subprocess.run([NODE, str(CHECK), str(page), "--json"], capture_output=True, text=True, cwd=scratch, env=env)
+    assert json.loads(res.stdout)["red"][0].startswith("前の答えを照らした結果が無い（値の表に prior_check_cmd がある）")
+    res = subprocess.run([NODE, str(CHECK), str(page), "--json", "--run-prior"], capture_output=True, text=True, cwd=scratch, env=env)
+    assert res.returncode == 0, res.stdout
+    res = subprocess.run([NODE, str(CHECK), str(page), "--json"], capture_output=True, text=True, cwd=scratch, env=env)
+    assert res.returncode == 0 and json.loads(res.stdout)["red"] == []
+
+
 # 1 か所だけ壊すと、その 1 つの赤だけが出る（壊した所以外の結果が変わらない見張り）
 MUTATIONS = [
     ('<body data-dest="copy"', '<body data-dest="mail"', "宛先の印が無い"),
