@@ -6,11 +6,16 @@
 //     （qa:foot は「この後のこと」だけ差してよい）／型の外に許す物の表（ALLOW）に無い要素・属性・URL を書いた
 //     （script・style・iframe・on… の属性・javascript:・外のリソースなど）／暗い色の設定／会社の色（--brand）が body の style の外・白地で読めない濃さ／
 //     宛名が無い／差出人・連絡先の欄が残っている（外した欄）／版（__版__）が無い／送る前の確認と受付の部品が無い
-//   前提（3 段）: 読んだ資料の一覧（.docs の li[data-doc]）・答えるまでの扱い（.hold）が無い／まとまりの 1 行（.glead）が
+//   前提（3 段）: 読んだ資料の一覧（.docs の li[data-doc]）・答えるまでの扱い（.hold）が無い／資料にリンク（data-url）も
+//     リンクが無い訳（data-no-url）も無い／まとまりの 1 行（.glead）が
 //     各まとまりの最初の問いに 1 つでない／1 問の 4 欄（何について .about・見つけた事 .known と data-docs・なぜ聞くか .why・
 //     くわしく details.more）のどれかが空・上限超え・見つけた事が一覧に無い資料を指す／なぜ聞くかが決まった 4 文でない／
 //     切り抜き（figure.clip）が 3 枚以上・一覧に無い資料・問いの人の外の名が写る／選択肢にこの答えで変わる事（small.chg）が無い
-//   問い: 問いの形（data-kind）が 4 つ以外／並び（data-group）が 会社の決まり→人ごとの事実→今回だけの事 でない／
+//   根拠と読み: 根拠（.evidence の li[data-doc][data-where]）が無い・場所が空・一覧に無い資料／実物（切り抜きか原文の引用 .quote）が
+//     1 つも無い／AI の読み（.reading）が無い・4 行以上／選択肢に印（おすすめ・recommended）／AI の今の見込み（.estimate）の
+//     根拠（data-basis）が空・選択肢より前／見込みの言葉を見込みの枠の外で使う／「前の問い」など、ほかの問いに頼る言い方
+//   問い: 問いの形（data-kind）が 4 つ以外／並び（data-group）が 会社の決まり→人ごとの事実→今回だけの事→先に決めておきたい事 でない／
+//     先に決めておきたい事（later）の 1 行が決まった文でない／
 //     内部の言葉／番号で過去の問いを指す／数を書かせる問い／長さ・問いの数の上限超え／選択肢が 1 つだけ／
 //     選択肢に A・B などの記号／選択肢の鍵（value）の形・重なり／「分からない」（__unknown__）が無い・最後でない／
 //     答えずに送れる（required が無い）／1 問に 2 つ以上／「合っていますか」を食い違いの外で使う／
@@ -42,7 +47,14 @@ export const RULES = {
     "option_chars": 30,
     "option_detail_chars": 40,
     "change_chars": 40,
-    "questions_per_page": 12
+    "questions_per_page": 12,
+    "evidence": 3,
+    "where_chars": 60,
+    "quote_chars": 80,
+    "reading_lines": 3,
+    "reading_line_chars": 80,
+    "estimate_chars": 40,
+    "basis_chars": 60
   },
   // なぜ聞くか（決まった 4 文）。会社の表の docs-kit.qa-html.why で文だけ替えられる（例 once を「この月だけの事を確かめます」）
   "why": {
@@ -64,8 +76,16 @@ export const RULES = {
   "groups": {
     "rule": "会社の決まり（全員に効く）",
     "person": "人ごとの事実",
-    "once": "今回だけの事"
+    "once": "今回だけの事",
+    "later": "先に決めておきたい事（いつも最後）"
   },
+  // 先に決めておきたい事（later）の最初の問いのまとまりの 1 行（決まった文・会社の表の docs-kit.qa-html.later_lead で替えられる）
+  "later_lead": "今月の計算には関係しません。起きた時の決め方を先に伺います。",
+  // AI の今の見込みは .estimate の枠だけ（選択肢に印を付けない・前提として見せない）。枠の外のこの言葉は赤
+  "recommend": "おすすめ|お勧め|お薦め|オススメ|推奨",
+  "estimate_word": "見込み|予測",
+  // 1 画面 1 問＝ほかの問いの答えに頼らない（「前の問いの答えで決まります」の類は赤）
+  "prior_ref": "(?:前|上|ひとつ前|1\\s*つ前|さっき)の(?:問(?!い合)|質問|設問|答え|回答)|前問",
   "unknown": { "value": "__unknown__", "label": "分からない・社内で確かめてから答える" },
   "fact_must_have": [
     "当てはまらない"
@@ -90,7 +110,7 @@ export const RULES = {
     {
       "語": "仮",
       "正規表現": "仮の(?:値|額|答え|所|印)|仮で(?:計算|進め)|（仮）",
-      "言い換え": "今の見込み"
+      "言い換え": "（書かない・見込みは AI の今の見込みの枠へ）"
     },
     {
       "語": "式",
@@ -361,7 +381,14 @@ export function readHtml(raw) {
   for (const [cls, name] of DROPPED) if (byClass(html, cls).length) shape.push(`${name}の欄（.${cls}）は外した（宛先で変えるのは宛名と会社の色だけ・名乗りは配る人の送る文で）`);
   // 前提 ①: 読んだ資料の一覧と答えるまでの扱い
   const docsEl = byClass(header, "docs")[0];
-  const docs = docsEl ? [...docsEl.inner.matchAll(/<li\b[^>]*>([\s\S]*?)<\/li\s*>/gi)].map((m) => ({ key: attr(m[0], "data-doc"), name: text(m[1]) })) : null;
+  // 資料のリンク: li の data-url（リンクが無い資料は data-url="" と data-no-url="訳"）。リンクは li の中の <a href> と同じ物
+  const docs = docsEl
+    ? [...docsEl.inner.matchAll(/<li\b[^>]*>([\s\S]*?)<\/li\s*>/gi)].map((m) => {
+        const li = /^<li\b[^>]*>/i.exec(m[0])[0];
+        return { key: attr(li, "data-doc"), name: text(m[1]), url: attr(li, "data-url"), noUrl: (attr(li, "data-no-url") ?? "").trim(),
+          hrefs: [...m[1].matchAll(/<a\b[^>]*>/gi)].map((a) => attr(a[0], "href")).filter(Boolean) };
+      })
+    : null;
   const holdEl = byClass(header, "hold")[0];
   const hold = holdEl ? text(holdEl.inner) : "";
   const forms = html.match(/<form\b/gi) ?? [];
@@ -382,8 +409,14 @@ export function readHtml(raw) {
   else if (!next || !text(next.inner)) shape.push("受付の「この後のこと」（.next）が無い");
   else if (/<(?!br\s*\/?>)[a-z!/]/i.test(mask(next.inner))) shape.push("「この後のこと」（.next）に書けるのは字と <br> だけ");
 
-  const visible = textLines(html.replace(/<(head)\b[\s\S]*?<\/head\s*>/i, (m) => (/<title>([\s\S]*?)<\/title>/i.exec(m)?.[1] ?? "")));
-  const attrTexts = [...html.matchAll(/\b(?:data-(?:qlabel|glabel)|alt)\s*=\s*(?:"([^"]*)"|'([^']*)')/gi)].map((m) => decode(m[1] ?? m[2]));
+  // 選択肢の印（おすすめ）は外した＝見込みは .estimate の枠だけ
+  if (/\btag-rec\b/.test(html)) shape.push("選択肢に印（おすすめ・tag-rec）を付けない（AI の今の見込みは選択肢の後の .estimate の枠へ・根拠つき）");
+  // 見込みの枠（.estimate）の字は別に持つ（枠の外に見込みの言葉があれば赤にするため）
+  const estEls = byClass(html, "estimate");
+  const estTexts = estEls.flatMap((e) => [...textLines(e.inner), attr(e.tag, "data-basis") ?? ""]).filter(Boolean);
+  const noEst = estEls.reduceRight((t, e) => t.slice(0, e.start) + " ".repeat(e.end - e.start) + t.slice(e.end), html);
+  const visible = textLines(noEst.replace(/<(head)\b[\s\S]*?<\/head\s*>/i, (m) => (/<title>([\s\S]*?)<\/title>/i.exec(m)?.[1] ?? "")));
+  const attrTexts = [...noEst.matchAll(/\b(?:data-(?:qlabel|glabel|where|no-url)|alt)\s*=\s*(?:"([^"]*)"|'([^']*)')/gi)].map((m) => decode(m[1] ?? m[2]));
 
   const questions = [];
   for (const m of html.matchAll(/<[a-z][a-z0-9]*\b[^>]*\bdata-qkey\s*=\s*["']([^"']+)["'][^>]*>/gi)) {
@@ -404,7 +437,7 @@ export function readHtml(raw) {
       return {
         value: attr(inp, "value"),
         all: text(o[1]),
-        head: text((b ? b[1] : o[1]).replace(/<span\b[^>]*class\s*=\s*["'][^"']*tag-rec[\s\S]*?<\/span>/gi, "")),
+        head: text(b ? b[1] : o[1]),
         detail: small ? text(small[1]) : "",
         change: chg ? text(chg[1]) : "",
         rec: /tag-rec/.test(o[1]),
@@ -415,11 +448,22 @@ export function readHtml(raw) {
     // 前提 ②③: まとまりの 1 行・何について・なぜ聞くか・見つけた事の資料・切り抜き・くわしく
     const gleads = byClass(q.inner, "glead").map((g) => textLines(g.inner));
     // 4 欄の箱は 1 問に 1 つずつ（2 つ目に書いて上限・決まった文をすり抜けさせない）
-    const boxes = Object.fromEntries(["about", "why", "known", "more", "clips"].map((c) => [c, byClass(q.inner, c).length]));
+    const boxes = Object.fromEntries(["about", "why", "reading", "known", "evidence", "more", "clips", "estimate"].map((c) => [c, byClass(q.inner, c).length]));
     const aboutEl = byClass(q.inner, "about")[0];
     const aboutSpans = aboutEl ? [...aboutEl.inner.matchAll(/<span\b[^>]*>([\s\S]*?)<\/span\s*>/gi)] : [];
     const whyEl = byClass(q.inner, "why")[0];
     const moreEl = byClass(q.inner, "more")[0];
+    // 根拠と読みと見込み: .evidence の li[data-doc][data-where]（原文の引用は中の .quote）・.reading・.estimate[data-basis]
+    const readingEl = byClass(q.inner, "reading")[0];
+    const evEl = byClass(q.inner, "evidence")[0];
+    const evidence = evEl
+      ? [...evEl.inner.matchAll(/<li\b[^>]*>([\s\S]*?)<\/li\s*>/gi)].map((li) => {
+          const qt = byClass(li[1], "quote")[0];
+          return { doc: attr(li[0], "data-doc"), where: (attr(li[0], "data-where") ?? "").trim(), quote: qt ? text(qt.inner).replace(/^[「『"]|[」』"]$/g, "").trim() : "" };
+        })
+      : [];
+    const estEl = byClass(q.inner, "estimate")[0];
+    const optsEl = byClass(q.inner, "opts")[0];
     const clips = byClass(q.inner, "clip").map((f) => {
       const img = /<img\b[^>]*>/i.exec(f.inner)?.[0] ?? null;
       const cap = /<figcaption\b[^>]*>([\s\S]*?)<\/figcaption\s*>/i.exec(f.inner);
@@ -441,6 +485,10 @@ export function readHtml(raw) {
       who: aboutSpans.filter((x) => /\bclass\s*=\s*["'][^"']*\bwho\b/i.test(x[0])).map((x) => text(x[1])).filter(Boolean),
       why: whyEl ? attr(whyEl.tag, "data-why") : null,
       whyText: whyEl ? text(whyEl.inner) : null,
+      reading: readingEl ? textLines(readingEl.inner) : null,
+      readingAfterWhy: !readingEl || !whyEl || readingEl.start > whyEl.start,
+      evidence,
+      estimate: estEl ? { value: text(estEl.inner), basis: (attr(estEl.tag, "data-basis") ?? "").trim(), afterOpts: !optsEl || estEl.start >= optsEl.end } : null,
       more: moreEl ? textLines(moreEl.inner.replace(/<summary\b[\s\S]*?<\/summary\s*>/i, "").replace(/<div\b[^>]*class\s*=\s*["'][^"']*\borig\b[\s\S]*$/i, "")) : null,
       clips,
       tableRows: knownTables.reduce((n, t) => n + (t[0].match(/<tr\b/gi) ?? []).length, 0),
@@ -459,7 +507,7 @@ export function readHtml(raw) {
   const gleadAll = byClass(html, "glead").length;
   const gleadIn = questions.reduce((n, q) => n + q.gleads.length, 0);
   if (gleadAll !== gleadIn) shape.push(`まとまりの 1 行（.glead）が問いの箱の外に ${gleadAll - gleadIn} つある（説明を問いの間に挟まない）`);
-  return { format: "html", dest, holes, shape, brand, docs, hold, texts: [...visible, ...attrTexts], questions };
+  return { format: "html", dest, holes, shape, brand, docs, hold, texts: [...visible, ...attrTexts], estTexts, questions };
 }
 
 // ── 読み取り 2: 問いのデータ（JSON）。確認のページを Artifact 型で作り、問いをデータで渡す時の形（SKILL.md §問いのデータ）。
@@ -486,7 +534,7 @@ export function readJson(data) {
           typeof o === "string"
             ? { value: null, head: o, all: o, detail: "" }
             : { value: o?.value ?? null, head: String(o?.label ?? ""), detail: String(o?.detail ?? ""), change: String(o?.change ?? "").trim(),
-                all: [o?.label, o?.detail, o?.change].filter(Boolean).join(" "), rec: !!o?.recommended, needSupp: o?.supp === "need",
+                all: [o?.label, o?.detail, o?.change].filter(Boolean).join(" "), rec: Object.hasOwn(o ?? {}, "recommended"), needSupp: o?.supp === "need",
                 suppBad: o?.supp != null && o?.supp !== "need" ? JSON.stringify(o.supp) : null },
         );
       const table = Array.isArray(q.table) ? q.table : [];
@@ -504,6 +552,10 @@ export function readJson(data) {
         why: q.why ?? null,
         whyText: null, // 型の側が決まった文を出す
         more: q.more == null || !String(q.more).trim() ? null : lines(q.more),
+        reading: q.reading == null ? null : lines(q.reading),
+        readingAfterWhy: true, // 型の側が並べる
+        evidence: (Array.isArray(q.evidence) ? q.evidence : []).map((e) => ({ doc: e?.doc ?? null, where: String(e?.where ?? "").trim(), quote: String(e?.quote ?? "").trim() })),
+        estimate: q.estimate == null ? null : { value: String(q.estimate?.value ?? "").trim(), basis: String(q.estimate?.basis ?? "").trim(), afterOpts: true },
         boxes: {},
         clips: (Array.isArray(q.clips) ? q.clips : []).map((c) => ({ doc: c?.doc ?? null, hasShows: Array.isArray(c?.shows), shows: Array.isArray(c?.shows) ? c.shows.map(String) : [], img: true, src: c?.src ?? null,
           alt: String(c?.alt ?? ""), caption: String(c?.caption ?? "") })),
@@ -518,15 +570,19 @@ export function readJson(data) {
       };
     });
   const docsIn = Array.isArray(data?.docs) ? data.docs : null;
-  const docs = docsIn ? docsIn.map((d) => ({ key: d?.key ?? null, name: String(d?.name ?? "").trim() })) : null;
-  const texts = [data?.to, data?.title, data?.lead, data?.due, data?.next, data?.hold, ...(docsIn ?? []).flatMap((d) => [d?.name, d?.received]),
+  const docs = docsIn
+    ? docsIn.map((d) => ({ key: d?.key ?? null, name: String(d?.name ?? "").trim(), url: d?.url == null ? null : String(d.url).trim(), noUrl: String(d?.no_url ?? "").trim(), hrefs: null }))
+    : null;
+  const texts = [data?.to, data?.title, data?.lead, data?.due, data?.next, data?.hold, ...(docsIn ?? []).flatMap((d) => [d?.name, d?.received, d?.no_url]),
     ...qsIn.flatMap((q) => [q?.label, q?.glabel, q?.glead, ...(Array.isArray(q?.about) ? q.about : []), q?.question, ...lines(q?.known), q?.more,
+    ...lines(q?.reading), ...(Array.isArray(q?.evidence) ? q.evidence.flatMap((e) => [e?.where, e?.quote]) : []),
     ...(Array.isArray(q?.clips) ? q.clips.flatMap((c) => [c?.alt, c?.caption]) : []),
     ...(Array.isArray(q?.table) ? q.table.flat().map(String) : []),
     ...(Array.isArray(q?.options) ? q.options.flatMap((o) => (typeof o === "string" ? [o] : [o?.label, o?.detail, o?.change])) : [])])]
     .flatMap((x) => lines(x));
+  const estTexts = qsIn.flatMap((q) => (q?.estimate ? [q.estimate.value, q.estimate.basis] : [])).flatMap((x) => lines(x));
   const holes = [...new Set(JSON.stringify(data ?? {}).match(/\{\{[^}]*\}\}/g) ?? [])];
-  return { format: "json", dest: data?.dest ?? null, holes, shape, brand: data?.brand ?? null, docs, hold: String(data?.hold ?? "").trim(), texts, questions };
+  return { format: "json", dest: data?.dest ?? null, holes, shape, brand: data?.brand ?? null, docs, hold: String(data?.hold ?? "").trim(), texts, estTexts, questions };
 }
 
 // ── 決まり: 問いの形（HTML でも JSON でも同じ物）を 1 か所で見る
@@ -543,7 +599,18 @@ export function checkPage(page, { valuesPath = null } = {}) {
   if (!DESTS.includes(dest)) red.push(`宛先の印が無い: data-dest="send|copy|artifact"（HTML は <body data-dest>・データは "dest"）`);
   checkBrand(page.brand, red);
 
+  const estTexts = page.estTexts ?? [];
+  for (const line of [...page.texts, ...estTexts]) {
+    for (const [k, why] of [["recommend", "選択肢にも文にも付けない・AI の今の見込みは根拠つきで見込みの枠へ"], ["prior_ref", "1 画面 1 問＝この問いだけで答えられるように、要る事をこの問いに書く"]]) {
+      const m = rx(k).exec(line);
+      if (m) red.push(`「${m[0]}」は書かない（${why}）: ${line.slice(0, 60)}`);
+    }
+  }
   for (const line of page.texts) {
+    const m = rx("estimate_word").exec(line);
+    if (m) red.push(`「${m[0]}」は AI の今の見込みの枠（${page.format === "html" ? ".estimate" : '"estimate"'}）の外に書かない（見込みを前提に見せない）: ${line.slice(0, 60)}`);
+  }
+  for (const line of [...page.texts, ...estTexts]) {
     for (const w of words) {
       const m = w.re.exec(line);
       if (m) red.push(`内部の言葉「${m[0]}」（${w.語}→${w.言い換え ?? "先方の言葉で"}）: ${line.slice(0, 60)}`);
@@ -559,6 +626,11 @@ export function checkPage(page, { valuesPath = null } = {}) {
   for (const d of page.docs ?? []) {
     if (d.key == null || !/^[A-Za-z0-9_]+$/.test(d.key)) red.push(`読んだ資料の鍵（data-doc）は半角英数字と _ だけ（今 ${d.key ?? "無し"}）: ${d.name.slice(0, 30)}`);
     if (!d.name) red.push(`読んだ資料 ${d.key ?? ""} の名が空`);
+    // 資料のリンク（Drive などの URL）。リンクが無い資料は訳を書く。宛先が開けない時のため、実物（切り抜き・引用）が主でリンクは添え
+    const where = page.format === "html" ? "data-url" : '"url"';
+    if (!d.url && !d.noUrl) red.push(`読んだ資料 ${d.key ?? ""} にリンク（${where}）もリンクが無い訳（${page.format === "html" ? "data-no-url" : '"no_url"'}）も無い: ${d.name.slice(0, 30)}`);
+    else if (d.url && !/^https:\/\/[^\s<>"'&]+$/.test(d.url)) red.push(`読んだ資料 ${d.key ?? ""} のリンクは https:// で始まる URL だけ（今 ${d.url.slice(0, 40)}）`);
+    else if (d.url && d.hrefs && !d.hrefs.includes(d.url)) red.push(`読んだ資料 ${d.key ?? ""} のリンクが見えない（li の中に <a href="${d.url.slice(0, 30)}…"> を置く）`);
   }
   for (const k of new Set(docKeys.filter((k, i) => k != null && docKeys.indexOf(k) !== i))) red.push(`読んだ資料の鍵「${k}」が重なっている`);
   if (!page.hold) red.push(`答えるまでの扱いが無い（${page.format === "html" ? "header の .hold" : '"hold"'}・例「答えが届くまで、この点は確定せずにお待ちします。」）`);
@@ -582,6 +654,9 @@ export function checkPage(page, { valuesPath = null } = {}) {
     if (gi >= lastGroup) lastGroup = gi;
     if (first && q.gleads.length !== 1) red.push(`${id}: まとまりの最初の問いに、まとまりの 1 行（${page.format === "html" ? ".glead" : '"glead"'}）が ${q.gleads.length} つ（ちょうど 1 つ）`);
     if (!first && gi >= 0 && q.gleads.length) red.push(`${id}: まとまりの 1 行はまとまりの最初の問いだけ（別の画面や 2 つ目の説明を挟まない）`);
+    const laterLead = company.later_lead ?? RULES.later_lead;
+    if (first && q.group === "later" && q.gleads.length === 1 && q.gleads[0].join("") !== laterLead)
+      red.push(`${id}: 先に決めておきたい事のまとまりの 1 行は決まった文「${laterLead}」のまま`);
     for (const g of q.gleads) {
       if (!g.length) red.push(`${id}: まとまりの 1 行が空`);
       else if (g.length > 1) red.push(`${id}: まとまりの 1 行が ${g.length} 行（1 行だけ）`);
@@ -602,6 +677,33 @@ export function checkPage(page, { valuesPath = null } = {}) {
     for (const d of q.knownDocs) if (!docKeys.includes(d)) red.push(`${id}: 見つけた事の資料「${d}」が読んだ資料の一覧に無い`);
     if (q.more == null || !q.more.length) red.push(`${id}: くわしく（${page.format === "html" ? "details.more" : '"more"'}）が無い・空`);
     else if (q.more.length > limits.more_lines) red.push(`${id}: くわしくが ${q.more.length} 行（${limits.more_lines} 行まで・資料の原文は ${page.format === "html" ? ".orig" : "切り抜き"} へ）`);
+    // 根拠（どの資料のどこを見たか）と実物（切り抜きか原文の引用）と AI の読み。ほかの資料を開かずに答えられるように
+    const evWhere = page.format === "html" ? '.evidence の li[data-doc][data-where]' : '"evidence": [{"doc","where","quote"}]';
+    if (!q.evidence.length) red.push(`${id}: 根拠（どの資料のどこを見たか ${evWhere}）が無い`);
+    else if (q.evidence.length > limits.evidence) red.push(`${id}: 根拠が ${q.evidence.length} つ（${limits.evidence} つまで）`);
+    q.evidence.forEach((e, i) => {
+      const eid = `${id}: 根拠 ${i + 1}`;
+      if (!e.doc || !docKeys.includes(e.doc)) red.push(`${eid} の資料「${e.doc ?? "無し"}」が読んだ資料の一覧に無い`);
+      if (!e.where) red.push(`${eid} の場所（${page.format === "html" ? "data-where" : '"where"'}＝ページ・欄・行、シートならタブ名とセル範囲）が空`);
+      else if (len(e.where) > limits.where_chars) red.push(`${eid} の場所が ${len(e.where)} 字（${limits.where_chars} 字まで）`);
+      if (len(e.quote) > limits.quote_chars) red.push(`${eid} の原文の引用が ${len(e.quote)} 字（${limits.quote_chars} 字まで・長い原文はくわしくの中へ）`);
+    });
+    if (!q.clips.length && !q.evidence.some((e) => e.quote))
+      red.push(`${id}: 実物が無い（切り抜き ${page.format === "html" ? "figure.clip" : '"clips"'} か、根拠の原文の引用 ${page.format === "html" ? ".evidence の .quote" : '"quote"'} を 1 つ以上・決まりの問いは規程の条文を引く）`);
+    if (q.reading == null || !q.reading.length) red.push(`${id}: AI の読み（${page.format === "html" ? ".reading" : '"reading"'}＝「こう読んだ → ここが合わない／決まらない」）が無い`);
+    else {
+      if (q.reading.length > limits.reading_lines) red.push(`${id}: AI の読みが ${q.reading.length} 行（${limits.reading_lines} 行まで）`);
+      for (const l of q.reading) if (len(l) > limits.reading_line_chars) red.push(`${id}: AI の読みの 1 行が ${len(l)} 字（${limits.reading_line_chars} 字まで）: ${l.slice(0, 30)}…`);
+      if (!q.readingAfterWhy) red.push(`${id}: AI の読み（.reading）はなぜ聞くか（.why）の下に置く`);
+    }
+    if (q.estimate) {
+      if (!q.estimate.value) red.push(`${id}: AI の今の見込みの中身が空（無いなら枠ごと外す）`);
+      else if (len(q.estimate.value) > limits.estimate_chars) red.push(`${id}: AI の今の見込みが ${len(q.estimate.value)} 字（${limits.estimate_chars} 字まで）`);
+      if (!q.estimate.basis) red.push(`${id}: AI の今の見込みの根拠（${page.format === "html" ? "data-basis" : '"basis"'}）が空（根拠がある時だけ見込みを出す）`);
+      else if (len(q.estimate.basis) > limits.basis_chars) red.push(`${id}: AI の今の見込みの根拠が ${len(q.estimate.basis)} 字（${limits.basis_chars} 字まで）`);
+      if (!q.estimate.afterOpts) red.push(`${id}: AI の今の見込み（.estimate）は選択肢（.opts）の後に置く`);
+    }
+
     // 切り抜き: 1 問 2 枚まで・一覧の資料・写っている名は問いの人だけ（ほかの人は塗る）
     if (q.clips.length > limits.clips) red.push(`${id}: 切り抜きが ${q.clips.length} 枚（${limits.clips} 枚まで）`);
     if (q.why === "mismatch" && q.clips.length === 1) red.push(`${id}: 食い違いの切り抜きは 2 枚を横に並べる（今 1 枚・出さないなら 0 枚）`);
@@ -640,7 +742,8 @@ export function checkPage(page, { valuesPath = null } = {}) {
     if (!q.required) red.push(`${id}: 答えずに送れる（最初の選択肢か入力の欄に required を付ける）`);
     if (q.checkboxRequired) red.push(`${id}: checkbox に required を付けない（その 1 つを選ばないと送れなくなる）`);
     const real = q.options.filter((o) => o.value !== UNKNOWN);
-    if (real.filter((o) => o.rec).length > 1) red.push(`${id}: おすすめは 1 つまで`);
+    for (const o of real.filter((o) => o.rec))
+      red.push(`${id}: 選択肢「${o.head.slice(0, 20)}」に印（${page.format === "html" ? "おすすめ" : '"recommended"'}）を付けない（AI の今の見込みは根拠つきで ${page.format === "html" ? ".estimate" : '"estimate"'} へ）`);
     const vals = [];
     for (const o of real) {
       if (len(o.head) > limits.option_chars) red.push(`${id}: 選択肢の見出しが ${len(o.head)} 字（${limits.option_chars} 字まで・中身は結果の 1 行へ）: ${o.head.slice(0, 30)}…`);
