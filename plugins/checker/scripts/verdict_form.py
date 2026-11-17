@@ -9,7 +9,7 @@
   5. 別の目: 書いた窓（--writer）とレビューした窓が同じなら形の誤り（自分の PR に判定を付けない）
   6. `## 点` に、review-pr の SKILL.md の「見る点」の表の点（番号と名）が全部 1 行ずつ在り、
      各行の値が pass／fail／N/A のどれか（点 3 は `書いた窓 <id> ≠ この窓` も可）。
-     欠け・重なり・表に無い点・選べる値の外は誤り。
+     欠け・重なり・表に無い点・選べる値の外・同じ見出しの節が 2 つ在るのは誤り。
      点の正本は SKILL.md の表 1 か所（ここに写さない）。表が読めない時は止まる（点を見ずに通さない）。
 
 使い方: python3 verdict_form.py <コメントのファイル> [--writer <書いた窓の session id>] [--head <PR の先端の SHA>]
@@ -113,6 +113,10 @@ def check(text, writer=None, head=None, points=None):
     if not m2:
         errs.append("2 行目が `見た先端: <SHA12>` でない")
     reviewer, judged = (m1.group(1), m1.group(2)) if m1 else (None, None)
+    for h in ("verdict", "点", "所見"):
+        n = sum(1 for ln in lines if ln.strip() == "## " + h)
+        if n > 1:
+            errs.append("`## %s` の節が %d 個在る（1 つだけにする）" % (h, n))
     if m2 and head and not head.startswith(m2.group(1)):
         errs.append("見た先端 %s が PR の今の先端 %s と違う（見直して判定を足す）" % (m2.group(1), head[:12]))
     if writer and reviewer and writer == reviewer:

@@ -166,3 +166,9 @@ def test_見る点の表が読めない時は止まる(tmp_path):
     import pytest
     with pytest.raises(ValueError):
         vf.load_points(empty)
+
+
+def test_同じ見出しの節が_2_つ在ると赤():
+    extra = "## 点\n- 99 作り物: ok\n\n"
+    text = GREEN.replace("## 所見", extra + "## 所見", 1)
+    assert any("`## 点` の節が 2 個" in e for e in vf.check(text, writer="session_WRITER01"))
