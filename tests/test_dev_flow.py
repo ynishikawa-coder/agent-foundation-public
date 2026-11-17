@@ -74,6 +74,17 @@ def test_整地は根治の_4_つの問いを持ち_注入の試験と残る穴�
     assert "3 つの問い" not in skill and "3 欄の" not in skill, "古い 3 問の言い回しが残る"
 
 
+def test_規律を足す時も止める物かの後に誤りが入れない形と注入の試験を書く():
+    skill = (PLUGIN / "skills" / "register-rule" / "SKILL.md").read_text(encoding="utf-8")
+    step1 = skill[skill.index("## Step 1"):skill.index("## Step 2")]
+    for word in ["誤りが入れない形のどれか", "注入の試験", "核 §3・細目 §3"]:
+        assert word in step1, f"register-rule Step 1 に無い: {word}"
+    out = skill[skill.index("## 出力の形"):]
+    assert out.index("止める物か") < out.index("注入の試験"), "出力の形で止める物かの後に形と注入の試験が無い"
+    for old in ["3 つの問い", "文を 1 本足すことを直しの中心にしない"]:
+        assert old not in skill, f"古い根治の言い回しが残る: {old}"
+
+
 def test_verify_は申告でなく記録で確かめる():
     skill = (PLUGIN / "skills" / "verify" / "SKILL.md").read_text(encoding="utf-8")
     assert "申告でなく記録" in skill and "記録の所在" in skill

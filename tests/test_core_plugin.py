@@ -107,6 +107,6 @@ def test_核の根治は誤りが入れない形と注入の試験を持つ():
     assert "申告でなく記録" in _節(kaku_text, 7)
     saimoku = (PLUGIN / "細目.md").read_text(encoding="utf-8")
     s3d = _節(saimoku, 3)
-    for word in ["写す工程を無くす", "誤った物が入れない", "正しい道だけが外へ出す", "防げない物は名指しで人の関所へ", "注入の試験"]:
+    for word in ["写す工程を無くす", "誤った物が入れない", "正しい道だけが外へ出す", "防げない物は名指しで人の関所へ", "注入の試験", "古い道は残さず"]:
         assert word in s3d, f"細目 §3 に無い: {word}"
     assert "記録で確かめる" in _節(saimoku, 7)
