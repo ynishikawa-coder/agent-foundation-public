@@ -8,12 +8,18 @@
     qa:foot の間は {{この後のこと}} だけ差す。ほかの所に style・script を書かない。
   問いの箱 1 つ＝1 問（fieldset.q）:
     data-qkey＝問いの鍵（半角英数字と _・答えの name と同じ）／data-qlabel＝一言の見出し／data-kind＝choose・mismatch・fact・judge
-    data-group＝rule（会社の決まり）→ person（人ごとの事実）→ once（今回だけの事）の順に並べる（見出しを替える時は data-glabel）
-  前提は 3 段: ①はじめの画面＝読んだ資料の一覧（.docs の li[data-doc]）と答えるまでの扱い（.hold）
+    data-group＝rule（会社の決まり）→ person（人ごとの事実）→ once（今回だけの事）→ later（先に決めておきたい事＝まだ起きていない時の
+      決め方・いつも最後・まとまりの 1 行は決まった文）の順に並べる（見出しを替える時は data-glabel）
+  前提は 3 段: ①はじめの画面＝読んだ資料の一覧（.docs の li[data-doc][data-url]＝資料のリンクを a の href で・リンクが無い資料は
+      data-url="" と data-no-url="訳"）と答えるまでの扱い（.hold・見込みの数字を前提に見せない）
     ②まとまり＝各まとまりの最初の問いに .glead（1 行）だけ ③1 問＝固定の 4 欄
       何について（.about の span 1〜3 つ・人の名は span.who）／見つけた事（.known・data-docs＝読んだ資料の鍵・2 行まで）
       ＋切り抜き（figure.clip・1 問 2 枚まで・data-doc・data-shows＝写っている人の名＝問いの人だけ・ほかの人は塗る）
-      ／なぜ聞くか（.why の data-why＝mismatch・missing・law・once と決まった文）／くわしく（details.more・3 行＋原文は .orig）
+      ／なぜ聞くか（.why の data-why＝mismatch・missing・law・once と決まった文）＋その下に AI の読み（.reading・1〜3 行
+      「こう読んだ → ここが合わない／決まらない」）
+      ／根拠（.evidence の li[data-doc][data-where]＝どの資料のどこ・原文の引用は .quote）＝切り抜きか引用の実物を 1 つ以上
+      ／くわしく（details.more・3 行＋原文は .orig）
+    AI の今の見込みは、根拠がある時だけ選択肢の後に .estimate[data-basis]（選択肢に印を付けない・無ければ枠ごと外す）
     前提が書けない問いは出さない（どれかが空なら検査が赤）
     legend＝問い 1 行／選択肢＝label.opt（value は半角英数字と _・最初の 1 つに required・中身の見出し <b>
       ＋この答えで変わる事 <small class="chg">（誰の・何が・いくら）・記号 A/B を付けない）
@@ -56,6 +62,7 @@
   fieldset.q[data-group=rule]::before{content:"会社の決まり"}
   fieldset.q[data-group=person]::before{content:"人ごとの事実"}
   fieldset.q[data-group=once]::before{content:"今回だけの事"}
+  fieldset.q[data-group=later]::before{content:"先に決めておきたい事"}
   fieldset.q[data-glabel]::before{content:attr(data-glabel)}
   fieldset.q legend{float:left;width:100%;padding:0;margin:0 0 12px;font-size:22px;font-weight:700;line-height:1.45}
   .known{clear:both;background:var(--soft);border-radius:12px;padding:12px 14px;margin:0 0 12px;font-size:16px}
@@ -71,7 +78,19 @@
   label.opt b{display:block}
   label.opt small{display:block;font-size:15px;color:var(--sub)}
   label.opt small.chg::before{content:"変わる事: ";font-weight:700}
-  .tag-rec{font-size:13px;font-weight:700;background:var(--brand);color:#fff;border-radius:6px;padding:1px 7px;margin-left:8px;vertical-align:2px}
+  .reading{clear:both;font-size:16px;background:#eef3ff;border-left:4px solid var(--link);border-radius:0 8px 8px 0;padding:6px 10px;margin:0 0 10px}
+  .reading::before{content:"AI の読み: ";font-weight:700}
+  .evidence{clear:both;list-style:none;margin:0 0 12px;padding:0;font-size:15px}
+  .evidence li{border-left:3px solid var(--line);padding:2px 0 2px 10px;margin:0 0 6px;color:var(--sub)}
+  .evidence li::before{content:"根拠: ";font-weight:700}
+  .evidence li b{color:var(--ink)}
+  .evidence .quote{display:block;color:var(--ink)}
+  .evidence .quote::before{content:"「"}
+  .evidence .quote::after{content:"」"}
+  .docs li[data-no-url]::after{content:"（リンクなし: " attr(data-no-url) "）";color:var(--sub);font-size:14px}
+  .estimate{clear:both;font-size:15px;color:var(--sub);background:#f1f2f4;border:1px dashed var(--line);border-radius:10px;padding:8px 12px;margin:12px 0 0}
+  .estimate::before{content:"AI の今の見込み: ";font-weight:700}
+  .estimate::after{content:"（根拠: " attr(data-basis) "）。見込みに合わせず、事実で選んでください。"}
   .or{text-align:center;color:var(--faint);font-size:15px;margin:0}
   .q input[type=text],.q input[type=date],.q input[type=month],.q input[type=number],.q select,textarea{width:100%;border:2px solid var(--line);border-radius:10px;padding:10px 12px;font:inherit;font-size:17px;background:#fff;color:var(--ink)}
   textarea{resize:vertical;min-height:64px}
@@ -112,8 +131,10 @@
   <h1>{{件名}}</h1>
   <p class="lead">{{前書き 1 文（例「答えていただいた内容で、〇〇を確定します。」）}}</p>
   <div class="docs"><h2>読んだ資料（この中から聞いています）</h2>
-  <ul><li data-doc="d1">{{読んだ資料 1（名・期間・受け取った日）}}</li><li data-doc="d2">{{読んだ資料 2}}</li><li data-doc="d3">{{読んだ資料 3}}</li></ul>
-  <p>ほかに新しい資料がある時は、最後の「ほかに伝えたい事」で教えてください。</p></div>
+  <ul><li data-doc="d1" data-url="{{リンク（資料 1 の https://…）}}"><a href="{{リンク（資料 1・同じ物）}}">{{読んだ資料 1（名・期間・受け取った日）}}</a></li>
+  <li data-doc="d2" data-url="{{リンク（資料 2）}}"><a href="{{リンク（資料 2・同じ物）}}">{{読んだ資料 2}}</a></li>
+  <li data-doc="d3" data-url="" data-no-url="{{リンクが無い訳（例 紙で受け取った）}}">{{読んだ資料 3}}</li></ul>
+  <p>リンクは新しいタブで開きます。開けない時も、各問いに資料の切り抜きか原文を載せています。ほかに新しい資料がある時は、最後の「ほかに伝えたい事」で教えてください。</p></div>
   <p class="hold">{{答えるまでの扱い（例「答えが届くまで、この点は確定せずにお待ちします。」）}}</p>
   <div class="box">{{期限（例 11 月 20 日）}} までにお願いします。</div>
 </header>
@@ -128,17 +149,20 @@
 <p class="about"><span>{{何について: 誰（例 全員）}}</span><span>{{何について: いつ}}</span><span>{{何について: 何}}</span></p>
 <legend>{{問い 1 行（例「送料の端数は、どちらで計算しますか」）}}</legend>
 <p class="why" data-why="law">今の決まりが法律の決まりと合っていません</p>
+<p class="reading">{{AI の読み（1〜3 行「こう読んだ → ここが合わない／決まらない」）}}</p>
 <div class="known" data-docs="d1">{{見つけた事（資料名・場所・値）2 行まで}}
 <table><tr><th>{{表の見出し}}</th><th>{{今の計算}}</th><th>{{直した場合}}</th></tr><tr><td>{{行の名}}</td><td>{{数}}</td><td>{{数}}</td></tr></table></div>
+<ul class="evidence"><li data-doc="d1" data-where="{{根拠の場所（ページ・欄・行、シートならタブ名とセル範囲）}}"><b>{{根拠の資料名}}</b>・{{根拠の場所（上と同じ）}}</li></ul>
 <div class="clips"><figure class="clip" data-doc="d1" data-shows=""><img src="{{切り抜きの画像（data:image/png;base64,…・該当に黄の印・ほかの人は塗る）}}" alt="{{切り抜きに写っている事}}"><figcaption>{{切り抜きの資料名と場所}}</figcaption></figure></div>
 <details class="more"><summary>くわしく</summary>{{判断に要る細かい事 3 行まで（決まり・計算の元・語の説明）}}<div class="orig">{{原文（資料の抜粋）}}</div></details>
 <div class="opts">
-<label class="opt"><input type="radio" name="q1" value="{{選択肢の鍵}}" required><span><b>{{中身の見出し}}<span class="tag-rec">おすすめ</span></b><small class="chg">{{この答えで変わる事（誰の・何が・いくら）}}</small></span></label>
+<label class="opt"><input type="radio" name="q1" value="{{選択肢の鍵}}" required><span><b>{{中身の見出し}}</b><small class="chg">{{この答えで変わる事（誰の・何が・いくら）}}</small></span></label>
 <label class="opt"><input type="radio" name="q1" value="{{選択肢の鍵}}"><span><b>{{中身の見出し}}</b><small class="chg">{{この答えで変わる事（誰の・何が・いくら）}}</small></span></label>
 <label class="opt"><input type="radio" name="q1" value="other" data-supp="need"><span><b>ほかの答え</b><small>下のひとことに書いてください</small></span></label>
 <p class="or">または</p>
 <label class="opt"><input type="radio" name="q1" value="__unknown__"><span><b>分からない・社内で確かめてから答える</b></span></label>
 </div>
+<p class="estimate" data-basis="{{見込みの根拠 1 行（根拠が無い時は、この枠ごと外す）}}">{{AI の今の見込み（根拠がある時だけ）}}</p>
 <div class="supp"><label for="supp_q1">ひとこと（なくても大丈夫です）</label><textarea id="supp_q1" name="supp_q1" rows="2"></textarea></div>
 </fieldset>
 
@@ -148,7 +172,9 @@
 <p class="about"><span class="who">{{何について: 誰（人の名）}}</span><span>{{何について: いつ}}</span><span>{{何について: 何}}</span></p>
 <legend>{{問い 1 行（例「〇〇さんの入社日は、どちらですか」）}}</legend>
 <p class="why" data-why="missing">資料に書いてありません</p>
-<div class="known" data-docs="d2 d3">{{見つけた事（探した資料と、こちらの見込み）2 行まで}}</div>
+<p class="reading">{{AI の読み（1〜3 行）}}</p>
+<div class="known" data-docs="d2 d3">{{見つけた事（探した資料と、どこにも書いていない事）2 行まで}}</div>
+<ul class="evidence"><li data-doc="d2" data-where="{{根拠の場所}}"><b>{{根拠の資料名}}</b>・{{根拠の場所（上と同じ）}}<span class="quote">{{原文の引用（切り抜きが無い時はこれが実物）}}</span></li></ul>
 <details class="more"><summary>くわしく</summary>{{判断に要る細かい事 3 行まで}}</details>
 <div class="opts">
 <label class="opt"><input type="radio" name="q2" value="{{選択肢の鍵}}" required><span><b>{{中身の見出し}}</b><small class="chg">{{この答えで変わる事（誰の・何が・いくら）}}</small></span></label>
@@ -160,13 +186,15 @@
 <div class="supp"><label for="supp_q2">ひとこと（なくても大丈夫です）</label><textarea id="supp_q2" name="supp_q2" rows="2"></textarea></div>
 </fieldset>
 
-<!-- (c) 読んでも決まりが分からない時の判断＝候補 2 つ以上・おすすめは 1 つまで（この例は 今回だけの事を確かめます） -->
+<!-- (c) 読んでも決まりが分からない時の判断＝候補 2 つ以上・選択肢に印を付けない（この例は 今回だけの事を確かめます） -->
 <fieldset class="q" data-qkey="q3" data-qlabel="{{一言の見出し}}" data-kind="judge" data-group="once">
 <p class="glead">{{まとまりの 1 行}}</p>
 <p class="about"><span>{{何について: 誰（例 全員）}}</span><span>{{何について: いつ}}</span></p>
 <legend>{{問い 1 行（例「〇〇は、どう決めますか」）}}</legend>
 <p class="why" data-why="once">今回だけの事を確かめます</p>
+<p class="reading">{{AI の読み（1〜3 行）}}</p>
 <div class="known" data-docs="d1">{{見つけた事（資料名・場所・値）2 行まで}}</div>
+<ul class="evidence"><li data-doc="d1" data-where="{{根拠の場所}}"><b>{{根拠の資料名}}</b>・{{根拠の場所（上と同じ）}}<span class="quote">{{原文の引用}}</span></li></ul>
 <details class="more"><summary>くわしく</summary>{{判断に要る細かい事 3 行まで}}</details>
 <div class="opts">
 <label class="opt"><input type="radio" name="q3" value="{{選択肢の鍵}}" required><span><b>{{中身の見出し}}</b><small class="chg">{{この答えで変わる事（誰の・何が・いくら）}}</small></span></label>
@@ -176,6 +204,26 @@
 <label class="opt"><input type="radio" name="q3" value="__unknown__"><span><b>分からない・社内で確かめてから答える</b></span></label>
 </div>
 <div class="supp"><label for="supp_q3">ひとこと（なくても大丈夫です）</label><textarea id="supp_q3" name="supp_q3" rows="2"></textarea></div>
+</fieldset>
+
+<!-- (d) 先に決めておきたい事＝まだ起きていない時の決め方（いつも最後・まとまりの 1 行は決まった文のまま） -->
+<fieldset class="q" data-qkey="q4" data-qlabel="{{一言の見出し}}" data-kind="judge" data-group="later">
+<p class="glead">今月の計算には関係しません。起きた時の決め方を先に伺います。</p>
+<p class="about"><span>{{何について: 誰（例 全員）}}</span><span>{{何について: 何}}</span></p>
+<legend>{{問い 1 行（例「〇〇が起きた時は、どう決めますか」）}}</legend>
+<p class="why" data-why="missing">資料に書いてありません</p>
+<p class="reading">{{AI の読み（1〜3 行）}}</p>
+<div class="known" data-docs="d3">{{見つけた事（探した資料と、どこにも書いていない事）2 行まで}}</div>
+<ul class="evidence"><li data-doc="d3" data-where="{{根拠の場所}}"><b>{{根拠の資料名}}</b>・{{根拠の場所（上と同じ）}}<span class="quote">{{原文の引用（決まりの問いは規程の条文）}}</span></li></ul>
+<details class="more"><summary>くわしく</summary>{{判断に要る細かい事 3 行まで}}</details>
+<div class="opts">
+<label class="opt"><input type="radio" name="q4" value="{{選択肢の鍵}}" required><span><b>{{中身の見出し}}</b><small class="chg">{{この答えで変わる事（誰の・何が・いくら）}}</small></span></label>
+<label class="opt"><input type="radio" name="q4" value="{{選択肢の鍵}}"><span><b>{{中身の見出し}}</b><small class="chg">{{この答えで変わる事（誰の・何が・いくら）}}</small></span></label>
+<label class="opt"><input type="radio" name="q4" value="other" data-supp="need"><span><b>別の決め方</b><small>下のひとことに書いてください</small></span></label>
+<p class="or">または</p>
+<label class="opt"><input type="radio" name="q4" value="__unknown__"><span><b>分からない・社内で確かめてから答える</b></span></label>
+</div>
+<div class="supp"><label for="supp_q4">ひとこと（なくても大丈夫です）</label><textarea id="supp_q4" name="supp_q4" rows="2"></textarea></div>
 </fieldset>
 
 <fieldset class="q free" data-qkey="__自由記入__" data-qlabel="ほかに伝えたい事">
@@ -225,8 +273,7 @@
   function fieldsOf(key){ return [].slice.call(form.querySelectorAll('[name="' + key + '"]')); }
   function optText(el){
     var l = el.closest('label'); if (!l) return el.value;
-    var t = (l.querySelector('b') || l).cloneNode(true), r = t.querySelector('.tag-rec'); if (r) r.parentNode.removeChild(r);
-    return t.textContent.replace(/\s+/g, ' ').trim();
+    return (l.querySelector('b') || l).textContent.replace(/\s+/g, ' ').trim();
   }
   function valueOf(c){
     var key = c.getAttribute('data-qkey'), vals = [], labels = [];
@@ -404,6 +451,7 @@
     if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(out.value).then(function(){ flash('写しました ✓'); }, function(){ flash(ok ? '写しました ✓' : '枠を全部選んで写してください'); });
     else flash(ok ? '写しました ✓' : '枠を全部選んで写してください');
   });
+  [].forEach.call(document.querySelectorAll('.docs a[href^="https:"]'), function(a){ a.target = '_blank'; a.rel = 'noopener noreferrer'; });
   [].forEach.call(document.querySelectorAll('figure.clip'), function(f){ f.addEventListener('click', function(){ f.classList.toggle('big'); }); });
   var pb = document.getElementById('printbtn'); if (pb) pb.addEventListener('click', function(){ window.print(); });
   window.addEventListener('hashchange', render);

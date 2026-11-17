@@ -99,17 +99,29 @@ FILL = {
     "send か copy か artifact": ["copy"],
     "宛名": ["サンプル株式会社 ご担当者様"],
     "前書き": ["答えていただいた内容で、貸し出しの決まりを確定します。"],
+    "リンク": ["https://example.com/docs/mitsumori", "https://example.com/docs/mitsumori", "https://example.com/docs/chumon", "https://example.com/docs/chumon"],
+    "リンクが無い訳": ["紙で受け取った"],
     "読んだ資料": ["見積り書（10 月分）・10 月 1 日に受け取り", "注文書の控え・10 月 1 日に受け取り", "貸し出しの決まり・9 月 10 日に受け取り"],
     "答えるまでの扱い": ["答えが届くまで、この点は確定せずにお待ちします。"],
     "期限": ["11 月 20 日"],
     "版": ["2026-11-13.1"],
-    "一言の見出し": ["送料の端数", "届く日", "返す期限"],
+    "一言の見出し": ["送料の端数", "届く日", "返す期限", "壊れた時"],
     "まとまりの 1 行": ["決まりと合わない所です", "届いた物の確かめです", "今回の催しの分だけの事です"],
-    "何について: 誰": ["全員", "見本さん", "全員"],
+    "何について: 誰": ["全員", "見本さん", "全員", "全員"],
     "何について: いつ": ["10 月分", "10 月分", "10 月分"],
-    "何について: 何": ["送料", "棚が届く日"],
-    "問い 1 行": ["送料の端数は、どちらで計算しますか", "新しい棚が届く日は、どちらですか", "返す期限は、どう決めますか"],
-    "見つけた事": ["見積り書の 2 枚目は、送料 1 箱 125.5 円です。", "見積り書と注文書の控えに、届く日の書きがありません。", "今は期限が決まっていません。"],
+    "何について: 何": ["送料", "棚が届く日", "壊れた時"],
+    "問い 1 行": ["送料の端数は、どちらで計算しますか", "新しい棚が届く日は、どちらですか", "返す期限は、どう決めますか",
+               "借りた物が壊れた時は、どう決めますか"],
+    "AI の読み": ["1 箱 125.5 円の送料と読みました → 円未満の端数の扱いがどこにも書かれていません。",
+                "注文は 10 月 1 日と読みました → 届く日はどの資料にも無く、決まりません。",
+                "催しの間だけ貸すと読みました → 何日目までに返すかが決まりません。",
+                "壊れた時の扱いは決まりに無いと読みました → 起きた時に誰が直すかが決まりません。"],
+    "見つけた事": ["見積り書の 2 枚目は、送料 1 箱 125.5 円です。", "見積り書と注文書の控えに、届く日の書きがありません。", "今は期限が決まっていません。",
+              "貸し出しの決まりに、壊れた時の書きがありません。"],
+    "根拠の場所": ["2 枚目・送料の行", "2 枚目・送料の行", "1 枚目・届け日の欄", "1 枚目・届け日の欄", "1 枚目・貸し出しの期間の行",
+              "1 枚目・貸し出しの期間の行", "第 3 条（返す時）", "第 3 条（返す時）"],
+    "根拠の資料名": ["見積り書", "注文書の控え", "見積り書", "貸し出しの決まり"],
+    "原文の引用": ["届け日: （空欄）", "貸し出しの期間: 催しの間", "借りた物は、使い終わったら元の棚へ返す。"],
     "表の見出し": ["10 月の請求"],
     "今の計算": ["切り捨てる"],
     "直した場合": ["切り上げる"],
@@ -118,12 +130,16 @@ FILL = {
     "切り抜きの画像": ["data:image/png;base64,iVBORw0KGgo="],
     "切り抜きに写っている事": ["見積り書の送料の行"],
     "切り抜きの資料名と場所": ["見積り書 2 枚目"],
-    "判断に要る細かい事": ["見積りの写しを付けています。", "注文は 10 月 1 日に出ています。", "大きい物は 7 日では足りない事があります。"],
+    "判断に要る細かい事": ["見積りの写しを付けています。", "注文は 10 月 1 日に出ています。", "大きい物は 7 日では足りない事があります。",
+                     "10 月までに壊れた事はありません。"],
     "原文": ["送料 1 箱 125.5 円（税別）"],
-    "選択肢の鍵": ["down", "up", "d1020", "d1027", "d7", "d14"],
-    "中身の見出し": ["切り捨てる", "切り上げる", "10 月 20 日", "10 月 27 日", "借りた日から 7 日", "借りた日から 14 日"],
+    "選択肢の鍵": ["down", "up", "d1020", "d1027", "d7", "d14", "lender", "borrower"],
+    "中身の見出し": ["切り捨てる", "切り上げる", "10 月 20 日", "10 月 27 日", "借りた日から 7 日", "借りた日から 14 日", "貸した側が直す", "借りた側が直す"],
     "この答えで変わる事": ["10 月の請求が合計 1,200 円", "10 月の請求が合計 1,300 円", "棚の入れ替えが 10 月 21 日", "棚の入れ替えが 10 月 28 日",
-                       "返す日の知らせが借りた日から 7 日目", "返す日の知らせが借りた日から 14 日目"],
+                       "返す日の知らせが借りた日から 7 日目", "返す日の知らせが借りた日から 14 日目",
+                       "直す費用を貸した側の請求に入れます", "直す費用を借りた側への請求に入れます"],
+    "見込みの根拠": ["9 月までの見積り書の送料は、どれも切り捨てで書かれている"],
+    "AI の今の見込み": ["切り捨てる"],
     "この後のこと": ["11 月 22 日までに、決まりの写しをお送りします。"],
 }
 
@@ -167,14 +183,14 @@ def test_型を埋めた_1_枚は緑(tmp_path, dest):
     page.write_text(filled_template(dest), encoding="utf-8")
     out = run_check(page)
     assert out["red"] == [], out["red"]
-    assert out["dest"] == dest and out["questions"] == ["q1", "q2", "q3"]
+    assert out["dest"] == dest and out["questions"] == ["q1", "q2", "q3", "q4"]
 
 
 @needs_node
 def test_問いのデータの良い例は緑():
     out = run_check(DATA / "good.json")
     assert out["red"] == [], out["red"]
-    assert out["dest"] == "artifact" and out["questions"] == ["q1", "q2"]
+    assert out["dest"] == "artifact" and out["questions"] == ["q1", "q2", "q3"]
 
 
 @needs_node
@@ -183,7 +199,10 @@ def test_問いのデータの悪い例は決まった赤だけ():
     assert not out["ok"]
     expect = ["答えるまでの扱いが無い", "問い q1: なぜ聞くか", "問い q1: 1 問に 2 つ以上", "問い q1: 選択肢が 1 つだけ", "問い q2: 並びが逆",
               "問い q2: 切り抜き 1 の画像が無い", "問い q2: 選択肢「まだ分からない」にこの答えで変わる事", "問い q2: 資料の外の事実の問いに「当てはまらない」",
-              "問い q2: ひとことの欄"]
+              "問い q2: ひとことの欄",
+              # 根拠・読み・見込み・リンク・ほかの問いに頼る言い方
+              "「前の問」は書かない", "読んだ資料 d1 にリンク", "問い q1: 根拠（どの資料のどこを見たか", "問い q1: 実物が無い", "問い q1: AI の読み",
+              "問い q1: AI の今の見込みの根拠", "問い q1: 選択肢「決まったら連絡」に印", "問い q2: 根拠（どの資料のどこを見たか", "問い q2: AI の読み"]
     assert len(out["red"]) == len(expect), out["red"]
     for e in expect:
         assert any(r.startswith(e) for r in out["red"]), (e, out["red"])
@@ -204,7 +223,7 @@ def test_前提が書けない問いのデータは赤(tmp_path):
     """何について・見つけた事・資料・なぜ聞くか・くわしく・変わる事が空なら出さない（前提が書けない問いは出さない）。"""
     data = json.loads((DATA / "good.json").read_text(encoding="utf-8"))
     q = data["questions"][0]
-    for k in ["about", "known", "docs", "why", "more"]:
+    for k in ["about", "known", "docs", "why", "more", "reading", "evidence"]:
         q.pop(k)
     q["options"][0].pop("change")
     data["questions"][1]["clips"][1]["shows"] = ["見本さん", "ほかの人"]
@@ -212,7 +231,7 @@ def test_前提が書けない問いのデータは赤(tmp_path):
     page.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
     red = run_check(page)["red"]
     expect = ["問い q1: 何について", "問い q1: なぜ聞くか", "問い q1: 見つけた事（資料名・場所・値）が無い", "問い q1: 見つけた事が読んだ資料を指していない",
-              "問い q1: くわしく", "問い q1: 選択肢「借りた日から 7 日」にこの答えで変わる事", "問い q2: 切り抜き 2 に問いの人の外の名「ほかの人」"]
+              "問い q1: くわしく", "問い q1: 根拠（どの資料のどこを見たか", "問い q1: 実物が無い", "問い q1: AI の読み", "問い q1: 選択肢「借りた日から 7 日」にこの答えで変わる事", "問い q2: 切り抜き 2 に問いの人の外の名「ほかの人」"]
     assert len(red) == len(expect), red
     for e in expect:
         assert any(r.startswith(e) for r in red), (e, red)
@@ -277,7 +296,24 @@ MUTATIONS = [
     ('name="supp_q1"', 'name="note_q1"', "問い q1: ひとことの欄"),
     # 前提の 3 段（はじめの画面・まとまり・1 問の 4 欄・切り抜き・変わる事）
     ('<p class="hold">', '<p class="note">', "答えるまでの扱いが無い"),
-    ('<li data-doc="d3">', '<li data-doc="d-4">増えた資料</li><li data-doc="d3">', "読んだ資料の鍵（data-doc）"),
+    ('<li data-doc="d3" ', '<li data-doc="d-4" data-url="" data-no-url="紙で受け取った">増えた資料</li><li data-doc="d3" ', "読んだ資料の鍵（data-doc）"),
+    # 根拠（資料のどこ）・実物・AI の読み・AI の今の見込み・資料のリンク・先に決めておきたい事
+    ('data-url="" data-no-url="紙で受け取った"', 'data-url=""', "読んだ資料 d3 にリンク"),
+    ('data-url="https://example.com/docs/chumon"', 'data-url="https://example.com/docs/other"', "読んだ資料 d2 のリンクが見えない"),
+    ('data-url="https://example.com/docs/chumon"><a href="https://example.com/docs/chumon">', 'data-url="http://example.com/x"><a href="https://example.com/docs/chumon">', "読んだ資料 d2 のリンクは https://"),
+    ('<ul class="evidence"><li data-doc="d1" data-where="2 枚目・送料の行"><b>見積り書</b>・2 枚目・送料の行</li></ul>', "", "問い q1: 根拠（どの資料のどこを見たか"),
+    ('data-where="1 枚目・届け日の欄"', 'data-where=""', "問い q2: 根拠 1 の場所"),
+    ('<li data-doc="d2" data-where', '<li data-doc="d9" data-where', "問い q2: 根拠 1 の資料「d9」"),
+    ('<span class="quote">届け日: （空欄）</span>', "", "問い q2: 実物が無い"),
+    ('<p class="reading">注文は 10 月 1 日と読みました → 届く日はどの資料にも無く、決まりません。</p>', "", "問い q2: AI の読み"),
+    ("注文は 10 月 1 日と読みました → ", "注文は 10 月 1 日と読みました<br>1<br>2<br>", "問い q2: AI の読みが 4 行"),
+    ("決まりません。</p>\n<div class=\"known\" data-docs=\"d2 d3\">", "決まりません。</p><p class=\"reading\">2 つ目</p>\n<div class=\"known\" data-docs=\"d2 d3\">", "問い q2: .reading が 2 つ"),
+    ('data-basis="9 月までの見積り書の送料は、どれも切り捨てで書かれている"', 'data-basis=""', "問い q1: AI の今の見込みの根拠"),
+    ('<p class="estimate"', '<p class="estimate-x"', None),
+    ("答えが届くまで、この点は確定せずにお待ちします。", "今の見込みで計算し、答えが届いたら直します。", "「見込み」は AI の今の見込みの枠"),
+    ("今は期限が決まっていません。", "前の問いの答えで決まります。", "「前の問」は書かない"),
+    ("<b>借りた日から 7 日</b>", "<b>借りた日から 7 日（推奨）</b>", "「推奨」は書かない"),
+    ("今月の計算には関係しません。起きた時の決め方を先に伺います。", "壊れた時の事です", "問い q4: 先に決めておきたい事のまとまりの 1 行"),
     ('data-docs="d2 d3"', 'data-docs="d2 d9"', "問い q2: 見つけた事の資料「d9」が読んだ資料の一覧に無い"),
     ('data-docs="d2 d3"', 'data-docs=""', "問い q2: 見つけた事が読んだ資料を指していない"),
     ("見積り書と注文書の控えに、届く日の書きがありません。", "", "問い q2: 見つけた事（資料名・場所・値）が無い"),
@@ -488,3 +524,70 @@ def test_印の値は_need_だけ(tmp_path):
     p.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
     red = run_check(p)["red"]
     assert red and all('"supp" は "need" だけ（今 true）' in x for x in red), red
+
+
+@needs_node
+def test_選択肢におすすめの印を付けると赤(tmp_path):
+    """推奨の印は外した＝見込みは選択肢の後の別枠（根拠つき）だけ。HTML の印もデータの recommended も赤。"""
+    page = tmp_path / "確認.html"
+    page.write_text(filled_template().replace("<b>切り捨てる</b>", '<b>切り捨てる<span class="tag-rec">おすすめ</span></b>', 1), encoding="utf-8")
+    red = run_check(page)["red"]
+    assert any(r.startswith("選択肢に印（おすすめ・tag-rec）を付けない") for r in red), red
+    assert any(r.startswith("問い q1: 選択肢「切り捨てる") and "に印" in r for r in red), red
+    assert any(r.startswith("「おすすめ」は書かない") for r in red), red
+    data = json.loads((DATA / "good.json").read_text(encoding="utf-8"))
+    data["questions"][0]["options"][1]["recommended"] = False   # 値に関わらず鍵があれば赤
+    q = tmp_path / "q.json"
+    q.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+    red = run_check(q)["red"]
+    assert len(red) == 1 and red[0].startswith("問い q1: 選択肢「借りた日から 14 日」に印（\"recommended\"）"), red
+
+
+# 問いのデータ（JSON）を 1 か所だけ壊すと、その 1 つの赤だけが出る（根拠・読み・見込み・リンク・先に決めておきたい事）
+def _drop_quotes(d):
+    for e in d["questions"][2]["evidence"]:
+        e.pop("quote", None)
+
+
+JSON_MUTATIONS = [
+    ("evidence が無い", lambda d: d["questions"][1].pop("evidence"), "問い q2: 根拠（どの資料のどこを見たか"),
+    ("where が空", lambda d: d["questions"][1]["evidence"][0].update(where=" "), "問い q2: 根拠 1 の場所"),
+    ("実物が無い", _drop_quotes, "問い q3: 実物が無い"),
+    ("reading が無い", lambda d: d["questions"][2].pop("reading"), "問い q3: AI の読み"),
+    ("estimate の basis が空", lambda d: d["questions"][0]["estimate"].update(basis=""), "問い q1: AI の今の見込みの根拠"),
+    ("estimate の中身が空", lambda d: d["questions"][0]["estimate"].update(value=""), "問い q1: AI の今の見込みの中身が空"),
+    ("estimate が無くても緑", lambda d: d["questions"][0].pop("estimate"), None),
+    ("前の問いに頼る", lambda d: d["questions"][2].update(more="上の問いと同じ決め方です。"), "「上の問」は書かない"),
+    ("前の質問に頼る", lambda d: d["questions"][1].update(question="前の質問と同じ日ですか"), "「前の質問」は書かない"),
+    ("見込みを前提に見せる", lambda d: d.update(lead="今の見込みで計算しています。"), "「見込み」は AI の今の見込みの枠"),
+    ("url も no_url も無い", lambda d: d["docs"][2].pop("url"), "読んだ資料 d3 にリンク"),
+    ("no_url の訳が空", lambda d: d["docs"][1].update(no_url=""), "読んだ資料 d2 にリンク"),
+    ("url が https でない", lambda d: d["docs"][0].update(url="file:///x.pdf"), "読んだ資料 d1 のリンクは https://"),
+    ("先に決めておきたい事が最後でない", lambda d: d["questions"].insert(1, d["questions"].pop(2)), "問い q2: 並びが逆"),
+    ("先に決めておきたい事の 1 行を替えた", lambda d: d["questions"][2].update(glead="壊れた時の事です"), "問い q3: 先に決めておきたい事のまとまりの 1 行"),
+]
+
+
+@needs_node
+@pytest.mark.parametrize("name, mutate, expect", JSON_MUTATIONS, ids=[m[0] for m in JSON_MUTATIONS])
+def test_問いのデータの根拠と見込みの赤(tmp_path, name, mutate, expect):
+    data = json.loads((DATA / "good.json").read_text(encoding="utf-8"))
+    mutate(data)
+    q = tmp_path / "q.json"
+    q.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+    red = run_check(q)["red"]
+    if expect is None:
+        assert red == [], red
+        return
+    assert len(red) == 1 and red[0].startswith(expect), (name, red)
+
+
+@needs_node
+def test_緑の_1_問は根拠と読みと見込みが全部そろう():
+    """緑の例: 根拠（資料と場所と引用）・実物・AI の読み・根拠つきの見込み・選択肢に印なし・資料のリンクがそろった 1 問。"""
+    data = json.loads((DATA / "good.json").read_text(encoding="utf-8"))
+    q1 = data["questions"][0]
+    assert q1["evidence"] and all(e["where"] for e in q1["evidence"]) and any(e.get("quote") for e in q1["evidence"])
+    assert q1["reading"] and q1["estimate"]["basis"] and not any("recommended" in o for o in q1["options"])
+    assert all(d.get("url") or d.get("no_url") for d in data["docs"])
+    assert run_check(DATA / "good.json")["red"] == []
