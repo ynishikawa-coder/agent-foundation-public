@@ -19,6 +19,20 @@ job: 作り物
 ## verdict
 green
 
+## 点
+- 1 依頼の充足: pass
+- 2 宣言した path: pass
+- 3 別の目: 書いた窓 session_WRITER01 ≠ この窓
+- 4 回帰: pass（check_all: 緑）
+- 5 秘密・顧客の物: pass
+- 6 当て物・本番の効き目: pass
+- 7 なくす物: pass
+- 8 歯と口・注入の試験: N/A
+- 9 文書の事実: pass
+- 10 退役・迂回・呼ぶ側: N/A
+- 11 言語ごとの点: N/A
+- 12 既定で止まる: N/A
+
 ## 所見
 - [後の便｜整地] 作り物の気づき
 """
@@ -28,6 +42,20 @@ RED = """レビューした窓: session_REVIEW01 判定: red
 
 ## verdict
 red
+
+## 点
+- 1 依頼の充足: fail（作り物の欠け）
+- 2 宣言した path: pass
+- 3 別の目: 書いた窓 session_WRITER01 ≠ この窓
+- 4 回帰: pass（check_all: 緑）
+- 5 秘密・顧客の物: pass
+- 6 当て物・本番の効き目: pass
+- 7 なくす物: pass
+- 8 歯と口・注入の試験: N/A
+- 9 文書の事実: pass
+- 10 退役・迂回・呼ぶ側: N/A
+- 11 言語ごとの点: N/A
+- 12 既定で止まる: N/A
 
 ## 所見
 - [止める｜実装] plugins/x.py — 作り物の欠け
@@ -87,3 +115,54 @@ def test_見る点が写す元の一般の観点を全部持つ():
         assert word in skill, f"見る点に無い: {word}"
     points = [l.split("|")[1].strip().split(" ")[0] for l in skill.splitlines() if l.startswith("| ") and l.split("|")[1].strip()[:2].strip().isdigit()]
     assert points == [str(i) for i in range(1, 13)], points
+
+
+# 注入の試験: 判定の `## 点` の欄に誤りをわざと入れ、形の道具が赤にする事を見る。
+# 点の正本は review-pr の SKILL.md の表（道具はそこを直に読む）。
+
+
+def test_点の正本は_skill_の表で_1_から_12():
+    assert sorted(vf.load_points()) == list(range(1, 13))
+
+
+def test_点を_1_つ抜くと赤():
+    for no, name in vf.load_points().items():
+        lines = [l for l in GREEN.splitlines() if not l.startswith("- %d %s:" % (no, name))]
+        errs = vf.check("\n".join(lines) + "\n", writer="session_WRITER01")
+        assert any("点 %d " % no in e and "無い" in e for e in errs), (no, errs)
+
+
+def test_点の値が選べる値の外なら赤():
+    for bad in ["ok", "たぶん pass", "passed", "済", ""]:
+        text = GREEN.replace("- 5 秘密・顧客の物: pass", "- 5 秘密・顧客の物: " + bad)
+        errs = vf.check(text, writer="session_WRITER01")
+        assert any("点 5" in e for e in errs), (bad, errs)
+
+
+def test_点の節が無いと赤():
+    text = GREEN[:GREEN.index("## 点")] + GREEN[GREEN.index("## 所見"):]
+    assert any("`## 点` の節が無い" in e for e in vf.check(text))
+
+
+def test_表に無い点と重なりと名の違いは赤():
+    assert any("点 13" in e for e in vf.check(GREEN.replace("- 12 既定で止まる: N/A", "- 12 既定で止まる: N/A\n- 13 作り物: pass")))
+    assert any("2 度" in e for e in vf.check(GREEN.replace("- 2 宣言した path: pass", "- 2 宣言した path: pass\n- 2 宣言した path: pass")))
+    assert any("点 4 の名" in e for e in vf.check(GREEN.replace("- 4 回帰:", "- 4 回り:")))
+
+
+def test_点に_fail_が在るのに_green_は赤():
+    errs = vf.check(GREEN.replace("- 7 なくす物: pass", "- 7 なくす物: fail（残る）"))
+    assert any("判定は red" in e for e in errs)
+
+
+def test_点_3_の書いた窓が自分か名乗りと違えば赤():
+    assert any("点 3" in e for e in vf.check(GREEN.replace("書いた窓 session_WRITER01", "書いた窓 session_REVIEW01")))
+    assert any("点 3" in e for e in vf.check(GREEN, writer="session_OTHER01"))
+
+
+def test_見る点の表が読めない時は止まる(tmp_path):
+    empty = tmp_path / "SKILL.md"
+    empty.write_text("# 表の無い作り物\n", encoding="utf-8")
+    import pytest
+    with pytest.raises(ValueError):
+        vf.load_points(empty)
