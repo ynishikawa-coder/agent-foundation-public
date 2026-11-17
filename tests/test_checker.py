@@ -81,7 +81,9 @@ def test_見る点が写す元の一般の観点を全部持つ():
         "守備範囲", "迂回",                      # 退役した仕組み・新しい関所の迂回
         "呼ぶ側と呼ばれる側",                   # 共通の仕組みの参照切れ
         "except: pass", "shell=True", "set -euo pipefail", "未クォート", "await",  # 言語ごとの点
+        "注入の試験",                           # 根治と言う直しに、誤りの類をわざと入れて拒む試験が在るか
+        "既定で止まる", "黙って既定の値", "申告だけ",  # 誤りが入れない形（核 §3）
     ]:
         assert word in skill, f"見る点に無い: {word}"
     points = [l.split("|")[1].strip().split(" ")[0] for l in skill.splitlines() if l.startswith("| ") and l.split("|")[1].strip()[:2].strip().isdigit()]
-    assert points == [str(i) for i in range(1, 12)], points
+    assert points == [str(i) for i in range(1, 13)], points

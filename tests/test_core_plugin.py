@@ -91,3 +91,22 @@ def test_核が上限を越えると赤(monkeypatch, tmp_path, capsys):
     monkeypatch.setattr(kaku, "KAKU", fat)
     assert kaku.check(None) == 1
     assert "核" in capsys.readouterr().out
+
+
+def _節(text, n):
+    a = text.index(f"## {n}. ")
+    b = text.find("\n## ", a + 1)
+    return text[a:] if b < 0 else text[a:b]
+
+
+def test_核の根治は誤りが入れない形と注入の試験を持つ():
+    kaku_text = (PLUGIN / "核.md").read_text(encoding="utf-8")
+    s3 = _節(kaku_text, 3)
+    for word in ["誤りが入れない形", "1 つの正本", "写さない", "既定で止める", "証明", "人の関所", "わざと入れて"]:
+        assert word in s3, f"核 §3 に無い: {word}"
+    assert "申告でなく記録" in _節(kaku_text, 7)
+    saimoku = (PLUGIN / "細目.md").read_text(encoding="utf-8")
+    s3d = _節(saimoku, 3)
+    for word in ["写す工程を無くす", "誤った物が入れない", "正しい道だけが外へ出す", "防げない物は名指しで人の関所へ", "注入の試験"]:
+        assert word in s3d, f"細目 §3 に無い: {word}"
+    assert "記録で確かめる" in _節(saimoku, 7)
