@@ -312,6 +312,20 @@ MUTATIONS = [
     ('<p class="estimate"', '<p class="estimate-x"', None),
     ("答えが届くまで、この点は確定せずにお待ちします。", "今の見込みで計算し、答えが届いたら直します。", "「見込み」は AI の今の見込みの枠"),
     ("今は期限が決まっていません。", "前の問いの答えで決まります。", "「前の問」は書かない"),
+    ("今は期限が決まっていません。", "この先の答えは、返す日の知らせに使います。", None),
+    # 並び: AI の読みはなぜ聞くかの下・見込みは選択肢の後
+    ('<p class="why" data-why="missing">資料に書いてありません</p>\n<p class="reading">注文は 10 月 1 日と読みました → 届く日はどの資料にも無く、決まりません。</p>',
+     '<p class="reading">注文は 10 月 1 日と読みました → 届く日はどの資料にも無く、決まりません。</p>\n<p class="why" data-why="missing">資料に書いてありません</p>',
+     "問い q2: AI の読み（.reading）はなぜ聞くか（.why）の下に置く"),
+    ('\n<p class="estimate" data-basis="9 月までの見積り書の送料は、どれも切り捨てで書かれている">切り捨てる</p>', "",
+     "問い q1: AI の今の見込み（.estimate）は選択肢（.opts）の後に置く",
+     '<div class="opts">\n<label class="opt"><input type="radio" name="q1"',
+     '<p class="estimate" data-basis="9 月までの見積り書の送料は、どれも切り捨てで書かれている">切り捨てる</p><div class="opts">\n<label class="opt"><input type="radio" name="q1"'),
+    # 上限
+    ('data-where="2 枚目・送料の行"', 'data-where="' + "2 枚目・送料の行" * 8 + '"', "問い q1: 根拠 1 の場所が"),
+    ("<span class=\"quote\">届け日: （空欄）</span>", "<span class=\"quote\">" + "届け日: （空欄）" * 12 + "</span>", "問い q2: 根拠 1 の原文の引用が"),
+    (">切り捨てる</p>", ">" + "切り捨てる" * 9 + "</p>", "問い q1: AI の今の見込みが"),
+    ('data-basis="9 月までの見積り書の送料は、どれも切り捨てで書かれている"', 'data-basis="' + "9 月までの見積り書の送料は、どれも切り捨て" * 3 + '"', "問い q1: AI の今の見込みの根拠が"),
     ("<b>借りた日から 7 日</b>", "<b>借りた日から 7 日（推奨）</b>", "「推奨」は書かない"),
     ("今月の計算には関係しません。起きた時の決め方を先に伺います。", "壊れた時の事です", "問い q4: 先に決めておきたい事のまとまりの 1 行"),
     ('data-docs="d2 d3"', 'data-docs="d2 d9"', "問い q2: 見つけた事の資料「d9」が読んだ資料の一覧に無い"),
@@ -564,6 +578,7 @@ JSON_MUTATIONS = [
     ("no_url の訳が空", lambda d: d["docs"][1].update(no_url=""), "読んだ資料 d2 にリンク"),
     ("url が https でない", lambda d: d["docs"][0].update(url="file:///x.pdf"), "読んだ資料 d1 のリンクは https://"),
     ("先に決めておきたい事が最後でない", lambda d: d["questions"].insert(1, d["questions"].pop(2)), "問い q2: 並びが逆"),
+    ("根拠が 4 つ", lambda d: d["questions"][0]["evidence"].extend([{"doc": "d1", "where": f"{i} 枚目"} for i in (2, 3)]), "問い q1: 根拠が 4 つ"),
     ("先に決めておきたい事の 1 行を替えた", lambda d: d["questions"][2].update(glead="壊れた時の事です"), "問い q3: 先に決めておきたい事のまとまりの 1 行"),
 ]
 
