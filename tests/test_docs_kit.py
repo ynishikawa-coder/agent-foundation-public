@@ -3,6 +3,7 @@ import ast
 import json
 import os
 import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -268,6 +269,105 @@ def test_なぜ聞くかの文は会社の表で替えられる(tmp_path):
     values.parent.mkdir()
     values.write_text(json.dumps({"docs-kit": {"qa-html": {"why": {"once": "この月だけの事を確かめます"}}}}, ensure_ascii=False), encoding="utf-8")
     assert run_check(page)["red"] == []
+
+
+# ── 前の答えを照らす口（値の表の docs-kit.qa-html.prior_check_cmd・check.mjs の --prior / --run-prior）
+
+
+def write_values(tmp_path, qa_values):
+    values = tmp_path / "config" / "skill-values.json"
+    values.parent.mkdir(exist_ok=True)
+    values.write_text(json.dumps({"docs-kit": {"qa-html": qa_values}}, ensure_ascii=False), encoding="utf-8")
+    return values
+
+
+def run_check_args(path, *args):
+    res = subprocess.run([NODE, str(CHECK), str(path), "--json", *args], capture_output=True, text=True, cwd=path.parent)
+    assert res.returncode in (0, 1), res.stderr
+    return json.loads(res.stdout)
+
+
+def prior_cmd(tmp_path, answered=None, skip=()):
+    """作り物の「前の答えを照らす道具」: 標準入力の問いを読み、answered に無い問いは引いた結果を返す。"""
+    script = tmp_path / "prior_tool.py"
+    script.write_text(
+        "import json, sys\n"
+        "data = json.load(sys.stdin)\n"
+        f"answered = {json.dumps(answered or {})}\n"
+        f"skip = {json.dumps(list(skip))}\n"
+        "assert data['format'] == 'qa-prior/1'\n"
+        "checked = {q['key']: '引いた言葉: ' + q['label'] for q in data['questions'] if q['key'] not in answered and q['key'] not in skip}\n"
+        "print(json.dumps({'answered': answered, 'checked': checked}, ensure_ascii=False))\n",
+        encoding="utf-8",
+    )
+    return f"{shlex.quote(sys.executable)} {shlex.quote(str(script))}"
+
+
+@needs_node
+def test_値の表に_prior_check_cmd_が無ければ前と同じ(tmp_path):
+    page = tmp_path / "確認.html"
+    page.write_text(filled_template(), encoding="utf-8")
+    before = run_check(page)
+    write_values(tmp_path, {"limits": {}})
+    after = run_check(page)
+    assert before["red"] == after["red"] == [] and before["questions"] == after["questions"]
+
+
+@needs_node
+def test_引いた結果に答え済みの鍵があれば赤(tmp_path):
+    page = tmp_path / "確認.html"
+    page.write_text(filled_template(), encoding="utf-8")
+    prior = tmp_path / "引いた結果.json"
+    prior.write_text(json.dumps({"answered": {"q2": "https://example.com/answers/12"}, "checked": {}}), encoding="utf-8")
+    red = run_check_args(page, "--prior", str(prior))["red"]
+    assert red == ["問い q2: 前の答えで答え済み（https://example.com/answers/12）＝問いから外す（作り方 0）"], red
+    # ページの隣の <名>.prior.json は --prior を渡さなくても読む（guard の qa_page はページの path だけで呼ぶ）
+    (tmp_path / "確認.prior.json").write_text(prior.read_text(encoding="utf-8"), encoding="utf-8")
+    assert run_check(page)["red"] == red
+
+
+@needs_node
+def test_値の表に命令があれば引いた結果の無い問いは赤(tmp_path):
+    page = tmp_path / "確認.html"
+    page.write_text(filled_template(), encoding="utf-8")
+    write_values(tmp_path, {"prior_check_cmd": prior_cmd(tmp_path)})
+    assert run_check(page)["red"] == ["前の答えを照らした結果が無い（値の表に prior_check_cmd がある）: node check.mjs <file> --run-prior で引いてから検査する"]
+    prior = tmp_path / "確認.prior.json"
+    prior.write_text(json.dumps({"checked": {"q1": "x", "q2": "y", "q4": "z"}}), encoding="utf-8")
+    assert run_check(page)["red"] == ["問い q3: 前の答えを照らした結果が無い（--run-prior で引き直す）"]
+    prior.write_text(json.dumps({"checked": ["q1"]}), encoding="utf-8")
+    red = run_check(page)["red"]
+    assert len(red) == 1 and red[0].startswith("前の答えを照らした結果が読めない") and '"checked" は' in red[0], red
+
+
+@needs_node
+def test_run_prior_で値の表の命令を走らせて照らす(tmp_path):
+    page = tmp_path / "確認.html"
+    page.write_text(filled_template(), encoding="utf-8")
+    write_values(tmp_path, {"prior_check_cmd": prior_cmd(tmp_path)})
+    assert run_check_args(page, "--run-prior")["red"] == []
+    saved = json.loads((tmp_path / "確認.prior.json").read_text(encoding="utf-8"))
+    assert saved["checked"]["q1"] == "引いた言葉: 送料の端数"
+    assert run_check(page)["red"] == []  # 書いた結果を次の検査（guard も）が読む
+    write_values(tmp_path, {"prior_check_cmd": prior_cmd(tmp_path, answered={"q4": "決定の記録 7"})})
+    assert run_check_args(page, "--run-prior")["red"] == ["問い q4: 前の答えで答え済み（決定の記録 7）＝問いから外す（作り方 0）"]
+    write_values(tmp_path, {"prior_check_cmd": f"{shlex.quote(sys.executable)} -c 'print(1/0)'"})
+    red = run_check_args(page, "--run-prior")["red"]
+    assert len(red) == 1 and red[0].startswith("前の答えを照らした結果が読めない（prior_check_cmd"), red
+
+
+@needs_node
+def test_問いのデータにも同じ口(tmp_path):
+    data = json.loads((DATA / "good.json").read_text(encoding="utf-8"))
+    page = tmp_path / "q.json"
+    page.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+    res = subprocess.run([NODE, str(CHECK), str(page), "--prior-input"], capture_output=True, text=True, check=True)
+    sent = json.loads(res.stdout)
+    assert sent["format"] == "qa-prior/1" and [q["key"] for q in sent["questions"]] == [q["key"] for q in data["questions"] if q["key"] != "__自由記入__"]
+    key = sent["questions"][0]["key"]
+    write_values(tmp_path, {"prior_check_cmd": prior_cmd(tmp_path, answered={key: "前の答え 3"})})
+    assert run_check_args(page, "--run-prior")["red"] == [f"問い {key}: 前の答えで答え済み（前の答え 3）＝問いから外す（作り方 0）"]
+    assert (tmp_path / "q.prior.json").exists()
 
 
 # 1 か所だけ壊すと、その 1 つの赤だけが出る（壊した所以外の結果が変わらない見張り）
