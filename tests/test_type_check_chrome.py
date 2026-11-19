@@ -1,4 +1,5 @@
-"""docs-kit の型の検査（blueprint・theory-mock）が Chrome を開く形: Chrome の一時の置き場（socket）を短い path に置く。
+"""docs-kit の型の検査（blueprint・theory-mock）が Chrome を開く形: Chrome の一時の置き場（socket）を短い path に置き、
+sandbox が立たずに落ちた時だけ sandbox なしで開き直す（root でない CI の Ubuntu は user namespace を閉じている）。
 Chrome は TMPDIR の下に socket を置くので、TMPDIR が長い窓・試験では path の上限を越えて落ちた（CI で型どおりのページが止まった）。
 Chrome は使わず dump_dom を作り物にする。"""
 import importlib.util
@@ -47,3 +48,22 @@ def test_型の検査は_Chrome_が落ちた訳の_FATAL_の行を出す(tmp_pat
     sh.chmod(0o755)
     dom, why = m.dump_dom([str(sh)])
     assert dom is None and "作り物の落ち方" in why and "exit 3" in why
+
+
+def test_型の検査は_sandbox_が立たない機械で_sandbox_なしに開き直し_他の落ち方は開き直さない(monkeypatch):
+    m = _load(PS_PATH, "page_selftest")
+    monkeypatch.setattr(m.os, "geteuid", lambda: 1000)          # root でない CI
+    seen = []
+
+    def fake(cmd):
+        seen.append("--no-sandbox" in cmd)
+        if "--no-sandbox" in cmd:
+            return _dom("SELFTEST OK"), ""
+        return None, "Chrome が DOM を返さずに終わった（exit -6） stderr: FATAL: No usable sandbox!"
+    monkeypatch.setattr(m, "dump_dom", fake)
+    dom, _ = m.run_chrome("chrome", "file:///x.html?selftest")
+    assert dom and seen == [False, True]
+    seen.clear()
+    monkeypatch.setattr(m, "dump_dom", lambda cmd: (seen.append(1), (None, "stderr: FATAL: 作り物の別の故障"))[1])
+    dom, why = m.run_chrome("chrome", "file:///x.html?selftest")
+    assert dom is None and "別の故障" in why and seen == [1]

@@ -56,10 +56,10 @@ def find_chrome() -> str | None:
     return mac if Path(mac).is_file() else None
 
 
-def chrome_cmd(chrome: str, prof: str, url: str) -> list[str]:
+def chrome_cmd(chrome: str, prof: str, url: str, no_sandbox: bool = False) -> list[str]:
     cmd = [chrome, "--headless=new", "--disable-gpu", "--no-first-run",
            "--no-default-browser-check", f"--user-data-dir={prof}"]
-    if hasattr(os, "geteuid") and os.geteuid() == 0:
+    if no_sandbox or (hasattr(os, "geteuid") and os.geteuid() == 0):
         cmd.append("--no-sandbox")   # コンテナの root では sandbox が立たない
     return cmd + ["--dump-dom", url]
 
@@ -108,7 +108,7 @@ def dump_dom(cmd: list[str]) -> tuple[str | None, str]:
             return out, ""
         err.seek(0)
         lines = [ln.strip() for ln in err.read().splitlines() if ln.strip()]
-        loud = [ln for ln in lines if re.search(r"FATAL", ln)]   # 落ちた訳の行を先に
+        loud = [ln for ln in lines if "FATAL" in ln]   # 落ちた訳の行を先に
         tail = " / ".join(loud[:4] or lines[-4:])[:600]
     why = (f"Chrome が {TIMEOUT_SEC} 秒で DOM を返さない" if not ok
            else f"Chrome が DOM を返さずに終わった（exit {code}）")
@@ -116,9 +116,16 @@ def dump_dom(cmd: list[str]) -> tuple[str | None, str]:
 
 
 def run_chrome(chrome: str, url: str) -> tuple[str | None, str]:
-    """Chrome で url を開いて DOM を返す（(DOM か None, DOM が無い訳)）。Chrome の一時の置き場は短い path に置く。"""
-    with tempfile.TemporaryDirectory(prefix="af-page-chrome-", dir=short_tmp()) as prof:
-        return dump_dom(chrome_cmd(chrome, prof, url))
+    """Chrome で url を開いて DOM を返す（(DOM か None, DOM が無い訳)）。Chrome の一時の置き場は短い path に置く。
+    sandbox が立たずに落ちた時（user namespace を閉じた Ubuntu 23.10 以降の CI 等＝root でなくても立たない。
+    2026-11-19 CI で実測）だけ、sandbox なしで開き直す。"""
+    why = ""
+    for no_sandbox in (False, True):
+        with tempfile.TemporaryDirectory(prefix="af-page-chrome-", dir=short_tmp()) as prof:
+            dom, why = dump_dom(chrome_cmd(chrome, prof, url, no_sandbox))
+        if dom is not None or "sandbox" not in why.lower():
+            break
+    return dom, why
 
 
 def open_dom(target: Path, query: str) -> str:
