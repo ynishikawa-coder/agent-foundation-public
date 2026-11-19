@@ -14,14 +14,17 @@ AI が自分で回すか、出した後に CI やレビューが拾うだけだ�
   commit … merge_pull_request（commit_title・commit_message）・push_files・create_or_update_file・delete_file（message）
            ＝MCP から出す commit の説明。公開の検査だけを当てる
 照らす物（見分けは正本を直に読む・呼ぶ。ここに決まりを写さない）:
-  verdict … （材料: 出す先の PR の先端と、PR 本文の頭の `書いた窓:` を gh で引き、--writer・--head で渡す。引けなければ止める）
+  verdict … （材料は記録から: 出す先の PR の先端と、PR の commit 全部の `Claude-Session:` の窓（書いた窓の組）を gh で引き
+            --head・--writer で、判定を出す窓の本物の id を窓の環境の記録（CLAUDE_CODE_REMOTE_SESSION_ID）から読み --reviewer で
+            渡す。本文の `書いた窓:`・判定の 1 行目の名乗りは手で書いた写しで、照らされる側。どれかが引けなければ止める）
             コメントがレビューの判定（どの行かに `レビューした窓: … 判定: green|red` が揃うか、verdict の見出しが在る）なら、checker の
             `scripts/verdict_form.py` をそのまま呼ぶ。赤なら止める。道具が見つからない・壊れた時も止める
   cleanup … PR の本文（本文を渡す時だけ）に、dev-flow の preimpl-cleanup の `整地受領証.template.md` の 4 つの見出し
             （`## 1.`〜`## 4.`。見出しの名は雛形から読む）が全部在り、雛形の `〔…〕` が残っていない事。整地の要らない PR
             （振る舞いを変えない: 誤字・記録だけ・版だけ等）は本文に `整地: 不要（<訳>）` の 1 行を書く（訳はレビューが照らす）
-  words   … PR の題・本文に、窓の id（`session_01…`）がそのまま出ていない事。頭の決まった欄（親窓・書いた窓・job・
-            触る path・検査）・コードの囲み・`…` の字・URL の中は数えない
+  words   … PR の題・本文に、窓の id（`session_01…`）がそのまま出ていない事。本文の頭の欄の塊（1 行目から最初の空行まで）の
+            窓の id を書く欄（親窓・書いた窓）・コードの囲み・`…` の字・URL の中は数えない（job・検査 等の欄や、頭の塊の
+            外で同じ字で始まる行は数える）
   public  … 公開の repo（窓の repo の取り出しの workflow が action public-guard を呼ぶ／値の表 public_repos_extra）なら、
             題・本文を `public-guard/guard.py --text` に渡す（置かない語の表はその workflow の deny-words-file）。当たれば止める。
             検査が見つからない・壊れた時も止める（公開の repo へは、照らせない文を出さない）
@@ -61,7 +64,7 @@ VERDICT_HEAD = re.compile(r"^[ \t]*#{1,6}\s*verdict\s*$", re.M | re.I)
 NOT_NEEDED = re.compile(r"^\s*(?:[-*]\s*)?\**整地\**\s*[:：]\s*(?:不要|要らない)\s*[（(]\s*(?![<＜〔])\S[^)）]*[)）]", re.M)
 TEMPLATE_HEAD = re.compile(r"^## (\d+)\. (.+?)\s*$", re.M)
 PLACEHOLDER = re.compile(r"〔[^〕\n]{4,}〕")
-HEAD_FIELD = re.compile(r"^\s*(?:親窓|書いた窓|job|触る path|検査)\s*[:：]")
+HEAD_FIELD = re.compile(r"^\s*(?:親窓|書いた窓)\s*[:：]")   # 窓の id を書く頭の欄（本文の頭の塊の中だけ数えない）
 SESSION_ID = re.compile(r"(?<![A-Za-z0-9_/])session_0[A-Za-z0-9]{15,}")
 URL = re.compile(r"https?://\S+")
 FENCE = re.compile(r"^\s*(```|~~~).*?^\s*\1", re.M | re.S)
@@ -121,6 +124,10 @@ def looks_verdict(body):
 
 
 WRITER_LINE = re.compile(r"^\s*書いた窓\s*[:：]\s*(session_[A-Za-z0-9]+)", re.M)
+# commit の書き手の記録（窓が commit の度に付ける行）。PR の commit 全部から読み、書いた窓の組にする
+COMMIT_SESSION = re.compile(r"^Claude-Session:\s*\S*?(session_[A-Za-z0-9]+)\s*$", re.M)
+# 窓の環境の記録（harness が hook に渡す。cse_<x> → session_<x>）。道具の呼び出しの文では変えられない
+REMOTE_ID = re.compile(r"^cse_([A-Za-z0-9]+)$")
 NUMBER_KEYS = ("issue_number", "pullNumber", "pull_number")
 
 
@@ -128,35 +135,53 @@ def _gh(args):
     return subprocess.run(["gh", "api", *args], capture_output=True, text=True, timeout=TIMEOUT)
 
 
-def pr_facts(repo, ti):
-    """判定を出す先の PR の (先端の SHA, 書いた窓, 誤り)。GitHub から引く（判定の形の道具が要る材料・写さない）。
+def poster_id(env=None):
+    """判定を出す窓の本物の session id（窓の環境の記録 CLAUDE_CODE_REMOTE_SESSION_ID の cse_<x> → session_<x>）か ""。
+    hook の入力の session_id は手元の会話ログの id（UUID）で、commit の Claude-Session・判定の名乗りの形と違うので使えない。"""
+    m = REMOTE_ID.match(str((os.environ if env is None else env).get("CLAUDE_CODE_REMOTE_SESSION_ID") or "").strip())
+    return "session_" + m.group(1) if m else ""
 
-    書いた窓は PR 本文の頭の決まった欄 `書いた窓: <session id>`（CONTRIBUTING §1 の PR の型）から読む。
+
+def pr_facts(repo, ti):
+    """判定を出す先の PR の (先端の SHA, 書いた窓の組, 誤り)。GitHub から引く（判定の形の道具が要る材料・写さない）。
+
+    書いた窓の組は PR の commit 全部の `Claude-Session:` の窓（記録）と、本文の頭の `書いた窓:`（写し）を合わせた物。
+    途中の commit を書いた窓も入る。commit に記録が 1 つも無ければ誤り（本文の写しだけで書いた窓を決めない）。
     引けない時は誤りを返す（欠けた材料で判定を通さない）。"""
     if not repo:
-        return "", "", "出す先の repo（owner・repo）が道具の入力に無い"
+        return "", [], "出す先の repo（owner・repo）が道具の入力に無い"
     number = next((ti.get(k) for k in NUMBER_KEYS if ti.get(k)), None)
     try:
         if not number and ti.get("comment_id"):
             p = _gh(["repos/%s/issues/comments/%s" % (repo, ti["comment_id"]), "--jq", ".issue_url"])
             number = p.stdout.strip().rsplit("/", 1)[-1] if p.returncode == 0 else None
         if not number:
-            return "", "", "判定を出す先の PR の番号が分からない"
+            return "", [], "判定を出す先の PR の番号が分からない"
         p = _gh(["repos/%s/pulls/%s" % (repo, number), "--jq", '.head.sha + "\\n" + (.body // "")'])
     except FileNotFoundError:
-        return "", "", "GitHub の CLI（gh）が無く、PR の先端と書いた窓を引けない"
+        return "", [], "GitHub の CLI（gh）が無く、PR の先端と書いた窓を引けない"
     except (OSError, subprocess.SubprocessError) as e:
-        return "", "", "PR を引けなかった（%s）" % e.__class__.__name__
+        return "", [], "PR を引けなかった（%s）" % e.__class__.__name__
     if p.returncode != 0:
-        return "", "", "PR #%s を引けなかった（判定は PR に出す・gh の認証か網を確かめる）: %s" % (
+        return "", [], "PR #%s を引けなかった（判定は PR に出す・gh の認証か網を確かめる）: %s" % (
             number, (p.stderr or "").strip().splitlines()[-1:] or "")
     head, _, body = p.stdout.partition("\n")
-    m = WRITER_LINE.search(body)
     if not re.fullmatch(r"[0-9a-f]{40}", head.strip()):
-        return "", "", "PR #%s の先端の SHA が読めない" % number
-    if not m:
-        return head.strip(), "", "PR #%s の本文の頭に `書いた窓: <session id>` が無く、別の目を照らせない（PR の型どおりに書く）" % number
-    return head.strip(), m.group(1), ""
+        return "", [], "PR #%s の先端の SHA が読めない" % number
+    try:
+        c = _gh(["--paginate", "repos/%s/pulls/%s/commits" % (repo, number), "--jq", ".[].commit.message"])
+    except (OSError, subprocess.SubprocessError) as e:
+        return "", [], "PR #%s の commit を引けなかった（%s）" % (number, e.__class__.__name__)
+    if c.returncode != 0:
+        return "", [], "PR #%s の commit を引けなかった: %s" % (number, (c.stderr or "").strip().splitlines()[-1:] or "")
+    writers = list(dict.fromkeys(COMMIT_SESSION.findall(c.stdout)))
+    if not writers:
+        return head.strip(), [], ("PR #%s の commit に `Claude-Session:` の行が 1 つも無く、書いた窓が記録から決まらない"
+                                  "（本文の `書いた窓:` の写しだけで別の目を照らさない）" % number)
+    m = WRITER_LINE.search(body)
+    if m and m.group(1) not in writers:
+        writers.append(m.group(1))
+    return head.strip(), writers, ""
 
 
 def check_verdict(body, data):
@@ -167,11 +192,16 @@ def check_verdict(body, data):
         return ["判定の形の道具（checker の verdict_form.py）が見つからず、形を確かめられない。plugin checker を入れる"
                 "（または AF_VERDICT_FORM に path）"]
     ti = data.get("tool_input") or {}
-    head, writer, err = pr_facts(_repo_name(ti), ti)
+    poster = poster_id()
+    if not poster:
+        return ["判定の材料: 判定を出す窓の id が窓の環境の記録（CLAUDE_CODE_REMOTE_SESSION_ID）に無く、名乗りを照らせない"
+                "（判定はクラウドの窓で出す）"]
+    head, writers, err = pr_facts(_repo_name(ti), ti)
     if err:
         return ["判定の材料: " + err]
     try:
-        p = _run([sys.executable, tool, _tmp_file(body, "verdict"), "--writer", writer, "--head", head])
+        p = _run([sys.executable, tool, _tmp_file(body, "verdict"), "--writer", ",".join(writers), "--head", head,
+                  "--reviewer", poster])
     except (OSError, subprocess.SubprocessError) as e:
         return ["判定の形の道具が走らなかった: %s" % e.__class__.__name__]
     if p.returncode == 0:
@@ -222,9 +252,15 @@ def check_cleanup(body, repo, data, vals):
 
 # ── words（PR の題・本文の言葉）──
 def visible_prose(body):
-    """数えない所（頭の決まった欄・コード・URL・注記）を除いた文。"""
+    """数えない所（本文の頭の塊の窓の id の欄・コード・URL・注記）を除いた文。"""
     body = FENCE.sub(" ", COMMENT.sub(" ", body))
-    lines = [ln for ln in body.splitlines() if not HEAD_FIELD.match(ln)]
+    lines, top = [], True
+    for ln in body.splitlines():
+        if not ln.strip():
+            top = False
+        if top and HEAD_FIELD.match(ln):
+            continue
+        lines.append(ln)
     return URL.sub(" ", INLINE.sub(" ", "\n".join(lines)))
 
 
