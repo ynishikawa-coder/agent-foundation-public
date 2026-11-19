@@ -179,16 +179,21 @@ def test_隣の正本が無ければ黙って抜かず_窓ごとに1回だけ差
 
 
 def test_隣の正本は入れた_plugin_の形でも見つかる(tmp_path, monkeypatch):
-    cache = tmp_path / "plugins" / "cache" / "mk"
-    sw_root = cache / "session-watch" / "v1"
-    (sw_root / "scripts").mkdir(parents=True)
-    (cache / "guard" / "v1" / "scripts").mkdir(parents=True)
-    (cache / "guard" / "v1" / "scripts" / "ask_shape.py").write_text("X = 1\n", encoding="utf-8")
+    import subprocess
     pg = tmp_path / "plugins" / "marketplaces" / "mk" / "public-guard"
     pg.mkdir(parents=True)
     (pg / "guard.py").write_text("X = 1\n", encoding="utf-8")
+    git = ["git", "-c", "user.name=t", "-c", "user.email=t@example.invalid", "-C", str(pg.parent)]
+    for a in (["init", "-q"], ["add", "-A"], ["commit", "-qm", "版"]):
+        subprocess.run(git + a, check=True, capture_output=True)
+    v1 = subprocess.run(git + ["rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip()[:12]
+    cache = tmp_path / "plugins" / "cache" / "mk"
+    sw_root = cache / "session-watch" / v1
+    (sw_root / "scripts").mkdir(parents=True)
+    (cache / "guard" / v1 / "scripts").mkdir(parents=True)
+    (cache / "guard" / v1 / "scripts" / "ask_shape.py").write_text("X = 1\n", encoding="utf-8")
     monkeypatch.setattr(sw, "PLUGIN_ROOT", str(sw_root))
-    assert sw.neighbor_path("ask_shape", {}) == str(cache / "guard" / "v1" / "scripts" / "ask_shape.py")
+    assert sw.neighbor_path("ask_shape", {}) == str(cache / "guard" / v1 / "scripts" / "ask_shape.py")
     assert sw.neighbor_path("public_guard", {}) == str(pg / "guard.py")
     assert sw.neighbor_path("public_guard", {"AF_PUBLIC_GUARD": str(tmp_path / "none.py")}) == str(pg / "guard.py")
 
