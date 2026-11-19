@@ -732,6 +732,8 @@ REC_HTML_RED = [
      lambda r: r.replace("<b>分からない・確かめてから答える</b>", "<b>分からない・確かめてから答える</b>" + REC, 1),
      "問い q3: 選択肢「分からない・確かめてから答える」の推奨の印: 「分からない」には付けない"),
     ("お客さん宛て（send）に印", "send", _mark(0), "問い q3: 推奨の印（small.rec）はオーナー宛て（copy・artifact）のページだけ"),
+    ("引用符の無い印を send に", "send", lambda r: _mark(0)(r).replace('<small class="rec">', "<small class=rec>", 1),
+     "属性「class」の値を引用符"),
     ("理由が空", "copy", lambda r: _mark(0)(r).replace(REC, '<small class="rec"></small>', 1), "問い q3: 選択肢「借りた日から 7 日」の推奨の印に理由が無い"),
 ]
 

@@ -336,6 +336,8 @@ function allowlistReds(outside) {
     for (const a of m[2].matchAll(/([^\s"'=/>]+)(?:\s*=\s*("[^"]*"|'[^']*'|[^\s>]+))?/g)) {
       const name = a[1].toLowerCase();
       const val = a[2] == null ? "" : a[2].replace(/^["']|["']$/g, "");
+      // 引用符の無い値は赤＝検査の中の読み（class・data-*）は引用符で囲んだ値だけを読む。読み方を 1 つにそろえ、すり抜けを入れない
+      if (a[2] != null && !/^["']/.test(a[2])) red.push(`属性「${name}」の値を引用符（"…"）で囲む（囲まない値は検査が読めない）: ${show}`);
       if (name in attrs) red.push(`同じ属性「${name}」が 2 回ある（ブラウザは前の値を使う）: ${show}`);
       else attrs[name] = val;
       if (!ats.has(name) && !ALLOW.attribute_prefixes.some((p) => name.startsWith(p))) red.push(`型の外に許していない属性「${name}」: ${show}`);
