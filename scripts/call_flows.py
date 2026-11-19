@@ -11,9 +11,11 @@
 拾う物（道具＝plugins/<名>/ の下の .py .mjs .js .sh の file）:
   - 別の plugin の道具の file 名（その名の file が plugin の外にも在る時は path ごと書いた物だけ）
   - 別の plugin の道具の path（plugins/<名>/…/<道具の file 名>、または手順の文で plugin の根を `<名>/…` と置いた形）
+  - plugin の外の土台の部品（repo の根の dir のうち OUTSIDE_SKIP に無い物・例 public-guard）の道具の path（<dir>/…/<file 名>）。
+    部品の名は dir の名。plugin が土台の file を借りる流れも、plugin どうしと同じく絵に要る（拾わないと人の目で漏れる）。
   拾わない物: skill の名を文で挙げるだけの物・文書（.md）の path（道具を呼ぶ流れでない）。
-絵との対応: 絵の箱のうち tab が arch で、題の頭（「（」の前）が plugin の名と同じ箱をその plugin の箱とみる。
-  箱が無い plugin・2 つ在る plugin は照らせない＝赤（黙って通さない）。矢印の向きは 呼ぶ側 → 呼ばれる側。
+絵との対応: 絵の箱のうち tab が arch で、題の頭（「（」の前）が plugin（部品）の名と同じ箱をその箱とみる。
+  箱が無い plugin・2 つ在る plugin は照らせない＝赤（黙って通さない）。箱が無い部品は「絵に無い箱」＝赤。矢印の向きは 呼ぶ側 → 呼ばれる側。
 exit: list は 0。check は 0=全部在る／1=絵に無い流れが在る／2=照らせない（絵が読めない・箱が無い・重なる）。
 """
 from __future__ import annotations
@@ -29,6 +31,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 TOOL_SUFFIX = (".py", ".mjs", ".js", ".sh")
 TEXT_SUFFIX = (".py", ".mjs", ".js", ".sh", ".md", ".json", ".html", ".txt")
+OUTSIDE_SKIP = {"plugins", "tests", "scripts", "docs", "CHANGELOG.d"}  # 配らない・道具でない dir（. で始まる dir も外す）
 ROOT_CAUSE = ("直し: 絵に無い流れを 1 本ずつ足して済ませず、流れが絵から漏れた原因を細目 §3「まず構造を疑う」で探して直す"
               "（絵は合意の版＝足すならオーナーに差を見せて決めてもらう）")
 
@@ -54,7 +57,17 @@ def flows(repo: Path) -> dict[tuple[str, str], list[str]]:
             owner[name].add(parts[1])
         elif not (parts[0] == "plugins"):
             outside.add(name)
+    outside_units: dict[str, set[str]] = defaultdict(set)   # plugin の外の土台の部品 → その道具の file 名
+    for f in files:
+        parts = f.split("/")
+        if (len(parts) >= 2 and parts[0] not in OUTSIDE_SKIP and not parts[0].startswith(".")
+                and f.endswith(TOOL_SUFFIX)):
+            outside_units[parts[0]].add(parts[-1])
     pats = []
+    for unit, names in outside_units.items():
+        for name in names:
+            path_pat = re.compile(r"(?<![\w./-])%s/(?:[^\s'\"`)]*/)?%s(?![\w.])" % (re.escape(unit), re.escape(name)))
+            pats.append((unit, name, path_pat, None))
     for name, ys in owner.items():
         for y in ys:
             path_pat = re.compile(r"(?:plugins/%s|<%s>)/(?:[^\s'\"`)]*/)?%s(?![\w.])"
@@ -80,6 +93,11 @@ def flows(repo: Path) -> dict[tuple[str, str], list[str]]:
     return dict(out)
 
 
+def plugin_names(repo: Path) -> list[str]:
+    return sorted(d.name for d in (repo / "plugins").iterdir() if (d / ".claude-plugin" / "plugin.json").is_file()) \
+        if (repo / "plugins").is_dir() else []
+
+
 def plugin_boxes(pic: dict, names) -> tuple[dict[str, str], list[str]]:
     boxes = [b for b in pic.get("boxes") or [] if isinstance(b, dict) and b.get("tab") == "arch"]
     found: dict[str, list[str]] = defaultdict(list)
@@ -101,19 +119,27 @@ def check(pic_path: Path, repo: Path) -> int:
     except (OSError, ValueError) as e:
         print(f"call_flows: 照らせない — {e}")
         return 2
-    names = sorted({n for pair in got for n in pair})
+    units = {y for (_, y) in got} - {x for (x, _) in got} - set(plugin_names(repo))
+    names = sorted({n for pair in got for n in pair} - units)
     box, errs = plugin_boxes(pic, names)
+    ubox, _ = plugin_boxes(pic, units)
+    no_box = sorted(u for u in units if u not in ubox)
+    box.update(ubox)
     if errs:
         for e in errs:
             print(f"✗ {e}")
         print("call_flows: 照らせない（plugin の箱と流れを結べない）")
         return 2
     arrows = {(a.get("from"), a.get("to")) for a in pic.get("arrows") or [] if isinstance(a, dict)}
-    missing = [(x, y, ev) for (x, y), ev in sorted(got.items()) if (box[x], box[y]) not in arrows]
+    for u in no_box:
+        ev = [e for (_, y), es in sorted(got.items()) if y == u for e in es]
+        print(f"✗ 絵に無い箱: {u}（plugin の外の土台の部品）証拠: {ev[0]}" + (f" ほか {len(ev) - 1}" if len(ev) > 1 else ""))
+    missing = [(x, y, ev) for (x, y), ev in sorted(got.items()) if y not in no_box and (box[x], box[y]) not in arrows]
+    missing += [(x, y, ev) for (x, y), ev in sorted(got.items()) if y in no_box]
     for x, y, ev in missing:
-        print(f"✗ 絵に無い流れ: {x} → {y}（{box[x]} → {box[y]}）証拠: {ev[0]}" + (f" ほか {len(ev) - 1}" if len(ev) > 1 else ""))
+        print(f"✗ 絵に無い流れ: {x} → {y}（{box[x]} → {box.get(y, '箱なし')}）証拠: {ev[0]}" + (f" ほか {len(ev) - 1}" if len(ev) > 1 else ""))
     if missing:
-        print(f"call_flows: 赤 絵に無い流れ {len(missing)} 本")
+        print(f"call_flows: 赤 絵に無い流れ {len(missing)} 本" + (f"・絵に無い箱 {len(no_box)} つ" if no_box else ""))
         print(ROOT_CAUSE)
         return 1
     print(f"call_flows: 緑 流れ {len(got)} 本が全部絵に在る")
