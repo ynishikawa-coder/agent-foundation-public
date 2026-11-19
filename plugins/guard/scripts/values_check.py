@@ -6,6 +6,8 @@
 """
 import guard_common as G
 
+HOOKS = {"start": "check"}
+
 
 def check(payload, vals):
     path, problems = G.values_problems(payload)

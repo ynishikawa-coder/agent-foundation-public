@@ -84,6 +84,26 @@
         "ask_shape_exempt": {
           "type": "list",
           "default": []
+        },
+        "ask_pick_one_exempt": {
+          "type": "list",
+          "default": []
+        },
+        "ask_rec_notice_kinds": {
+          "type": "dict",
+          "default": {}
+        },
+        "ask_rec_notice_exempt": {
+          "type": "list",
+          "default": []
+        },
+        "outbound_secret_allow": {
+          "type": "list",
+          "default": []
+        },
+        "number_request_exempt": {
+          "type": "list",
+          "default": []
         }
       }
     },
@@ -178,7 +198,7 @@
             "pack_local": "text",
             "rounds_cmd": "str",
             "contract_doc": "str",
-            "task_rule": "text"
+            "entropy_allow": "list"
           }
         },
         "preimpl-cleanup": {
@@ -186,7 +206,6 @@
             "record": "text",
             "past_sources": "text",
             "request_template": "text",
-            "cleanup_followup": "text",
             "ledger": "text",
             "local_steps": "text"
           }
@@ -204,7 +223,8 @@
             "template_dir": "str",
             "save_place": "text",
             "screen_design": "text",
-            "decision_match": "text"
+            "decision_match": "text",
+            "decision_match_allow": "list"
           }
         },
         "verify": {
@@ -235,6 +255,8 @@
     "dev-flow.verify.completion_states_doc": "2026-11-19 に畳んだ（土台の規律の写しだった。正本の核・細目・skill の本文を直に読む・PR #43）。消す",
     "dev-flow.verify.code_done_rule": "2026-11-19 に畳んだ（土台の規律の写しだった。正本の核・細目・skill の本文を直に読む・PR #43）。消す",
     "dev-flow.spec-doc.branch_rule": "2026-11-19 に畳んだ（土台の規律の写しだった。正本の核・細目・skill の本文を直に読む・PR #43）。消す",
-    "dev-flow.spec-doc.supersede_rule": "2026-11-19 に畳んだ（土台の規律の写しだった。正本の核・細目・skill の本文を直に読む・PR #43）。消す"
+    "dev-flow.spec-doc.supersede_rule": "2026-11-19 に畳んだ（土台の規律の写しだった。正本の核・細目・skill の本文を直に読む・PR #43）。消す",
+    "dev-flow.codex.task_rule": "2026-11-19 に畳んだ（DEFER・新しい仕事は原因の台帳の行にする＝細目 §3 の写しだった・PR #36）。消す",
+    "dev-flow.preimpl-cleanup.cleanup_followup": "2026-11-19 に畳んだ（[後片付け] は原因の台帳の行にする＝細目 §3・PR #36）。消す"
   }
 }

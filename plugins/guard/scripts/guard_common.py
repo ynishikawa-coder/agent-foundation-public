@@ -27,6 +27,50 @@ RETURN_TO_WINDOW = re.compile(r"返し先\s*[=＝:：]\s*session_[A-Za-z0-9]+")
 CHILD_OF = re.compile(r"（親窓\s*session_[A-Za-z0-9]+\s*の子）")
 
 
+GUARD_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+
+def sibling_plugin_file(plugin, rel, guard_root=None):
+    """隣の plugin の file の path か ""。正本を写さず直に読むための在り処探し。
+    repo の形: plugins/guard と plugins/<plugin> が隣。
+    入れた plugin の形: cache/<市場>/guard/<版> と cache/<市場>/<plugin>/<版>。同じ版を先に、無ければ新しい物。"""
+    here = guard_root or GUARD_ROOT
+    cand = os.path.join(os.path.dirname(here), plugin, rel)
+    if os.path.isfile(cand):
+        return cand
+    ver = os.path.basename(here)
+    market = os.path.dirname(os.path.dirname(here))
+    same = os.path.join(market, plugin, ver, rel)
+    if os.path.isfile(same):
+        return same
+    import glob
+    found = sorted(glob.glob(os.path.join(market, plugin, "*", rel)), key=os.path.getmtime, reverse=True)
+    return found[0] if found else ""
+
+
+def foundation_file(rel, guard_root=None):
+    """土台の repo の根からの file（plugin の外・例 public-guard/guard.py）の path か ""。
+    repo の形: plugins/guard の 2 つ上が repo の根。
+    入れた plugin の形: <plugins>/cache/<市場>/guard/<版> → <plugins>/marketplaces/<市場>/（市場の取り出し＝repo 全体）。"""
+    here = guard_root or GUARD_ROOT
+    cand = os.path.join(os.path.dirname(os.path.dirname(here)), rel)
+    if os.path.isfile(cand):
+        return cand
+    market = os.path.dirname(os.path.dirname(here))
+    cache = os.path.dirname(market)
+    cand = os.path.join(os.path.dirname(cache), "marketplaces", os.path.basename(market), rel)
+    return cand if os.path.isfile(cand) else ""
+
+
+def load_module(name, path):
+    """path の .py を名前 name で読み込む（正本を写さず直に呼ぶ）。読めなければ例外。"""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location(name, path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
 def project_dir(payload=None):
     d = os.environ.get("CLAUDE_PROJECT_DIR") or ""
     if not d and isinstance(payload, dict) and isinstance(payload.get("cwd"), str):

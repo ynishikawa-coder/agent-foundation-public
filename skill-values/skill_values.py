@@ -201,6 +201,9 @@ def check_section(table, plugin, skill=None):
     retired = schema().get("retired") or {}
     node = table.get(plugin)
     if skill is not None:
+        if node is not None and not isinstance(node, dict):
+            # 上の欄が {…} でない時は、その下の欄が無いと黙って見なさない（表全体の照らし check と同じ線）
+            return ["%s が {…} でない" % plugin], {None}
         node = node.get(skill) if isinstance(node, dict) else None
     if node is None:
         return [], set()

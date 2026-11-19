@@ -7,6 +7,7 @@ import hashlib
 import hmac
 import json
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -251,9 +252,10 @@ def test_action_は本体を呼ぶ():
     assert "fetch-depth: 0" in text
 
 
-def test_雛形は版の印で呼び_job_の名が決まっている():
+def test_雛形は_main_の先端で呼び_job_の名が決まっている():
     text = (ROOT / "public-guard" / "caller-template.yml").read_text(encoding="utf-8")
-    assert "agent-foundation-public/public-guard@vX.Y.Z" in text
+    assert "agent-foundation-public/public-guard@main\n" in text
+    assert not re.search(r"public-guard@v\d|@vX", text), "雛形に版の印が残っている"
     assert "  public-guard:\n    name: public-guard" in text
     ci = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
     assert "  public-guard:\n    name: public-guard" in ci and "uses: ./public-guard" in ci
@@ -292,7 +294,7 @@ def _routes(full, wf_text=None, contexts=(), rules=()):
     return r
 
 
-CALLER = "    steps:\n      - uses: ynishikawa-coder/agent-foundation-public/public-guard@v0.5.0\n"
+CALLER = "    steps:\n      - uses: ynishikawa-coder/agent-foundation-public/public-guard@main\n"
 
 
 def test_見回り_呼び口と守りがあれば外れ0():
@@ -315,9 +317,11 @@ def test_見回り_守りが無ければ外れ():
     assert any("必須の検査" in p for p in found["o/x"])
 
 
-def test_見回り_版の印で固定していなければ外れ():
-    found = patrol.patrol(FakeGitHub(_routes("o/x", CALLER.replace("@v0.5.0", "@main"), rules=["public-guard"])), ["o"])
-    assert any("版の印" in p for p in found["o/x"])
+@pytest.mark.parametrize("ref", ["v0.5.0", "1ce8fa37f665eb40216d290d45c25c44de4ca320", "claude/20261119-x"])
+def test_見回り_main_の先端で呼んでいなければ外れ(ref):
+    """版の印・SHA・枝で止めた呼び口は、直した検査が届かない（注入の試験）。"""
+    found = patrol.patrol(FakeGitHub(_routes("o/x", CALLER.replace("@main", "@" + ref), rules=["public-guard"])), ["o"])
+    assert any("main の先端で呼んでいない" in p for p in found["o/x"])
 
 
 def test_見回り_非公開とarchiveは見ない():
@@ -328,8 +332,16 @@ def test_見回り_非公開とarchiveは見ない():
 
 def test_見回り_土台は自分の枝の物を呼んでよい():
     full = patrol.FOUNDATION
-    gh = FakeGitHub(_routes(full, "      - uses: ./public-guard\n", rules=["public-guard"]))
+    gh = FakeGitHub(_routes(full, "      - uses: ./public-guard\n", rules=["public-guard", "plugin-smoke"]))
     assert patrol.patrol(gh, [full.split("/")[0]]) == {}
+
+
+def test_見回り_土台は_plugin_smoke_が必須でなければ外れ():
+    """main の先端を配る代わりの守り（入れて起動する試験）が合流の必須から外れたら知らせる（注入の試験）。"""
+    full = patrol.FOUNDATION
+    found = patrol.patrol(FakeGitHub(_routes(full, "      - uses: ./public-guard\n", rules=["public-guard"])),
+                          [full.split("/")[0]])
+    assert any("plugin-smoke" in p for p in found[full])
 
 
 def test_見回り_外れはissueで知らせ_0なら閉じる():
@@ -339,6 +351,20 @@ def test_見回り_外れはissueで知らせ_0なら閉じる():
     gh = FakeGitHub({"/repos/h/issues?": [{"number": 3, "title": patrol.ISSUE_TITLE}]})
     patrol.report_issue(gh, "h", {}, "外れ 0")
     assert ("PATCH", "/repos/h/issues/3", {"state": "closed", "state_reason": "completed"}) in gh.sent
+
+
+def test_見回り_同じ題のissueが2つあれば古い方を書き替え_残りは閉じる():
+    gh = FakeGitHub({"/repos/h/issues?": [{"number": 9, "title": patrol.ISSUE_TITLE},
+                                          {"number": 4, "title": patrol.ISSUE_TITLE}]})
+    patrol.report_issue(gh, "h", {"o/x": ["外れ"]}, "本文")
+    assert ("PATCH", "/repos/h/issues/4", {"body": "本文"}) in gh.sent
+    assert ("PATCH", "/repos/h/issues/9", {"state": "closed", "state_reason": "not_planned"}) in gh.sent
+    assert any(m == "POST" and p == "/repos/h/issues/9/comments" and "#4" in b["body"] for m, p, b in gh.sent)
+
+
+def test_置かない語は数を出す():
+    assert guard.word_hits("a.md", "作り物の甲と作り物の乙", ["甲", "乙", "丙"]) == ["a.md: 置かない語 2 個"]
+    assert guard.word_hits("a.md", "なし", ["甲"]) == []
 
 
 def test_見回りの相手が決まっている():
@@ -422,3 +448,14 @@ def test_名に顧客の語があるファイルは名を伏せる(tmp_path):
 def test_照らす範囲が読めない時は理由を出して赤(tmp_path):
     res = _cli(_repo(tmp_path), {}, "--range", "0" * 40 + ".." + "1" * 40)
     assert res.returncode == 1 and "照らす範囲を読めない" in res.stdout, res.stdout + res.stderr
+
+
+def test_手元で照らす範囲が読めない時は_main_の取り方を言う(tmp_path):
+    """注入: main の無い手元の clone で回す → 赤のまま、取り方の 1 行を出す（CI では出さない＝CI の取り出しは ci.yml が決める）。"""
+    repo = _repo(tmp_path)
+    env = {k: v for k, v in os.environ.items() if k not in ENV_KEYS}
+    r = subprocess.run([sys.executable, str(GUARD), "--repo", str(repo)], capture_output=True, text=True, env=env, timeout=60)
+    assert r.returncode == 1 and "照らす範囲を読めない" in r.stdout and "git fetch origin main" in r.stdout
+    r = subprocess.run([sys.executable, str(GUARD), "--repo", str(repo)], capture_output=True, text=True,
+                       env={**env, "GITHUB_ACTIONS": "true"}, timeout=60)
+    assert "git fetch origin main" not in r.stdout

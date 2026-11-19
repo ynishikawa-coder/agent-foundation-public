@@ -21,7 +21,7 @@ green
 
 ## 点
 - 1 依頼の充足: pass
-- 2 宣言した path: pass
+- 2 触った path: pass
 - 3 別の目: 書いた窓 session_WRITER01 ≠ この窓
 - 4 回帰: pass（check_all: 緑）
 - 5 秘密・顧客の物: pass
@@ -34,7 +34,7 @@ green
 - 12 既定で止まる: N/A
 
 ## 所見
-- [後の便｜整地] 作り物の気づき
+- [台帳へ｜整地] 作り物の気づき
 """
 
 RED = """レビューした窓: session_REVIEW01 判定: red
@@ -46,7 +46,7 @@ red
 
 ## 点
 - 1 依頼の充足: fail（作り物の欠け）
-- 2 宣言した path: pass
+- 2 触った path: pass
 - 3 別の目: 書いた窓 session_WRITER01 ≠ この窓
 - 4 回帰: pass（check_all: 緑）
 - 5 秘密・顧客の物: pass
@@ -60,7 +60,7 @@ red
 
 ## 所見
 - [止める｜実装] plugins/x.py — 作り物の欠け
-- [後の便｜設計] 作り物の気づき
+- [台帳へ｜設計] 作り物の気づき
 """
 
 
@@ -75,7 +75,7 @@ def test_書いた窓とレビューした窓が同じなら誤り():
 
 
 def test_止めるが在るのに_green_は誤り():
-    errs = vf.check(GREEN.replace("[後の便｜整地]", "[止める｜実装]"))
+    errs = vf.check(GREEN.replace("[台帳へ｜整地]", "[止める｜実装]"))
     assert any("判定は red" in e for e in errs)
 
 
@@ -147,7 +147,7 @@ def test_点の節が無いと赤():
 
 def test_表に無い点と重なりと名の違いは赤():
     assert any("点 13" in e for e in vf.check(GREEN.replace("- 12 既定で止まる: N/A", "- 12 既定で止まる: N/A\n- 13 作り物: pass")))
-    assert any("2 度" in e for e in vf.check(GREEN.replace("- 2 宣言した path: pass", "- 2 宣言した path: pass\n- 2 宣言した path: pass")))
+    assert any("2 度" in e for e in vf.check(GREEN.replace("- 2 触った path: pass", "- 2 触った path: pass\n- 2 触った path: pass")))
     assert any("点 4 の名" in e for e in vf.check(GREEN.replace("- 4 回帰:", "- 4 回り:")))
 
 
@@ -175,12 +175,38 @@ def test_同じ見出しの節が_2_つ在ると赤():
     assert any("`## 点` の節が 2 個" in e for e in vf.check(text, writer="session_WRITER01"))
 
 
+def test_ファイルを2つ渡すと2つ目も照らす(tmp_path, capsys):
+    good, bad = tmp_path / "a.md", tmp_path / "b.md"
+    good.write_text(GREEN, encoding="utf-8")
+    bad.write_text(GREEN.replace("## verdict\ngreen", "## verdict\nred"), encoding="utf-8")
+    assert vf.main(["verdict_form.py", str(good), "--writer", "session_WRITER01", "--head", "0123456789ab"]) == 0
+    capsys.readouterr()
+    assert vf.main(["verdict_form.py", str(good), str(bad), "--writer", "session_WRITER01", "--head", "0123456789ab"]) == 1
+    out = capsys.readouterr().out
+    assert str(bad) in out and "誤りのあるファイル 1" in out
+
+
+def test_知らない印と値の無い印は止まる(tmp_path):
+    good = tmp_path / "a.md"
+    good.write_text(GREEN, encoding="utf-8")
+    assert vf.main(["verdict_form.py", str(good), "--writr", "x"]) == 2
+    assert vf.main(["verdict_form.py", str(good), "--writer"]) == 2
+    assert vf.main(["verdict_form.py", str(good), "--writer", "a", "--writer", "b"]) == 2
+
+
+def test_止めない気づきの札は台帳へで_古い後の便は通らない():
+    """止めない気づきは原因の台帳へ行く札だけ。行き先の無い古い札（後の便）を戻すと赤。"""
+    assert vf.check(GREEN) == []
+    errs = vf.check(GREEN.replace("[台帳へ｜整地]", "[後の便｜整地]"))
+    assert any("札" in e for e in errs)
+
+
 def test_red_が根治の入口を指さないと誤り():
     """red を直す行の一覧だけで返す古い形（直し: の行が無い）に戻すと赤。blocked は測れなかっただけなので要らない。"""
     old = RED.replace("直し: 細目 §3「まず構造を疑う」\n", "")
     assert any("まず構造を疑う" in e for e in vf.check(old))
     blocked = old.replace("## verdict\nred", "## verdict\nred（blocked: 物差しが回らない）").replace(
-        "[止める｜実装]", "[後の便｜実装]").replace("fail（作り物の欠け）", "pass")
+        "[止める｜実装]", "[台帳へ｜実装]").replace("fail（作り物の欠け）", "pass")
     assert not any("まず構造を疑う" in e for e in vf.check(blocked))
 
 
