@@ -885,6 +885,17 @@ def test_1枚ずつの印は_file_が2つなら止まる(tmp_path):
     res = subprocess.run([NODE, str(CHECK), str(good), str(DATA / "good.json"), "--run-prior"],
                          capture_output=True, text=True, cwd=tmp_path)
     assert res.returncode == 2 and "1 枚ずつ" in res.stderr
+
+
+@needs_node
+def test_file_を2つ渡して1つでも赤なら根治の入口を指す(tmp_path):
+    good = tmp_path / "確認.html"
+    good.write_text(filled_template("copy"), encoding="utf-8")
+    res = subprocess.run([NODE, str(CHECK), str(good), str(DATA / "bad.json")], capture_output=True, text=True, cwd=tmp_path)
+    assert res.returncode == 1 and "まず構造を疑う" in res.stdout and "赤 1" in res.stdout
+
+
+@needs_node
 def test_検査が赤なら根治の入口を指し緑なら出さない():
     """赤の行だけを返す古い形（原因から直させない）に戻すと赤。"""
     bad = subprocess.run([NODE, str(CHECK), str(DATA / "bad.json")], capture_output=True, text=True)

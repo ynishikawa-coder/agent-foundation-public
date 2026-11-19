@@ -313,6 +313,7 @@ def test_寿命を過ぎた問いは黙って消さず_一度知らせてから�
     note = hook(env, "start", {"session_id": "s2"}).get("additionalContext", "")
     assert "時間を過ぎたので、台帳から降ろします" in note and "作り物の置き場を A と B のどちらにしますか" in note
     assert "前の窓で答えのないまま閉じた問い" not in note          # 出し直しの頼みには入れない
+    assert "答えが返らなかった原因" in note                          # 寿命切れだけでも根治の入口を指す
     assert hook(env, "start", {"session_id": "s3"}) == {}           # 知らせたのは一度だけ
     ledger = next((tmp_path / "state").rglob("unanswered-questions.json"))
     assert [e["question"] for e in json.loads(ledger.read_text(encoding="utf-8"))["expired_recent"]] == \
@@ -602,7 +603,7 @@ ASK_GOOD = [
     ("同じ話題の2問", ask_pre(q("会議を回数で別に数えますか", header="会議の数え方"),
                            q("会議の端数は切り上げますか", header="会議の端数"))),
     ("済んだかの確かめ", ask_pre(q("設定の保存は終わりましたか？", header="手の確かめ",
-                               labels=("終わった（推奨）", "うまくいかない", "分からない")))),
+                               labels=("終わった", "うまくいかない", "分からない")))),
     ("日付と分数", ask_pre(q("11 月の締めを 2026/11/19 にしますか", desc="1/2 ずつ 2 回に分ける"))),
     ("URL は数えない", ask_pre(q("作り物の資料の読み方は合っていますか", desc="資料 https://example.com/a/b/c.md の 3 行目"))),
     ("語の取れない問いを混ぜても", ask_pre(q("会議を回数で別に数えますか", header="会議"), q("どちらにしますか", header="どれ"))),

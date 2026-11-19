@@ -317,8 +317,8 @@ def read_away(session_id):
 # ── hook の口 ──
 REMINDER = """<unanswered-question>
 選択肢モーダルが答えのないまま閉じました（{n} 件）。オーナーは席を外しているとみなします。
-ここから先は戻せる作業だけを推奨案で進めてください。戻せない作業は始めず、答えを待ちます。迷ったら
-「今これをやって、後で答えが逆だった時に戻せるか」で切ります。DB の破棄・メールの送信・Notion の物理削除・
+ここから先は、この答えに頼らない作業だけを進めてください。答えに頼る作業（答えで中身が変わる・合意が要る・
+戻せない）は推奨で先に進めず、答えを待ちます。DB の破棄・メールの送信・Notion の物理削除・
 git で戻せない削除は、答えが返るかオーナーが何か打つまで機械が止めます。
 閉じた問い: {stems}
 この問いは台帳に積みました。{ttl} 時間の間、次の窓へ持ち越します（次の窓では流れに合う時だけ前提を添えて
@@ -388,7 +388,10 @@ def resurface(data, vals):
         keys = {p.get("key") for p in expired}
         if not update_ledger(path, lambda d: drop_expired(d, keys)):
             lines.append("（台帳を書けず、降ろせませんでした。次の窓でもう一度知らせます）")
-        lines += ["降ろした問いの控え: 台帳 %s の expired_recent" % path, ""]
+        lines += ["降ろした問いの控え: 台帳 %s の expired_recent" % path]
+        if not items:
+            lines.append(ROOT_CAUSE)     # 寿命切れだけの時も、答えが返らなかった原因へ向ける
+        lines.append("")
     if items:
         lines += ["前の窓で答えのないまま閉じた問いが %d 件あります。今の窓の流れの中で、1 件ずつ次のどれかにします。" % len(items),
                   "- 答え済み（今の頼み・会話・決定の記録で答えが出ている）か、もう要らない問い → 出さずに台帳から降ろす:",

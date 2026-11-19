@@ -1,6 +1,6 @@
 name: public-guard
 description: 公開の repo に置かない物（秘密・個人の情報・顧客の語・置かない語）を、中身・歴史・commit と PR の外側で照らして止める
-# 呼び方と守りの設定は docs/公開の検査.md。呼ぶ側は版の印（vX.Y.Z）で固定して呼ぶ（main を読まない）。
+# 呼び方と守りの設定は docs/公開の検査.md。呼ぶ側は main の先端（@main）で呼ぶ（版で止めない）。
 inputs:
   deny-bundle:
     description: 顧客の語の束 pct1.… （呼ぶ側の secret AF_DENY_BUNDLE を渡す）
