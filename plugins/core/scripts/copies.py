@@ -30,7 +30,7 @@ THRESHOLD = 0.5
 MIN_CHARS = 20
 _STRIP = re.compile(r"[\s`*_>#|・、。，．,.:：;；()（）「」『』\[\]{}<>—\-–/\\!！?？=＝+〔〕【】]+")
 _SPLIT = re.compile(r"(?<=[。！？])|\n")
-_POINTER = re.compile(r"`[^`\n]*`"                                   # コード・path を `…` で書いた所
+_POINTER = re.compile(r"`[\x20-\x7e]*`"                              # 英数字だけのコード・path（日本語の文を `…` で囲んでも除かない）
                       r"|[\w.~-]*(?:/[\w.~-]+)+/?"                    # dir を含む path（.github/x.md・plugins/core/）
                       r"|[\w~-]+\.(?:md|py|json|sh|ya?ml|mjs|js|txt|toml)\b"  # 名だけの file（CONTRIBUTING.md）
                       r"|\b[a-z][\w-]*:[a-z][\w-]*\b", re.A)              # skill の名（dev-flow:verify）

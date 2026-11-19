@@ -65,3 +65,11 @@ def test_path_を添えた写しは今も拾う(tmp_path):
     f.write_text("- 戻せない操作の前に人に聞く — 強制 push・DB の削除・人の手が入った物や git に無い一点物の削除"
                  "（plugins/core/核.md）。\n", encoding="utf-8")
     assert run(COPIES, f).returncode == 1
+
+
+def test_日本語の文をインラインのコードで囲んだ写しは今も拾う(tmp_path):
+    """注入（PR #114 のレビュー）: 指す字の除外が `…` の全部を消すと、核の文を `…` で囲むだけで写しの関所を迂回できた。"""
+    f = tmp_path / "使う側の決まり.md"
+    f.write_text("- `戻せない操作の前に人に聞く — 強制 push・DB の削除・人の手が入った物や git に無い一点物の削除`\n",
+                 encoding="utf-8")
+    assert run(COPIES, f).returncode == 1

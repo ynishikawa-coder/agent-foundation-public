@@ -85,6 +85,14 @@ def test_名で引くと今の番号が出る():
     ("原因は細目「作り物の消えた名」で探す。", False),                    # 名が無い
     ("核 §3「物は本当の名で呼ぶ」。", False),                            # 引いた文がその節に無い
     ("細目 §99 を見る。", False),                                       # 無い番号
+    ("細目.md §99 を見る。", False),                                    # file の名で書いた指し（レビューで拾えていなかった形）
+    ("`CONTRIBUTING.md` §99 を見る。", False),
+    ("`plugins/core/細目.md` §99 を見る。", False),
+    ("細目.md「作り物の無い名」を見る。", False),
+    ("細目.md「まず構造を疑う」を見る。", True),
+    ("`CONTRIBUTING.md` §1「枝と PR」を見る。", True),
+    ("細目「の」を見る。", False),                                       # 短すぎる引きは文書のどこかに当たるだけで合わない
+    ("結核「作り物」の話。", True),                                      # 略の名を長い語の中に当てない
 ])
 def test_使う側の指しを名で照らす(tmp_path, text, ok):
     res = run("check", consumer(tmp_path, text + "\n"))
