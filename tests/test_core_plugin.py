@@ -882,3 +882,9 @@ def test_増え方の照らしは検査の入口から回る():
     ci = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
     check_job = ci.split("public-guard:")[0]
     assert "fetch-depth: 0" in check_job, "CI の check が origin/main を取らず、比べる元が無くなる"
+
+
+def test_量の上限は_1_か所で_使う側の_CLAUDE_md_は起動の_hook_が照らし数も道具も写さない():
+    """細目の量の上限の文（PR #49 で書き換わった）を文のまま照らす（照らさない文を足すと test_rule_holes が赤）。"""
+    saimoku = (PLUGIN / "細目.md").read_text(encoding="utf-8")
+    assert "使う側の `CLAUDE.md` は起動の hook が照らして知らせる・使う側は数も道具も写さない）。" in saimoku

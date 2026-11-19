@@ -115,7 +115,6 @@ plugins/core/細目.md	人や AI が別の所へ手で写す段を残さない�
 plugins/core/細目.md	人や他の窓の返事を待つ事は数えない。
 plugins/core/細目.md	仕組み（検査の本体・呼び口・見回り）は土台の `docs/公開の検査.md`、作る手順は skill `dev-flow:public-repo`。
 plugins/core/細目.md	作り物か録った応答で回す。
-plugins/core/細目.md	使う側は `--claude <その repo の CLAUDE.md>`）。
 plugins/core/細目.md	例: 区分の欄に一覧に無い字が来たら、空の扱いで数えずに止めて名指しする。
 plugins/core/細目.md	例: 文で溜まった答えを設定の欄へ手で打ち直す代わりに、答えを例つきの表で受け、設定はその表を読む。
 plugins/core/細目.md	例: 決まりの読み違いは、決まりから作った例を相手が承認する。
