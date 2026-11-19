@@ -47,3 +47,10 @@ def test_書いた窓の組の外の窓の判定は通る(tmp_path):
     two = ("--writer", "session_WRITER01, session_WRITER02", "--head", "0123456789ab")
     res = run(tmp_path, GREEN, *two, me="cse_REVIEW01")
     assert res.returncode == 0, res.stdout + res.stderr
+
+
+@pytest.mark.parametrize("writer", [",", " , ", ",,"])
+def test_書いた窓の組が空なら形を通さない(tmp_path, writer):
+    """`,` だけの --writer で組が空になり、別の目の照らしが全部飛んで通っていた戻り（レビューの所見）。"""
+    res = run(tmp_path, GREEN, "--writer", writer, "--head", "0123456789ab", me="cse_REVIEW01")
+    assert res.returncode == 2 and "--writer" in res.stderr, writer

@@ -237,7 +237,7 @@ def main(argv):
     if not paths:
         sys.stderr.write(__doc__)
         return 2
-    if not opts["--writer"] or not opts["--head"]:
+    if not writer_set(opts["--writer"]) or not opts["--head"]:
         # 欠けた材料で通さない: 書いた窓が無いと別の目を、先端が無いと見た後の push を照らせない
         sys.stderr.write("--writer <書いた窓の session id> と --head <PR の先端の SHA> の両方が要る（欠けたまま形を通さない）\n")
         return 2

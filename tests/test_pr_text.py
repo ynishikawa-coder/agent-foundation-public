@@ -295,6 +295,10 @@ def test_pr_text_判定の材料は_PR_から引き_引けなければ止め_先
     assert deny_reason(env, p) == ""
     _fake_gh(env, commits_fail=True)                               # commit を引けない＝書き手の組を照らせない
     assert "判定の材料" in deny_reason(env, p)
+    made = dict(env, CLAUDE_CODE_REMOTE_SESSION_ID="cse_" + WRITER[len("session_"):])
+    _fake_gh(made)                                                 # 書いた窓（とその助手）が別の窓の名を作って名乗った
+    why = deny_reason(made, p)
+    assert "[verdict]" in why and "この命令を回した窓" in why
     _fake_gh(env, writer="")                                       # PR 本文に書いた窓が無い
     assert "書いた窓" in deny_reason(env, p)
     _fake_gh(env, fail=True)                                       # PR を引けない
