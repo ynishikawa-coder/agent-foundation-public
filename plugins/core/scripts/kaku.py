@@ -40,6 +40,8 @@ MARKET = "agent-foundation"
 # 土台の振る舞いを運ぶ path。ここが変わった時だけ「古い土台」と見る（文書・試験・CI だけの変更では窓を替えない）。
 CARRIERS = ("plugins", ".claude-plugin")
 FRESH_INTERVAL = 900  # 起動の後に main の先端を見に行く間（秒）。毎回の問いごとに外へ出ない。
+# 起動の時の古い形の見張りに使ってよい時間（秒）。越えたら打ち切って名指しする（hook の上限に当たって核の差し込みごと落ちない）。
+WATCH_BUDGET = 5
 
 
 # 読めない時の類（無い・権限・UTF-8 でない中身）を 1 か所で受ける。どの読みもこれで受け、欠けを名指しする。
@@ -73,11 +75,13 @@ def _tracked(project: Path, specs: list[str]) -> list[Path]:
     return [project / s for s in specs if "*" not in s]  # git でない dir は、名で書いた file だけ見る
 
 
-def find_olds(project: Path, rows: list[dict] | None = None) -> list[tuple[dict, str]]:
-    """開いた repo に残る古い形の (行, 当たった file の相対 path)。"""
+def find_olds(project: Path, rows: list[dict] | None = None, deadline: float | None = None) -> list[tuple[dict, str]]:
+    """開いた repo に残る古い形の (行, 当たった file の相対 path)。deadline（time.monotonic）を越えたら TimeoutError（黙って一部だけにしない）。"""
     found = []
     for r in rows if rows is not None else olds_table():
         for f in _tracked(project, r["files"]):
+            if deadline is not None and time.monotonic() > deadline:
+                raise TimeoutError(f"{WATCH_BUDGET} 秒で見終わらず打ち切った（{r['id']} の途中・見た所までの当たり {len(found)} 件）")
             try:
                 if f.is_file() and f.stat().st_size <= 1_000_000 and r["re"].search(f.read_text(encoding="utf-8", errors="replace")):
                     found.append((r, str(f.relative_to(project))))
@@ -255,7 +259,7 @@ def inject() -> int:
         parts.append(inject_text())
     except UNREADABLE as e:
         print(f"plugin core: 核.md が読めない（{e}）＝核は差し込まれていない", file=sys.stderr)
-    for name, make in (("古い形", lambda: (lambda f: olds_text(f, project) if f else None)(find_olds(project))),
+    for name, make in (("古い形", lambda: (lambda f: olds_text(f, project) if f else None)(find_olds(project, deadline=time.monotonic() + WATCH_BUDGET))),
                        ("CLAUDE.md の量", lambda: claude_md_text(project)), ("入れ方", setup_text)):
         try:
             t = make()

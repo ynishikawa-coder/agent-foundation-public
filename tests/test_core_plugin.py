@@ -109,6 +109,15 @@ def test_入口を呼ぶ_setup_は古い形に当たらない():
     assert "marketplace add" in block and not row["re"].search(block)
 
 
+def test_古い形の見張りは時間の上限で打ち切り_黙って一部だけにしない(tmp_path):
+    """注入: 見張りの時間を使い切った形 → 当たった所までを黙って返さず TimeoutError（起動では「見張りが動かなかった」と名指し）。"""
+    import time
+    _git_repo(tmp_path / "p", {"CLAUDE.md": "<!-- AF-CORE:BEGIN -->\n"})
+    with pytest.raises(TimeoutError):
+        kaku.find_olds(tmp_path / "p", deadline=time.monotonic() - 1)
+    assert kaku.find_olds(tmp_path / "p", deadline=time.monotonic() + 60)
+
+
 def test_古い形の一覧の欄が欠けると読めない(tmp_path):
     bad = tmp_path / "古い形.json"
     bad.write_text(json.dumps({"olds": [{"id": "x", "files": ["a"], "pattern": "a"}]}), encoding="utf-8")
