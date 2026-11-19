@@ -34,8 +34,8 @@ def run(*args, project=None, home=None, stdin="", extra=None):
                           timeout=60, env=env, input=stdin)
 
 
-def test_核と細目と_hook_が_plugin_の中に在る():
-    assert (PLUGIN / "核.md").is_file() and (PLUGIN / "細目.md").is_file()
+def test_核と振る舞いと細目と_hook_が_plugin_の中に在る():
+    assert all((PLUGIN / n).is_file() for n in ["核.md", "振る舞い.md", "細目.md"])
     hooks = json.loads((PLUGIN / "hooks" / "hooks.json").read_text(encoding="utf-8"))
     cmd = hooks["hooks"]["SessionStart"][0]["hooks"][0]["command"]
     assert "${CLAUDE_PLUGIN_ROOT}/scripts/kaku.py" in cmd and cmd.endswith(" inject")
@@ -51,7 +51,9 @@ def test_写しの枠が無い_repo_には核と細目の在り処を差し込�
     assert out["hookEventName"] == "SessionStart"
     ctx = out["additionalContext"]
     assert ctx.startswith((PLUGIN / "核.md").read_text(encoding="utf-8").rstrip("\n"))
+    assert (PLUGIN / "振る舞い.md").read_text(encoding="utf-8").rstrip("\n") in ctx, "振る舞いの既定が毎回差し込まれない"
     assert str(PLUGIN / "細目.md") in ctx
+    assert "形に迷った時" not in ctx, "細目の案内が「形の細目」と分からない言葉に戻った"
 
 
 def test_CLAUDE_md_が無い_repo_にも差し込む(tmp_path):
@@ -168,8 +170,8 @@ def test_入口で全部入った窓には入れ方の知らせを出さない(t
 
 
 def test_上限の数は_1_か所で_核より各社固有が小さい():
-    assert set(LIMITS) == {"核", "各社固有"}
-    assert LIMITS["各社固有"] < LIMITS["核"]
+    assert set(LIMITS) == {"核", "振る舞い", "各社固有"}
+    assert LIMITS["各社固有"] < LIMITS["核"] and LIMITS["振る舞い"] < LIMITS["核"]
 
 
 def test_今の核と_この_repo_の_CLAUDE_md_は上限の内():
@@ -226,8 +228,11 @@ def test_MGkm_は根治の_4_段の呼び名で説明の頼みにも_4_段で答
     s3d = _節((PLUGIN / "細目.md").read_text(encoding="utf-8"), 3)
     assert "**呼び名 MGkm**" in s3d, "細目 §3 に MGkm の呼び名が無い"
     line = next(l for l in s3d.splitlines() if "呼び名 MGkm" in l)
-    for word in ["問題 Mondai", "原因 Genin", "解決 Kaiketsu", "未来 Mirai", "説明", "4 段の見出しで答える"]:
+    for word in ["問題 Mondai", "原因 Genin", "解決 Kaiketsu", "未来 Mirai"]:
         assert word in line, f"MGkm の行に無い: {word}"
+    line = next(l for l in (PLUGIN / "振る舞い.md").read_text(encoding="utf-8").splitlines() if "**MGkm**" in l)
+    for word in ["説明", "4 段の見出しで答える"]:
+        assert word in line, f"振る舞いの既定の MGkm の行に無い: {word}"
 
 
 def test_問いは選ぶ問いと開いた問いに分け_分からないを置き_言葉を混ぜない():
@@ -419,7 +424,7 @@ def test_挙げた原因は全部台帳に行き先つきで持ち_全部済む�
     assert "1 つ選ばせる問いを出さない" in s4 and "挙がった物は全部やり" in s4
     saimoku = (PLUGIN / "細目.md").read_text(encoding="utf-8")
     assert "**原因の台帳**" in _節(saimoku, 3) and "**選ばせない**" in _節(saimoku, 4) and "**根治の終わり**" in _節(saimoku, 7)
-    assert "③は 1 本の列（番号の順）にせず" in _節(saimoku, 8), "引き継ぎの残りが番号の列に戻った"
+    assert "1 本の列にせず" in (PLUGIN / "振る舞い.md").read_text(encoding="utf-8"), "引き継ぎの残りが番号の列に戻った"
     olds = ["どれを今回直す", "一番手前の未決から取る", "どれから進めますか」と聞"]
     hits = []
     for p in sorted(ROOT.rglob("*")):
@@ -480,6 +485,64 @@ def test_核から細目へ移した物が細目に在る():
     assert "「ほぼ終わった」と書かない" in _節(saimoku, 7)
     s8 = _節(saimoku, 8)
     assert "Javis は Notion と Drive" in s8 and "**またぐ連絡**" in s8
+
+
+# ---- 振る舞いの既定（AI の癖と逆を求める物）は核と一緒に毎回差し込む ----
+
+FURUMAI_WORDS = {  # 既定の要の語: 振る舞い.md だけに在り、細目に戻らない（2 か所に書かない）
+    "並走": ["着手と言われたら確認させずに進め", "5 分を超える作業は窓・助手を並べて同時に進める",
+             "読むだけの調べは助手", "書く仕事と互いに待たない長い仕事は窓"],
+    "後継": ["1 本の列にせず"],
+    "範囲": ["止まる条件は狭く", "黙って縮めない"],
+    "聞かない": ["自分の枝への push の前に聞かない", "依頼文の出来を人に見てもらわない"],
+    "引く": ["決定の記録と問いの表を問いと同じ言葉で引く"],
+    "人の手": ["まず Claude in Chrome に貼る文"],
+    "正本": ["「無い」「止まった」と言い切る前に正本を読む"],
+    "ぼかさない": ["「たぶん」「概ね」「〜と思われます」と書かず", "前→後"],
+    "逃げ場": ["「できれば」「間に合わなければ後で」と書かない"],
+    "呼び出し": ["2 回で打ち方を変えるか止める"],
+    "一覧": ["削らない・選ばない"],
+    "MGkm": ["「MGkm して」と言ったら"],
+}
+
+
+def test_振る舞いの既定は全部_振る舞い_md_に在り細目に戻らない():
+    furumai = (PLUGIN / "振る舞い.md").read_text(encoding="utf-8")
+    saimoku = (PLUGIN / "細目.md").read_text(encoding="utf-8")
+    missing = [w for ws in FURUMAI_WORDS.values() for w in ws if w not in furumai]
+    assert not missing, f"振る舞いの既定に無い: {missing}"
+    olds = ["自分の枝への push の前", "「無い」「止まった」と言い切る前", "間に合わなければ後で", "2 回で打ち方を変える",
+            "「たぶん」「概ね」", "削らない・選ばない", "5 分を超え", "③は 1 本の列", "説明・振り返りの頼みでもこの 4 段",
+            "広く任された物として進め", "依頼文の出来を人に求めない"]
+    back = [o for o in olds if o in saimoku]
+    assert not back, f"振る舞いの既定が細目にも書かれた（2 か所）: {back}"
+
+
+def test_振る舞いの正本が無いと_check_は赤で_inject_は欠けを名指しする(monkeypatch, tmp_path, capsys):
+    gone = tmp_path / "振る舞い.md"            # わざと消す
+    monkeypatch.setattr(kaku, "FURUMAI", gone)
+    assert kaku.check(None) == 2
+    assert "振る舞い.md が読めない" in capsys.readouterr().out
+    ctx = kaku.inject_text()
+    assert "振る舞いの既定" in ctx and "差し込まれていない" in ctx and str(gone) in ctx
+
+
+def test_振る舞いが上限を越えると赤で_上限ちょうどは緑(monkeypatch, tmp_path, capsys):
+    f = tmp_path / "振る舞い.md"
+    monkeypatch.setattr(kaku, "FURUMAI", f)
+    f.write_text("既" * (LIMITS["振る舞い"] // 3), encoding="utf-8")
+    assert kaku.check(None) == 0
+    f.write_text("既" * (LIMITS["振る舞い"] // 3 + 1), encoding="utf-8")
+    assert kaku.check(None) == 1
+    assert "振る舞いの既定" in capsys.readouterr().out
+
+
+def test_inject_は振る舞いを核の後に毎回入れる(monkeypatch, tmp_path):
+    f = tmp_path / "振る舞い.md"
+    f.write_text("# 既定\n- 印の既定\n", encoding="utf-8")
+    monkeypatch.setattr(kaku, "FURUMAI", f)
+    ctx = kaku.inject_text()
+    assert ctx.index("# 振る舞いの核") < ctx.index("- 印の既定")
 
 
 # 赤・red・抜けを返す skill と道具（台帳の原因「skill と道具が赤・red・抜けを単発の手直しや付け足しで返す」）
@@ -543,6 +606,29 @@ def test_赤を返す所は根治の入口を指し単発の手直しの形が�
         assert old not in text, f"{rel} に単発の手直しの古い形が残る: {old}"
     left = list(単発の手直しの文(text))
     assert not left, f"{rel} に単発の手直しの類が残る: {left}"
+
+
+def test_読めない中身でも_inject_は止まらず欠けを名指しし_check_は赤(monkeypatch, tmp_path, capsys):
+    """UTF-8 でない中身（わざと壊す）で inject が落ちて核ごと抜ける穴を戻すと赤。"""
+    bad = tmp_path / "振る舞い.md"
+    bad.write_bytes(b"\xff\xfe\x00broken")
+    monkeypatch.setattr(kaku, "FURUMAI", bad)
+    ctx = kaku.inject_text()
+    assert ctx.startswith("# 振る舞いの核") and "差し込まれていない" in ctx
+    assert kaku.check(None) == 2
+    badk = tmp_path / "核.md"
+    badk.write_bytes(b"\xff\xfe")
+    monkeypatch.setattr(kaku, "KAKU", badk)
+    monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(tmp_path))
+    assert kaku.inject() == 0
+    assert "核.md が読めない" in capsys.readouterr().err
+    assert kaku.check(None) == 2
+
+
+def test_読めない_CLAUDE_md_でも_inject_は落ちない(tmp_path):
+    (tmp_path / "CLAUDE.md").write_bytes(b"\xff\xfe broken")
+    r = run("inject", project=tmp_path)
+    assert r.returncode == 0 and "additionalContext" in r.stdout
 
 
 def test_検査の入口の赤の最後の行は根治の入口を指し緑は指さない(tmp_path):

@@ -49,7 +49,7 @@ grep -rn "<語 1>\|<語 2>" CLAUDE.md .claude/ plugins/ 2>/dev/null
 
 | 効く先 | 置き場 |
 |---|---|
-| 土台（両方の AI） | 常時要る原則は `plugins/core/核.md`、形・例は `細目.md`、作業の手順は土台の skill |
+| 土台（両方の AI） | 常時要る原則は `plugins/core/核.md`、AI の癖と逆を求める振る舞いの既定は `振る舞い.md`（核と一緒に毎回差し込む）、形・例は `細目.md`、作業の手順は土台の skill |
 | 各 repo の固有 | その repo の `CLAUDE.md`（常時）か、その repo の skill・文書（要る時） |
 
 - 迷ったら skill に書く。正本は 1 か所、他は指すだけ（言い換えの写しも置かない）。
@@ -58,7 +58,7 @@ grep -rn "<語 1>\|<語 2>" CLAUDE.md .claude/ plugins/ 2>/dev/null
 ## Step 4: 量と 1 入 1 出
 
 - **1 つ足したら 1 つ以上畳む**（同じ PR で）。畳んだ物を PR 本文に書く。
-- 核は `python3 plugins/core/scripts/kaku.py check` で照らす（土台の中）。使う側の repo の `CLAUDE.md` は、plugin core の起動の hook が開いた時に照らして越えれば知らせる（使う側は kaku.py も数も写さない）。越えるなら常時へ足さず、細目・skill へ移して常時からは指す 1 行にする。
+- 核・振る舞いの既定は `python3 plugins/core/scripts/kaku.py check` で照らす（土台の中）。使う側の repo の `CLAUDE.md` は、plugin core の起動の hook が開いた時に照らして越えれば知らせる（使う側は kaku.py も数も写さない）。越えるなら常時へ足さず、細目・skill へ移して常時からは指す 1 行にする。
 - skill の description は「何を・いつ使うか」の 1〜2 行。合計は `desc_budget_bytes` で測る。
 
 ## Step 5: 規律の形
