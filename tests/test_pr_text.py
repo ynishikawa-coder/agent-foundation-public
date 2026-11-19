@@ -214,14 +214,15 @@ def test_pr_text_誤って止まる_repo_は値の表で外せる(env, tmp_path)
     assert "[verdict]" in deny_reason(env, gh("add_issue_comment", issue_number=1, body=verdict_comment(head="")))
 
 
-def _fake_public_repo(proj, deny_word):
+def _fake_public_repo(proj, deny_word, url="https://github.com/fake-owner/fake-public.git"):
     """作り物の公開の repo の取り出し（origin が owner/repo・workflow が action public-guard を呼ぶ）。"""
     subprocess.run(["git", "init", "-q", str(proj)], check=True)
-    subprocess.run(["git", "-C", str(proj), "remote", "add", "origin", "https://github.com/fake-owner/fake-public.git"], check=True)
+    subprocess.run(["git", "-C", str(proj), "remote", "add", "origin", url], check=True)
     wf = proj / ".github" / "workflows"
     wf.mkdir(parents=True)
     (wf / "public-guard.yml").write_text(
-        "jobs:\n  public-guard:\n    steps:\n      - uses: ynishikawa-coder/agent-foundation-public/public-guard@main\n"
+        "on: [pull_request]\njobs:\n  public-guard:\n    steps:\n"
+        "      - uses: ynishikawa-coder/agent-foundation-public/public-guard@main\n"
         "        with:\n          deny-words-file: data/deny.txt\n", encoding="utf-8")
     (proj / "data").mkdir()
     (proj / "data" / "deny.txt").write_text(deny_word + "\n", encoding="utf-8")

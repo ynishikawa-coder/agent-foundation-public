@@ -3,8 +3,11 @@
 
 GitHub の設定そのものは AI には固定できない。なので「外れたら必ず見つけて知らせる」をこの 1 本で担う。
 見る相手: patrol.json の owners の公開 repo（archive 済みは除く）。各 repo の既定の枝について:
-  1. 呼び口: .github/workflows/ のどれかが土台の action `public-guard` を main の先端（@main）で呼んでいる
-     （土台そのものは `./public-guard`）。版の印や SHA で止めた呼び口は、直した検査が届かないので外れ。
+  1. 呼び口: .github/workflows/ のどれかの、必須の検査の名 `public-guard` の job の step が、PR・push で走る形で
+     土台の action `public-guard` を main の先端（@main）で呼んでいる（土台そのものは `./public-guard`）。
+     版の印や SHA で止めた呼び口は、直した検査が届かないので外れ。呼び口の見分けは workflow の読み手
+     （同じ dir の workflow_reader.py・守りの hook と手元の検査も同じ物を読む）が正本。コメントの行・job の外・
+     workflow_dispatch 等だけで走る workflow・if: false の job は呼び口に数えない。
   2. 守り: 既定の枝の守り（ruleset か枝の保護）の必須の検査に `public-guard` が入っている
      （土台そのものは、使う側と同じ入れ方で plugin を入れて起動する `plugin-smoke` も）
 
@@ -18,21 +21,21 @@ import argparse
 import base64
 import json
 import os
-import re
 import sys
 import urllib.error
 import urllib.request
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import workflow_reader as W  # noqa: E402  呼び口の見分けの正本（同じ dir）
+
 API = "https://api.github.com"
-FOUNDATION = "ynishikawa-coder/agent-foundation-public"
-CHECK = "public-guard"
+FOUNDATION = W.FOUNDATION
+CHECK = W.CHECK
 # 土台は main の先端をそのまま配るので、合流の前に「使う側と同じ入れ方で入れて起動する」試験を必須にする。
 FOUNDATION_CHECKS = (CHECK, "plugin-smoke")
 REF = "main"
 ISSUE_TITLE = "公開の検査の見回り"
-CALL = re.compile(r"uses:\s*['\"]?" + re.escape(FOUNDATION) + r"/public-guard@([^\s'\"#]+)")
-LOCAL_CALL = re.compile(r"uses:\s*['\"]?\./public-guard['\"]?\s*$", re.M)
 
 
 class GitHub:
@@ -109,13 +112,16 @@ def inspect(gh: GitHub, repo: dict) -> list[str]:
     full, branch = repo["full_name"], repo.get("default_branch") or "main"
     problems = []
     texts = workflow_texts(gh, full, branch)
-    refs = [m for t in texts for m in CALL.findall(t)]
-    local = full == FOUNDATION and any(LOCAL_CALL.search(t) for t in texts)
-    if not refs and not local:
-        problems.append("公開の検査の呼び口が無い（public-guard/caller-template.yml を .github/workflows/ へ）")
-    for ref in refs:
+    # 数える呼び口のうち、必須の検査 public-guard の job の物だけ（別の job の呼び口では、必須の検査が照らさない）。
+    # ./public-guard（その repo の中の action）は土台そのものでだけ土台の action。
+    calls = [c for t in texts for c in W.counted(t, FOUNDATION)
+             if c.check == CHECK and (not c.local or full == FOUNDATION)]
+    if not calls:
+        problems.append("公開の検査の呼び口が無い（job %s の step で PR・push の時に呼ぶ。public-guard/caller-template.yml を"
+                        " .github/workflows/ へ）" % CHECK)
+    for ref in dict.fromkeys(c.ref for c in calls if not c.local):
         if ref != REF:
-            problems.append(f"公開の検査を main の先端で呼んでいない（@{ref} → @{REF}）")
+            problems.append(f"公開の検査を main の先端で呼んでいない（@{ref or '版なし'} → @{REF}）")
     have = required_checks(gh, full, branch)
     for check in (FOUNDATION_CHECKS if full == FOUNDATION else (CHECK,)):
         if check not in have:
