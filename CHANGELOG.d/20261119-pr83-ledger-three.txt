@@ -1,0 +1,3 @@
+- 直した: 使う側に貼る setup script の塊（docs/核の届け方.md）が前の目録を外すか決める所で、出所を JSON の文字列に土台の名が含まれるかで見ていた（fork や名を道に含む別の出所を今の目録と見なし外さなかった）。目録の repo か url が marketplace add に渡す名と同じ時だけ今の目録と見なす。この塊を貼った使う側は貼り替える。
+- 足した: PR 本文の頭の「書いた窓:」が先端の commit の Claude-Session の窓と違えば CI の job check で赤（scripts/pr_writer.py・scripts/checks/pr_writer.sh）。直しの往復で別の窓が commit したら、その窓が頭の行を自分に書き換える。
+- 足した: tests/conftest.py の飛ばす条件を、conftest を読まない pytest で照らす（scripts/checks/conftest_teeth.sh）。条件が壊れて全部を飛ばしても job check が全部 skip のまま緑にならない。
