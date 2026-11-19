@@ -213,3 +213,14 @@ def test_値の表の口を通さず値を当てる道具が無い():
                 if '"%s"' % k in ln and ".get(" in ln and not any(
                         x in ln for x in ("bad_pattern_rows", "words_in", "_patterns(vals, k", "list(vals.get")):
                     pytest.fail("%s:%d が値の表の %s を口を通さず読む: %s" % (f.name, no, k, ln.strip()))
+
+
+def test_型_patterns_の字でない行の形も鍵を読む道具が全部受ける(tmp_path, monkeypatch):
+    """型 patterns は {"pattern": 字} の行を許す。手で読む道具がその行を黙って捨てると赤（session-watch の reply_exempt）。"""
+    sys.path.insert(0, str(ROOT / "plugins" / "session-watch" / "scripts"))
+    import session_watch as sw
+    table = tmp_path / "values.json"
+    table.write_text(json.dumps({"session-watch": {"watch-log": {"reply_exempt": [{"pattern": "^> "}]}}}), encoding="utf-8")
+    monkeypatch.setenv("SKILL_VALUES", str(table))
+    assert sw.reply_exempt({})[0] == ["^> "]
+    assert not SV.check(json.loads(table.read_text()))
