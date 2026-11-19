@@ -340,6 +340,9 @@ const ONLY = { table: ["thead", "tbody", "tr"], thead: ["tr"], tbody: ["tr"], tr
 function treeReds(rest) {
   const red = [];
   const stack = [];
+  const tags = [];   // stack と同じ並びで開きタグの字（選択肢の枠の読みに使う）
+  let optControls = 0;
+  const isOpt = (t) => /^<label\b/i.test(t) && /(?:^|[ \t\n\f\r])opt(?:[ \t\n\f\r]|$)/.test(attr(t, "class") ?? "");
   // 型の外の区画（qa:css・qa:js・qa:foot）は空白で伏せてあり、その前後で木が切れる＝head と body の外枠は数えない
   for (const m of rest.matchAll(/<(\/?)([A-Za-z][A-Za-z0-9-]*)[^>]*>|([^<]+)/g)) {
     if (m[3] != null) {
@@ -352,7 +355,20 @@ function treeReds(rest) {
     if (!m[1]) {
       const top = stack[stack.length - 1];
       if (top && ONLY[top] && !ONLY[top].includes(tag)) { red.push(`<${top}> の中にじかに <${tag}> を置かない（ブラウザが外へ移す）`); break; }
+      // 選択肢の枠（label.opt）＝押すとその中の radio・checkbox 1 つが選ばれ、見えて、選べる物。ブラウザと同じ読みになる形だけ通す
+      if (["input", "select", "textarea"].includes(tag)) {
+        const lab = tags.findLast((t) => /^<label\b/i.test(t));
+        if (lab && hasAttr(lab, "for")) { red.push(`for の付いた <label> の中に答えの欄を置かない（押した先が for の欄になる）: ${m[0].slice(0, 50)}`); break; }
+        if (lab && isOpt(lab) && (tag !== "input" || !/^(?:radio|checkbox)$/i.test(attr(m[0], "type") ?? "") || ++optControls > 1)) {
+          red.push(`選択肢の枠（label.opt）の中の欄は radio か checkbox 1 つだけ（ほかの欄があると押した先が替わる）: ${m[0].slice(0, 50)}`); break;
+        }
+      }
       if (VOID.has(tag)) continue;
+      if (isOpt(m[0])) {
+        optControls = 0;
+        if (hasAttr(m[0], "for")) { red.push(`選択肢の枠（label.opt）に for を付けない（押した先が for の欄になる）: ${m[0].slice(0, 50)}`); break; }
+        if (tags.some((t) => /^<details\b/i.test(t) && !hasAttr(t, "open"))) { red.push("選択肢の枠（label.opt）を閉じた <details> の中に置かない（見えない）"); break; }
+      }
       // 表の区切りより内側（一番近い table・td・th より上）に開いている物だけが、ブラウザの閉じの的になる
       let from = 0;
       for (let i = stack.length - 1; i >= 0; i--) if (SCOPE.has(stack[i])) { from = i + 1; break; }
@@ -364,9 +380,11 @@ function treeReds(rest) {
       if (tag === "a" && stack.includes("a")) { red.push("<a> の中に <a> を置かない（ブラウザが組み直す）"); break; }
       if (["textarea", "title", "option"].includes(top)) { red.push(`<${top}> の中にタグを書かない`); break; }
       stack.push(tag);
+      tags.push(m[0]);
     } else {
       if (stack[stack.length - 1] !== tag) { red.push(`閉じタグ </${tag}> が開いた順と合わない（開いているのは ${stack[stack.length - 1] ? `<${stack[stack.length - 1]}>` : "無し"}・ブラウザが木を組み直す）`); break; }
       stack.pop();
+      tags.pop();
     }
   }
   return red;
@@ -442,6 +460,8 @@ function allowlistReds(outside) {
       ids.set(attrs.id, tag);
       if (tag === "input" && /^(?:radio|checkbox)$/i.test(attrs.type ?? "")) red.push(`選択（radio・checkbox）に id を付けない（label の for で別の選択肢から選ばせない）: ${show}`);
     }
+    // 型は hidden・disabled の属性を使わない＝型の外に置けば赤（包む要素に付けて選択肢を隠す・押せなくする形を通さない）
+    for (const a of ["hidden", "disabled"]) if (a in attrs) red.push(`${a} の属性を付けない（選択肢が見えない・押せない形にしない）: ${show}`);
     if ("name" in attrs && !["input", "select", "textarea", "meta"].includes(tag)) red.push(`<${tag}> に name を付けない（name は答えの欄 input・select・textarea だけ＝型の JS は name を持つ要素を答えとして読む）: ${show}`);
     if ("style" in attrs && tag !== "body") red.push(`<${tag}> に style がある（色や形は変えない・会社の色は body の --brand だけ）`);
     if (tag === "meta" && red.length === before && !("charset" in attrs) && !ALLOW.meta.names.includes((attrs.name ?? "").toLowerCase())) red.push(`許していない meta: ${show}`);
