@@ -204,7 +204,7 @@ def test_問いのデータの悪い例は決まった赤だけ():
               "問い q2: ひとことの欄",
               # 根拠・読み・見込み・リンク・ほかの問いに頼る言い方
               "「前の問」は書かない", "読んだ資料 d1 にリンク", "問い q1: 根拠（どの資料のどこを見たか", "問い q1: 実物が無い", "問い q1: AI の読み",
-              "問い q1: AI の今の見込みの根拠", "問い q1: 選択肢「決まったら連絡」に印", "問い q2: 根拠（どの資料のどこを見たか", "問い q2: AI の読み"]
+              "問い q1: AI の今の見込みの根拠", "問い q1: 選択肢「決まったら連絡」の推奨の印", "問い q2: 根拠（どの資料のどこを見たか", "問い q2: AI の読み"]
     assert len(out["red"]) == len(expect), out["red"]
     for e in expect:
         assert any(r.startswith(e) for r in out["red"]), (e, out["red"])
@@ -695,21 +695,103 @@ def test_印の値は_need_だけ(tmp_path):
     assert red and all('"supp" は "need" だけ（今 true）' in x for x in red), red
 
 
+# 推奨の印（細目 §4と同じ決め方）: オーナー宛て（copy・artifact）の作り方の分かれ道の問い（judge）だけ・1 問に 1 つ・
+# 1 つ目の選択肢だけ・「分からない」に付けない・理由つき。お客さん宛て（send）と事実を聞く問いは印なし（見込みは .estimate の別枠）
+REC = '<small class="rec">貸した物の手入れは今も貸した側がしている</small>'
+
+
+def _rec_page(tmp_path, dest, mutate):
+    """型を埋めたページの q3（作り方の分かれ道の問い・judge）の選択肢に印を付けて検査する。"""
+    html = filled_template(dest)
+    head, rest = html.split('data-qkey="q3"', 1)
+    rest = mutate(rest)
+    page = tmp_path / "確認.html"
+    page.write_text(head + 'data-qkey="q3"' + rest, encoding="utf-8")
+    return run_check(page)["red"]
+
+
+def _mark(nth):
+    """q3 の nth 番目（0 から）の選択肢の変わる事の後に印を付ける。"""
+    def m(rest):
+        parts = rest.split("</small></span></label>")
+        parts[nth] = parts[nth] + "</small>" + REC[:-len("</small>")]
+        return "</small></span></label>".join(parts)
+    return m
+
+
 @needs_node
-def test_選択肢におすすめの印を付けると赤(tmp_path):
-    """推奨の印は外した＝見込みは選択肢の後の別枠（根拠つき）だけ。HTML の印もデータの recommended も赤。"""
+@pytest.mark.parametrize("dest", ["copy", "artifact"])
+def test_オーナー宛ての分かれ道の問いの_1_つ目に_1_つの印は緑(tmp_path, dest):
+    assert _rec_page(tmp_path, dest, _mark(0)) == []
+
+
+REC_HTML_RED = [
+    ("オーナー宛てで 2 つ目に印", "copy", _mark(1), "問い q3: 選択肢「借りた日から 14 日」の推奨の印: 印は 1 つ目の選択肢だけ"),
+    ("1 問に 2 つ", "copy", lambda r: _mark(1)(_mark(0)(r)), "問い q3: 推奨の印は 1 問に 1 つ（今 2）"),
+    ("「分からない」に印", "copy",
+     lambda r: r.replace("<b>分からない・確かめてから答える</b>", "<b>分からない・確かめてから答える</b>" + REC, 1),
+     "問い q3: 選択肢「分からない・確かめてから答える」の推奨の印: 「分からない」には付けない"),
+    ("お客さん宛て（send）に印", "send", _mark(0), "問い q3: 推奨の印（small.rec）はオーナー宛て（copy・artifact）のページだけ"),
+    ("理由が空", "copy", lambda r: _mark(0)(r).replace(REC, '<small class="rec"></small>', 1), "問い q3: 選択肢「借りた日から 7 日」の推奨の印に理由が無い"),
+]
+
+
+@needs_node
+@pytest.mark.parametrize("name, dest, mutate, expect", REC_HTML_RED, ids=[m[0] for m in REC_HTML_RED])
+def test_推奨の印の付け方が崩れると赤(tmp_path, name, dest, mutate, expect):
+    red = _rec_page(tmp_path, dest, mutate)
+    assert len(red) == 1 and red[0].startswith(expect), (name, red)
+
+
+@needs_node
+def test_事実を聞く問いの推奨の印は赤(tmp_path):
+    """オーナー宛てでも、事実を聞く問い（ここは q1＝choose）には印を付けない。見込みは .estimate の別枠。"""
+    page = tmp_path / "確認.html"
+    page.write_text(filled_template().replace('<small class="chg">10 月の請求が合計 1,200 円</small>',
+                                              '<small class="chg">10 月の請求が合計 1,200 円</small>' + REC, 1), encoding="utf-8")
+    red = run_check(page)["red"]
+    assert len(red) == 1 and red[0].startswith("問い q1: 推奨の印（small.rec）は作り方の分かれ道の問い（judge）だけ"), red
+
+
+@needs_node
+def test_推奨の字をページに書くのと古い印の形は赤(tmp_path):
+    """印の字は型の CSS が出す＝ページの文に「推奨」「おすすめ」を書けば赤。字を書く古い印（tag-rec）も赤。"""
     page = tmp_path / "確認.html"
     page.write_text(filled_template().replace("<b>切り捨てる</b>", '<b>切り捨てる<span class="tag-rec">おすすめ</span></b>', 1), encoding="utf-8")
     red = run_check(page)["red"]
-    assert any(r.startswith("選択肢に印（おすすめ・tag-rec）を付けない") for r in red), red
-    assert any(r.startswith("問い q1: 選択肢「切り捨てる") and "に印" in r for r in red), red
+    assert any(r.startswith("推奨の印の古い形（tag-rec）は使わない") for r in red), red
     assert any(r.startswith("「おすすめ」は書かない") for r in red), red
+
+
+REC_JSON = [
+    ("good の印（オーナー宛て・judge・1 つ目に理由つき）は緑", lambda d: None, None),
+    ("2 つ目に印", lambda d: d["questions"][2]["options"][1].update(recommended="借りた側が使う物のため"),
+     "問い q3: 推奨の印は 1 問に 1 つ（今 2）"),
+    ("1 つ目を外して 2 つ目にだけ印", lambda d: (d["questions"][2]["options"][0].pop("recommended"),
+                                         d["questions"][2]["options"][1].update(recommended="借りた側が使う物のため")),
+     "問い q3: 選択肢「借りた側が直す」の推奨の印: 印は 1 つ目の選択肢だけ"),
+    ("「分からない」に印", lambda d: d["questions"][2]["options"].append({"value": "__unknown__", "label": "分からない", "recommended": "x"}),
+     "問い q3: 「分からない」に推奨の印"),
+    ("send に印", lambda d: d.update(dest="send"), "問い q3: 推奨の印（\"recommended\"）はオーナー宛て"),
+    ("事実を聞く問いに印", lambda d: d["questions"][1]["options"][0].update(recommended="控えの日付のため"),
+     "問い q2: 推奨の印（\"recommended\"）は作り方の分かれ道の問い（judge）だけ"),
+    ("理由が文字でない", lambda d: d["questions"][2]["options"][0].update(recommended=True),
+     "問い q3: 選択肢「貸した側が直す」の推奨の印: \"recommended\" は理由の文字"),
+]
+
+
+@needs_node
+@pytest.mark.parametrize("name, mutate, expect", REC_JSON, ids=[m[0] for m in REC_JSON])
+def test_問いのデータの推奨の印(tmp_path, name, mutate, expect):
     data = json.loads((DATA / "good.json").read_text(encoding="utf-8"))
-    data["questions"][0]["options"][1]["recommended"] = False   # 値に関わらず鍵があれば赤
+    mutate(data)
     q = tmp_path / "q.json"
     q.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
     red = run_check(q)["red"]
-    assert len(red) == 1 and red[0].startswith("問い q1: 選択肢「借りた日から 14 日」に印（\"recommended\"）"), red
+    if expect is None:
+        assert red == [], red
+        return
+    assert len(red) == 1 and red[0].startswith(expect), (name, red)
 
 
 # 問いのデータ（JSON）を 1 か所だけ壊すと、その 1 つの赤だけが出る（根拠・読み・見込み・リンク・先に決めておきたい事）

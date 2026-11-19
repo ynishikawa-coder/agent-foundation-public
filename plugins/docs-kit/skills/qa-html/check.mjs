@@ -12,7 +12,8 @@
 //     くわしく details.more）のどれかが空・上限超え・見つけた事が一覧に無い資料を指す／なぜ聞くかが決まった 5 文でない／
 //     切り抜き（figure.clip）が 3 枚以上・一覧に無い資料・問いの人の外の名が写る／選択肢にこの答えで変わる事（small.chg）が無い
 //   根拠と読み: 根拠（.evidence の li[data-doc][data-where]）が無い・場所が空・一覧に無い資料／実物（切り抜きか原文の引用 .quote）が
-//     1 つも無い／AI の読み（.reading）が無い・4 行以上／選択肢に印（おすすめ・recommended）／AI の今の見込み（.estimate）の
+//     1 つも無い／AI の読み（.reading）が無い・4 行以上／推奨の印（small.rec・recommended）がオーナー宛て（copy・artifact）の
+//     作り方の分かれ道の問い（judge）の外・1 つ目の選択肢の外・1 問に 2 つ・「分からない」に在る・理由が無い／AI の今の見込み（.estimate）の
 //     根拠（data-basis）が空・選択肢より前／見込みの言葉を見込みの枠の外で使う／「前の問い」など、ほかの問いに頼る言い方
 //   問い: 問いの形（data-kind）が 5 つ以外／並び（data-group）が 会社の決まり→人ごとの事実→今回だけの事→先に決めておきたい事 でない／
 //     先に決めておきたい事（later）の 1 行が決まった文でない／
@@ -37,7 +38,7 @@ import { fileURLToPath } from "node:url";
 
 // ── 問いの決まりの表（1 か所）。会社ごとに足す語は config/skill-values.json の docs-kit.qa-html.internal_words
 //    （文字列か {語, 正規表現, 言い換え}）、上限は docs-kit.qa-html.limits で上書きする。
-// 外した欄（2026-11-14 オーナー決定: 差出人・連絡先の欄は要らない）。HTML の class と JSON の鍵が同じ名。
+// 外した欄（差出人・連絡先の欄は要らない）。HTML の class と JSON の鍵が同じ名。
 const DROPPED = [["from", "差出人"], ["contact", "連絡先"]];
 const ROOT_CAUSE = "  直し: 赤の行を 1 つずつ潰さず、細目 §3「まず構造を疑う」で原因（問いの元の表・前提の写し方）から直す";
 
@@ -61,7 +62,8 @@ export const RULES = {
     "reading_lines": 3,
     "reading_line_chars": 80,
     "estimate_chars": 40,
-    "basis_chars": 60
+    "basis_chars": 60,
+    "rec_chars": 40
   },
   // なぜ聞くか（決まった 5 文）。会社の表の docs-kit.qa-html.why で文だけ替えられる（例 once を「この月だけの事を確かめます」）
   "why": {
@@ -90,7 +92,11 @@ export const RULES = {
   },
   // 先に決めておきたい事（later）の最初の問いのまとまりの 1 行（決まった文・会社の表の docs-kit.qa-html.later_lead で替えられる）
   "later_lead": "今月の計算には関係しません。起きた時の決め方を先に伺います。",
-  // AI の今の見込みは .estimate の枠だけ（選択肢に印を付けない・前提として見せない）。枠の外のこの言葉は赤
+  // 推奨の印（選択肢の画面の印と同じ決め方＝細目 §4）: オーナー宛て（dests）の作り方の分かれ道の問い（kinds）だけ・
+  //   1 問に 1 つ・1 つ目の選択肢だけ・「分からない」に付けない・理由はその選択肢に 1 行（HTML は <small class="rec">理由</small>＝
+  //   「推奨」の字は型の CSS が出す・JSON は "recommended": "理由"）。お客さん宛て（send）と事実を聞く問いは印なし＝見込みは .estimate の枠だけ
+  "rec": { "dests": ["copy", "artifact"], "kinds": ["judge"] },
+  // 印の字は型が出す＝ページの文に書いたこの言葉は赤（印は small.rec・"recommended" で付ける）
   "recommend": "おすすめ|お勧め|お薦め|オススメ|推奨",
   "estimate_word": "見込み|予測",
   // 1 画面 1 問＝ほかの問いの答えに頼らない（「前の問いの答えで決まります」の類は赤）
@@ -418,8 +424,8 @@ export function readHtml(raw) {
   else if (!next || !text(next.inner)) shape.push("受付の「この後のこと」（.next）が無い");
   else if (/<(?!br\s*\/?>)[a-z!/]/i.test(mask(next.inner))) shape.push("「この後のこと」（.next）に書けるのは字と <br> だけ");
 
-  // 選択肢の印（おすすめ）は外した＝見込みは .estimate の枠だけ
-  if (/\btag-rec\b/.test(html)) shape.push("選択肢に印（おすすめ・tag-rec）を付けない（AI の今の見込みは選択肢の後の .estimate の枠へ・根拠つき）");
+  // 古い印の形（tag-rec＝字を書く印）は畳んだ＝推奨の印は small.rec に理由と一緒に置く（字は型の CSS が出す）
+  if (/\btag-rec\b/.test(html)) shape.push('推奨の印の古い形（tag-rec）は使わない（オーナー宛ての作り方の分かれ道の問いだけ、1 つ目の選択肢に <small class="rec">理由</small>）');
   // 見込みの枠（.estimate）の字は別に持つ（枠の外に見込みの言葉があれば赤にするため）
   const estEls = byClass(html, "estimate");
   const estTexts = estEls.flatMap((e) => [...textLines(e.inner), attr(e.tag, "data-basis") ?? ""]).filter(Boolean);
@@ -442,14 +448,16 @@ export function readHtml(raw) {
       const b = /<b\b[^>]*>([\s\S]*?)<\/b>/i.exec(o[1]);
       const smalls = [...o[1].matchAll(/<small\b[^>]*>([\s\S]*?)<\/small>/gi)];
       const chg = smalls.find((x) => /\bclass\s*=\s*["'][^"']*\bchg\b/i.test(x[0]));
-      const small = smalls.find((x) => x !== chg);
+      const recs = smalls.filter((x) => /(?:^|\s)rec(?:\s|$)/.test(attr(x[0], "class") ?? ""));
+      const small = smalls.find((x) => x !== chg && !recs.includes(x));
       return {
         value: attr(inp, "value"),
         all: text(o[1]),
         head: text(b ? b[1] : o[1]),
         detail: small ? text(small[1]) : "",
         change: chg ? text(chg[1]) : "",
-        rec: /tag-rec/.test(o[1]),
+        rec: recs.length ? text(recs[0][1]) : null,   // null＝印なし・字＝理由
+        recCount: recs.length,
         needSupp: attr(inp, "data-supp") === "need",
         suppBad: attr(inp, "data-supp") != null && attr(inp, "data-supp") !== "need" ? String(attr(inp, "data-supp")) : null,
       };
@@ -539,13 +547,15 @@ export function readJson(data) {
     .map((q) => {
       const raw = Array.isArray(q.options) ? q.options : [];
       if (raw.some((o) => typeof o === "string")) shape.push(`問い ${q.key}: 選択肢は {"value","label"} の形で書く（文字だけでは機械で戻せない）`);
+      if (raw.some((o) => o && typeof o === "object" && o.value === UNKNOWN && Object.hasOwn(o, "recommended")))
+        shape.push(`問い ${q.key}: 「分からない」に推奨の印（"recommended"）を付けない`);
       const options = raw
         .filter((o) => o && typeof o === "object" ? o.value !== UNKNOWN : true)
         .map((o) =>
           typeof o === "string"
             ? { value: null, head: o, all: o, detail: "" }
             : { value: o?.value ?? null, head: String(o?.label ?? ""), detail: String(o?.detail ?? ""), change: String(o?.change ?? "").trim(),
-                all: [o?.label, o?.detail, o?.change].filter(Boolean).join(" "), rec: Object.hasOwn(o ?? {}, "recommended"), needSupp: o?.supp === "need",
+                all: [o?.label, o?.detail, o?.change].filter(Boolean).join(" "), rec: !Object.hasOwn(o ?? {}, "recommended") ? null : typeof o.recommended === "string" ? o.recommended.trim() : false, recCount: Object.hasOwn(o ?? {}, "recommended") ? 1 : 0, needSupp: o?.supp === "need",
                 suppBad: o?.supp != null && o?.supp !== "need" ? JSON.stringify(o.supp) : null },
         );
       const table = Array.isArray(q.table) ? q.table : [];
@@ -591,11 +601,33 @@ export function readJson(data) {
     ...lines(q?.reading), ...(Array.isArray(q?.evidence) ? q.evidence.flatMap((e) => [e?.where, e?.quote]) : []),
     ...(Array.isArray(q?.clips) ? q.clips.flatMap((c) => [c?.alt, c?.caption]) : []),
     ...(Array.isArray(q?.table) ? q.table.flat().map(String) : []),
-    ...(Array.isArray(q?.options) ? q.options.flatMap((o) => (typeof o === "string" ? [o] : [o?.label, o?.detail, o?.change])) : [])])]
+    ...(Array.isArray(q?.options) ? q.options.flatMap((o) => (typeof o === "string" ? [o] : [o?.label, o?.detail, o?.change, typeof o?.recommended === "string" ? o.recommended : null])) : [])])]
     .flatMap((x) => lines(x));
   const estTexts = qsIn.flatMap((q) => (q?.estimate ? [q.estimate.value, q.estimate.basis] : [])).flatMap((x) => lines(x));
   const holes = [...new Set(JSON.stringify(data ?? {}).match(/\{\{[^}]*\}\}/g) ?? [])];
   return { format: "json", version: version == null ? null : String(version), dest: data?.dest ?? null, holes, shape, brand: data?.brand ?? null, docs, hold: String(data?.hold ?? "").trim(), texts, estTexts, questions };
+}
+
+// ── 推奨の印（RULES.rec）: オーナー宛ての作り方の分かれ道の問いだけ・1 問に 1 つ・1 つ目・「分からない」に付けない・理由つき
+function checkRec(q, id, dest, format, limits, red) {
+  const marked = q.options.map((o, i) => ({ o, i })).filter(({ o }) => o.rec != null);
+  if (!marked.length) return;
+  const mark = format === "html" ? "small.rec" : '"recommended"';
+  const est = format === "html" ? ".estimate" : '"estimate"';
+  if (!RULES.rec.dests.includes(dest))
+    red.push(`${id}: 推奨の印（${mark}）はオーナー宛て（copy・artifact）のページだけ。お客さん宛て（${dest ?? "宛先なし"}）は印を付けず、AI の今の見込みは根拠つきで ${est} へ`);
+  else if (!RULES.rec.kinds.includes(q.kind))
+    red.push(`${id}: 推奨の印（${mark}）は作り方の分かれ道の問い（judge）だけ。事実を聞く問い（${q.kind ?? "形なし"}）は印を付けず、AI の今の見込みは根拠つきで ${est} へ`);
+  const n = marked.reduce((s, { o }) => s + (o.recCount ?? 1), 0);
+  if (n > 1) red.push(`${id}: 推奨の印は 1 問に 1 つ（今 ${n}）。推せる案が 2 つあるなら問いを分けるか印を外す`);
+  for (const { o, i } of marked) {
+    const name = `${id}: 選択肢「${o.head.slice(0, 20)}」の推奨の印`;
+    if (o.value === UNKNOWN) { red.push(`${name}: 「分からない」には付けない`); continue; }
+    if (i !== 0 && n === 1) red.push(`${name}: 印は 1 つ目の選択肢だけ（推す案を 1 つ目に置く）`);
+    if (o.rec === false) red.push(`${name}: "recommended" は理由の文字（推す理由 1 行）で書く`);
+    else if (!o.rec) red.push(`${name}に理由が無い（推す理由を 1 行・${mark}）`);
+    else if (len(o.rec) > limits.rec_chars) red.push(`${name}の理由が ${len(o.rec)} 字（${limits.rec_chars} 字まで）: ${o.rec.slice(0, 30)}…`);
+  }
 }
 
 // ── 決まり: 問いの形（HTML でも JSON でも同じ物）を 1 か所で見る
@@ -758,8 +790,7 @@ export function checkPage(page, { valuesPath = null, prior = null } = {}) {
     if (!q.required) red.push(`${id}: 答えずに送れる（最初の選択肢か入力の欄に required を付ける）`);
     if (q.checkboxRequired) red.push(`${id}: checkbox に required を付けない（その 1 つを選ばないと送れなくなる）`);
     const real = q.options.filter((o) => o.value !== UNKNOWN);
-    for (const o of real.filter((o) => o.rec))
-      red.push(`${id}: 選択肢「${o.head.slice(0, 20)}」に印（${page.format === "html" ? "おすすめ" : '"recommended"'}）を付けない（AI の今の見込みは根拠つきで ${page.format === "html" ? ".estimate" : '"estimate"'} へ）`);
+    checkRec(q, id, dest, page.format, limits, red);
     const vals = [];
     for (const o of real) {
       if (len(o.head) > limits.option_chars) red.push(`${id}: 選択肢の見出しが ${len(o.head)} 字（${limits.option_chars} 字まで・中身は結果の 1 行へ）: ${o.head.slice(0, 30)}…`);
