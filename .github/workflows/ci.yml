@@ -27,8 +27,8 @@ jobs:
           node-version: "22"
       - name: 試験の道具を入れる
         run: |
-          python3 -m pip install --quiet pytest playwright==1.58.0
-          npm install -g --silent playwright@1.58.0
+          python3 -m pip install --quiet pytest playwright==1.65.1
+          npm install -g --silent playwright@1.65.1
           echo "NODE_PATH=$(npm root -g)" >> "$GITHUB_ENV"
           python3 -m playwright install --with-deps chromium
       - name: 検査（入口は check_all の 1 本）
