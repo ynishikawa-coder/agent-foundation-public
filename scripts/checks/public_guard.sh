@@ -3,8 +3,8 @@
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 if [ "${GITHUB_ACTIONS:-}" = "true" ]; then
-  echo "（CI では job public-guard が照らす）"
-  exit 0
+  echo "public_guard: 照らしていない（CI では job public-guard が照らす）"
+  exit 3   # 照らしていない（check_all は緑に数えず名指す）
 fi
 exec python3 public-guard/guard.py --deny-words-file tests/data/denylist.txt \
   --pattern-skip public-guard/guard.py tests/test_public_guard.py

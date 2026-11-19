@@ -60,8 +60,9 @@ from window_shape import (  # noqa: E402
 # ── 隣の正本（写さず直に呼ぶ）──────────────────────────────────
 #  中の言葉・「分からない」の見分け … plugin guard の scripts/ask_shape.py（inner_terms・is_dunno）・値の表は scripts/guard_common.py
 #  秘密の形 … 公開の検査 public-guard/guard.py（secret_labels。plugin の外＝市場の写しから読む）
-#  探す順: 環境変数 → 同じ repo（plugins/session-watch の隣）→ 入れた plugin の同じ版 → 市場の写し → 入れた plugin の新しい版
-#  どこにも無ければ None（check は neighbor の札を出す＝黙って照らしを抜かない）。
+#  探す順: 環境変数 → 同じ repo（plugins/session-watch の隣）→ 入れた plugin の同じ版 → 市場の写し（HEAD が同じ版の時だけ）
+#  版の合う物が無ければ None（check は neighbor の札を出す＝黙って照らしを抜かない）。手近な別の版（mtime の新しい版・
+#  版の違う市場の写し）は拾わない（入った版と違う決まりで返事を照らさない）。
 NEIGHBORS = {
     "ask_shape": ("AF_ASK_SHAPE", "plugins/guard/scripts/ask_shape.py", "guard", "scripts/ask_shape.py"),
     "guard_common": ("AF_GUARD_COMMON", "plugins/guard/scripts/guard_common.py", "guard", "scripts/guard_common.py"),
@@ -79,14 +80,25 @@ def neighbor_path(name, env=None):
     ver, market = os.path.basename(PLUGIN_ROOT), os.path.basename(up2)
     if plugin:
         cands.append(os.path.join(up2, plugin, ver, rel))
-    cands.append(os.path.join(os.path.dirname(os.path.dirname(up2)), "marketplaces", market, repo_rel))
-    if plugin:
-        import glob
-        cands += sorted(glob.glob(os.path.join(up2, plugin, "*", rel)), key=os.path.getmtime, reverse=True)
+    clone = os.path.join(os.path.dirname(os.path.dirname(up2)), "marketplaces", market)
+    if _same_version(clone, ver):
+        cands.append(os.path.join(clone, repo_rel))
     for c in cands:
         if c and os.path.isfile(c):
             return c
     return None
+
+
+def _same_version(clone, ver):
+    """市場の写し（目録の clone）の HEAD が入った版（cache の dir の名＝commit の頭）と同じか。分からなければ False。"""
+    if not re.fullmatch(r"[0-9a-f]{7,64}", ver or "") or not os.path.isdir(clone):
+        return False
+    import subprocess
+    try:
+        r = subprocess.run(["git", "-C", clone, "rev-parse", "HEAD"], capture_output=True, text=True, timeout=5)
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return r.returncode == 0 and r.stdout.strip().startswith(ver)
 
 
 def neighbor(name):
