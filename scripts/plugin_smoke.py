@@ -21,7 +21,9 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import select
+import shlex
 import shutil
 import subprocess
 import sys
@@ -45,6 +47,19 @@ def expected(repo: Path) -> dict:
     hooks = sorted(p.parent.parent.name for p in repo.glob("plugins/*/hooks/hooks.json"))
     kaku = (repo / "plugins" / "core" / "核.md").read_text(encoding="utf-8").rstrip("\n")
     return {"plugins": plugins, "skills": skills, "hooks": hooks, "kaku": kaku}
+
+
+DOC = "docs/核の届け方.md"
+FOUNDATION = "ynishikawa-coder/agent-foundation-public"
+
+
+def setup_block(repo: Path) -> str:
+    """使う側が貼る setup script の塊（docs/核の届け方.md の `setup-script` の印の次の bash の塊）を正本から直に読む。"""
+    text = (repo / DOC).read_text(encoding="utf-8")
+    m = re.search(r"<!-- setup-script.*?-->\s*```bash\n(.*?)\n\s*```", text, re.S)
+    if not m or FOUNDATION not in m.group(1):
+        raise ValueError(f"{DOC} に setup script の塊（印 setup-script の次の bash・{FOUNDATION} を足す行）が無い")
+    return "\n".join(line.strip() for line in m.group(1).splitlines())
 
 
 def sh(args, env, timeout=300):
@@ -108,15 +123,17 @@ def smoke(source: str, repo: Path, expect_sha: str | None) -> list[str]:
             if k in os.environ:
                 env[k] = os.environ[k]
 
-        # 1. 使う側の setup script と同じ入れ方（docs/核の届け方.md）。
-        r = sh(["claude", "plugin", "marketplace", "add", source, "--scope", "user"], env)
+        # 1. 使う側の setup script そのもの（docs/核の届け方.md の塊を、目録の repo だけ試す物に替えて、set -e の下で回す）。
+        script = setup_block(repo).replace(FOUNDATION, shlex.quote(source))
+        r = sh(["bash", "-ec", script], env, timeout=900)  # 貼る先が set -e でも抜けない
         if r.returncode != 0:
-            return [f"marketplace を足せない: {(r.stdout + r.stderr).strip()[-300:]}"]
-        for name in want["plugins"]:
-            r = sh(["claude", "plugin", "install", f"{name}@{MARKET}", "--scope", "user"], env)
-            if r.returncode != 0:
-                bad.append(f"plugin {name} を入れられない（配りの器 .claude-plugin/marketplace.json に無い・壊れている）: "
-                           f"{(r.stdout + r.stderr).strip()[-200:]}")
+            bad.append(f"setup script の塊が非 0 で抜けた（窓が起動しない）: {(r.stdout + r.stderr).strip()[-300:]}")
+        note = home / ".claude" / "CLAUDE.md"
+        for line in (note.read_text(encoding="utf-8").splitlines() if note.exists() else []):
+            if line.startswith("<!-- af-plugin-missing -->"):
+                bad.append(f"setup script が入れ損ねを知らせた: {line[len('<!-- af-plugin-missing -->'):].strip()[:300]}")
+        if not (home / ".claude" / "af-foundation" / "setup.json").is_file():
+            bad.append("setup script が土台の入口 scripts/setup_plugins.py を通っていない（入れた印が無い）")
         table = json.loads((home / ".claude" / "plugins" / "installed_plugins.json").read_text(encoding="utf-8")
                            if (home / ".claude" / "plugins" / "installed_plugins.json").exists() else "{}")
         rows = {k.split("@")[0]: v[0] for k, v in (table.get("plugins") or {}).items() if v}

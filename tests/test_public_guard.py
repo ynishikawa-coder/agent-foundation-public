@@ -448,3 +448,14 @@ def test_名に顧客の語があるファイルは名を伏せる(tmp_path):
 def test_照らす範囲が読めない時は理由を出して赤(tmp_path):
     res = _cli(_repo(tmp_path), {}, "--range", "0" * 40 + ".." + "1" * 40)
     assert res.returncode == 1 and "照らす範囲を読めない" in res.stdout, res.stdout + res.stderr
+
+
+def test_手元で照らす範囲が読めない時は_main_の取り方を言う(tmp_path):
+    """注入: main の無い手元の clone で回す → 赤のまま、取り方の 1 行を出す（CI では出さない＝CI の取り出しは ci.yml が決める）。"""
+    repo = _repo(tmp_path)
+    env = {k: v for k, v in os.environ.items() if k not in ENV_KEYS}
+    r = subprocess.run([sys.executable, str(GUARD), "--repo", str(repo)], capture_output=True, text=True, env=env, timeout=60)
+    assert r.returncode == 1 and "照らす範囲を読めない" in r.stdout and "git fetch origin main" in r.stdout
+    r = subprocess.run([sys.executable, str(GUARD), "--repo", str(repo)], capture_output=True, text=True,
+                       env={**env, "GITHUB_ACTIONS": "true"}, timeout=60)
+    assert "git fetch origin main" not in r.stdout

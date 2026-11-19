@@ -1,4 +1,4 @@
-"""plugin core の試験: 核の差し込み（写しの枠が在れば差し込まない）と、量の上限の照らし。"""
+"""plugin core の試験: 核の差し込み（いつも正本）・使う側に残った写しと古い形の名指し・量の上限の照らし。"""
 import functools
 import importlib.util
 import json
@@ -62,11 +62,134 @@ def test_CLAUDE_md_が無い_repo_にも差し込む(tmp_path):
     assert r.returncode == 0 and "additionalContext" in r.stdout
 
 
-def test_写しの枠が在る_repo_には差し込まない(tmp_path):
-    (tmp_path / "CLAUDE.md").write_text("<!-- AF-CORE:BEGIN 写し -->\n核\n<!-- AF-CORE:END -->\n固有\n",
+def _ctx(r):
+    assert r.returncode == 0, r.stderr
+    return json.loads(r.stdout)["hookSpecificOutput"]["additionalContext"]
+
+
+def test_写しの枠が在る_repo_にも正本の核を差し込み_枠を名指しする(tmp_path):
+    """注入: 使う側の CLAUDE.md に古い核の写しの枠を戻す → 写しでなく正本が差し込まれ、枠が file の名で知らされる。"""
+    (tmp_path / "CLAUDE.md").write_text("<!-- AF-CORE:BEGIN 写し -->\n古い核\n<!-- AF-CORE:END -->\n固有\n",
                                          encoding="utf-8")
-    r = run("inject", project=tmp_path)
-    assert r.returncode == 0 and r.stdout == ""
+    ctx = _ctx(run("inject", project=tmp_path))
+    assert ctx.startswith((PLUGIN / "核.md").read_text(encoding="utf-8").rstrip("\n"))
+    assert "古い形（写し）が残っている" in ctx and "CLAUDE.md: CLAUDE.md の核の写しの枠" in ctx
+
+
+def test_古い形の一覧の行は形が揃い_例が自分の形に当たる():
+    rows = kaku.olds_table()
+    assert {r["id"] for r in rows} >= {"af-core-frame", "plugin-name-copy"}
+    for r in rows:
+        assert r["re"].search(r["example"]), f"{r['id']} の例が形に当たらない（見つける力が無い）"
+
+
+@pytest.mark.parametrize("line", [
+    "claude plugin install core@agent-foundation --scope user",
+    "claude plugins install core@agent-foundation",
+    "claude plugin i core@agent-foundation",
+    "claude plugin install --scope user core@agent-foundation",
+    "claude plugin install -s user guard@agent-foundation || true",
+    'for p in core guard; do claude plugin install "$p@agent-foundation"; done',
+    # 名を変数に置く・行を継ぐ（レビューの赤）。入れ方の綴りに頼らず「土台の目録を足すのに入口を呼ばない」形でも当たる
+    'MARKET=agent-foundation\nclaude plugin install "$p@$MARKET"',
+    'AF="agent-foundation"\nfor p in core guard; do claude plugin install "${p}@${AF}"; done',
+    'claude plugin install \\\n  core@agent-foundation --scope user',
+    'claude plugin marketplace add ynishikawa-coder/agent-foundation-public --scope user\nfor p in $want; do claude plugin install "$p@$m"; done',
+])
+def test_plugin_を入れる行は綴りが違っても古い形に当たる(line):
+    """注入: 同じ意味の別の綴り（plugins・i・名の前の option）で偽の「古い形 0」にならない。"""
+    row = next(r for r in kaku.olds_table() if r["id"] == "plugin-name-copy")
+    assert row["re"].search(line), line
+
+
+def test_入口を呼ぶ_setup_は古い形に当たらない():
+    """入口 scripts/setup_plugins.py を通る形（docs の 3 行）は、目録を足していても古い形ではない。"""
+    row = next(r for r in kaku.olds_table() if r["id"] == "plugin-name-copy")
+    doc = (ROOT / "docs" / "核の届け方.md").read_text(encoding="utf-8")
+    block = re.search(r"<!-- setup-script.*?-->\s*```bash\n(.*?)\n\s*```", doc, re.S).group(1)
+    assert "marketplace add" in block and not row["re"].search(block)
+
+
+def test_古い形の見張りは時間の上限で打ち切り_黙って一部だけにしない(tmp_path):
+    """注入: 見張りの時間を使い切った形 → 当たった所までを黙って返さず TimeoutError（起動では「見張りが動かなかった」と名指し）。"""
+    import time
+    _olds_repo(tmp_path / "p", {"CLAUDE.md": "<!-- AF-CORE:BEGIN -->\n"})
+    with pytest.raises(TimeoutError):
+        kaku.find_olds(tmp_path / "p", deadline=time.monotonic() - 1)
+    assert kaku.find_olds(tmp_path / "p", deadline=time.monotonic() + 60)
+
+
+def test_古い形の一覧の欄が欠けると読めない(tmp_path):
+    bad = tmp_path / "古い形.json"
+    bad.write_text(json.dumps({"olds": [{"id": "x", "files": ["a"], "pattern": "a"}]}), encoding="utf-8")
+    with pytest.raises(ValueError):
+        kaku.olds_table(bad)
+
+
+def _olds_repo(d, files):
+    d.mkdir(parents=True, exist_ok=True)
+    for name, body in files.items():
+        (d / name).parent.mkdir(parents=True, exist_ok=True)
+        (d / name).write_text(body, encoding="utf-8")
+    subprocess.run(["git", "init", "-q", str(d)], check=True)
+    subprocess.run(["git", "-C", str(d), "add", "-A"], check=True)
+
+
+def test_plugin_の名を写した_setup_の行が在る_repo_を名指しする(tmp_path):
+    """注入: 使う側の setup script に plugin の名を写して入れる行を戻す → 起動の hook と olds が file を名指しする。"""
+    proj = tmp_path / "p"
+    _olds_repo(proj, {"scripts/env/setup.sh": 'for p in core guard; do claude plugin install "$p@agent-foundation"; done\n',
+                     "README.md": "ふつう\n"})
+    ctx = _ctx(run("inject", project=proj))
+    assert "scripts/env/setup.sh: 土台の目録を足して plugin を入れるのに" in ctx and "README.md" not in ctx
+    r = run("olds", proj)
+    assert r.returncode == 1 and "plugin-name-copy" in r.stdout
+    (proj / "scripts/env/setup.sh").write_text("python3 \"$af\" || true\n", encoding="utf-8")
+    r = run("olds", proj)
+    assert r.returncode == 0 and "古い形 0" in r.stdout
+    assert "古い形（写し）" not in _ctx(run("inject", project=proj))
+
+
+def test_土台そのものに古い形が残らない():
+    r = run("olds", ROOT)
+    assert r.returncode == 0, r.stdout
+
+
+def test_CLAUDE_md_が上限を越えた_repo_は起動の時に名指しする(tmp_path):
+    """使う側は kaku.py も LIMITS も写して持たない＝起動の hook が照らす。"""
+    (tmp_path / "CLAUDE.md").write_text("決" * (LIMITS["各社固有"] // 3 + 1), encoding="utf-8")
+    assert "量の上限を越えている" in _ctx(run("inject", project=tmp_path))
+    (tmp_path / "CLAUDE.md").write_text("決" * (LIMITS["各社固有"] // 3), encoding="utf-8")
+    assert "量の上限を越えている" not in _ctx(run("inject", project=tmp_path))
+
+
+def _installed_home(tmp_path, names, have, entry):
+    """GitHub から目録を足した窓の home（目録の clone・入った plugin の台帳・入口の印）を作る。"""
+    home = tmp_path / "home"
+    loc = home / ".claude" / "plugins" / "marketplaces" / "agent-foundation"
+    (loc / ".claude-plugin").mkdir(parents=True)
+    (loc / ".claude-plugin" / "marketplace.json").write_text(json.dumps(
+        {"name": "agent-foundation", "plugins": [{"name": n} for n in names]}), encoding="utf-8")
+    (home / ".claude" / "plugins" / "known_marketplaces.json").write_text(json.dumps({"agent-foundation": {
+        "source": {"source": "github", "repo": "o/r"}, "installLocation": str(loc)}}), encoding="utf-8")
+    (home / ".claude" / "plugins" / "installed_plugins.json").write_text(json.dumps(
+        {"version": 2, "plugins": {f"{n}@agent-foundation": [{}] for n in have}}), encoding="utf-8")
+    if entry:
+        (home / ".claude" / "af-foundation").mkdir(parents=True)
+        (home / ".claude" / "af-foundation" / "setup.json").write_text("{}", encoding="utf-8")
+    return home
+
+
+def test_古い形の_setup_script_と入っていない_plugin_を名指しする(tmp_path):
+    """注入: 土台が plugin を足したのに、名を写した古い setup script がそれを入れない → 窓の起動で名指し。"""
+    home = _installed_home(tmp_path, ["core", "guard", "new-one"], ["core", "guard"], entry=False)
+    ctx = _ctx(run("inject", project=tmp_path / "proj", home=home))
+    assert "setup script が古い形" in ctx and "入っていない: new-one" in ctx
+
+
+def test_入口で全部入った窓には入れ方の知らせを出さない(tmp_path):
+    home = _installed_home(tmp_path, ["core", "guard"], ["core", "guard"], entry=True)
+    assert "入れ方が古い" not in _ctx(run("inject", project=tmp_path / "proj", home=home))
 
 
 def test_上限の数は_1_か所で_核より各社固有が小さい():
@@ -90,11 +213,11 @@ def test_各社固有が上限を越えると赤で_上限ちょうどは緑(tmp
     assert "細目 §3「まず構造を疑う」" in r.stdout.strip().splitlines()[-1], "越えた時に文を移させるだけの古い形に戻った"
 
 
-def test_写しの枠が在れば枠の外だけを各社固有として測る(tmp_path):
+def test_写しの枠が残る_CLAUDE_md_は量の照らしで赤(tmp_path):
     claude = tmp_path / "CLAUDE.md"
-    big = "核" * (LIMITS["各社固有"] // 3 + 10)
-    claude.write_text(f"<!-- AF-CORE:BEGIN x -->\n{big}\n<!-- AF-CORE:END -->\n固有\n", encoding="utf-8")
-    assert run("check", "--claude", claude).returncode == 0
+    claude.write_text("<!-- AF-CORE:BEGIN x -->\n核\n<!-- AF-CORE:END -->\n固有\n", encoding="utf-8")
+    r = run("check", "--claude", claude)
+    assert r.returncode == 1 and "写しの枠" in r.stdout
 
 
 def test_核が上限を越えると赤(monkeypatch, tmp_path, capsys):
@@ -107,12 +230,13 @@ def test_核が上限を越えると赤(monkeypatch, tmp_path, capsys):
 
 @functools.lru_cache(maxsize=1)
 def _土台の文書():
-    """土台の文書と道具の path の並び（.git と試験の中の古い語の一覧と、変更の記録の経緯は除く）。"""
+    """土台の文書と道具の path の並び（.git と試験の中の古い語の一覧と、変更の記録の経緯と、古い形.json は除く）。"""
     out = []
     for d, dirs, files in os.walk(ROOT):
         dirs[:] = sorted(x for x in dirs if not (Path(d) == ROOT and x in {".git", "tests"}))
         out += [Path(d) / f for f in sorted(files)
-                if f != "CHANGELOG.md" and Path(f).suffix in {".md", ".py", ".json", ".mjs", ".html"}]
+                if f != "CHANGELOG.md" and Path(f).suffix in {".md", ".py", ".json", ".mjs", ".html"}
+                and Path(d) / f != PLUGIN / "古い形.json"]   # 使う側に残る古い形を見つける一覧＝古い名を持つのが役目
     return tuple(out)
 
 
