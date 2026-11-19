@@ -45,8 +45,8 @@
 - **秘密を置かない。** 鍵・トークン・パスワード・接続文字列を、コード・試験・文書・PR 本文・ログのどこにも書かない。
 - **土台は特定の業務を知らない。** 業務の語（特定業務の用語・計算の決まり）は、それを使う側の repo に置く。土台には、どの業務でも使える振る舞いと道具だけを置く。
 - **個人の情報を置かない。** 個人を指すメールアドレス・電話番号・郵便番号・Notion のページや Google の文書の URL を書かない。commit の名義のメールは GitHub の noreply（`<id>+<名>@users.noreply.github.com`）か `noreply@anthropic.com` にする。
-- **public なので外側も見える。** ファイルだけでなく、commit の説明・名義と PR の題・本文も世界に見える。どれにも上の物を書かない。PR の題・本文・コメントは出す前に `python3 public-guard/guard.py --text <file> --deny-words-file tests/data/denylist.txt` で照らす（出した後に直しても古い版が編集の履歴に残る。`docs/公開の検査.md`「出す前に照らす」）。
-- 照らしは公開の検査（`public-guard/guard.py`・`docs/公開の検査.md`）の 1 本。CI の job `public-guard` が中身・歴史・commit と PR の外側を照らして止める。手元は `scripts/checks/public_guard.sh`。
+- **public なので外側も見える。** ファイルだけでなく、commit の説明・名義と PR の題・本文も世界に見える。どれにも上の物を書かない。
+- 照らしは公開の検査（`public-guard/guard.py`・`docs/公開の検査.md`）の 1 本。CI の job `public-guard` が中身・歴史・commit と PR の外側を照らして止める。手元は `scripts/checks/public_guard.sh`。PR の題・本文とコメントは、窓が出す前にも守りの hook（guard の `pr_text`）が同じ本体で照らす。
   - **秘密と個人の情報**: 形で見る（表は `public-guard/guard.py`）。
   - **業務の語**: `tests/data/denylist.txt`。足したい語があれば、その 1 行を PR で足す。
   - **顧客の語**: repo に書かない。束の正本は持ち主ごとに 1 か所の非公開の repo（`public-guard/deny-source.json`）。CI は repo の secret `AF_DENY_SOURCE_TOKEN`（置き場を読むだけの鍵）でそこを直に読む。古い道の写し（secret `AF_DENY_BUNDLE`・`AF_DENY_WORDS`）は畳むまで通すが名指しで知らせる。手元は同じ名の環境変数か `AF_DENY_WORDS_FILE`。**CI でどれも無い時は赤**。手元でどれも無い時だけ飛ばす。
@@ -62,6 +62,7 @@
   3. **回帰の見張り**: 直した所の外の結果が変わらないことを見る試験（作り物の入力で）。
 - 2・3 の入力は作り物だけ。`tests/data/` か試験の中に書く。**顧客の物（実データ・実 ID・実画面）はどの場合も置かない。**
 - 1 つの試験は 1 つの約束を見る。名前で何を守るかが分かるようにする（例: `test_一覧の行が全部ある`）。
+- **決まりの文は、消すと試験が赤になる形で照らす。** 核・振る舞いの既定・細目の文は `tests/test_rule_holes.py` が 1 文ずつ消して決まりの試験を回し、赤にならない文は `tests/data/試験で守らない文.txt` に載った物だけを許す。新しい文・書き換えた文は、その文を照らす試験（文をそのまま照らすのが一番強い）を同じ PR で足す。語がどこかに在るかだけの照らしは、照らしていない文を消しても緑のままになる。
 - **新しい試験は守る約束の名の新しい file に置く**（元から在る `tests/test_*.py` の試験を増やさない）。並ぶ PR が同じ file の末尾へ足すと 1 本入るたびに残りが全部衝突するので、足す所を PR ごとに分ける。直す・消す・parametrize の行を足すのはよい。AI の窓の枝（`claude/`）の PR の差分で `scripts/pr_shape.py` が照らす（CI の `check`・人の枝は止めない）。
 - まだ無い物（他の窓が先に置く物）に頼る試験は、無い間は `pytest.skip` で飛ばし、理由を書く。消さない・赤のまま置かない。
 - 赤は試験を飛ばす・消すで消さず、細目 §3「まず構造を疑う」で原因から直す。

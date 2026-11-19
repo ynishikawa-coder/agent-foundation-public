@@ -1,58 +1,48 @@
-"""PR の題・本文・コメントを出す前に、公開の検査と同じ照らしを当てる（guard.py --text）。"""
-from __future__ import annotations
+"""公開の検査（public-guard/guard.py）の出す前の文の口 `--text` が約束どおり効くかを見る。
 
-import pytest
+守りの hook（guard の pr_text）が GitHub へ出す前の PR の題・本文・コメントをこの口で照らす。作り物の文で確かめる。
+"""
+import os
+import subprocess
 import sys
+from pathlib import Path
 
-from test_public_guard import (  # noqa: F401
-    _bundle_of,
-    _repo,
-    guard,
-)
-
-
-@pytest.mark.parametrize("text, extra", [
-    ("この PR は見本業務の件\n", {}),                       # repo の置かない語
-    ("連絡は someone" + "@" + "gmail.com へ\n", {}),       # 個人の情報の形（字は組み立てる＝この file が検査に当たらない）
-    ("新規商事の件\n", {"AF_DENY_BUNDLE": None}),          # 顧客の語（束）
-])
-def test_出す前の文を照らして置かない物があれば赤(tmp_path, monkeypatch, capsys, text, extra):
-    """公開の repo へ PR の本文を出す前に、窓の手で同じ照らしを当てられる（注入の試験＝置かない語を入れた本文）。"""
-    repo = _repo(tmp_path)
-    (repo / "deny.txt").write_text("見本業務\n", encoding="utf-8")
-    if "AF_DENY_BUNDLE" in extra:
-        monkeypatch.setenv("AF_DENY_BUNDLE", _bundle_of(["新規商事"]))
-    body = tmp_path / "body.md"
-    body.write_text(text, encoding="utf-8")
-    code = guard.main(["--repo", str(repo), "--deny-words-file", "deny.txt", "--text", str(body)])
-    out = capsys.readouterr().out
-    assert code == 1 and "出す前の文" in out, out
-    assert "新規商事" not in out and "見本業務" not in out
+ROOT = Path(__file__).resolve().parent.parent
+GUARD = ROOT / "public-guard" / "guard.py"
+ENV_KEYS = ("AF_DENY_WORDS", "AF_DENY_WORDS_FILE", "AF_DENY_BUNDLE", "GITHUB_ACTIONS", "GITHUB_EVENT_PATH")
+MAIL = "someone" + "@" + "gmail.com"     # 形の照らしに当たる作り物（字のまま書くとこの file が公開の検査に当たる）
 
 
-def test_出す前の文に置かない物が無ければ緑_標準入力でも読める(tmp_path, monkeypatch, capsys):
-    repo = _repo(tmp_path)
-    monkeypatch.setenv("AF_DENY_BUNDLE", _bundle_of(["新規商事"]))
-    monkeypatch.setattr(sys, "stdin", __import__("io").StringIO("作り物の本文だけ\n"))
-    assert guard.main(["--repo", str(repo), "--text", "-"]) == 0, capsys.readouterr().out
+def _text_run(tmp_path, texts, words=None, env_extra=None):
+    args = [sys.executable, str(GUARD)]
+    for i, (where, body) in enumerate(texts):
+        f = tmp_path / ("t%d.md" % i)
+        f.write_text(body, encoding="utf-8")
+        args += ["--text", "%s=%s" % (where, f)]
+    if words is not None:
+        wf = tmp_path / "deny.txt"
+        wf.write_text("\n".join(words) + "\n", encoding="utf-8")
+        args += ["--deny-words-file", str(wf)]
+    env = {k: v for k, v in os.environ.items() if k not in ENV_KEYS}
+    env.update(env_extra or {})
+    return subprocess.run(args, capture_output=True, text=True, env=env, cwd=tmp_path)
 
 
-def test_出す前の文は顧客の語が無ければ手元でも緑にしない(tmp_path, capsys):
-    """顧客の語を出さないための道なので、材料が欠けた時は語の表と形だけで緑を返さない（注入の試験）。"""
-    body = tmp_path / "body.md"
-    body.write_text("作り物の本文だけ\n", encoding="utf-8")
-    code = guard.main(["--repo", str(_repo(tmp_path)), "--text", str(body)])
-    out = capsys.readouterr().out
-    assert code == 1 and "照らせない" in out and "当たりは 0" in out, out
+def test_出す前の文だけを照らし語を出力に出さない(tmp_path):
+    p = _text_run(tmp_path, [("PR の題", "作り物ノ語 の直し"), ("PR の本文", "連絡は %s へ" % MAIL)], words=["作り物ノ語"],
+                  env_extra={"AF_DENY_WORDS": "作り物ノ客"})
+    assert p.returncode == 1
+    assert "PR の題: 置かない語" in p.stdout and "PR の本文: メールアドレス" in p.stdout
+    assert "作り物ノ語" not in p.stdout and "someone" not in p.stdout
+    p = _text_run(tmp_path, [("コメント", "作り物ノ客 さんへの連絡")], env_extra={"AF_DENY_WORDS": "作り物ノ客"})
+    assert p.returncode == 1 and "コメント: 顧客の語" in p.stdout and "作り物ノ客" not in p.stdout
 
 
-def test_出す前の文は顧客の語が無くても語の表と形は照らして当たりを出す(tmp_path, capsys):
-    """顧客の語が無い手元でも、置かない語・秘密の形の当たりは名指しで出す（照らさずに止まらない）。"""
-    repo = _repo(tmp_path)
-    (repo / "deny.txt").write_text("見本業務\n", encoding="utf-8")
-    body = tmp_path / "body.md"
-    body.write_text("見本業務の話\n", encoding="utf-8")
-    code = guard.main(["--repo", str(repo), "--deny-words-file", "deny.txt", "--text", str(body)])
-    out = capsys.readouterr().out
-    assert code == 1 and "置かない物" in out and "当たりは 0" not in out, out
+def test_出す前の文はきれいなら緑で_CI_でも顧客の語が無いだけで止めない(tmp_path):
+    p = _text_run(tmp_path, [("PR の本文", "作り物の確かめを足した")], words=["作り物ノ語"], env_extra={"GITHUB_ACTIONS": "true"})
+    assert p.returncode == 0 and "出す前の文" in p.stdout
 
+
+def test_出す前の文の指定の形が違えば使い方の誤り(tmp_path):
+    p = subprocess.run([sys.executable, str(GUARD), "--text", "名だけ"], capture_output=True, text=True, cwd=tmp_path)
+    assert p.returncode == 2

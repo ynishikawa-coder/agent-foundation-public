@@ -20,8 +20,9 @@
 
 使い方: python3 guard.py [--repo DIR] [--range REV|ALL] [--deny-words-file F] [--pattern-skip PATH ...] [--files-only]
         [--owner 持ち主]（正本の置き場を選ぶ持ち主。既定は CI の GITHUB_REPOSITORY_OWNER・手元は origin の URL）
-        [--text FILE|-]（出す前の文だけを照らす。PR の題・本文・コメントを公開の repo へ書く前に通す。
-                         公開の repo では出した後に止めても、本文の古い版が編集の履歴に残るため）
+        python3 guard.py --text <場所の名>=<file> [--text …] [--deny-words-file F]
+  --text は、GitHub へ出す前の文（PR の題・本文・コメント）だけを同じ表で照らす（中身・歴史は見ない）。
+  守りの hook（plugin guard の pr_text）が出す前に呼ぶ。手元で顧客の語が無い時は顧客の語だけ飛ばす（CI でも止めない）。
   --range の既定: CI では event（PR は base..head・push は before..after）、手元では origin/main..HEAD。
   ALL は全ての commit（公開の前に歴史ごと照らす時）。
 exit: 0=当たり 0 / 1=当たりあり・CI に顧客の語が無い・正本が読めない / 2=使い方・束の形が違う・置き場の決まりの無い持ち主
@@ -252,9 +253,15 @@ def in_ci() -> bool:
 
 # ---- 照らす本体（場所と札だけを返す・語は返さない） ---------------------------------
 
+def secret_labels(text: str) -> list[str]:
+    """秘密の形に当たった札の並び（値は返さない）。秘密の形の正本はここ 1 つ。
+    返事の差し戻し（plugin session-watch の Stop の hook）もこれを直に呼ぶ（写さない）。"""
+    return [label for label, pat in SECRET_PATTERNS.items() if re.search(pat, text or "")]
+
+
 def pattern_hits(where: str, text: str) -> list[str]:
     """秘密と個人の情報の形。"""
-    hits = [f"{where}: {label}" for label, pat in SECRET_PATTERNS.items() if re.search(pat, text)]
+    hits = [f"{where}: {label}" for label in secret_labels(text)]
     hits += [f"{where}: {label}" for label, pat in PERSONAL_PATTERNS.items() if re.search(pat, text)]
     if any(not SAFE_EMAIL.search(m) for m in re.findall(EMAIL, text)):
         hits.append(f"{where}: メールアドレス")
@@ -450,6 +457,50 @@ def notice_copy() -> None:
             f.write(f"## 公開の検査: 顧客の語が写し\n\n{COPY_NOTICE}\n")
 
 
+def check_texts(texts: list[tuple[str, str]], words_file: str | None, bundle=None) -> list[str]:
+    """出す前の文（場所の名, 中身）を照らす。words_file は path（相対なら今の dir から）。bundle は正本から読んだ束（無ければ写し）。"""
+    # words_home は表そのものの path（中身の照らしで表を外すための物）。文には path が無いので、None と取り違えない値を渡す
+    guard = Guard(Path("."), file_words(words_file), set(), words_home=words_file or "", bundle=bundle)
+    hits = []
+    for where, text in texts:
+        hits += guard.text_hits(where, text)
+    return sorted(set(hits))
+
+
+def main_text(specs: list[str], words_file: str | None, owner: str | None = None) -> int:
+    texts = []
+    for spec in specs:
+        where, sep, path = spec.partition("=")
+        if not sep or not where or not path:
+            print(f"✗ --text は <場所の名>=<file> の形: {spec}")
+            return 2
+        try:
+            texts.append((where, Path(path).read_text(encoding="utf-8")))
+        except OSError as e:
+            print(f"✗ 文の file を読めない: {e.__class__.__name__}")
+            return 2
+    # 顧客の語は中身・歴史の照らしと同じ正本から読む（鍵があれば正本・無ければ写し。読めなければ止める）
+    try:
+        bundle = source_bundle(owner or default_owner(Path(".")))
+    except SourceError as e:
+        print(f"✗ {e}")
+        return e.code
+    if bundle is None:
+        try:
+            env_bundle()
+        except ValueError as e:
+            print(f"✗ AF_DENY_BUNDLE の形が違う（pct1.<鍵>.<束> の 1 行）: {e}")
+            return 2
+    if customer_source_missing():
+        print("（顧客の語が環境に無いので、顧客の語の照合だけ飛ばす）")
+    hits = check_texts(texts, words_file, bundle)
+    if hits:
+        print("✗ 公開の repo に置かない物:\n  " + "\n  ".join(hits))
+        return 1
+    print("✅ 公開の検査: 置かない物 0（出す前の文）")
+    return 0
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description="公開の検査（中身・歴史・外側）")
     ap.add_argument("--repo", default=".")
@@ -457,9 +508,12 @@ def main(argv=None) -> int:
     ap.add_argument("--deny-words-file")
     ap.add_argument("--pattern-skip", nargs="*", default=[])
     ap.add_argument("--files-only", action="store_true", help="中身だけ（歴史を持ち越さない新しい repo へ移す前）")
-    ap.add_argument("--text", help="出す前の文（PR の題・本文・コメント）だけを照らす。FILE か - （標準入力）")
+    ap.add_argument("--text", action="append", default=[], metavar="場所の名=FILE",
+                    help="GitHub へ出す前の文だけを照らす（中身・歴史は見ない）")
     ap.add_argument("--owner", help="顧客の語の正本の置き場を選ぶ持ち主（既定は CI の GITHUB_REPOSITORY_OWNER・手元は origin）")
     a = ap.parse_args(argv)
+    if a.text:
+        return main_text(a.text, a.deny_words_file, a.owner)
     repo = Path(subprocess.run(["git", "rev-parse", "--show-toplevel"], cwd=a.repo,
                                capture_output=True, text=True, check=True).stdout.strip())
     try:
@@ -473,7 +527,7 @@ def main(argv=None) -> int:
         except ValueError as e:
             print(f"✗ AF_DENY_BUNDLE の形が違う（pct1.<鍵>.<束> の 1 行）: {e}")
             return 2
-    if customer_source_missing() and a.text is None:
+    if customer_source_missing():
         if in_ci():
             print(f"✗ 顧客の語がどこからも渡っていない（{CUSTOMER_HINT}）")
             return 1
@@ -482,21 +536,6 @@ def main(argv=None) -> int:
         print("（顧客の語は正本の置き場から直に読んだ）")
     elif in_ci():
         notice_copy()
-    if a.text is not None:
-        text = sys.stdin.read() if a.text == "-" else Path(a.text).read_text(encoding="utf-8")
-        g = Guard(repo, file_words(repo / a.deny_words_file if a.deny_words_file else None), set(), a.deny_words_file, bundle)
-        hits = sorted(set(g.text_hits("出す前の文", text, "")))
-        if hits:
-            print("✗ 出す前の文に公開の repo に置かない物（直してから出す）:\n  " + "\n  ".join(hits))
-            return 1
-        if customer_source_missing():
-            # 出す前の文は顧客の語を出さないための道なので、材料が欠けたら緑にしない（手元でも）。
-            # 語の表と形の照らしは回し、その当たりが 0 なのは言う（顧客の名を書かない事は人の目で守る）
-            print("✗ 出す前の文: 語の表と形の当たりは 0。顧客の語が渡っていないので顧客の語は照らせない"
-                  "（AF_DENY_SOURCE_TOKEN か AF_DENY_BUNDLE を環境に。緑にしない）")
-            return 1
-        print("✅ 出す前の文: 置かない物 0")
-        return 0
     try:
         hits = run(repo, a.rev_range, a.deny_words_file, a.pattern_skip, files_only=a.files_only, bundle=bundle)
     except subprocess.CalledProcessError as e:

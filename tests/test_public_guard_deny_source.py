@@ -140,3 +140,16 @@ def test_正本の読み口は_repo_と_path_を_URL_の中で崩さない(monke
         guard.fetch_source_text({"repo": "o/s", "path": "a b/c?.txt", "ref": "main&x=1"}, "t")
     assert seen[0].endswith("/repos/o/s/contents/a%20b/c%3F.txt?ref=main%26x%3D1")
 
+
+
+def test_出す前の文も正本の束で照らし_古い写しは使わない(tmp_path, monkeypatch, capsys):
+    """--text（守りの hook pr_text の口）も中身・歴史と同じ正本を読む（写しだけを読む道を戻すと赤）。"""
+    body = tmp_path / "body.md"
+    body.write_text("新規商事の件\n", encoding="utf-8")
+    seen = _source(monkeypatch, _bundle_of(["見本商事", "新規商事"]))
+    monkeypatch.setenv("AF_DENY_SOURCE_TOKEN", "t")
+    monkeypatch.setenv("AF_DENY_BUNDLE", _bundle_of(["見本商事"]))  # 古い写し
+    code = guard.main(["--text", f"PR の本文={body}", "--owner", OWNER])
+    out = capsys.readouterr().out
+    assert code == 1 and "顧客の語" in out and "新規商事" not in out, out
+    assert seen and seen[0][1] == "t"
