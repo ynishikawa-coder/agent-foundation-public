@@ -32,3 +32,18 @@ def test_別の窓が他の窓の名を騙っても誤り(tmp_path):
 def test_回した窓が分からない時は形を通さない(tmp_path, me):
     res = run(tmp_path, GREEN, *ARGS, me=me)
     assert res.returncode == 2 and "CLAUDE_CODE_REMOTE_SESSION_ID" in res.stderr, me
+
+
+def test_引き継ぎで書いた窓が_2_つの時_後の書き手の判定も誤り(tmp_path):
+    """書いた窓を 1 つ目だけ照らすと、引き継いだ後の書き手が自分の PR に判定を付けられた（原因の台帳の行）。"""
+    two = ("--writer", "session_WRITER01,session_REVIEW01", "--head", "0123456789ab")
+    res = run(tmp_path, GREEN, *two, me="cse_REVIEW01")
+    assert res.returncode == 1
+    assert "書いた窓とレビューした窓が同じ" in res.stdout
+    assert "書いた窓 session_REVIEW01 と同じ" in res.stdout
+
+
+def test_書いた窓の組の外の窓の判定は通る(tmp_path):
+    two = ("--writer", "session_WRITER01, session_WRITER02", "--head", "0123456789ab")
+    res = run(tmp_path, GREEN, *two, me="cse_REVIEW01")
+    assert res.returncode == 0, res.stdout + res.stderr

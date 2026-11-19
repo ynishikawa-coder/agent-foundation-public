@@ -120,7 +120,9 @@ def looks_verdict(body):
     return bool(VERDICT_LINE.search(body) or VERDICT_HEAD.search(body))
 
 
-WRITER_LINE = re.compile(r"^\s*書いた窓\s*[:：]\s*(session_[A-Za-z0-9]+)", re.M)
+WRITER_LINE = re.compile(r"^\s*書いた窓\s*[:：]\s*(session_[A-Za-z0-9]+.*)$", re.M)
+# commit の説明の書き手の欄（核の attribution の行）。引き継いだ窓も commit を足すので書いた窓の組に入れる
+COMMIT_SESSION = re.compile(r"^Claude-Session:\s*\S*?(session_[A-Za-z0-9]+)", re.M)
 NUMBER_KEYS = ("issue_number", "pullNumber", "pull_number")
 
 
@@ -131,7 +133,8 @@ def _gh(args):
 def pr_facts(repo, ti):
     """判定を出す先の PR の (先端の SHA, 書いた窓, 誤り)。GitHub から引く（判定の形の道具が要る材料・写さない）。
 
-    書いた窓は PR 本文の頭の決まった欄 `書いた窓: <session id>`（CONTRIBUTING §1 の PR の型）から読む。
+    書いた窓は PR 本文の頭の決まった欄 `書いた窓: <session id>[, <id> …]`（CONTRIBUTING §1 の PR の型）の全部と、
+    PR の commit の `Claude-Session:` の全部を合わせた組（`,` で並べた字）。引き継ぎで書き手が 2 つ以上になっても全部を照らす。
     引けない時は誤りを返す（欠けた材料で判定を通さない）。"""
     if not repo:
         return "", "", "出す先の repo（owner・repo）が道具の入力に無い"
@@ -156,7 +159,17 @@ def pr_facts(repo, ti):
         return "", "", "PR #%s の先端の SHA が読めない" % number
     if not m:
         return head.strip(), "", "PR #%s の本文の頭に `書いた窓: <session id>` が無く、別の目を照らせない（PR の型どおりに書く）" % number
-    return head.strip(), m.group(1), ""
+    writers = SESSION_ID.findall(m.group(1))
+    try:
+        c = _gh(["--paginate", "repos/%s/pulls/%s/commits" % (repo, number), "--jq", ".[].commit.message"])
+    except (OSError, subprocess.SubprocessError) as e:
+        return "", "", "PR #%s の commit を引けなかった（%s）" % (number, e.__class__.__name__)
+    if c.returncode != 0:
+        return "", "", "PR #%s の commit を引けなかった（書いた窓の組を照らせない）" % number
+    for sid in COMMIT_SESSION.findall(c.stdout):
+        if sid not in writers:
+            writers.append(sid)
+    return head.strip(), ",".join(writers), ""
 
 
 def check_verdict(body, data):

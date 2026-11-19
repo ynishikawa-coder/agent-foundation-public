@@ -6,7 +6,8 @@
   2. 2 行目 `見た先端: <SHA の先頭 12 文字>`
   3. `## verdict` の次の行が green／red／red（blocked: …）で、1 行目の判定と合う
   4. `## 所見` の各行の札 `- [止める|台帳へ|直った｜<段>] …`。`[止める｜…]` か点の fail が 1 つでも在れば red、無ければ green
-  5. 別の目: 書いた窓（--writer）とレビューした窓が同じなら形の誤り（自分の PR に判定を付けない）
+  5. 別の目: 書いた窓（--writer）のどれかとレビューした窓が同じなら形の誤り（自分の PR に判定を付けない）。
+     引き継ぎで書いた窓が 2 つ以上の PR は、全部を `,` で並べて渡す（1 つ目だけを照らすと、後の書き手が自分の PR に判定を付けられた）
   6. `## 点` に、review-pr の SKILL.md の「見る点」の表の点（番号と名）が全部 1 行ずつ在り、
      各行の値が pass／fail／N/A のどれか（点 3 は `書いた窓 <id> ≠ この窓` も可）。
      欠け・重なり・表に無い点・選べる値の外・同じ見出しの節が 2 つ在るのは誤り。
@@ -21,7 +22,7 @@
   8. 所見の札（止める・台帳へ・直った）と段（設計・整地…）は、review-pr の SKILL.md の「判定の形」の節の
      「- 札は」の行から読む（ここに写さない＝札や段を足す PR がこの file の定数を触らない）。読めない時は止まる。
 
-使い方: python3 verdict_form.py <コメントのファイル> [<ファイル> …] --writer <書いた窓の session id> --head <PR の先端の SHA>
+使い方: python3 verdict_form.py <コメントのファイル> [<ファイル> …] --writer <書いた窓の session id>[,<id> …] --head <PR の先端の SHA>
   --writer と --head は欠かせない（欠けたら別の目と先端を照らさずに通さない＝exit 2）。
   助手（Agent）の判定は立てた窓の session id で書く。書いた窓が立てた助手の判定は --writer と同じになり誤り。
   ファイルは全部照らす（2 つ以上の時は誤りの頭にファイルの名）。誤りを 1 行ずつ出し、どれかに誤りがあれば exit 1。
@@ -95,8 +96,17 @@ def section(lines, head):
     return out if inside or out else None
 
 
+def writer_set(writer):
+    """--writer の値（`,` で並べた字か並び）を書いた窓の組にする。"""
+    if not writer:
+        return set()
+    items = writer.split(",") if isinstance(writer, str) else list(writer)
+    return {w.strip() for w in items if w and w.strip()}
+
+
 def check_points(lines, points, reviewer=None, writer=None):
     """`## 点` の欄の誤りと、fail の数。"""
+    writers = writer_set(writer)
     errs, fails = [], 0
     body = section(lines, "点")
     if body is None:
@@ -123,8 +133,8 @@ def check_points(lines, points, reviewer=None, writer=None):
         if eye:
             if reviewer and eye.group(1) == reviewer:
                 errs.append("点 3: 書いた窓とレビューした窓が同じ（別の目でない）")
-            if writer and eye.group(1) != writer:
-                errs.append("点 3: 書いた窓 %s が --writer %s と違う" % (eye.group(1), writer))
+            if writers and eye.group(1) not in writers:
+                errs.append("点 3: 書いた窓 %s が --writer %s のどれとも違う" % (eye.group(1), ",".join(sorted(writers))))
             continue
         mv = VALUE.match(val)
         if not mv:
@@ -159,13 +169,14 @@ def check(text, writer=None, head=None, points=None, cards=None, me=None):
             errs.append("`## %s` の節が %d 個在る（1 つだけにする）" % (h, n))
     if m2 and head and not head.startswith(m2.group(1)):
         errs.append("見た先端 %s が PR の今の先端 %s と違う（見直して判定を足す）" % (m2.group(1), head[:12]))
-    if writer and reviewer and writer == reviewer:
+    writers = writer_set(writer)
+    if reviewer and reviewer in writers:
         errs.append("書いた窓とレビューした窓が同じ（別の目でない）")
     if me and reviewer and reviewer != me:
         errs.append("1 行目の窓 %s がこの命令を回した窓 %s と違う（名乗りを作らない。書いた窓が立てた助手は判定を出せない"
                     "＝書いた窓と別の窓を create_session で立ててそこで当てる）" % (reviewer, me))
-    if me and writer and me == writer:
-        errs.append("この命令を回した窓が書いた窓 %s と同じ（書いた窓とその助手は判定を出せない）" % writer)
+    if me and me in writers:
+        errs.append("この命令を回した窓が書いた窓 %s と同じ（書いた窓とその助手は判定を出せない）" % me)
 
     verdict = section(lines, "verdict")
     body = [ln.strip() for ln in (verdict or []) if ln.strip()]
