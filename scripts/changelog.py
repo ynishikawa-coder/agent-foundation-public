@@ -6,6 +6,9 @@
 
   python3 scripts/changelog.py check   # 形を照らす（赤なら 1 で終わる）
   python3 scripts/changelog.py         # 全部を新しい物が上で見せる（git の履歴で並べる）
+  python3 scripts/changelog.py adopt <古い形の CHANGELOG.md> <断片の file>
+      # 古い形で書いた記録の行のうち、CHANGELOG.d/ のどこにも無い物を、断片の file の頭へ移す
+      # （断片の形の前に枝を切った PR が main を取り込む時の移し方・CHANGELOG.d/README.md）
 """
 from __future__ import annotations
 
@@ -22,6 +25,15 @@ OLD_FILE = "00000000-断片へ移す前.txt"
 NAME_RE = re.compile(r"^\d{8}-[0-9A-Za-z][0-9A-Za-z._-]*\.txt$")
 LINE_RE = re.compile(r"^- (壊れる|足した|直した|畳んだ)(（[^）\n]+）)?: \S")
 JST = timezone(timedelta(hours=9))
+# CHANGELOG.md の中身はこれだけ（記録を書く所は CHANGELOG.d/）。見出しや地の文でも足せば赤。
+MAIN_TEXT = """# 変更の記録
+
+記録は 1 PR に 1 つの file で `CHANGELOG.d/` に置く。この file には記録の行を書かない（書くと検査が赤）。書き方は `CHANGELOG.d/README.md`。
+
+全部を新しい物が上で読む: `python3 scripts/changelog.py`（main に入った順に並べる）。断片へ移す前の記録（v0.4.1 から）は `CHANGELOG.d/00000000-断片へ移す前.txt` にそのまま在る。
+
+v0.1.1 までの版は移す前の private の repo で出した（この repo には印を打たない・記録もここに持たない）。v0.2.0 の「足した」は、v0.1.1 の後・移す前に入った物。
+"""
 
 
 def check(root: Path = ROOT) -> list[str]:
@@ -31,10 +43,14 @@ def check(root: Path = ROOT) -> list[str]:
     if not main.is_file():
         errs.append("CHANGELOG.md が無い")
     else:
-        for n, line in enumerate(main.read_text(encoding="utf-8").splitlines(), 1):
-            if re.match(r"^\s*[-*+] |^\s*\d+\. ", line):
-                errs.append(f"CHANGELOG.md:{n}: 記録の行を CHANGELOG.md へ直に足している。"
-                            f"自分の枝の {DIR_NAME}/<日付>-<話題>.txt へ移す（{DIR_NAME}/README.md）")
+        text = main.read_text(encoding="utf-8")
+        if text != MAIN_TEXT:
+            fixed = set(MAIN_TEXT.splitlines())
+            extra = [n for n, l in enumerate(text.splitlines(), 1) if l.strip() and l not in fixed]
+            where = ",".join(map(str, extra)) or "消した行"
+            errs.append(f"CHANGELOG.md:{where}: CHANGELOG.md は決まった文だけ（記録は書かない）。"
+                        f"記録は自分の枝の {DIR_NAME}/<日付>-<話題>.txt へ移す（{DIR_NAME}/README.md・"
+                        f"移す命令は scripts/changelog.py adopt）。この文を変えるなら scripts/changelog.py の MAIN_TEXT と一緒に")
     d = root / DIR_NAME
     if not d.is_dir():
         errs.append(f"{DIR_NAME}/ が無い")
@@ -80,7 +96,26 @@ def entries(root: Path = ROOT) -> list[tuple[str, str, str]]:
     return [(name, when, body) for _, name, when, body in rows]
 
 
+def adopt(source_text: str, target: Path, root: Path = ROOT) -> list[str]:
+    """source_text（古い形の CHANGELOG.md）の記録の行で、CHANGELOG.d/ のどこにも無い物を target の頭へ足す。
+    足した行を返す。行の並び（新しい物が上）はそのまま。"""
+    have: set[str] = set()
+    for p in (root / DIR_NAME).glob("*.txt"):
+        have.update(l.rstrip() for l in p.read_text(encoding="utf-8").splitlines())
+    new = [l.rstrip() for l in source_text.splitlines()
+           if l.startswith("- ") and l.rstrip() not in have]
+    if new:
+        old = target.read_text(encoding="utf-8") if target.exists() else ""
+        target.write_text("\n".join(new) + "\n" + old, encoding="utf-8")
+    return new
+
+
 def main(argv: list[str]) -> int:
+    if argv[1:2] == ["adopt"] and len(argv) == 4:
+        src = sys.stdin.read() if argv[2] == "-" else Path(argv[2]).read_text(encoding="utf-8")
+        moved = adopt(src, Path(argv[3]))
+        print(f"changelog: {len(moved)} 行を {argv[3]} へ移した")
+        return 0
     if argv[1:2] == ["check"]:
         errs = check()
         for e in errs:

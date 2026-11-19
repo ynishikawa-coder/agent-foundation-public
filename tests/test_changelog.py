@@ -45,6 +45,40 @@ def test_古い形で_CHANGELOG_md_へ直に足すと赤(tmp_path):
     assert errs and all("CHANGELOG.md:" in e and "CHANGELOG.d/" in e for e in errs), errs
 
 
+@pytest.mark.parametrize("extra", ["\n## 合流ごと\n", "\n壊れる: 並びの印の無い地の文で足す\n", "\n1. 番号で足す\n"])
+def test_CHANGELOG_md_へ見出しや地の文で足しても赤(tmp_path, extra):
+    root = _copy(tmp_path)
+    main = root / "CHANGELOG.md"
+    main.write_text(main.read_text(encoding="utf-8") + extra, encoding="utf-8")
+    assert any("CHANGELOG.md:" in e for e in cl.check(root))
+
+
+def _old_form(lines: list[str]) -> str:
+    """断片の形の前の CHANGELOG.md（「合流ごと」の先頭に新しい行）。"""
+    old = (ROOT / "CHANGELOG.d" / cl.OLD_FILE).read_text(encoding="utf-8")
+    return "# 変更の記録\n\n前置き\n\n## 合流ごと（v0.4.1 から・新しい物が上）\n\n" + "".join(l + "\n" for l in lines) + old
+
+
+def test_並んでいた_PR_は_adopt_で自分の行だけを断片へ移せる(tmp_path):
+    """この形が先に入った後: 古い形で足した枝が main を取り込み、自分の行を断片へ移すと緑。"""
+    root = _copy(tmp_path)
+    target = root / "CHANGELOG.d" / "20261119-queued.txt"
+    moved = cl.adopt(_old_form(["- 足した: 並んでいた PR の行"]), target, root)
+    assert moved == ["- 足した: 並んでいた PR の行"]          # 移す前の記録の行は移さない
+    assert cl.check(root) == []
+
+
+def test_この形が後に入る時は先に入った_PR_の行を移す前の記録へ_adopt_できる(tmp_path):
+    """並んでいた PR が先に入った後: その行を移す前の記録の頭へ移すと、記録は欠けずに緑。"""
+    root = _copy(tmp_path)
+    old = root / "CHANGELOG.d" / cl.OLD_FILE
+    lines = ["- 壊れる: 先に入った 2 本目", "- 足した: 先に入った 1 本目"]
+    assert cl.adopt(_old_form(lines), old, root) == lines
+    assert old.read_text(encoding="utf-8").splitlines()[:2] == lines
+    assert cl.adopt(_old_form(lines), old, root) == []      # 2 度回しても重ならない
+    assert cl.check(root) == []
+
+
 @pytest.mark.parametrize("name,body", [
     ("20261119-x.txt", "- 足したよ: 札が無い\n"),                      # 知らない札
     ("20261119-x.txt", "壊れる: 頭の - が無い\n"),
