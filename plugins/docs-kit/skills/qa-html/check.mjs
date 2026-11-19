@@ -330,7 +330,12 @@ const hasRec = (tag) => /(?:^|[ \t\n\f\r])rec(?:[ \t\n\f\r]|$)/.test(attr(tag, "
 // ブラウザが要素の木を組み直す書き方（閉じ忘れ・入れ子の崩れ・表や select の中の移し替え・<p> の自動の閉じ・<a> の中の <a>）は赤
 //   ＝タグの並びがそのまま木になる形だけを通し、検査の読み（正規表現で切る）とブラウザの木を同じにする
 const VOID = new Set(["br", "img", "input", "meta"]);
-const BLOCK = new Set(["div", "section", "header", "p", "h1", "h2", "h3", "ul", "ol", "dl", "table", "figure", "details", "form", "fieldset"]);
+// 開くと、表の区切り（table・td・th）の内で開いている <p> をブラウザが閉じる要素（HTML の決まりの「button scope の p を閉じる」物）
+const BLOCK = new Set(["div", "section", "header", "p", "h1", "h2", "h3", "ul", "ol", "dl", "table", "figure", "figcaption", "details", "summary", "form", "fieldset", "li", "dd", "dt"]);
+// 開くと、同じ種類（か対の相手）の開いている物をブラウザが閉じる要素
+const SELF_CLOSE = { li: ["li"], dt: ["dt", "dd"], dd: ["dt", "dd"], td: ["td", "th"], th: ["td", "th"], tr: ["tr"], thead: ["thead", "tbody"], tbody: ["thead", "tbody"], option: ["option"], form: ["form"], p: ["p"] };
+const HEAD = new Set(["h1", "h2", "h3"]);
+const SCOPE = new Set(["table", "td", "th"]);
 const ONLY = { table: ["thead", "tbody", "tr"], thead: ["tr"], tbody: ["tr"], tr: ["th", "td"], select: ["option"], ul: ["li"], ol: ["li"], dl: ["dt", "dd"] };
 function treeReds(rest) {
   const red = [];
@@ -343,11 +348,19 @@ function treeReds(rest) {
       continue;
     }
     const tag = m[2].toLowerCase();
-    if (["html", "head", "body"].includes(tag) || VOID.has(tag) || !ALLOW.elements.includes(tag)) continue;   // 許さない要素は別の赤
+    if (["html", "head", "body"].includes(tag) || !ALLOW.elements.includes(tag)) continue;   // 許さない要素は別の赤
     if (!m[1]) {
       const top = stack[stack.length - 1];
       if (top && ONLY[top] && !ONLY[top].includes(tag)) { red.push(`<${top}> の中にじかに <${tag}> を置かない（ブラウザが外へ移す）`); break; }
-      if (top === "p" && BLOCK.has(tag)) { red.push(`<p> の中に <${tag}> を置かない（ブラウザが <p> をそこで閉じる）`); break; }
+      if (VOID.has(tag)) continue;
+      // 表の区切りより内側（一番近い table・td・th より上）に開いている物だけが、ブラウザの閉じの的になる
+      let from = 0;
+      for (let i = stack.length - 1; i >= 0; i--) if (SCOPE.has(stack[i])) { from = i + 1; break; }
+      const inScope = stack.slice(from);
+      if (BLOCK.has(tag) && inScope.includes("p")) { red.push(`<p> の中に <${tag}> を置かない（ブラウザが <p> をそこで閉じる）`); break; }
+      const same = (SELF_CLOSE[tag] ?? []).find((t) => (["td", "th", "tr", "thead", "tbody"].includes(tag) ? stack.slice(stack.lastIndexOf("table") + 1) : inScope).includes(t));
+      if (same && tag !== "p") { red.push(`<${same}> の中に <${tag}> を開かない（ブラウザが前の <${same}> をそこで閉じる）`); break; }
+      if (HEAD.has(tag) && HEAD.has(top)) { red.push(`<${top}> の中に <${tag}> を置かない（ブラウザが見出しを閉じる）`); break; }
       if (tag === "a" && stack.includes("a")) { red.push("<a> の中に <a> を置かない（ブラウザが組み直す）"); break; }
       if (["textarea", "title", "option"].includes(top)) { red.push(`<${top}> の中にタグを書かない`); break; }
       stack.push(tag);
@@ -521,7 +534,8 @@ export function readHtml(raw) {
     const knownTables = known ? [...known.inner.matchAll(/<table\b[\s\S]*?<\/table\s*>/gi)] : [];
     const inputs = [...q.inner.matchAll(/<input\b[^>]*\btype\s*=\s*["']?(radio|checkbox)\b[^>]*>/gi)].map((i) => i[0]);
     const sel = [...q.inner.matchAll(/<option\b[^>]*>([\s\S]*?)<\/option>/gi)].filter((o) => attr(o[0], "value") !== "" && text(o[1]));
-    const opts = [...q.inner.matchAll(/<label\b[^>]*\bclass\s*=\s*["'][^"']*\bopt\b[^"']*["'][^>]*>([\s\S]*?)<\/label>/gi)].map((o) => {
+    // 選択肢＝class の区切り（HTML の空白）で opt を持つ label（x-opt・opt-x は選択肢でない＝ブラウザの label.opt と同じ読み）
+    const opts = [...q.inner.matchAll(/<label\b[^>]*>([\s\S]*?)<\/label>/gi)].filter((o) => /(?:^|[ \t\n\f\r])opt(?:[ \t\n\f\r]|$)/.test(attr(/<label\b[^>]*>/i.exec(o[0])[0], "class") ?? "")).map((o) => {
       const inp = /<input\b[^>]*>/i.exec(o[1])?.[0] ?? "";
       const b = /<b\b[^>]*>([\s\S]*?)<\/b>/i.exec(o[1]);
       const smalls = [...o[1].matchAll(/<small\b[^>]*>([\s\S]*?)<\/small>/gi)];
@@ -535,6 +549,7 @@ export function readHtml(raw) {
         detail: small ? text(small[1]) : "",
         change: chg ? text(chg[1]) : "",
         rec: recs.length ? text(recs[0][1]) : null,   // null＝印なし・字＝理由
+        hasInput: /^(?:radio|checkbox)$/i.test(attr(inp, "type") ?? "") && (o[1].match(/<input\b/gi) ?? []).length === 1,
         recCount: recs.length,
         needSupp: attr(inp, "data-supp") === "need",
         suppBad: attr(inp, "data-supp") != null && attr(inp, "data-supp") !== "need" ? String(attr(inp, "data-supp")) : null,
@@ -604,6 +619,10 @@ export function readHtml(raw) {
   const gleadAll = byClass(html, "glead").length;
   const gleadIn = questions.reduce((n, q) => n + q.gleads.length, 0);
   if (gleadAll !== gleadIn) shape.push(`まとまりの 1 行（.glead）が問いの箱の外に ${gleadAll - gleadIn} つある（説明を問いの間に挟まない）`);
+  // 選択（radio・checkbox）はどれも問いの label.opt の中に置く（選択肢の定義を 1 つにする＝label.opt の外の選択で 1 つ目をずらさせない）
+  const picksAll = [...html.matchAll(/<input\b[^>]*>/gi)].filter((t) => /^(?:radio|checkbox)$/i.test(attr(t[0], "type") ?? "")).length;
+  const picksRead = questions.reduce((n, q) => n + q.options.filter((o) => o.hasInput).length, 0);
+  if (picksAll !== picksRead) shape.push(`選択（radio・checkbox）が問いの選択肢（label.opt）の外に在る（ページに ${picksAll}・選択肢の中に ${picksRead}）`);
   // 推奨の印はページ全体で数え、問いの選択肢の決まった所で読めた数と合わなければ赤（問いの外・選択肢の外に置いて判定を逃れさせない）
   const recAll = [...html.matchAll(/<[A-Za-z][A-Za-z0-9-]*\b[^>]*>/g)].filter((t) => hasRec(t[0])).length;
   const recRead = questions.reduce((n, q) => n + q.options.reduce((k, o) => k + (o.recCount ?? 0), 0), 0);
