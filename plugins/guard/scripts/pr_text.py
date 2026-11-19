@@ -1,5 +1,5 @@
 """PreToolUse — PR の題・本文と、PR・issue へのコメントを、GitHub へ出す前に照らす。崩れていれば AI だけを止めて書き直させる。
-PostToolUse — 出したコメントが判定かどうか見分けられなかった時だけ（判定の道具が無い・古い）、照らさずに通した事を知らせる（止めない）。
+PostToolUse — 正本が読めず照らさずに通した時だけ（判定の道具が無い・古い／整地の雛形が無い・読めない）、その事を知らせる（止めない）。
 
 なぜ在るか: レビューの判定の形・PR 本文の整地の 4 欄・人が読む文の言葉・公開の repo に置かない物は、決まりと道具はあるのに
 AI が自分で回すか、出した後に CI やレビューが拾うだけだった。そのため、形の崩れた判定が合流の材料になり、欄の欠けた PR 本文が
@@ -22,11 +22,13 @@ AI が自分で回すか、出した後に CI やレビューが拾うだけだ�
   cleanup … PR の本文（本文を渡す時だけ）に、dev-flow の preimpl-cleanup の `整地受領証.template.md` の 4 つの見出し
             （`## 1.`〜`## 4.`。見出しの名は雛形から読む）が全部在り、雛形の `〔…〕` が残っていない事。整地の要らない PR
             （振る舞いを変えない: 誤字・記録だけ・版だけ等）は本文に `整地: 不要（<訳>）` の 1 行を書く（訳はレビューが照らす）
+            雛形が見つからない・読めない時は止めず（PR 本文まで止めない）、出した後に知らせる
   words   … PR の題・本文に、窓の id（`session_01…`）がそのまま出ていない事。頭の決まった欄（親窓・書いた窓・job・
             触る path・検査）・コードの囲み・`…` の字・URL の中は数えない
   public  … 公開の repo（窓の repo の取り出しの workflow が action public-guard を呼ぶ／値の表 public_repos_extra）なら、
             題・本文を `public-guard/guard.py --text` に渡す（置かない語の表はその workflow の deny-words-file）。当たれば止める。
-            検査が見つからない・壊れた時も止める（公開の repo へは、照らせない文を出さない）
+            検査が見つからない・壊れた時も止める（公開の repo へは、照らせない文を出さない＝核 §1 の公開の守り。安全の守りなので
+            判定の道具・整地の雛形と違い、知らせるだけにしない）
 誤って止めた時: 値の表 pr_cleanup_exempt_repos・pr_words_exempt_repos（owner/repo に当てる正規表現）で repo ごとに外す。
 判定の形と公開の検査は外す口を持たない（直すのは文の方・判定の形の決まりは review-pr の SKILL.md が正本）。
 値の表は PR とレビューを通る＝窓の一存では外れない。
@@ -203,20 +205,32 @@ def template_parts(path):
     return heads, holders
 
 
-def check_cleanup(body, repo, data, vals):
-    if repo and _matches(vals.get("pr_cleanup_exempt_repos"), repo):
-        return []
-    body = FENCE.sub(" ", COMMENT.sub(" ", body))      # 注記（雛形の説明）とコードの囲みの中は数えない
-    if NOT_NEEDED.search(body):
-        return []
+def cleanup_parts(data):
+    """((見出しの並び, 置き場の字の並び), "") か (None, 読めない訳)。雛形は dev-flow の正本を直に読む。"""
     tpl = _find_sibling(*CLEANUP_TEMPLATE, data)
     if not tpl:
-        return ["整地の雛形（dev-flow の preimpl-cleanup の 整地受領証.template.md）が見つからず、欄を確かめられない。"
-                "plugin dev-flow を入れる（または AF_CLEANUP_TEMPLATE に path）"]
+        return None, "整地の雛形（dev-flow の preimpl-cleanup の 整地受領証.template.md）が見つからない"
     try:
-        heads, holders = template_parts(tpl)
+        return template_parts(tpl), ""
     except (OSError, ValueError) as e:
-        return ["整地の雛形が読めない: %s" % e]
+        return None, "整地の雛形が読めない: %s" % e
+
+
+def cleanup_checked(body, repo, vals):
+    """この本文に整地の欄の照らしが当たるか（外す repo・整地: 不要 の 1 行は当たらない）。"""
+    if repo and _matches(vals.get("pr_cleanup_exempt_repos"), repo):
+        return False
+    return not NOT_NEEDED.search(FENCE.sub(" ", COMMENT.sub(" ", body)))
+
+
+def check_cleanup(body, repo, data, vals):
+    if not cleanup_checked(body, repo, vals):
+        return []
+    body = FENCE.sub(" ", COMMENT.sub(" ", body))      # 注記（雛形の説明）とコードの囲みの中は数えない
+    parts, _why = cleanup_parts(data)
+    if not parts:
+        return []        # 雛形が無い・読めない時は止めない（PR 本文まで止めない）。出した後に notice が知らせる
+    heads, holders = parts
     out = []
     lack = [("%s. %s" % (no, name)) for no, name in heads
             if not re.search(r"^#{1,6}\s*(?:%s\.\s*)?%s" % (no, re.escape(name)), body, re.M)]
@@ -350,19 +364,26 @@ HEAD = {
 
 
 def notice(data, vals):
-    """PostToolUse: 出したコメントが判定かどうか見分けられなかった時だけ知らせる（止めない）。"""
-    if tool_kind(data.get("tool_name")) != "comment":
-        return ""
+    """PostToolUse: 正本が読めず照らさずに通した時だけ知らせる（止めない）。判定の道具（コメント）と整地の雛形（PR 本文）。"""
+    kind = tool_kind(data.get("tool_name"))
     ti = data.get("tool_input")
     body = ti.get("body") if isinstance(ti, dict) and isinstance(ti.get("body"), str) else ""
     if not body.strip():
         return ""
-    looks, _tool, why = looks_verdict(body, data)
-    if looks:
-        return ""
-    return ("[guard] 出したコメントがレビューの判定かどうか見分けられず、判定の形を照らさずに通した（止めていない）: %s。"
-            "plugin checker を guard と同じ版で入れる（または AF_VERDICT_FORM に path）。このコメントが判定なら、"
-            "checker の verdict_form.py で形を照らし、崩れていれば出し直す。" % why)
+    if kind == "comment":
+        looks, _tool, why = looks_verdict(body, data)
+        if looks:
+            return ""
+        return ("[guard] 出したコメントがレビューの判定かどうか見分けられず、判定の形を照らさずに通した（止めていない）: %s。"
+                "plugin checker を guard と同じ版で入れる（または AF_VERDICT_FORM に path）。このコメントが判定なら、"
+                "checker の verdict_form.py で形を照らし、崩れていれば出し直す。" % why)
+    if kind == "pr" and cleanup_checked(body, _repo_name(ti), vals):
+        parts, why = cleanup_parts(data)
+        if parts:
+            return ""
+        return ("[guard] PR 本文の整地の欄を照らさずに通した（止めていない）: %s。plugin dev-flow を guard と同じ版で入れる"
+                "（または AF_CLEANUP_TEMPLATE に path）。本文の整地の 4 欄は skill dev-flow:preimpl-cleanup の雛形と照らして直す。" % why)
+    return ""
 
 
 def findings(data, vals):

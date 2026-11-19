@@ -175,9 +175,6 @@ def test_pr_text_整地の見出しは雛形を直に読む(env, tmp_path):
     env["AF_CLEANUP_TEMPLATE"] = str(tpl)
     why = deny_reason(env, gh("create_pull_request", title="作り物", head="b", base="main", body=cleanup_body()))
     assert "4. 作り物の新しい欄" in why
-    env["AF_CLEANUP_TEMPLATE"] = str(tmp_path / "無い.md")
-    why = deny_reason(env, gh("create_pull_request", title="作り物", head="b", base="main", body=cleanup_body()))
-    assert "整地の雛形" in why and "見つからず" in why
 
 
 def test_pr_text_誤って止まる_repo_は値の表で外せる(env, tmp_path):
