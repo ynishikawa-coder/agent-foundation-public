@@ -3,7 +3,7 @@
 
 前の目録が残ると marketplace add は飛ばされ、marketplace update も止めた版から動かない（使う側の pixel-office の容器で
 2026-11-19 に同じ形を見た）。出所は手元の git の repo を https の名で見せる（鍵も外の網も要らない）。
-claude の命令が無い所（手元）では飛ばす。CI の job plugin-smoke は AF_REQUIRE_CLAUDE=1 で回し、無ければ赤にする。
+本物の claude を要る印 real_claude を付ける（飛ばす条件と CI で拾う所は tests/conftest.py の 1 か所）。
 """
 import json
 import os
@@ -20,10 +20,7 @@ DOC = ROOT / "docs" / "核の届け方.md"
 URL = "https://example.invalid/o/agent-foundation-public.git"
 REMOVE = re.compile(r"(?m)^.*marketplace remove agent-foundation.*\n")
 
-if not shutil.which("claude"):
-    if os.environ.get("AF_REQUIRE_CLAUDE") == "1":
-        pytest.fail("claude の命令が無い（CI の job plugin-smoke では入れてから回す）", pytrace=False)
-    pytest.skip("claude の命令が無い所では飛ばす（CI の job plugin-smoke が回す）", allow_module_level=True)
+pytestmark = pytest.mark.real_claude
 
 
 def git(cwd, *a):
