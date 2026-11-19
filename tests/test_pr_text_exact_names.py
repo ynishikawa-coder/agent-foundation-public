@@ -16,6 +16,8 @@ sys.path.insert(0, str(ROOT / "public-guard"))
 import pr_text as P  # noqa: E402
 import patrol  # noqa: E402
 
+from test_wf_reader import whole  # noqa: E402  断片を PR で走る workflow の job の steps に包む
+
 from test_pr_text import MAIL, deny_reason, env, gh  # noqa: E402,F401  作り物の箱と GitHub の道具の入力を共に使う
 
 F = patrol.FOUNDATION
@@ -32,7 +34,7 @@ def test_土台の名は見回りの正本から読む():
     "      - uses: ./public-guard\n",                                           # 土台そのもの
 ])
 def test_土台の_action_を呼ぶ_workflow_は公開(wf):
-    assert P.calls_public_guard(wf, F)
+    assert P.calls_public_guard(whole(wf), F)
 
 
 @pytest.mark.parametrize("wf", [
@@ -46,12 +48,12 @@ def test_土台の_action_を呼ぶ_workflow_は公開(wf):
     "      - uses: ./public-guard-copy\n",
 ])
 def test_似た名_他の出所_コメント_job_の名は公開と取り違えない(wf):
-    assert not P.calls_public_guard(wf, F)
+    assert not P.calls_public_guard(whole(wf), F)
 
 
 def test_土台の名が読めない時は道の最後が_public_guard_なら多く照らす向きに倒す():
-    assert P.calls_public_guard("      - uses: someone/agent-foundation-public/public-guard@main\n", "")
-    assert not P.calls_public_guard("      - uses: someone/not-public-guard@v1\n", "")
+    assert P.calls_public_guard(whole("      - uses: someone/agent-foundation-public/public-guard@main\n"), "")
+    assert not P.calls_public_guard(whole("      - uses: someone/not-public-guard@v1\n"), "")
 
 
 @pytest.mark.parametrize("pats,repo,want", [

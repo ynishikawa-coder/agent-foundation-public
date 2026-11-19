@@ -34,13 +34,13 @@ repo の根の `config/skill-values.json` の `"guard"`（無ければ既定で�
   "guard": {
     "context_limit": 300000,
     "context_stop_max": 2,
-    "context_handoff": ["create_session\\b", "send_message\\b", "\"file_path\": \"[^\"]*(?:引き継ぎ|handoff)[^\"]*\""],
+    "context_handoff": ["^mcp__[^ ]*__create_session \\{.*\\}$", "^mcp__[^ ]*__send_message \\{.*\\}$", "^(?:Write|Edit) \\{.*\"file_path\": \"[^\"]*(?:引き継ぎ|handoff)[^\"/]*\".*\\}$"],
     "unattended_env": ["AF_UNATTENDED"],
     "state_dir": "~/.claude/af-guard",
-    "paid_markers_extra": [],
+    "paid_markers_extra": ["api.example-paid.com"],
     "irreversible_bash_extra": [{"pattern": "\\bmy-db\\s+--wipe\\b", "why": "DB の破棄"}],
-    "irreversible_tools_extra": [],
-    "qa_page_exempt": ["/quiz/[^/]+\\.html$"],
+    "irreversible_tools_extra": ["^mcp__[^ ]*__delete_item$"],
+    "qa_page_exempt": ["^quiz/[^/]+\\.html$"],
     "ask_question_max_chars": 60,
     "ask_question_max_sentences": 1,
     "ask_inner_terms_extra": ["例の関所"],
@@ -50,7 +50,7 @@ repo の根の `config/skill-values.json` の `"guard"`（無ければ既定で�
     "ask_rec_notice_kinds": {"済んだかの確認": ["終わりましたか"]},
     "ask_rec_notice_exempt": [],
     "ask_pick_one_exempt": ["^作り物の試しの順"],
-    "ask_prior_lookup": ["notion-(?:search|fetch|query-data-sources).*決定", "\\bGrep\\b.*問いの表"],
+    "ask_prior_lookup": ["^mcp__[^ ]*__notion-(?:search|fetch|query-data-sources) \\{.*決定.*\\}$", "^Grep \\{.*問いの表.*\\}$"],
     "ask_prior_exempt": ["終わりましたか|済みましたか"],
     "outbound_secret_allow": ["^作り物の見本の字$"],
     "number_request_exempt": [],
@@ -63,6 +63,7 @@ repo の根の `config/skill-values.json` の `"guard"`（無ければ既定で�
 
 - `unattended_env`: 真なら人のいない窓とみなす環境変数の名（夜の自走などの印）。人のいない窓では、離席の止めと台帳は働かず、文脈の知らせは「止まる」側になる。返し先が別の窓の子の窓（最初の頼みの文に `（親窓 session_… の子）` か `返し先=session_…` が在り、かつその頼みの行の記録が人の打った物でない＝別の窓や仕組みから来た頼み）は、問う窓として離席の止めと台帳が働き、文脈の知らせだけ「止まる」側。
 - `pr_cleanup_exempt_repos`・`pr_words_exempt_repos`・`public_repos_extra`: owner/repo の名の全体に当てる正規表現の並び（型 `repo_names`・大小を問わない）。各行を `^` で始め `$` で終える（repo 1 つなら `^owner/repo$`・owner ごとなら `^owner/.*$`）。頭だけ（`^owner/`）・錨なし（`owner/repo`）の行は名の一部に当てる読み方と取り違えるので、値の表の照らしが型の違いとして名指し（起動の知らせ・`values_keys.py`・AI の書き込みは止まる）、外す側の鍵では外さず照らし、`public_repos_extra` では公開の照らしを外さない。
+- 字・正規表現の鍵の当て方（何に・全体か一部か）の正本は型の正本 `skill-values/schema.json` の鍵の spec（`against`＝当てる相手・`match`＝`whole` は相手の全体・`part` は相手の一部）。道具は値の表の口（`skill_values.py` の `compile_patterns`・`hit`・`words_in`）だけで当てる。全体に当てる鍵（各行を `^` で始め `$` で終える）: `irreversible_tools_extra`（道具の名）・`qa_page_exempt`（問いのページの file の path を repo の根から `/` 区切りで。repo の上の dir の名には当たらない）・`ask_term_allow`（中の言葉と見つけた字の塊）・`outbound_secret_allow`（鍵の形に当たった字の塊）・`ask_prior_lookup`・`context_handoff`（道具の呼び出し 1 つ＝道具の名・空白 1 つ・入力の JSON〔鍵の順に並べた 1 行・区切りは「, 」と「: 」〕。道具の名から書くので、Bash の echo や別の道具の入力に語が在っても当たらない）。`^…$` でない行は前の形（一部に当てる読み方）で、今は前の読み方のまま効かせて値の表の照らしが名指す（起動の知らせ・`values_keys.py`）。一部に当てる鍵: `irreversible_bash_extra`（Bash の命令の全文）・`ask_inner_terms_extra`（問いの文・返事の本文）・`ask_shape_exempt`・`ask_pick_one_exempt`・`ask_rec_notice_exempt`・`ask_prior_exempt`（問いの文）・`number_request_exempt`（外へ送る文の 1 文）。`paid_markers_extra` は字のまま一部に当てる（型 `words`・正規表現でない。`\` を含む行は正規表現のつもりの書き違いとして名指す）。
 - `state_dir`: 未回答の台帳の置き場（repo ごとに 1 冊）。窓の中だけで閉じる印（離席の印・文脈の知らせた印）は一時の箱に置く。
 
 ## 射程の外

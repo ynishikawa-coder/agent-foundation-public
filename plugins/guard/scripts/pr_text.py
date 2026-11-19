@@ -28,7 +28,9 @@ AI が自分で回すか、出した後に CI やレビューが拾うだけだ�
             数えない（job・検査 等の欄や、頭の塊の外で同じ字で始まる行は数える。親窓は照らせない写しなので PR の型に置かない＝
             窓の親はサーバの記録 get_session を読む）
   public  … 公開の repo（窓の repo の取り出しの workflow が action public-guard を呼ぶ／値の表 public_repos_extra）なら、
-            題・本文を `public-guard/guard.py --text` に渡す（置かない語の表は public-guard を呼ぶ step の with: の deny-words-file）。当たれば止める。
+            題・本文を `public-guard/guard.py --text` に渡す（呼び口の見分けと置かない語の表は workflow の読み手
+            public-guard/workflow_reader.py が正本: PR・push で走る job の step の呼び口だけを数え、語の表は全部の呼び口の with: の
+            deny-words-file の和）。当たれば止める。
             検査が見つからない・壊れた時も止める（公開の repo へは、照らせない文を出さない）
 誤って止めた時: 値の表 pr_cleanup_exempt_repos・pr_words_exempt_repos（owner/repo の名の全体に当てる正規表現・^ で始め $ で終える＝
 型 repo_names）で repo ごとに外す。
@@ -154,6 +156,11 @@ def _tmp_file(text, name):
     with open(path, "w", encoding="utf-8") as f:
         f.write(text)
     return path
+
+
+def _read(path):
+    with open(path, encoding="utf-8") as f:
+        return f.read()
 
 
 def _run(cmd, cwd=None):
@@ -329,114 +336,43 @@ def check_words(texts, repo, vals, data=None):
 
 # ── public（公開の repo に置かない物）──
 WORKFLOW_DIR = os.path.join(".github", "workflows")
-# public-guard を呼ぶ step の with の中の deny-words-file の値（囲みの引用符を外す・行末のコメントは見ない）。
-DENY_KEY = re.compile(r"""(?:^|[{,\s])deny-words-file[ \t]*:[ \t]*(['"]?)([^\s'"#,}]+)\1""")
-# workflow の step の `uses:` の値（囲みの引用符を外す・行末のコメントは見ない）。コメントの行・job の名は呼び口でない。
-USES = re.compile(r"^[ \t]*(?:-[ \t]+)?uses[ \t]*:[ \t]*(['\"]?)([^\s'\"#]+)\1", re.M)
-LOCAL_ACTION = "./public-guard"
+# 取り出しの origin の URL（https・ssh://・scp の形 <利用者>@github.com:o/r）から owner/repo を読む。host は github.com だけ。
+REMOTE = re.compile(r"^(?:(?:https?|ssh|git)://(?:[^@/]+@)?github\.com(?::\d+)?/|(?:[^@/:]+@)?github\.com:)"
+                    r"([^/\s]+)/([^/\s]+?)(?:\.git)?/*$", re.I)
+
+
+def _reader():
+    """workflow の読み手（正本 public-guard/workflow_reader.py・見回りと手元の検査も同じ物を読む）。見つからなければ例外
+    （公開の repo の取り出しで照らせない時は、黙って通さず止める＝check の broken）。"""
+    path = G.foundation_file(os.path.join("public-guard", "workflow_reader.py"))
+    if not path:
+        raise RuntimeError("workflow の読み手（public-guard/workflow_reader.py）が見つからない")
+    return G.load_module("af_pr_text_workflow_reader", path)
 
 
 def _foundation():
-    """土台の repo の名（owner/repo）。正本は見回り public-guard/patrol.py の FOUNDATION（写さない）。読めなければ ""。"""
-    path = G.foundation_file(os.path.join("public-guard", "patrol.py"))
+    """土台の repo の名（owner/repo）。正本は workflow の読み手の FOUNDATION（写さない）。読めなければ ""。"""
     try:
-        return str(G.load_module("af_pr_text_patrol", path).FOUNDATION) if path else ""
+        return str(_reader().FOUNDATION)
     except Exception:  # noqa: BLE001  読めない時は呼ぶ側が多く照らす向きに倒す
         return ""
 
 
-def _indent(line):
-    return len(line) - len(line.lstrip(" "))
-
-
-def _steps(raw):
-    """workflow の text の並びの要素（`- ` で始まる塊）ごとに (要素の鍵の字下げ, 塊の行の並び)。
-    塊は `- ` の行から、それより深く字下げした行（と空行）まで。コメントの行は塊に入れない。"""
-    lines = [ln for ln in raw.splitlines() if not ln.lstrip().startswith("#")]
-    out = []
-    for i, ln in enumerate(lines):
-        m = re.match(r"^( *)-[ \t]+(\S)", ln)
-        if not m:
-            continue
-        ind = len(m.group(1))
-        key_col = m.start(2)
-        block = [" " * key_col + ln[key_col:]]
-        for nxt in lines[i + 1:]:
-            if nxt.strip() and _indent(nxt) <= ind:
-                break
-            block.append(nxt)
-        out.append((key_col, block))
-    return out
-
-
-def _own(block, key_col):
-    """塊のうち要素そのものの鍵の行（字下げが key_col ちょうど）と、その鍵の下の行の組の並び。"""
-    out, cur = [], None
-    for ln in block:
-        if ln.strip() and _indent(ln) == key_col:
-            cur = [ln]
-            out.append(cur)
-        elif ln.strip() and _indent(ln) < key_col:
-            cur = None
-        elif cur is not None:
-            cur.append(ln)
-    return out
-
-
-def _calls(path, found):
-    path = path.partition("@")[0]
-    if path == LOCAL_ACTION:
-        return True
-    if found:
-        return path.lower() == (found + "/public-guard").lower()
-    return path.rsplit("/", 1)[-1] == "public-guard"
-
-
-def public_guard_steps(raw, foundation=None):
-    """workflow の text のうち、土台の action public-guard を呼ぶ step の (鍵の字下げ, 塊) の並び。
-    呼ぶかは step そのものの `uses:` の値を @ の前の道で、土台の `<owner>/<repo>/public-guard`（大小を問わない）か
-    `./public-guard`（土台そのもの）と全体で比べる。版の印は問わない（止めた版でも公開の repo には変わりない）。
-    似た名の action・fork・名を道に含む別の出所・コメントの行・job の名は呼び口と見ない。
-    土台の名が読めない時だけ、道の最後が public-guard の呼び口を公開と見る（照らさないより多く照らす）。"""
-    found = _foundation() if foundation is None else foundation
-    out = []
-    for key_col, block in _steps(raw):
-        for group in _own(block, key_col):
-            m = USES.match(group[0])
-            if m and _calls(m.group(2), found):
-                out.append((key_col, block))
-                break
-    return out
-
-
 def calls_public_guard(raw, foundation=None):
-    """workflow の text が土台の action public-guard を呼ぶか（public_guard_steps が 1 つでも在るか）。"""
-    return bool(public_guard_steps(raw, foundation))
+    """workflow の text に、数える public-guard の呼び口（PR・push で走る job の step）が在るか。見分けは読み手の counted。"""
+    found = _foundation() if foundation is None else foundation
+    return bool(_reader().counted(raw, found))
 
 
-def deny_words_file(raw, foundation=None):
-    """public-guard を呼ぶ step の `with:` の deny-words-file の値か ""。同じ workflow の別の step・job の
-    deny-words-file（別の道具の語の表）は見ない。"""
-    for key_col, block in public_guard_steps(raw, foundation):
-        for group in _own(block, key_col):
-            if not re.match(r"^ *with[ \t]*:", group[0]):
-                continue
-            head = group[0].split(":", 1)[1]
-            m = DENY_KEY.search(head) if head.strip().startswith("{") else None
-            if m:
-                return m.group(2)
-            sub = [ln for ln in group[1:] if ln.strip()]
-            col = min((_indent(ln) for ln in sub), default=0)
-            for ln in sub:
-                if _indent(ln) == col:
-                    m = re.match(r"""^ *deny-words-file[ \t]*:[ \t]*(['"]?)([^\s'"#]+)\1""", ln)
-                    if m:
-                        return m.group(2)
-    return ""
+def github_repo(url):
+    """git の remote の URL の owner/repo（github.com のでなければ ""）。末尾の .git・/ は外す。"""
+    m = REMOTE.match(str(url or "").strip())
+    return "%s/%s" % m.groups() if m else ""
 
 
 def _checkout_of(repo, data):
-    """窓の repo の取り出しが owner/repo なら、その根。"""
+    """窓の repo の取り出しが owner/repo なら、その根。origin の URL を owner/repo に読み、名の全体で比べる（GitHub と同じく
+    大小を問わない）。"""
     root = G.project_dir(data)
     if not root or not repo:
         return ""
@@ -447,26 +383,33 @@ def _checkout_of(repo, data):
                              timeout=10).stdout.strip()
     except (OSError, subprocess.SubprocessError):
         return ""
-    path = re.sub(r"\.git$", "", url.rstrip("/")).lower()
-    return top if top and path.endswith("/" + repo.lower()) else ""
+    return top if top and github_repo(url).lower() == repo.lower() else ""
 
 
 def public_target(repo, data, vals):
-    """(公開か, 取り出しの根, 置かない語の表の path)。"""
+    """(公開か, 取り出しの根, 置かない語の表の path の並び)。取り出しの workflow の全部を読み手で読み、数える呼び口
+    （PR・push で走り、job と step の if: が字どおりの false でない）が 1 つでも在れば公開。語の表は数える呼び口の全部の和。"""
     top = _checkout_of(repo, data)
     if top:
+        reader, found, words, public = None, None, [], False
         for wf in sorted(glob.glob(os.path.join(top, WORKFLOW_DIR, "*.y*ml"))):
             try:
                 with open(wf, encoding="utf-8") as f:
                     raw = f.read()
             except OSError:
                 continue
-            if calls_public_guard(raw):
-                name = deny_words_file(raw)
-                return True, top, (os.path.join(top, name) if name else "")
+            if reader is None:
+                reader = _reader()
+                found = str(getattr(reader, "FOUNDATION", "") or "")
+            if reader.counted(raw, found):
+                public = True
+                words += [os.path.join(top, n) for n in reader.deny_words_files(raw, found)
+                          if os.path.join(top, n) not in words]
+        if public:
+            return True, top, words
     if repo and _public_extra(repo, data, vals):
-        return True, top, ""
-    return False, top, ""
+        return True, top, []
+    return False, top, []
 
 
 def find_public_guard(top=""):
@@ -484,9 +427,10 @@ def check_public(texts, repo, data, vals):
     is_public, top, words = public_target(repo, data, vals)
     if not is_public:
         return []
-    if words and not os.path.isfile(words):
+    missing = [w for w in words if not os.path.isfile(w)]
+    if missing:
         return ["公開の repo の workflow が名指す置かない語の表 %s が無く、照らせない（CI も同じ時に止まる）。表を置くか"
-                "workflow を直す" % os.path.relpath(words, top or None)]
+                "workflow を直す" % os.path.relpath(missing[0], top or None)]
     tool = find_public_guard(top)
     if not tool:
         return ["公開の repo だが、公開の検査（土台の public-guard/guard.py）が見つからず照らせない。土台の marketplace を"
@@ -495,7 +439,9 @@ def check_public(texts, repo, data, vals):
     for i, (where, text) in enumerate(texts):
         cmd += ["--text", "%s=%s" % (where, _tmp_file(text, "public%d" % i))]
     if words:
-        cmd += ["--deny-words-file", words]
+        # 数える呼び口が 2 つ以上の表を名指せば、全部の和で照らす（guard.py の --deny-words-file は 1 つ）
+        joined = words[0] if len(words) == 1 else _tmp_file("\n".join(_read(w) for w in words), "deny-words")
+        cmd += ["--deny-words-file", joined]
     try:
         p = _run(cmd)
     except (OSError, subprocess.SubprocessError) as e:
