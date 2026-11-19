@@ -5,7 +5,7 @@
 費用も壊れ物として、試験の中で本物へつなぐ線を書く時に止める。
 
 止める: 試験らしい path（tests/・e2e/・spec/・__tests__/・test_*.py・*.test.js …）へ書く中身に、
-  有料の上流の鍵名か公式のエンドポイントが現れた時。
+  有料の上流の鍵名か公式のエンドポイント・鍵の名の形（…_API_KEY 等）・AI の SDK の取り込みが現れた時（paid_hits）。
 逃げ道: 中身に PAID_UPSTREAM_GUARD を書く（＝環境変数 1 本で本物へ切り替える共通の関所を通す宣言。既定は録画の再生か偽物）。
 
 見る口: Write / Edit / MultiEdit / NotebookEdit と、Bash で試験らしい path へ書く形（`>`・`>>` のリダイレクト・
@@ -32,6 +32,16 @@ PAID_MARKERS = (
     "api.anthropic.com", "api.openai.com", "generativelanguage.googleapis.com",
     "api.mistral.ai", "api.cohere.ai", "api.groq.com",
 )
+# 鍵の名を 1 つずつ並べず類で見る: 環境から読む鍵の名の形（…_API_KEY 等）・AI の SDK の取り込み（引数なしの
+# クライアントが環境から鍵を読む形もこれで拾う）。字を割って組む名（"ANTHROPIC_" + "API_KEY"）は、照らす前に
+# 字の継ぎ（" + "・' '・f 文字列の継ぎ目）を外して寄せる。
+KEY_NAME = re.compile(r"\b[A-Z][A-Z0-9]*_(?:API_?KEY|API_?TOKEN|SECRET_?KEY|ACCESS_?TOKEN|AUTH_?TOKEN)\b")
+AI_SDK = re.compile(
+    r"^\s*(?:from|import)\s+(?:anthropic|openai|google\.generativeai|google\.genai|mistralai|cohere|groq|replicate|"
+    r"fal_client|together|voyageai|litellm|langchain_(?:openai|anthropic|google_genai))\b"
+    r"|(?:require\s*\(|from\s+|import\s*\()\s*[\"'](?:@anthropic-ai/sdk|openai|@google/generative-ai|@google/genai|"
+    r"@mistralai/mistralai|cohere-ai|groq-sdk|replicate|@fal-ai/[\w-]+|ai|@ai-sdk/[\w-]+)[\"']", re.M)
+_JOIN = re.compile(r"""[\"']\s*\+\s*[\"']|[\"']\s+[\"']""")
 GUARD_MARKER = "PAID_UPSTREAM_GUARD"
 WRITE_TOOLS = {"Write", "Edit", "MultiEdit", "NotebookEdit"}
 CONTENT_KEYS = ("content", "new_string", "new_source")
@@ -56,6 +66,16 @@ def _payload(tool_input):
         if isinstance(e, dict):
             parts += [e[k] for k in CONTENT_KEYS if isinstance(e.get(k), str)]
     return "\n".join(parts)
+
+
+def paid_hits(text, vals):
+    """有料の上流へつなぐ印の並び（表の字・鍵の名の形・AI の SDK の取り込み）。"""
+    joined = _JOIN.sub("", text)
+    markers = list(PAID_MARKERS) + [m for m in vals.get("paid_markers_extra") or [] if isinstance(m, str) and m]
+    hits = [m for m in markers if m in text or m in joined]
+    hits += sorted({m.group(0) for m in KEY_NAME.finditer(joined)} - set(hits))
+    hits += ["AI の SDK の取り込み（%s）" % m.group(0).strip()[:40] for m in AI_SDK.finditer(joined)][:1]
+    return hits
 
 
 def reason(path, hits):
@@ -94,8 +114,7 @@ def check_bash(data, vals):
     tests = [t for t in bash_targets(cmd) if TEST_PATH_RE.search(t.replace(os.sep, "/"))]
     if not tests:
         return ""
-    markers = list(PAID_MARKERS) + [m for m in vals.get("paid_markers_extra") or [] if isinstance(m, str) and m]
-    hits = [m for m in markers if m in cmd]
+    hits = paid_hits(cmd, vals)
     return reason(", ".join(tests), hits) if hits else ""
 
 
@@ -114,6 +133,5 @@ def check(data, vals):
     body = _payload(tool_input)
     if not body or GUARD_MARKER in body:
         return ""
-    markers = list(PAID_MARKERS) + [m for m in vals.get("paid_markers_extra") or [] if isinstance(m, str) and m]
-    hits = [m for m in markers if m in body]
+    hits = paid_hits(body, vals)
     return reason(path, hits) if hits else ""

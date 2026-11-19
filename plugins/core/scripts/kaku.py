@@ -77,13 +77,26 @@ def _tracked(project: Path, specs: list[str]) -> list[Path]:
     return [project / s for s in specs if "*" not in s]  # git でない dir は、名で書いた file だけ見る
 
 
+def flat(text: str) -> str:
+    """古い形を照らす前に字を 1 つの形へ寄せる（形の字の並びを足して言い換えを追わないため）: 全角→半角（NFKC）・
+    シェルの行の継ぎ（\\ と改行）を外す・語の中で字を割る引用符（"core@agent-"foundation・'plu''gin'）を外す。"""
+    import unicodedata
+    t = unicodedata.normalize("NFKC", text).replace("\\\n", "")
+    return re.sub(r"(?<=[^\s'\"])['\"]+(?=[^\s'\"])|(?<=\s)['\"]+(?=[^\s'\"][^\s]*['\"]?[^\s'\"])", "", t)
+
+
+def olds_hit(row: dict, text: str) -> bool:
+    """古い形の行が字に当たるか（元の字と、寄せた字の両方で照らす）。"""
+    return bool(row["re"].search(text) or row["re"].search(flat(text)))
+
+
 def find_olds(project: Path, rows: list[dict] | None = None) -> list[tuple[dict, str]]:
     """開いた repo に残る古い形の (行, 当たった file の相対 path)。"""
     found = []
     for r in rows if rows is not None else olds_table():
         for f in _tracked(project, r["files"]):
             try:
-                if f.is_file() and f.stat().st_size <= 1_000_000 and r["re"].search(f.read_text(encoding="utf-8", errors="replace")):
+                if f.is_file() and f.stat().st_size <= 1_000_000 and olds_hit(r, f.read_text(encoding="utf-8", errors="replace")):
                     found.append((r, str(f.relative_to(project))))
             except OSError:
                 pass

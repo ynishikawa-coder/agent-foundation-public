@@ -202,7 +202,7 @@ def title_findings(data, sw):
     _, mark, work = sw.split_title(title)
     if name.endswith(CREATE_SUFFIX) and sw.HAND_TITLE.match(work):
         prompt = ti.get("prompt") if isinstance(ti.get("prompt"), str) else ""
-        lack = [p for p in sw.HAND_PARTS if p not in prompt]
+        lack = sw.hand_lack(prompt) if hasattr(sw, "hand_lack") else [p for p in sw.HAND_PARTS if p not in prompt]
         if lack:
             out.append("手の窓を立てる頼みの文に %s が無い（①目的 ②手順 ③済んだ目印 ④済んだ後 を書いて渡す）" % "・".join(lack))
     return out

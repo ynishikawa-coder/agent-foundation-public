@@ -5,12 +5,26 @@
 """
 import json
 import re
+import unicodedata
 from pathlib import Path
 
 import pytest
 
 ROOT = Path(__file__).resolve().parent.parent
-COUNT = re.compile(r"hook\s*\d+\s*つ|の\s*\d+\s*つ）")
+# 見張りの数の書き方は字の並びを足して追わず、字を 1 つの形に寄せて（全角→半角・漢数字→数字・空白を詰める）から、
+# 見張りを指す語と数＋助数詞が近くに在るかの類で見る（「hook が 6 つ」「六つの見張り」「守り ６ 本」も同じ類）。
+WATCH = r"(?:hook|フック|見張り|守り|watcher)"
+NUM = r"\d+(?:つ|個|本|種|件)"
+COUNT = re.compile(WATCH + r"[^。\n]{0,10}?" + NUM + "|" + NUM + r"[^。\n]{0,4}?" + WATCH + r"|の" + NUM + "）", re.I)
+_KANJI = {c: str(i) for i, c in enumerate("〇一二三四五六七八九")}
+_KANJI.update({"十": "10"})
+
+
+def flat(text):
+    """数の照らしの前に字を 1 つの形へ寄せる。"""
+    t = unicodedata.normalize("NFKC", text)
+    t = re.sub(r"[〇一二三四五六七八九十](?=[つ個本種件])", lambda m: _KANJI[m.group(0)], t)
+    return re.sub(r"\s+", "", t)
 
 
 def test_PR_の型は触った_path_と残りの行き先を手で写させない():
@@ -38,8 +52,8 @@ def _descriptions():
 
 @pytest.mark.parametrize("where,text", list(_descriptions()))
 def test_説明と一覧に見張りの数を書かない(where, text):
-    assert not COUNT.search(text), f"{where}: 見張りの数を書くと、足す PR が全部ここを書き換えて衝突する"
+    assert not COUNT.search(flat(text)), f"{where}: 見張りの数を書くと、足す PR が全部ここを書き換えて衝突する"
 
 
 def test_数の注入は拾う():
-    assert COUNT.search("守りの hook 6 つ。") and COUNT.search("守りの hook（guard の 6 つ）")
+    assert COUNT.search(flat("守りの hook 6 つ。")) and COUNT.search(flat("守りの hook（guard の 6 つ）"))

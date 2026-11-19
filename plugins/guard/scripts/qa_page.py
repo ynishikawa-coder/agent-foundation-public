@@ -8,8 +8,13 @@
   （files の HTML は同じ Artifact の別のページとして開けるので、file_path と同じに見る）
 問いのページの見分け（誤検知を少なくするため、どれか 1 つが要る）:
   HTML: ① 型の印（<body data-dest="send|copy|artifact">・CustomEvent('qa:submit')）
-        ② 選ぶ問い（radio）と、答えを外へ出す仕組み（form・qa:submit・sendPrompt・window.claude の書く呼び出し・POST 等の fetch・clipboard への書き込み）の両方
-           （読むだけの fetch や表示の切り替えの radio は数えない）
+        ② 答えを入れる部品と、答えを外へ出す口の両方。どちらも字の並びで探さず類で読む:
+           部品＝要素の木（html.parser）で HTML と ARIA が決める入れる部品の類（input〔hidden・button の類を除く〕・
+           select・textarea・role=radio 等・contenteditable）と、script で組む部品（createElement・字の中の HTML）。
+           口＝ページから外へ出る道の類（form・qa:submit・sendPrompt・sendBeacon・WebSocket・postMessage・clipboard・
+           GET でない fetch／XMLHttpRequest・window.claude の読む動詞でない呼び出し・location に答えを載せる）。
+           読むか書くかを字から決められない fetch（method や設定を変数で渡す）は口に数える（既定で数える）。
+           （読むだけの fetch と、出す口の無いページの部品は数えない）
         ③ <script id="state"> などの JSON に、問いの並び（qs・questions）で、選択肢（options・choices）を持つ物
   JSON: 問いの並び（questions・qs）で、選択肢を持つ物（Artifact 型へ渡す問いのデータ）
 検査が走らない（check.mjs が見つからない・node が無い・検査が壊れた）時も止める＝緑を確かめられない物は出さない。
@@ -24,6 +29,7 @@ import os
 import re
 import shutil
 import subprocess
+from html.parser import HTMLParser
 
 import guard_common as G
 
@@ -33,12 +39,25 @@ RED_SHOWN = 12
 
 QA_SUBMIT = r"CustomEvent\s*\(\s*[\"']qa:submit[\"']"
 TYPE_MARK = re.compile(r"<body\b[^>]*\bdata-dest\s*=\s*[\"']?(?:send|copy|artifact)\b|" + QA_SUBMIT, re.I)
-RADIO = re.compile(r"""type\s*[=:]\s*\\?["']?radio\b|["']radio["']""", re.I)
-# 答えを外へ出す仕組みだけ（読むだけの fetch・window.claude の読み・表示の切り替えは数えない）
+# 答えを入れる部品＝HTML と ARIA が決める入れる部品の類（radio の字を探さない＝select・checkbox・role=radio・
+# 手で書く欄も同じ類として数える）
+INPUT_TYPES_SKIP = {"hidden", "submit", "button", "reset", "image", "file", "search"}
+ANSWER_TAGS = {"select", "textarea"}
+ANSWER_ROLES = {"radio", "radiogroup", "checkbox", "switch", "option", "listbox", "combobox", "textbox", "slider",
+                "spinbutton", "menuitemradio", "menuitemcheckbox"}
+JS_CONTROL = re.compile(
+    r"createElement\s*\(\s*[\"'`](?:input|select|textarea)[\"'`]"
+    r"|\.type\s*=\s*[\"'`](?:radio|checkbox|text|number|date|range)[\"'`]"
+    r"|setAttribute\s*\(\s*[\"'`](?:role|type|contenteditable)[\"'`]\s*,\s*[\"'`](?:" + "|".join(sorted(ANSWER_ROLES)) +
+    r"|true|text|number|date)[\"'`]"
+    r"|\bcontentEditable\s*=", re.I)
+JS_STRING = re.compile(r"`(?:[^`\\]|\\.)*`|\"(?:[^\"\\\n]|\\.)*\"|'(?:[^'\\\n]|\\.)*'", re.S)
+# 答えを外へ出す口＝ページから外へ出る道の類。読むだけの道（GET の fetch・window.claude の読む動詞）は数えず、
+# 読むか書くかを字から決められない呼び出し（method を変数で渡す fetch など）は出す口に数える（既定で数える）
+CLAUDE_READ = re.compile(r"^(?:get|load|read|list|fetch|query|search|view|whoami|me|user|on|subscribe|watch)", re.I)
 SENDER = re.compile(
-    r"<form\b|" + QA_SUBMIT + r"|\bsendPrompt\s*\("
-    r"|window\.claude\.(?:\w+\.)*(?:send|submit|ask|prompt|set|write|save|update|add|put|insert|append)\w*\s*\("
-    r"|\bmethod\s*:\s*[\"'](?:POST|PUT|PATCH)[\"']|navigator\.clipboard\.write",
+    r"<form\b|" + QA_SUBMIT + r"|\bsendPrompt\s*\(|navigator\.sendBeacon\s*\(|\bnew\s+WebSocket\s*\(|\.postMessage\s*\("
+    r"|navigator\.clipboard\.write|\.(?:post|put|patch|delete)\s*\(|\$\.ajax\s*\(|\bnew\s+EventSource\s*\(",
     re.I)
 JSON_SCRIPT = re.compile(r"<script\b([^>]*)>(.*?)</script>", re.I | re.S)
 Q_KEYS = ("questions", "qs")
@@ -80,8 +99,94 @@ def why_question_page(path, raw):
                     return "ページに埋めた問いのデータ（<script> の JSON に questions／qs と選択肢）"
             except ValueError:
                 pass
-    if RADIO.search(raw) and SENDER.search(raw):
-        return "選ぶ問い（radio）と答えを外へ出す仕組みの両方"
+    control, exit_ = answer_control(raw), answer_exit(raw)
+    if control and exit_:
+        return "答えを入れる部品（%s）と答えを外へ出す口（%s）の両方" % (control, exit_)
+    return ""
+
+
+class _Controls(HTMLParser):
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.found = ""
+
+    def handle_starttag(self, tag, attrs):
+        if self.found:
+            return
+        a = {k.lower(): (v or "") for k, v in attrs}
+        if tag == "input" and a.get("type", "text").strip().lower() not in INPUT_TYPES_SKIP:
+            self.found = "input type=%s" % (a.get("type") or "text")
+        elif tag in ANSWER_TAGS:
+            self.found = tag
+        elif a.get("role", "").strip().lower() in ANSWER_ROLES:
+            self.found = "role=%s" % a["role"].strip()
+        elif "contenteditable" in a and a["contenteditable"].strip().lower() != "false":
+            self.found = "contenteditable"
+
+
+def _html_controls(text):
+    p = _Controls()
+    try:
+        p.feed(text)
+        p.close()
+    except Exception:
+        return ""
+    return p.found
+
+
+def answer_control(raw):
+    """答えを入れる部品が在れば何か（1 語）、無ければ ""。HTML の要素と、script の字の中に組む HTML・JS の組み立ても読む。"""
+    found = _html_controls(raw)
+    if found:
+        return found
+    for attrs, body in JSON_SCRIPT.findall(raw):
+        m = JS_CONTROL.search(body)
+        if m:
+            return "script で組む部品（%s）" % m.group(0)[:40]
+        for lit in JS_STRING.findall(body):
+            if "<" in lit:
+                found = _html_controls(lit[1:-1].replace("\\'", "'").replace('\\"', '"'))
+                if found:
+                    return "script の字の中の %s" % found
+    return ""
+
+
+def _call_args(raw, start):
+    """raw[start] が ( の時、対の ) までの中身。"""
+    depth, i = 0, start
+    while i < len(raw):
+        c = raw[i]
+        if c == "(":
+            depth += 1
+        elif c == ")":
+            depth -= 1
+            if depth == 0:
+                return raw[start + 1:i]
+        i += 1
+    return raw[start + 1:]
+
+
+def answer_exit(raw):
+    """答えを外へ出す口が在れば何か、無ければ ""。"""
+    m = SENDER.search(raw)
+    if m:
+        return m.group(0)[:30]
+    for m in re.finditer(r"\bfetch\s*\(", raw):
+        args = _call_args(raw, m.end() - 1)
+        meth = re.search(r"\bmethod\s*:\s*([\"'`])(\w+)\1", args)
+        if meth:
+            if meth.group(2).upper() not in ("GET", "HEAD"):
+                return "fetch の method %s" % meth.group(2)
+        elif re.search(r"\bmethod\b|\bbody\s*:", args) or re.search(r",\s*[A-Za-z_$][\w$]*\s*$", args.strip()):
+            return "fetch（読むか書くかを字から決められない）"
+    for m in re.finditer(r"\.open\s*\(\s*([\"'`])(\w+)\1", raw):
+        if m.group(2).upper() not in ("GET", "HEAD"):
+            return "XMLHttpRequest の %s" % m.group(2)
+    for m in re.finditer(r"window\.claude\.((?:\w+\.)*)(\w+)\s*\(", raw):
+        if not CLAUDE_READ.match(m.group(2)):
+            return "window.claude.%s%s" % (m.group(1), m.group(2))
+    if re.search(r"location(?:\.href)?\s*=\s*[^=;]*[?#]|window\.open\s*\([^)]*[?#]", raw):
+        return "location に答えを載せる"
     return ""
 
 

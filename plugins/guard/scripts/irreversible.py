@@ -10,8 +10,15 @@
   判定できない時（展開 `$(`・変数・rm が区切りの先頭に無い〔`| xargs rm`・`sudo rm`〕・在らない先への cd・
   rm より前に cd 以外の命令がある〔`mv keep gone && rm -rf gone`〕）は止める側に倒す。
 
-射程の天井: 判定は列挙であって証明ではない（`find … -delete`・再帰なしの `rm -f`・`git restore .` などは素通り）。
-  足したい形は値の表の irreversible_bash_extra / irreversible_tools_extra へ。
+道具の名は字の並びで探さず、名の動詞で読む（tool_verbs）: MCP の道具（mcp__<server>__<動詞>…）と入力の action・method が
+  削除の動詞（DESTROY）なら止め、読む動詞（READ）・戻せる書き込みの動詞（UNDOABLE）のどれでもない＝知らない動詞も止める
+  （既定で止める・離席中の AI だけ）。道具の名を 1 つずつ並べる表は持たない（並べていない削除の道具が通る穴の形）。
+Bash は命令の字を探さず、読み手（cmd_read）が解いた段ごとの語で見る: 削除の動詞を名に持つ命令（dropdb・shred など）・
+  下の命令（2〜3 語目）が削除の動詞の命令（gh repo delete・kubectl delete・aws s3 rm）・find の -delete・
+  記録していない変更を捨てる git（reset --hard・clean -f・restore・checkout -- ・stash drop/clear。作業の木が綺麗なら通す）・
+  走らせる命令が読めない段（$CMD …）。
+射程の天井: 別の script の file の中・python の中で消す形は見えない。足したい形は値の表の irreversible_bash_extra /
+  irreversible_tools_extra へ。
 費用: 在席中は離席の印の stat 1 回で終わる。
 """
 from __future__ import annotations
@@ -23,6 +30,7 @@ import shlex
 import subprocess
 import tempfile
 
+import cmd_read as R
 import guard_common as G
 import unanswered as UQ
 
@@ -38,6 +46,18 @@ _TOOLS = [
     (r"^mcp__[\w-]+__(?:send_?(?:e?mail|draft)|sendEmail|sendDraft)$", "メールの送信"),
     (r"^mcp__[\w-]+__API-delete-a-block$", "Notion の物理削除"),
 ]
+# 道具の名・命令の名の動詞（語に割ってから照らす＝字の並びでなく語の類）
+DESTROY = {"delete", "del", "remove", "rm", "rmdir", "trash", "drop", "destroy", "purge", "erase", "wipe", "shred",
+           "truncate", "revoke", "terminate", "unpublish", "nuke", "obliterate", "expunge", "reset", "clear", "prune"}
+READ = {"get", "list", "ls", "read", "search", "fetch", "query", "view", "describe", "find", "lookup", "retrieve",
+        "download", "export", "whoami", "status", "check", "show", "count", "preview", "inspect", "suggest", "resolve",
+        "guide", "load", "select", "watch", "wait", "query"}
+UNDOABLE = {"create", "update", "add", "append", "insert", "set", "move", "copy", "upload", "write", "edit", "comment",
+            "reply", "rename", "duplicate", "restore", "unarchive", "enable", "disable", "link", "subscribe",
+            "unsubscribe", "send", "post", "push", "open", "close", "merge", "request", "respond", "react", "pin",
+            "unpin", "archive", "run", "fire", "trigger", "batch", "apply", "convert", "complete", "mark", "assign",
+            "report", "attach", "register", "spawn", "stop", "interrupt", "schedule", "share", "publish", "import",
+            "generate", "use", "fork", "approve", "submit", "save", "start", "notify", "tag", "label"}
 TAIL_BYTES = 200_000
 _REDIRECT = re.compile(r"(?:\d*(?:>>|>|<)&?|&>>?)\s*\S+")
 _SPLIT = re.compile(r"&&|\|\||;|\n|\||&")
@@ -194,12 +214,77 @@ def rm_restorable(cmd, cwd):
         return False
 
 
+def words_of(name):
+    """道具の名・命令の名を語に割る（- _ . と小文字→大文字の境で切り、小文字にする）。"""
+    name = re.sub(r"([a-z0-9])([A-Z])", r"\1 \2", str(name or ""))
+    return [w for w in re.split(r"[^A-Za-z0-9]+", name.lower()) if w]
+
+
+def tool_verbs(name, tool_input):
+    """道具の呼び出しが戻せないなら訳、戻せるなら ""。MCP の道具は名の動詞、どの道具も入力の action・method を見る。"""
+    ti = tool_input if isinstance(tool_input, dict) else {}
+    for key in ("action", "method", "operation", "op"):
+        v = ti.get(key)
+        if isinstance(v, str) and set(words_of(v)) & DESTROY:
+            return "戻せない削除（%s の %s=%s）" % (name, key, v)
+    if not name.startswith("mcp__"):
+        return ""
+    verb = words_of(name.split("__", 2)[-1])
+    bad = [w for w in verb if w in DESTROY]
+    if bad:
+        return "戻せない削除（道具 %s の動詞 %s）" % (name, bad[0])
+    known = [w for w in verb if w in READ or w in UNDOABLE]
+    if not known:
+        return "戻せるか分からない道具（%s の名に知っている動詞が無い）" % name
+    return ""
+
+
+def _git_discards(words, cwd):
+    """記録していない変更を捨てる git の段か（作業の木が綺麗なら捨てる物が無い＝通す）。"""
+    args = [w.text for w in words[1:]]
+    sub = next((a for a in args if not a.startswith("-")), "")
+    rest = args[args.index(sub) + 1:] if sub in args else []
+    discard = ((sub == "reset" and "--hard" in rest) or (sub == "clean" and any(a.startswith("-") and "f" in a for a in rest))
+               or sub == "restore" or (sub == "checkout" and ("--" in rest or "." in rest))
+               or (sub == "stash" and rest[:1] in (["drop"], ["clear"])))
+    return discard and not (cwd and _clean(cwd))
+
+
+def bash_verbs(cmd, cwd):
+    """読み手が解いた段ごとの語で、戻せない命令を探す。訳か ""。"""
+    reading = R.read(cmd)
+    for words in reading.segments:
+        prog = R.prog_name(words)
+        if words[0].opaque:
+            return "走らせる命令が読めない段（%s）" % words[0].text
+        if prog in ("rm", "git") and prog == "rm":
+            continue                       # rm は recursive_rm／rm_restorable が受け持つ
+        if prog == "git":
+            if _git_discards(words, cwd):
+                return "記録していない変更を捨てる git（%s）" % " ".join(w.text for w in words[:3])
+            continue
+        if prog == "find" and any(w.text in ("-delete",) for w in words) or (
+                prog == "find" and any(w.text in ("-exec", "-execdir", "-ok") for w in words)
+                and any(os.path.basename(w.text) in ("rm", "shred") for w in words)):
+            return "find で消す"
+        if set(words_of(prog)) & DESTROY or re.match(r"^(drop|destroy|purge|wipe|shred)", prog):
+            return "戻せない削除の命令（%s）" % prog
+        subs = [w.text for w in words[1:4] if not w.text.startswith("-")][:2]
+        bad = [t for t in subs if t.lower() in DESTROY]
+        if bad:
+            return "戻せない削除の下の命令（%s %s）" % (prog, bad[0])
+    return ""
+
+
 def match(tool_name, tool_input, cwd, vals):
     """戻せない操作なら理由、そうでなければ ""。"""
     name = str(tool_name or "")
     for rx, why in _compile(_TOOLS) + _compile(vals.get("irreversible_tools_extra") or []):
         if rx.search(name):
             return why
+    why = tool_verbs(name, tool_input)
+    if why:
+        return why
     if name != "Bash":
         return ""
     cmd = str((tool_input or {}).get("command") or "") if isinstance(tool_input, dict) else ""
@@ -208,7 +293,7 @@ def match(tool_name, tool_input, cwd, vals):
     for rx, why in _compile(_BASH) + _compile(vals.get("irreversible_bash_extra") or []):
         if rx.search(cmd):
             return why
-    return ""
+    return bash_verbs(cmd, cwd)
 
 
 def owner_returned_since(tpath, since):

@@ -280,15 +280,13 @@ def public_target(repo, data, vals):
 
 
 def find_public_guard(top=""):
-    """public-guard/guard.py の path か ""（土台の repo の根に在る・plugin の外）。探す順: 環境変数 → 出す先の repo の取り出し
-    （土台そのものへ出す時）→ 土台の共通の在り処探し（guard_common.foundation_file）。"""
+    """public-guard/guard.py の path か ""（土台の repo の根に在る・plugin の外）。探す順: 環境変数 → この guard と同じ土台
+    （guard_common.foundation_file＝入れた guard の版の隣）。出す先の repo の作業の木の物は読まない（PR の枝を取り出した
+    手元では、守りと別の版＝古い公開の検査を呼んでしまう。守りが読む正本は守りと同じ版の 1 つ）。top は呼び口を変えないため残す。"""
     env = os.environ.get("AF_PUBLIC_GUARD") or ""
     if env:
         return env if os.path.isfile(env) else ""
-    rel = os.path.join("public-guard", "guard.py")
-    if top and os.path.isfile(os.path.join(top, rel)):
-        return os.path.join(top, rel)
-    return G.foundation_file(rel)
+    return G.foundation_file(os.path.join("public-guard", "guard.py"))
 
 def check_public(texts, repo, data, vals):
     is_public, top, words = public_target(repo, data, vals)

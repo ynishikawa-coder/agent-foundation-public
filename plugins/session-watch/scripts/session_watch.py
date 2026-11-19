@@ -154,6 +154,29 @@ def moves(name, inp):
 # 手の窓（題 `🙋⏳ 手: <何を>`）が書く 4 つ。
 HAND_TITLE = re.compile(r"^手[:：]")
 HAND_PARTS = ("目的", "手順", "済んだ目印", "済んだ後")
+# 4 欄は「語が在るか」でなく見出しで切り、見出しから次の見出しまでの中身で読む。見出し＝欄の名の後ろに : か行の終わり
+# （前に付く飾り # * - ・ ①〜⑳ 1. 1) 【 「 は外す）。文の中の語（「目的は…」）は見出しに数えない。
+# 中身が空・置き場の印だけ（- … 〔…〕 <…> TBD 未定）の欄は無いと同じ。
+_HAND_HEAD = re.compile(r"(?:^|(?<=[\s　。、]))[#*>\-・|　 ]*(?:[①-⑳]|\d+[.)．）]|[(（]\d+[)）])?[ 　*【「\[]*(%s)[ 　*】」\]]*(?:[:：]|(?=\n)|$)"
+                        % "|".join(sorted(HAND_PARTS, key=len, reverse=True)), re.M)
+_HAND_BLANK = re.compile(r"^(?:[-–—…・.。、\s*_`]*|〔[^〕]*〕|<[^>]*>|TBD|TODO|未定|未記入|空|\(空\)|（空）)$", re.I)
+
+
+def hand_lack(text):
+    """手の窓の頼み・返事の 4 欄のうち、見出しが無い・中身が空の欄の並び（空なら「（中身が空）」を添える）。"""
+    text = str(text or "")
+    heads = list(_HAND_HEAD.finditer(text))
+    body = {}
+    for i, m in enumerate(heads):
+        end = heads[i + 1].start() if i + 1 < len(heads) else len(text)
+        body.setdefault(m.group(1), text[m.end():end])
+    out = []
+    for part in HAND_PARTS:
+        if part not in body:
+            out.append(part)
+        elif all(_HAND_BLANK.match(ln.strip()) for ln in body[part].splitlines() or [""]):
+            out.append(part + "（中身が空）")
+    return out
 # 頼んだ窓のあなたがやること: 手の窓の URL だけを書く（細目 §4）。手順を直に書いたかを型で見る。
 HAND_URL = re.compile(r"claude\.ai/code/session_[A-Za-z0-9]+")
 STEP_NUM = re.compile(r"(?:^|\s)(?:[1-9][.)．）](?!\d)\s*\S|[①-⑨])", re.M)
@@ -591,7 +614,7 @@ def check(log, closing=None, data=None):
                 elif not done and tm == DONE:
                     found.append(("title", "%s の窓が 終わった でない札（止まった・一部・待ち・問い）で締めるのに、題が %s" % (AI, DONE)))
             if tm == WAITING and HAND_TITLE.match(split_title(title)[2]) and closing.strip():
-                lack = [p for p in HAND_PARTS if p not in closing]
+                lack = hand_lack(closing)
                 if lack:
                     found.append(("hand", "手の窓の返事に %s が無い（目的・手順〔貼る文は全部〕・済んだ目印・済んだ後を書く）"
                                   % "・".join(lack)))

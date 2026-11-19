@@ -25,7 +25,26 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 BRANCH = re.compile(r"^claude/(\d{8}-[0-9A-Za-z][0-9A-Za-z._-]*)$")
-TEST_DEF = re.compile(r"^(?:async\s+)?def\s+test_", re.M)
+TEST_DEF = re.compile(r"^[ \t]*(?:async\s+)?def\s+test", re.M)
+
+
+def count_tests(src: str) -> int:
+    """試験の数を構文木で数える（pytest が集める形＝どの深さの関数・class の中の方法も、名が test で始まる物。
+    名を test で始める代入〔test_x = 作る関数(...)〕も足す）。字の並び（行の頭の def test_）で
+    数えると、class の中に字下げした試験・代入で作る試験が数えられなかった。構文が読めない file は字下げを含む def を数える。"""
+    import ast
+    try:
+        tree = ast.parse(src)
+    except SyntaxError:
+        return len(TEST_DEF.findall(src))
+    n = 0
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name.startswith("test"):
+            n += 1
+        elif isinstance(node, (ast.Assign, ast.AnnAssign)):
+            targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+            n += sum(1 for t in targets if isinstance(t, ast.Name) and t.id.startswith("test"))
+    return n
 ROOT_CAUSE = "直し: 足す所を動かして通すだけで済ませず、同じ所へ足す形になった原因を細目 §3「まず構造を疑う」で探して直す"
 
 
@@ -63,8 +82,8 @@ def check(root: Path, branch: str, base: str) -> list[str]:
         if st == "M" and re.match(r"^tests/(?:.*/)?test_[^/]*\.py$", path):
             before = show(root, mb, path)
             after = (root / path).read_text(encoding="utf-8") if (root / path).is_file() else ""
-            if before is not None and len(TEST_DEF.findall(after)) > len(TEST_DEF.findall(before)):
-                n = len(TEST_DEF.findall(after)) - len(TEST_DEF.findall(before))
+            if before is not None and count_tests(after) > count_tests(before):
+                n = count_tests(after) - count_tests(before)
                 errs.append(f"{path}: 元から在る試験の file に試験を {n} 本足した。新しい試験は守る約束の名の新しい file"
                             "（tests/test_<約束>.py）に置く（並ぶ PR が同じ file の末尾へ足して衝突しない形）")
     return errs
