@@ -91,3 +91,10 @@ def test_規律を足す時も止める物かの後に誤りが入れない形�
 def test_verify_は申告でなく記録で確かめる():
     skill = (PLUGIN / "skills" / "verify" / "SKILL.md").read_text(encoding="utf-8")
     assert "申告でなく記録" in skill and "記録の所在" in skill
+
+
+def test_ほんまにできる表に届く先と写しの残りの行が在る():
+    text = (PLUGIN / "skills" / "design-mode" / "SKILL.md").read_text(encoding="utf-8")
+    rows = {m.group(1).strip() for m in re.finditer(r"^\s*\|\s*([^|]+?)\s*\|", text, flags=re.M)}
+    for row in ("届く先", "写しの残り"):
+        assert row in rows, f"ほんまにできる表に「{row}」の行が無い"
