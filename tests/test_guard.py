@@ -522,6 +522,8 @@ def test_ask_shape_読みにくい問いは画面を出す前に止め何でど�
     why = deny_reason(env, payload)
     assert want in why, why
     assert "直し方" in why and "画面はまだ人に出ていない" in why
+    assert "直して出し直す。" not in why and why.strip().splitlines()[-1].endswith("細目 §3「まず構造を疑う」で探して直す"), \
+        "止めた文が出し直しだけを促す古い形に戻った"
 
 
 ASK_GOOD = [
