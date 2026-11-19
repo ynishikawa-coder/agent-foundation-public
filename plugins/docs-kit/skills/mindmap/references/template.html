@@ -3,6 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="af-page" content="mindmap"><!-- 型の印: 消さない（publish の前に guard の page_check がこの型の検査をかける） -->
 </head>
 <body>
 <title>マインドマップ（組み替え＋コメント）</title>
@@ -727,6 +728,41 @@
   function focusRoot(){ const root=tree.querySelector(":scope > .branch > .node.is-root"); if(!root) return; const s=stage.getBoundingClientRect(), r=root.getBoundingClientRect(); canvas.scrollLeft=0; canvas.scrollTop=Math.max(0,(r.top-s.top)+r.height/2-canvas.clientHeight/2); }
   let rt; window.addEventListener("resize",()=>{ clearTimeout(rt); rt=setTimeout(layout,120); });
 
+  // ===== ?selftest: 全カードをひらいて描き、形の崩れ・例外・console.error を集めて <pre id="selftest"> に書く =====
+  //   検査の口は docs-kit の scripts/page_selftest.py（SKILL の page-check）。中身（SEED）だけを差し替えた時の崩れを拾う。
+  const SELFTEST=/[?&]selftest\b/.test(location.search);
+  const BADGES=new Set(["ok","warn","scope","goal","ans","memo"]);
+  function selftest(){
+    const errs=[]; const oe=console.error;
+    console.error=(...a)=>{ errs.push("console.error "+a.map(String).join(" ")); oe.apply(console,a); };
+    window.addEventListener("error",e=>errs.push("例外 "+e.message));
+    const ids=new Set(); let n=0;
+    (function w(x,path){ n++;
+      const at="#"+(x.id||"?")+"（"+path+"）";
+      if(!x.id) errs.push(at+": id が無い");
+      else if(ids.has(x.id)) errs.push(at+": id が重複"); else ids.add(x.id);
+      if(!String(x.t||"").trim()) errs.push(at+": 題（t）が空");
+      if(x.badge!=null&&!BADGES.has(x.badge)) errs.push(at+": 知らない badge "+x.badge);
+      if(x.kind!=null&&x.kind!=="memo") errs.push(at+": 知らない kind "+x.kind);
+      if(x.children!=null&&!Array.isArray(x.children)) errs.push(at+": children が並びでない");
+      (Array.isArray(x.children)?x.children:[]).forEach((c,i)=>w(c,path+"/"+(i+1)));
+    })(SEED,"根");
+    if(!SEED.root) errs.push("#"+SEED.id+": 根のカードに root が無い");
+    try{
+      collapsed.clear(); render();
+      const drawn=tree.querySelectorAll(".node").length;
+      if(drawn!==countNodes()) errs.push("描いたカード "+drawn+" 枚が中身の "+countNodes()+" 枚と合わない");
+      const out=exportText();
+      ids.forEach(id=>{ if(out.indexOf("#"+id+" ")<0) errs.push("#"+id+": コピーの形に出ない"); });
+    }catch(e){ errs.push("描く・コピーで例外 "+(e&&e.message||e)); }
+    console.error=oe;
+    const pre=document.createElement("pre"); pre.id="selftest";
+    pre.textContent=errs.length?errs.map(x=>"SELFTEST NG "+x).join("\n"):"SELFTEST OK "+n+" cards";
+    document.body.prepend(pre);
+    initCollapse();
+  }
+
+  if(SELFTEST) selftest();
   render();
   requestAnimationFrame(()=>requestAnimationFrame(()=>{ layout(); focusRoot(); }));
 })();

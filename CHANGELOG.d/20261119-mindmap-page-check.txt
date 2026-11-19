@@ -1,0 +1,2 @@
+- 足した: マインドマップの型の検査（?selftest・型の印 af-page）。Artifact に出す前に guard の page_check が回す（id の重複・空の題・知らない badge／kind・コピーに出ないカード・例外）
+- 畳んだ: Blueprint と理論モックが別々に写して持った Chrome の探し方と ?selftest の読み方を、docs-kit の scripts/page_selftest.py の 1 つにした
