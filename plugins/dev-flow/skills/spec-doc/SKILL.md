@@ -1,6 +1,6 @@
 ---
 name: spec-doc
-description: 再利用できる設計書の「型」（仕様駆動開発 SDD 日本語版）を案件に起こし、6+7原則を手順に組み込んで author し、fail-close ゲートを通してから owner/他エージェントに渡す skill。scaffold（テンプレ一式を案件の置き場へ）→ guided authoring（P0 から機械チェックを噛ませて埋める）→ seal（check_spec_doc.py --lock が緑でなければ handoff/LOCK 不可）の3段。「設計書作って」「設計書の型で起こして」「仕様書を型で」「この案件の設計書を立てて」で起動。要件の合意の後段（何を作るか合意 → その要件を型に流し込む）。合言葉:「仕様書を型で作って」「設計書を型で更新」。
+description: 再利用できる設計書の「型」（仕様駆動開発 SDD 日本語版）を案件に起こし、6+7原則を手順に組み込んで author し、fail-close ゲートを通してから owner/他エージェントに渡す skill。scaffold（テンプレ一式を案件の置き場へ）→ guided authoring（P0 から機械チェックを噛ませて埋める）→ seal（入口 seal.py が 15 §6 の決定照合を照らしてから check_spec_doc.py --lock を呼ぶ・緑でなければ handoff/LOCK 不可）の3段。「設計書作って」「設計書の型で起こして」「仕様書を型で」「この案件の設計書を立てて」で起動。要件の合意の後段（何を作るか合意 → その要件を型に流し込む）。合言葉:「仕様書を型で作って」「設計書を型で更新」。
 ---
 
 # /spec-doc — 設計書の型を案件に起こす（規律→機構の実行経路）
@@ -14,11 +14,10 @@ repo ごとに違う値は、repo の根（`git rev-parse --show-toplevel`）の
 | 鍵 | 使う所 | 無い時の既定 |
 |---|---|---|
 | `template_dir` | 型の一式（型ルールブック・生成コマンド `gen_spec_case.py`・gate `check_spec_doc.py`・config の schema）の置き場＝以下 `<型>` | 無し＝下の §型が無い repo で |
-| `branch_rule` | 分かれ道を聞く時の正本 | 核 §4 の聞き方 |
 | `save_place` | 設計書を書く所・seal の後に残す所（行の並び） | 窓の scratchpad で書き、残す先はオーナーに聞く |
 | `screen_design` | 画面の設計の持ち場 | 画面は別の設計に持ち、05 から指す |
-| `decision_match` | 15 §6 の過去の決定との照合の口（行の並び） | 無し＝§6 に「未照合（照合の口なし）」と書く |
-| `supersede_rule` | 覆した決定を墓標へ回す規律 | 15 の台帳の `supersedes` だけ |
+| `decision_match` | 15 §6 の過去の決定との照合の口（行の並び）。在る repo では「未照合」の行で seal が止まる | 無し＝§6 に「未照合（照合の口なし）」と書く（seal は知らせて通す） |
+| `decision_match_allow` | seal の照合で誤って止まる 15 §6 の行に当てる正規表現の並び（当たる行は済みとみなす） | 無し＝外さない |
 
 ## これは何か / なぜ要るか
 
@@ -55,7 +54,7 @@ repo ごとに違う値は、repo の根（`git rev-parse --show-toplevel`）の
 
 ## Step1 scaffold（生成コマンドで案件を起こす・右サイズで）
 
-**着手前チェック**: scaffold の前に「**スコープ/設計の分かれ道が 2 通り以上あるか**」を数える。あれば核 §4 の聞き方（オーナーへは選択肢の画面）でオーナーに決めてもらってから起こす（正本は表の `branch_rule`・外した時にやり直しになるかが判定軸。設計書は後段の全 P が乗るので、ここでの取り違えが最も高くつく）。
+**着手前チェック**: scaffold の前に「**スコープ/設計の分かれ道が 2 通り以上あるか**」を数える。あれば核 §4 の聞き方（オーナーへは選択肢の画面）でオーナーに決めてもらってから起こす（正本は核 §4・細目 §4・外した時にやり直しになるかが判定軸。設計書は後段の全 P が乗るので、ここでの取り違えが最も高くつく）。
 
 1. 配置先を決める（以下 `<設計書dir>`）: 表の `save_place` に在ればその行を上から読んで従う。無ければ窓の scratchpad の `<scratchpad>/<案件名>/設計書/` で書いて seal を回し、残す先はオーナーに聞く。保存先（PR の URL と repo 相対 path か文書の URL）を、次に頼む窓への依頼文に書く。
 2. **生成コマンドで案件 dir を起こす**（フォルダを手でコピーしない＝型-層と案件-層の境界を生成の瞬間に刻む）:
@@ -79,7 +78,7 @@ P0 を順に埋める。**各 step で規律の"自己点検してね"を実行 
 6. **17 トレーサビリティ**（実装フェーズ入り前）: 全 Must 要件を横断接続。Must の空欄は「N/A: 理由」で埋める（黙って空けない）。
 7. **per-case 意味検査 config を author**（案件に旧決定の変遷があるなら）: 決定台帳から `_spec-check-config.json` を起こす（schema/例 = `<型>/_spec-check-config.schema.json`）。旧文言の言い換え群を `dead` 正規表現に。**gate が config を実行時 schema 検証する**（必須キー `key/正解/dead/note`・`dead` 非空・正規表現の妥当性・未知キー禁止＝壊れた config は exit 2）。**15 台帳に `supersedes`（旧決定の差し替え）が在るのに config が無いと --lock で BLOCK**（旧意味残存を機械検査していない）＝意味検査が本当に不要なら `findings` 空 + `_about` に理由の config を置いて明示する。
 
-8. **15 §6 決定照合**（seal の前・型の外の owner 決定との照合）: 表の `decision_match` に在ればその行を上から読んで従い（02 と 16 を連結して過去の決定と照合する口）、「ぶつかる」「Claude が読む」を 15 §6 に 1 行ずつ写す（扱い＝直した／覆す＝墓標へ／関係なし）。覆すと決めた決定は、旧決定を決定帳の墓標へ回す（表の `supersede_rule`）。照合の結果で seal は止めない（§6 が空なら --lock は警告だけ）。照合の口が無い・届かない時は §6 に「未照合（理由）」と書いて先へ進む（止めない）。
+8. **15 §6 決定照合**（seal の前・型の外の owner 決定との照合）: 表の `decision_match` に在ればその行を上から読んで従い（02 と 16 を連結して過去の決定と照合する口）、「ぶつかる」「Claude が読む」を 15 §6 に 1 行ずつ写し、各行に扱い（直した／覆す＝墓標へ／関係なし）を書く（表なら「扱い」の列）。覆すと決めた決定は、15 の台帳の `supersedes` に書き、旧決定を決定帳の墓標へ回す（古い道を残さず畳む＝核 §3。決定帳の置き場と書く口は表の `decision_match`）。**照合が済んでいなければ seal は止まる**（Step3 の入口 `seal.py`）: 扱いの無い行・§6 が無い／空・15 が無い。照合の口が無い repo では §6 に「未照合（照合の口なし）」と書けば知らせだけで通る。口が在るのに届かない時は「未照合」のままでは通らない＝届くまで封をしない（決められない食い違いはオーナーに聞く）。
 
 **各 step 後の機械チェック**（早期に落とす＝seal で一気に落とさない・§5 失敗モード注意）:
 ```bash
@@ -88,11 +87,14 @@ python3 <型>/check_spec_doc.py <設計書dir>
 
 ## Step3 seal（owner/他エージェントに出す前の fail-close 関門）
 
-**緑でなければ handoff/LOCK 不可**。LOCK 相当の関門を `--lock` で通す:
+**緑でなければ handoff/LOCK 不可**。封はこの skill の入口 `seal.py`（同じ dir）から通す。`check_spec_doc.py --lock` を直に呼ばない（AI の Bash で直に呼ぶ手は guard の `spec_gate` が止める）:
 ```bash
-python3 <型>/check_spec_doc.py <設計書dir> --lock
-echo $?   # 0=PASS でなければ出さない（--lock は全 check を走らせる＝--key 併用は exit 2）
+python3 <この skill の dir>/seal.py <設計書dir>
+echo $?   # 0=PASS でなければ出さない
 ```
+- `seal.py` は先に **15 §6 の決定照合**（Step2 の 8）を照らし、済んでいなければ gate を呼ばずに exit 1（直し方と外し方を出す）。済んでいれば表の `template_dir` の `check_spec_doc.py <設計書dir> --lock` を直に呼び、その終わりの値をそのまま返す（gate の中身は写さない・--lock は全 check を走らせる＝--key 併用は exit 2）。型が無い repo では exit 3（LOCK しない・Draft のまま）。照合だけ見たい時は `--match-only`。
+- 扱いは閉じた形だけを読む: 欄（表は「扱い」の列・箇条は最後の区切りの後）が `直した`／`覆す`／`覆す＝墓標へ`／`関係なし` のどれかちょうどで、添えるのは `（理由: …）` か `（根拠: …）` の 1 つだけ（理由に未定・まだ・聞く などが在れば済みでない）。§6 の中の地の文の行も止まる（表か箇条で書く）。
+- 照合を誤って止めた時: 15 §6 の行を「扱い」の列か 直した／覆す／関係なし の語で書き直す。同じ形で何度も誤るなら、値の表 `decision_match_allow`（行に当てる正規表現）に足す PR を出す（PR とレビューを通る＝窓の一存で外れない）。
 `--lock` が追加で強制するもの: **U4** 伝播未完（PROPAGATING 残）／**U6** P0核（00/01/15）存在／**U7** P0核の実質（未記入 `〔〕`・見出しだけ・02 状態3軸/15 台帳の実体が無い空 P0 を落とす）／**U8** 出自 manifest（`_spec-input.json` で hearing 由来 or 直接発火を宣言・要件未移送0）／**身元の境界**（`_spec-instance.json` の出自照合＝生成元の型 version+manifest_hash が現行 canonical と一致・古い型からの生成を BLOCK／生成 manifest 健全性＝case 置換済・adopted 非空・na 理由非空）。**未マーク案件（両 marker 無し）は --lock 不可**＝gen で起こすか §型ルールブック の backfill 手順で `_spec-instance.json` を付与。PASS すると合格証跡 `_spec-check-sealed.json`（gate 版・各文書 sha256・型出自）を出力する。**別リポ/別 agent へ渡した先は canonical 型 不要で `--lock` の代わりに `check_spec_doc.py <案件dir> --verify-receipt` で合格証跡を検証**（seal は型の正本に届く所で完結・下流は合格証跡を照らす）。
 - **型を正当に編集した後**（型の持ち主の承認 + オーナーが git diff をレビュー済み）は身元を刻み直す: `python3 <型>/check_spec_doc.py <型> --stamp`（files/manifest_hash 再計算 + template_version bump・プレースホルダ全消失があれば拒否）。stamp を忘れると案件生成の出自照合が現行型とズレて --lock が落ちる（＝型改訂の反映漏れを検知）。
 - 落ちたら: **違反は細目 §3「まず構造を疑う」で原因から設計書を直す**（禁止語→翻訳／スナップショット語→更新ログへ移す／PROPAGATING→伝播しきる／`〔〕`→埋める／manifest→出自を宣言）。**誤検知は証跡台帳 `_spec-check-台帳.json` へ ALLOW を理由付きで記録**して再走（`reason/by/date` 空・`date` 非 YYYY-MM-DD は無効証跡＝BLOCK。1 証跡は 1 ヒットだけ許容＝同一 match の複数違反行を1行で飲み込まない）。
@@ -125,5 +127,6 @@ echo $?   # 0=PASS でなければ出さない（--lock は全 check を走ら�
 - 型正本: `<型>/型ルールブック.md`（6+7原則・禁止語・文書地図・Gate 0〜9・§使い方＝生成コマンド経路）
 - 生成正本: `<型>/gen_spec_case.py`（型→案件を起こす・境界を marker で刻む）／型身元: `_spec-template.json`（--stamp で生成・版+自己完全性）
 - gate 正本: `<型>/check_spec_doc.py`（universal fail-close・証跡台帳・型/案件モード自動判定・--stamp/--verify-receipt）
+- 封の入口: 同じ dir の `seal.py`（15 §6 の決定照合を照らしてから gate --lock を直に呼ぶ・自分の試験は repo の `tests/test_dev_flow_spec_seal.py`）
 - config schema: `<型>/_spec-check-config.schema.json`
 - 前段: 要件の合意（`/hearing` など・在る時だけ）／後段: 書く窓への依頼（固めた設計書を依頼文から指す）

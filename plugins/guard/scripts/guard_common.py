@@ -11,12 +11,17 @@
     irreversible_bash_extra  … 戻せない Bash の足し [{"pattern": 正規表現, "why": 理由}]
     irreversible_tools_extra … 戻せない道具の名の足し [{"pattern": 正規表現, "why": 理由}]
     qa_page_exempt           … 問いのページの検査から外す file（path に当てる正規表現の並び・問いのページでない物だけ）
+    ask_pick_one_exempt      … 1 つだけ選ばせる問いの見張りから外す問いの文（正規表現の並び・意図や事実を問う問いだけ）
     ask_question_max_chars   … 選択肢の画面の問いの文の字数の上限（既定 60・0 で見ない）
     ask_question_max_sentences … 同じく文の数の上限（既定 1・0 で見ない）
     ask_inner_terms_extra    … AI の中の言葉とみなす字の足し（正規表現の並び）
     ask_term_allow           … 中の言葉と数えない字（見つけた字に当てる正規表現の並び・誤って止まる時だけ）
     ask_topic_stopwords_extra … 話題の語と数えない語の足し
     ask_shape_exempt         … 問いの形の見張りから外す問いの文（正規表現の並び・誤って止まる時だけ）
+    ask_rec_notice_kinds     … 推奨の印を付けない問いの形 {名: [正規表現]}（既定は ask_shape.REC_NOTICE_KINDS・知らせるだけ）
+    ask_rec_notice_exempt    … 上の知らせから外す問いの文（正規表現の並び）
+    outbound_secret_allow    … 外へ渡す道具の入力の鍵の照らしで、鍵と数えない字（当たった字に当てる正規表現の並び・作り物の見本だけ）
+    number_request_exempt    … 番号だけの頼みの照らしから外す文（正規表現の並び・誤って止まる時だけ）
 """
 from __future__ import annotations
 
@@ -35,17 +40,64 @@ DEFAULTS = {
     "irreversible_bash_extra": [],
     "irreversible_tools_extra": [],
     "qa_page_exempt": [],
+    "ask_pick_one_exempt": [],
     "ask_question_max_chars": 60,
     "ask_question_max_sentences": 1,
     "ask_inner_terms_extra": [],
     "ask_term_allow": [],
     "ask_topic_stopwords_extra": [],
     "ask_shape_exempt": [],
+    "ask_rec_notice_kinds": {},
+    "ask_rec_notice_exempt": [],
+    "outbound_secret_allow": [],
+    "number_request_exempt": [],
 }
 
 # 窓の種類の決まり（session-watch の title-mark と同じ線）: 最初の頼みの文の返し先が別の窓なら子の窓（文脈の知らせだけが読む）。
 RETURN_TO_WINDOW = re.compile(r"返し先\s*[=＝:：]\s*session_[A-Za-z0-9]+")
 CHILD_OF = re.compile(r"（親窓\s*session_[A-Za-z0-9]+\s*の子）")
+
+
+GUARD_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+
+def sibling_plugin_file(plugin, rel, guard_root=None):
+    """隣の plugin の file の path か ""。正本を写さず直に読むための在り処探し。
+    repo の形: plugins/guard と plugins/<plugin> が隣。
+    入れた plugin の形: cache/<市場>/guard/<版> と cache/<市場>/<plugin>/<同じ版>。
+    同じ版だけを見る（別の版へ降りない＝正本と guard の版が食い違ったまま照らさない。見つからなければ "" で、
+    呼ぶ側が止めて「同じ版で入れ直す」と名指しする）。"""
+    here = guard_root or GUARD_ROOT
+    cand = os.path.join(os.path.dirname(here), plugin, rel)
+    if os.path.isfile(cand):
+        return cand
+    ver = os.path.basename(here)
+    market = os.path.dirname(os.path.dirname(here))
+    same = os.path.join(market, plugin, ver, rel)
+    return same if os.path.isfile(same) else ""
+
+
+def foundation_file(rel, guard_root=None):
+    """土台の repo の根からの file（plugin の外・例 public-guard/guard.py）の path か ""。
+    repo の形: plugins/guard の 2 つ上が repo の根。
+    入れた plugin の形: <plugins>/cache/<市場>/guard/<版> → <plugins>/marketplaces/<市場>/（市場の取り出し＝repo 全体）。"""
+    here = guard_root or GUARD_ROOT
+    cand = os.path.join(os.path.dirname(os.path.dirname(here)), rel)
+    if os.path.isfile(cand):
+        return cand
+    market = os.path.dirname(os.path.dirname(here))
+    cache = os.path.dirname(market)
+    cand = os.path.join(os.path.dirname(cache), "marketplaces", os.path.basename(market), rel)
+    return cand if os.path.isfile(cand) else ""
+
+
+def load_module(name, path):
+    """path の .py を名前 name で読み込む（正本を写さず直に呼ぶ）。読めなければ例外。"""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location(name, path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
 
 
 def project_dir(payload=None):

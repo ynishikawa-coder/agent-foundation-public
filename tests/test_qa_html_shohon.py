@@ -8,6 +8,7 @@ import json
 import re
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -180,3 +181,23 @@ def test_答えの形の赤は根治の入口を指し緑なら出さない():
 def test_口の知らない引数は黙って捨てず止まる(args):
     p = subprocess.run([NODE, str(CHECK), *args], input="{}", capture_output=True, text=True, timeout=60)
     assert p.returncode == 2 and "知らない引数" in p.stderr, (args, p.stdout, p.stderr)
+
+
+def test_隣の_plugin_の正本は同じ版だけを見て別の版へ降りない(tmp_path):
+    sys.path.insert(0, str(ROOT / "plugins" / "guard" / "scripts"))
+    try:
+        import guard_common as G
+    finally:
+        sys.path.pop(0)
+    rel = "scripts/x.py"
+    market = tmp_path / "cache" / "market"
+    other = market / "session-watch" / "zzz" / rel                # 別の版（新しい物）だけがある
+    other.parent.mkdir(parents=True)
+    other.write_text("#", encoding="utf-8")
+    guard_root = market / "guard" / "aaa"
+    guard_root.mkdir(parents=True)
+    assert G.sibling_plugin_file("session-watch", rel, str(guard_root)) == ""
+    same = market / "session-watch" / "aaa" / rel
+    same.parent.mkdir(parents=True)
+    same.write_text("#", encoding="utf-8")
+    assert G.sibling_plugin_file("session-watch", rel, str(guard_root)) == str(same)

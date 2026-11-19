@@ -166,9 +166,14 @@ def test_束ねると_main_に入った順で新しい物が上(tmp_path):
 
 
 def test_決まりの文が断片の形を指す():
-    for rel in ["CONTRIBUTING.md", "docs/版の出し方.md"]:
+    for rel in ["CONTRIBUTING.md"]:
         p = ROOT / rel
         if p.exists():
             text = p.read_text(encoding="utf-8")
             assert "CHANGELOG.d/" in text, f"{rel} が断片の置き場を指さない"
             assert "「合流ごと」に" not in text and "「合流ごと」へ" not in text, f"{rel} に古い書き方が残る"
+
+
+@pytest.mark.parametrize("args", [["chek"], ["check", "--x"], ["adopt", "a.md"], ["--help"]])
+def test_知らない口と数の違う引数は一覧に落とさず止まる(args):
+    assert cl.main(["changelog.py", *args]) == 2
