@@ -35,7 +35,7 @@ green
 - 13 全体の絵: pass（差なし・版 2026-11-19.1）
 
 ## 所見
-- [後の便｜整地] 作り物の気づき
+- [台帳へ｜整地] 作り物の気づき
 """
 
 RED = """レビューした窓: session_REVIEW01 判定: red
@@ -62,7 +62,7 @@ red
 
 ## 所見
 - [止める｜実装] plugins/x.py — 作り物の欠け
-- [後の便｜設計] 作り物の気づき
+- [台帳へ｜設計] 作り物の気づき
 """
 
 
@@ -77,7 +77,7 @@ def test_書いた窓とレビューした窓が同じなら誤り():
 
 
 def test_止めるが在るのに_green_は誤り():
-    errs = vf.check(GREEN.replace("[後の便｜整地]", "[止める｜実装]"))
+    errs = vf.check(GREEN.replace("[台帳へ｜整地]", "[止める｜実装]"))
     assert any("判定は red" in e for e in errs)
 
 
@@ -195,7 +195,7 @@ def test_全体の絵に差があれば_red():
     text = GREEN.replace("- 13 全体の絵: pass（差なし・版 2026-11-19.1）", "- 13 全体の絵: fail（差 2 件）")
     assert any("判定は red" in e for e in vf.check(text, writer="session_WRITER01"))
     red = text.replace("判定: green", "判定: red").replace("## verdict\ngreen", "## verdict\nred\n直し: 細目 §3「まず構造を疑う」").replace(
-        "- [後の便｜整地] 作り物の気づき", "- [止める｜設計] 全体の絵と差 2 件。main へ入れずに止め、差を見せてオーナーに決めてもらう")
+        "- [台帳へ｜整地] 作り物の気づき", "- [止める｜設計] 全体の絵と差 2 件。main へ入れずに止め、差を見せてオーナーに決めてもらう")
     assert vf.check(red, writer="session_WRITER01") == []
 
 
@@ -207,12 +207,19 @@ def test_全体の絵が複数なら全部の名と版を書いた_pass_だけ�
         assert any("点 13" in e for e in errs), (bad, errs)
 
 
+def test_止めない気づきの札は台帳へで_古い後の便は通らない():
+    """止めない気づきは原因の台帳へ行く札だけ。行き先の無い古い札（後の便）を戻すと赤。"""
+    assert vf.check(GREEN) == []
+    errs = vf.check(GREEN.replace("[台帳へ｜整地]", "[後の便｜整地]"))
+    assert any("札" in e for e in errs)
+
+
 def test_red_が根治の入口を指さないと誤り():
     """red を直す行の一覧だけで返す古い形（直し: の行が無い）に戻すと赤。blocked は測れなかっただけなので要らない。"""
     old = RED.replace("直し: 細目 §3「まず構造を疑う」\n", "")
     assert any("まず構造を疑う" in e for e in vf.check(old))
     blocked = old.replace("## verdict\nred", "## verdict\nred（blocked: 物差しが回らない）").replace(
-        "[止める｜実装]", "[後の便｜実装]").replace("fail（作り物の欠け）", "pass")
+        "[止める｜実装]", "[台帳へ｜実装]").replace("fail（作り物の欠け）", "pass")
     assert not any("まず構造を疑う" in e for e in vf.check(blocked))
 
 

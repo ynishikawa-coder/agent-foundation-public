@@ -5,7 +5,7 @@
   1. 1 行目 `レビューした窓: <session id> 判定: green|red`
   2. 2 行目 `見た先端: <SHA の先頭 12 文字>`
   3. `## verdict` の次の行が green／red／red（blocked: …）で、1 行目の判定と合う
-  4. `## 所見` の各行の札 `- [止める|後の便|直った｜<段>] …`。`[止める｜…]` か点の fail が 1 つでも在れば red、無ければ green
+  4. `## 所見` の各行の札 `- [止める|台帳へ|直った｜<段>] …`。`[止める｜…]` か点の fail が 1 つでも在れば red、無ければ green
   5. 別の目: 書いた窓（--writer）とレビューした窓が同じなら形の誤り（自分の PR に判定を付けない）
   6. `## 点` に、review-pr の SKILL.md の「見る点」の表の点（番号と名）が全部 1 行ずつ在り、
      各行の値が pass／fail／N/A のどれか（点 3 は `書いた窓 <id> ≠ この窓` も可）。
@@ -27,8 +27,8 @@ SKILL = Path(__file__).resolve().parent.parent / "skills" / "review-pr" / "SKILL
 LINE1 = re.compile(r"^レビューした窓: (session_[A-Za-z0-9]+) 判定: (green|red)$")
 LINE2 = re.compile(r"^見た先端: ([0-9a-f]{12})$")
 VERDICT = re.compile(r"^(green|red)(?:（blocked: .+）)?$")
-CARD = re.compile(r"^- [\[［](止める|後の便|直った)[｜|](設計|整地|見本|承認|実装|レビュー)[\]］] \S")
-CARDS = ("止める", "後の便", "直った")
+CARD = re.compile(r"^- [\[［](止める|台帳へ|直った)[｜|](設計|整地|見本|承認|実装|レビュー)[\]］] \S")
+CARDS = ("止める", "台帳へ", "直った")
 POINT_ROW = re.compile(r"^\| (\d+) (\S[^|]*?) \|")
 POINT_LINE = re.compile(r"^- (\d+) ([^:：]+)[:：] ?(.*)$")
 VALUE = re.compile(r"^(pass|fail|N/A)(?:$|[ （(])")
@@ -152,7 +152,7 @@ def check(text, writer=None, head=None, points=None):
         if not s.startswith("- "):
             continue
         if not CARD.match(s):
-            errs.append("所見の行の札が `- [止める|後の便|直った｜<段>] …` でない: %s" % s[:40])
+            errs.append("所見の行の札が `- [止める|台帳へ|直った｜<段>] …` でない: %s" % s[:40])
             continue
         if re.match(r"^- [\[［]止める", s):
             stops += 1

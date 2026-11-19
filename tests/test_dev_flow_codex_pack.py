@@ -146,3 +146,102 @@ def test_送り出しの記録は値の表が在る時だけ本文なしで書�
     rec = json.loads(lines[-1])
     assert rec["result"] == "作った" and rec["files"] == ["tools/calc.py"] and len(rec["sha256"]) == 64
     assert "def add" not in lines[-1]
+
+
+# ── 高エントロピーの塊（鍵らしい字）は既定で止める（オーナー同意 2026-11-19）──
+def fake_chunk(seed: str) -> str:
+    """作り物の高エントロピーの塊（この file に字で残さない＝実行時に組む）。"""
+    import base64
+    import hashlib
+    return base64.b64encode(hashlib.sha512(seed.encode()).digest()).decode().rstrip("=")
+
+
+def put_chunk(repo, seed="作り物"):
+    tok = fake_chunk(seed)
+    (repo / "tools" / "blob.py").write_text(f"x = 1\nBLOB = '{tok}'\n", encoding="utf-8")
+    return tok
+
+
+def set_values(repo, **kw):
+    p = repo / "config" / "skill-values.json"
+    vals = json.loads(p.read_text(encoding="utf-8"))
+    vals["dev-flow"]["codex"].update(kw)
+    p.write_text(json.dumps(vals), encoding="utf-8")
+
+
+def test_高エントロピーの塊が混じると書かずに止まり_字を出さず場所と指紋を出す(repo, tmp_path):
+    tok = put_chunk(repo)
+    out = tmp_path / "out"
+    res = run(repo, out, "--file", "tools/blob.py")
+    assert res.returncode == 1
+    assert "高エントロピーの塊" in res.stderr
+    assert "tools/blob.py の 2 行目" in res.stderr
+    assert "sha256:" in res.stderr and "entropy_allow" in res.stderr   # 直し方と外し方を出す
+    assert tok not in res.stdout + res.stderr
+    assert not (out / "t1").exists()
+
+
+def test_高エントロピーの塊は_dry_run_でも止まる(repo, tmp_path):
+    put_chunk(repo)
+    res = run(repo, tmp_path / "out", "--file", "tools/blob.py", "--dry-run")
+    assert res.returncode == 1 and "高エントロピーの塊" in res.stderr
+
+
+def test_ふつうのコードと低いエントロピーの長い字は止めない(repo, tmp_path):
+    (repo / "tools" / "plain.py").write_text(
+        "def very_long_function_name_for_testing_purposes_only():\n"
+        "    return 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'\n"
+        "COMMIT = '0123456789abcdef0123456789abcdef01234567'\n", encoding="utf-8")
+    res = run(repo, tmp_path / "out", "--file", "tools/plain.py")
+    assert res.returncode == 0, res.stderr
+
+
+def test_誤って止まる塊は値の表の指紋か正規表現で外せる(repo, tmp_path):
+    import hashlib
+    tok = put_chunk(repo)
+    fp = hashlib.sha256(tok.encode()).hexdigest()[:12]
+    set_values(repo, entropy_allow=[f"sha256:{fp}"])
+    assert run(repo, tmp_path / "o1", "--file", "tools/blob.py").returncode == 0
+    set_values(repo, entropy_allow=[r"[A-Za-z0-9+/]{86}"])
+    assert run(repo, tmp_path / "o2", "--file", "tools/blob.py").returncode == 0
+    # 別の塊は外れない（外すのは名指した物だけ）
+    set_values(repo, entropy_allow=[f"sha256:{fp}"])
+    put_chunk(repo, "別の作り物")
+    assert run(repo, tmp_path / "o3", "--file", "tools/blob.py").returncode == 1
+
+
+def test_値の表の外し方が読めない時は止める(repo, tmp_path):
+    put_chunk(repo)
+    for bad in (["sha256:xyz"], ["("], [""]):
+        set_values(repo, entropy_allow=bad)
+        res = run(repo, tmp_path / "o", "--file", "tools/blob.py")
+        assert res.returncode == 1 and "entropy_allow" in res.stderr, bad
+
+
+def test_止めた時の送り出しの記録に塊の字を書かない(repo, tmp_path):
+    tok = put_chunk(repo)
+    set_values(repo, egress_log="logs/egress.jsonl")
+    assert run(repo, tmp_path / "o", "--file", "tools/blob.py").returncode == 1
+    line = (repo / "logs" / "egress.jsonl").read_text(encoding="utf-8").splitlines()[-1]
+    rec = json.loads(line)
+    assert rec["result"] == "中止" and rec["block"] == ["高エントロピーの塊"]
+    assert tok not in line
+
+
+@pytest.mark.parametrize("raw", ['["並び"]', '{"dev-flow": ""}', '{"dev-flow": [1]}', '{"dev-flow": {"codex": "字"}}'])
+def test_値の表の形が違えば黙って空にせず止める(repo, tmp_path, raw):
+    (repo / "config" / "skill-values.json").write_text(raw, encoding="utf-8")
+    res = run(repo, tmp_path / "o", "--file", "tools/calc.py")
+    assert res.returncode == 1 and "Traceback" not in res.stderr and "値の表" in res.stderr, raw
+
+
+def test_渡した値の表が無い時は止める(repo, tmp_path):
+    res = run(repo, tmp_path / "o", "--file", "tools/calc.py", "--values", str(tmp_path / "無い.json"))
+    assert res.returncode == 1 and "値の表が無い" in res.stderr
+
+
+def test_file_の囲みの後の行は_file_の行と数えない():
+    tok = fake_chunk("囲みの後")
+    text = f"# 見出し\n\n### tools/a.py\n````\nx = 1\n````\n\n{tok}\n"
+    _, hits = load_builder().scan(text, {}, {"tools/a.py"})
+    assert hits and hits[0][0] == "（パックの見出し）" and hits[0][1] == 8
