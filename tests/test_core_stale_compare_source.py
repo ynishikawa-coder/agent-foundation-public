@@ -1,0 +1,144 @@
+"""古い土台の判定は、比べる正本を読む（手近な物を読まない）。
+
+- 起動の時の古さ: 入った commit を、hook の時の main でなく setup の時に入れた main の先端（入口 scripts/setup_plugins.py が
+  ~/.claude/af-foundation/setup.json の main_at_setup に書く記録）と比べる。setup の後に main が進んだだけの窓に
+  「setup script を直せ」と言わず、起動の後に古くなった窓と同じ引き継ぎ（fresh）にする。記録が無ければ分からないと名指す。
+- 古い形の照らし: 開いた repo の作業の枝の checkout でなく main の中身を読む（枝が main より古い時に、main で直った
+  古い形を「この仕事で消す」と言い切らない）。
+remote は作り物の git。
+"""
+import json
+import subprocess
+
+from test_core_plugin import Foundation, _commit, _git, kaku, run
+from test_setup_plugins import foundation, run as run_entry
+
+SETUP_FIX = "update_environment"
+
+
+# ── 起動の時の古さ: setup の時の main と比べる ──
+
+def test_setup_の後に_main_が進んだだけの窓に_setup_script_を直せと言わない(tmp_path):
+    """注入 (a): setup は main の先端を入れた（記録＝入った commit）→ その後に main で plugin が変わる → 起動の知らせは
+    「起動の時から古い・setup script を直せ」を出さず、問いのたびの引き継ぎ（fresh）にする。"""
+    f = Foundation(tmp_path)
+    f.install(main_at_setup=f.installed)
+    _commit(f.work, {"plugins/guard/x.py": "x\n"}, "setup の後に守りを変える")
+    text = f.hook("inject")
+    assert "土台が古いまま立った窓" not in text and SETUP_FIX not in text, text
+    assert "# 振る舞いの核" in text                        # 核の差し込みは止めない
+    hand = f.hook("fresh")
+    assert "引き継いで閉じる" in hand and "guard" in hand and "create_session" in hand and SETUP_FIX not in hand
+    assert "土台が古いまま立った窓" not in f.hook("inject", source="compact")
+    assert "引き継いで閉じる" in f.hook("fresh")          # 圧縮の後も引き継ぎは消えない
+
+
+def test_setup_が古い物を入れた窓には_setup_script_を直せと言う(tmp_path):
+    """注入 (b): setup の時の main の先端は進んでいたのに、setup は 1 つ前を入れた → 直してから引き継ぐ知らせ。"""
+    f = Foundation(tmp_path)
+    tip = _commit(f.work, {"plugins/guard/x.py": "x\n"}, "守りを変える")
+    f.install(main_at_setup=tip)
+    text = f.hook("inject")
+    assert "土台が古いまま立った窓 — setup script を直して" in text and SETUP_FIX in text and tip[:12] in text
+    assert f.hook("fresh") == ""                            # 起動の知らせが扱う（二重に出さない）
+
+
+def test_setup_の時の_main_の記録が無ければ分からないと名指す(tmp_path):
+    """注入: 記録が無い（古い入口・印が無い）→ どちらとも言い切らず、分からない事と setup script の照らし方を出す。"""
+    f = Foundation(tmp_path)
+    _commit(f.work, {"plugins/guard/x.py": "x\n"}, "守りを変える")
+    f.install()
+    text = f.hook("inject")
+    assert "分からない" in text and "main_at_setup" in text and "get_environment" in text
+    assert "setup はそれと違う物を入れた" not in text
+    assert f.hook("fresh") == ""
+    assert "分からない" in f.hook("inject", source="resume")
+
+
+def test_hook_の時の_main_と比べて起動の時から古いと立てる道が無い():
+    """なくす物: start_cause は setup の時の記録だけで「起動の時から古い」を決める（hook の時の main の先端は使わない）。"""
+    import inspect
+    src = inspect.getsource(kaku.inject)
+    assert 'bool(f and f["plugins"])' not in src
+    assert "start_cause(" in src
+
+
+def test_入口は_setup_の時の_main_の先端を記録に書く(tmp_path):
+    """入口が、出所の main の先端を setup.json の main_at_setup に書く（起動の hook の比べる正本）。"""
+    root = foundation(tmp_path, ["core"])
+    r, _, _, home = run_entry(tmp_path, root)
+    assert r.returncode == 0, r.stdout
+    tip = subprocess.run(["git", "-C", str(tmp_path / "upstream"), "rev-parse", "HEAD"], capture_output=True,
+                         text=True).stdout.strip()
+    state = json.loads((home / ".claude" / "af-foundation" / "setup.json").read_text(encoding="utf-8"))
+    assert state["main_at_setup"] == tip
+
+
+def test_入口は出所の_main_が読めなければ記録を空にする(tmp_path):
+    """注入: 出所に出られない → 記録は None（起動の hook は「分からない」と名指す。違う物を書いて言い切らない）。"""
+    root = foundation(tmp_path, ["core"])
+    subprocess.run(["git", "-C", str(root), "remote", "set-url", "origin", str(tmp_path / "無い")], check=True)
+    _, _, _, home = run_entry(tmp_path, root)
+    state = json.loads((home / ".claude" / "af-foundation" / "setup.json").read_text(encoding="utf-8"))
+    assert state["main_at_setup"] is None
+
+
+# ── 古い形の照らし: main の中身を読む ──
+
+OLD = 'for p in core guard; do claude plugin install "$p@agent-foundation"; done\n'
+NEW = 'python3 "$af" || true\n'
+
+
+def _repo_with_main(tmp_path, main_body, branch_body):
+    """origin の main に main_body、作業の枝の checkout に branch_body を持つ使う側の repo。"""
+    remote, work = tmp_path / "remote.git", tmp_path / "使う側"
+    subprocess.run(["git", "init", "-q", "--bare", "-b", "main", str(remote)], check=True)
+    subprocess.run(["git", "clone", "-q", str(remote), str(work)], check=True, capture_output=True)
+    base = _commit(work, {"setup.sh": branch_body, "README.md": "ふつう\n"}, "始め")
+    if main_body != branch_body:
+        _commit(work, {"setup.sh": main_body}, "main で直す")
+        _git(work, "checkout", "-q", "-b", "古い枝", base)  # 枝は main より古い
+    else:
+        _git(work, "checkout", "-q", "-b", "作業の枝")
+    return work
+
+
+def test_枝が_main_より古い時に_main_で直った古い形を消せと言い切らない(tmp_path):
+    """注入 (c): main では直った古い形が、main より古い作業の枝の checkout に残る → 「この仕事で消す」と言わず、
+    枝が main より古い事を出す。olds も main を読んで古い形 0。"""
+    work = _repo_with_main(tmp_path, NEW, OLD)
+    assert "plugin install" in (work / "setup.sh").read_text(encoding="utf-8")   # checkout には残っている
+    text = json.loads(run("inject", project=work).stdout)["hookSpecificOutput"]["additionalContext"]
+    assert "この仕事で消す" not in text, text
+    assert "main より古い" in text and "setup.sh" in text
+    assert kaku.find_olds(work) == []
+    r = run("olds", work)
+    assert r.returncode == 0 and "古い形 0" in r.stdout and "main" in r.stdout, r.stdout
+
+
+def test_main_に残る古い形は今までどおり消せと名指す(tmp_path):
+    """main にも枝にも残る → 名指す（読む物を main に替えても見つける力は落ちない）。"""
+    work = _repo_with_main(tmp_path, OLD, OLD)
+    text = json.loads(run("inject", project=work).stdout)["hookSpecificOutput"]["additionalContext"]
+    assert "この仕事で消す" in text and "setup.sh: 土台の目録を足して plugin を入れるのに" in text
+    assert run("olds", work).returncode == 1
+
+
+def test_枝で消した古い形は_main_へ入れれば済むと添える(tmp_path):
+    """main に残り、この枝では消えている → main の物として名指し、枝を main へ入れれば済むと添える。"""
+    remote, work = tmp_path / "remote.git", tmp_path / "使う側"
+    subprocess.run(["git", "init", "-q", "--bare", "-b", "main", str(remote)], check=True)
+    subprocess.run(["git", "clone", "-q", str(remote), str(work)], check=True, capture_output=True)
+    _commit(work, {"setup.sh": OLD}, "始め")
+    _git(work, "checkout", "-q", "-b", "直す枝")
+    (work / "setup.sh").write_text(NEW, encoding="utf-8")
+    text = json.loads(run("inject", project=work).stdout)["hookSpecificOutput"]["additionalContext"]
+    assert "setup.sh" in text and "この枝では消えている" in text
+
+
+def test_この枝で足した古い形は_main_に無くても消せと名指す(tmp_path):
+    """注入: main にも分かれ目にも無く、この枝で足した古い形 → 「main で直った」と取り違えず、この仕事で消す。"""
+    work = _repo_with_main(tmp_path, NEW, NEW)
+    (work / "setup.sh").write_text(OLD, encoding="utf-8")
+    text = json.loads(run("inject", project=work).stdout)["hookSpecificOutput"]["additionalContext"]
+    assert "この仕事で消す" in text and "この枝で足した" in text and "main より古い" not in text, text

@@ -13,7 +13,8 @@
      目録の clone の HEAD（＝名簿の版）と同じかを照らす。取り直しに失敗した時も名指す（古い名簿で入れたと分かるように）。
   3. 入っていない・名簿の版に揃っていない物があれば、窓が起動時に必ず読む `~/.claude/CLAUDE.md` に名指しの知らせを 1 行書く（全部入れば消す）。
   4. この入口で入れた印を `~/.claude/af-foundation/setup.json` に書く（plugin core の起動の hook が、印の無い窓＝
-     古い形の setup script で立った窓を名指しする）。
+     古い形の setup script で立った窓を名指しする）。印には、入れた時の出所の main の先端（main_at_setup）も書く
+     （起動の hook が、入った commit をこれと比べて「setup が古い物を入れた」と「setup の後に main が進んだ」を分ける）。
 
 使い方（setup script の形は docs/核の届け方.md）: python3 <目録の checkout>/scripts/setup_plugins.py
   CLAUDE_BIN で claude の場所を差し替えられる（既定 claude）。
@@ -95,6 +96,18 @@ def installed_shas(market: str) -> dict[str, str | None]:
     return out
 
 
+def main_tip() -> str | None:
+    """目録の出所（origin）の main の先端を、出所へ直に聞く（取り直した clone の HEAD でなく出所の今の main）。
+    読めなければ None（起動の hook は「分からない」と名指す）。"""
+    try:
+        r = subprocess.run(["git", "-C", str(ROOT), "ls-remote", "--quiet", "origin", "refs/heads/main"],
+                           capture_output=True, text=True, timeout=60)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    sha = r.stdout.split()[0] if r.returncode == 0 and r.stdout.split() else ""
+    return sha if len(sha) in (40, 64) else None
+
+
 def notice(text: str | None) -> None:
     """~/.claude/CLAUDE.md の知らせの行を替える（text が None なら消すだけ）。"""
     path = home() / "CLAUDE.md"
@@ -165,7 +178,7 @@ def main() -> int:
     else:
         notice(None)
     save_state({"entry": "scripts/setup_plugins.py", "market": market, "plugins": names, "missing": lack,
-                "stale": stale, "refreshed": fresh, "catalog_sha": tip, "at": time.strftime("%Y-%m-%dT%H:%M:%S%z")})
+                "stale": stale, "refreshed": fresh, "catalog_sha": tip, "main_at_setup": main_tip(), "at": time.strftime("%Y-%m-%dT%H:%M:%S%z")})
     print(("✗ " + "。".join(bad) + "。 " + ROOT_CAUSE) if bad else f"✅ 土台の plugin {len(names)} 本が名簿の版 {tip[:12]} で入った")
     return 1 if bad else 0
 

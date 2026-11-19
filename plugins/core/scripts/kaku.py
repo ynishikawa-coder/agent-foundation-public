@@ -6,14 +6,17 @@
                                       （振る舞い.md）を窓の文脈へいつも差し込み、形の細目（細目.md）の在り処を知らせる。使う側に残った写し・古い形は名指しで知らせる:
                                       開いた repo の古い形（古い形.json の一覧・核の写しの枠など）／CLAUDE.md の量の上限越え／
                                       古い形の setup script（土台の入口 scripts/setup_plugins.py を通っていない）／入っていない plugin。
-                                      あわせて、窓の最初の 1 回だけ、入った土台が main の先端と同じかを見て窓ごとに覚える（古ければ知らせる）。
+                                      あわせて、窓の最初の 1 回だけ、入った土台が main の先端と同じかを見て窓ごとに覚える。古ければ、
+                                      setup の時の main の先端の記録（setup.json の main_at_setup）と比べて、setup が古い物を入れた
+                                      （setup script を直す）か setup の後に main が進んだ（引き継ぐ）かを分ける（記録が無ければ分からないと名指す）。
   python3 kaku.py fresh               UserPromptSubmit の hook が呼ぶ。起動の後に main の先端の plugin が変わったら、
                                       この窓を新しい窓へ引き継いで閉じるよう AI に知らせる（人の作業は止めない）。
   python3 kaku.py check [--claude P]  核と振る舞いの既定が在り、上限の内かを照らす。--claude を渡すと、その CLAUDE.md が各社固有の上限の内で
                                       核の写しの枠を持たないかも照らす。
   python3 kaku.py grow --base REF     増やさない物（guarded() の一覧＝毎回差し込む物と形の細目）が git の REF の時より
                                       増えていないかを照らす。足すなら同じ変更で同じだけ畳む（上限の内で足し続けて満杯にしない）。
-  python3 kaku.py olds DIR...         使う側の checkout に古い形.json の古い形が残っていないかを照らす
+  python3 kaku.py olds DIR...         使う側の repo の main（origin の既定の枝）の中身に古い形.json の古い形が残っていないかを照らす
+                                      （main を持たない dir は checkout を読む）
                                       （「壊れる（2 段目）」の前に、使う側が移ったのを記録で確かめる口）。
 exit: inject と fresh は何が起きても 0（窓の起動も人の作業も止めない）。check・grow・olds は 0=緑 / 1=外れ・増えた / 2=読めない。
 """
@@ -77,21 +80,104 @@ def _tracked(project: Path, specs: list[str]) -> list[Path]:
     return [project / s for s in specs if "*" not in s]  # git でない dir は、名で書いた file だけ見る
 
 
-def find_olds(project: Path, rows: list[dict] | None = None) -> list[tuple[dict, str]]:
-    """開いた repo に残る古い形の (行, 当たった file の相対 path)。"""
+def main_ref(project: Path) -> str | None:
+    """開いた repo の main（origin の既定の枝）の commit。git でない・origin の main を持たない時は None。"""
+    for ref in ("refs/remotes/origin/HEAD", "refs/remotes/origin/main", "refs/remotes/origin/master"):
+        sha = _git(str(project), "rev-parse", "--verify", "-q", f"{ref}^{{commit}}", timeout=10)
+        if sha:
+            return sha
+    return None
+
+
+def _hits(rows: list[dict], texts) -> list[tuple[dict, str]]:
+    """(相対 path, 中身) の並びに古い形の行を当てる（照らし方はこの 1 か所）。"""
     found = []
-    for r in rows if rows is not None else olds_table():
-        for f in _tracked(project, r["files"]):
-            try:
-                if f.is_file() and f.stat().st_size <= 1_000_000 and r["re"].search(f.read_text(encoding="utf-8", errors="replace")):
-                    found.append((r, str(f.relative_to(project))))
-            except OSError:
-                pass
+    for r in rows:
+        for rel, text in texts(r):
+            if r["re"].search(text):
+                found.append((r, rel))
     return found
 
 
-def find_olds_bounded(project: Path, budget: float = WATCH_BUDGET, table: Path = OLDS) -> list[tuple[dict, str]]:
-    """find_olds を別の process で走らせ、budget 秒で殺す。1 つの file の正規表現の照らしは途中で止められないので、
+def _checkout_texts(project: Path):
+    def texts(r):
+        for f in _tracked(project, r["files"]):
+            try:
+                if f.is_file() and f.stat().st_size <= 1_000_000:
+                    yield str(f.relative_to(project)), f.read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                pass
+    return texts
+
+
+def _tree_texts(project: Path, ref: str, only: set[tuple[str, str]] | None = None):
+    """ref の木の中身（checkout でなく git の物を読む）。path の選び方は checkout と同じ pathspec（git が解く）。
+    only を渡すと、その (行の id, path) だけを読む。"""
+    empty = _git(str(project), "hash-object", "-t", "tree", "/dev/null", timeout=10)
+
+    def texts(r):
+        out = _git(str(project), "diff", "--name-only", "-z", "--no-renames", "--diff-filter=A", empty or "", ref,
+                   "--", *r["files"], timeout=10)
+        if empty is None or out is None:
+            raise OSError(f"main（{ref[:12]}）の木を読めない")
+        names = [n for n in out.split("\0") if n and "\n" not in n and (only is None or (r["id"], n) in only)][:2000]
+        if not names:
+            return
+        try:
+            p = subprocess.run(["git", "-C", str(project), "cat-file", "--batch"], capture_output=True, timeout=20,
+                               input="".join(f"{ref}:{n}\n" for n in names).encode("utf-8"))
+        except (OSError, subprocess.SubprocessError) as e:
+            raise OSError(f"main（{ref[:12]}）の中身を読めない: {e}") from None
+        buf, i = p.stdout, 0
+        for n in names:
+            head_end = buf.find(b"\n", i)
+            if p.returncode != 0 or head_end < 0:
+                raise OSError(f"main（{ref[:12]}）の中身を読めない（{n}）")
+            head = buf[i:head_end].split()
+            i = head_end + 1
+            if len(head) != 3 or not head[2].isdigit():
+                continue                       # missing など（中身が続かない）
+            n_bytes = int(head[2])
+            body = buf[i:i + n_bytes]
+            i += n_bytes + 1
+            if head[1] == b"blob" and n_bytes <= 1_000_000:
+                yield n, body.decode("utf-8", errors="replace")
+    return texts
+
+
+SCAN_KEYS = ("found", "fixed_here", "behind", "added")
+
+
+def olds_scan(project: Path, rows: list[dict] | None = None) -> dict:
+    """古い形を照らす。正本は main の中身（窓の作業の枝の checkout は main より古いことがある＝main で直った形を
+    「この仕事で消す」と言い切らない）。main を持たない repo（git でない・origin の main が無い）は checkout を読む。
+    checkout にだけ残る物は、枝と main の分かれ目の中身で分ける（中身で決める）: 分かれ目に在った＝main で直った
+    （behind・枝が main より古い）／無かった＝この枝で足した（added・この仕事で消す）。
+    {"ref": main の commit か None, "found": main に残る (行, path), "behind": [...], "added": [...]}。"""
+    rows = rows if rows is not None else olds_table()
+    ref = main_ref(project)
+    checkout = _hits(rows, _checkout_texts(project))
+    if not ref:
+        return {"ref": None, "found": checkout, "fixed_here": [], "behind": [], "added": []}
+    found = _hits(rows, _tree_texts(project, ref))
+    seen = {(r["id"], f) for r, f in found}
+    only = {(r["id"], f) for r, f in checkout} - seen
+    base = _git(str(project), "merge-base", "HEAD", ref, timeout=10) if only else None
+    was = {(r["id"], f) for r, f in _hits(rows, _tree_texts(project, base, only))} if base else set()
+    rest = [(r, f) for r, f in checkout if (r["id"], f) in only]
+    return {"ref": ref, "found": found, "fixed_here": [(r, f) for r, f in found if (r["id"], f) not in
+                                                       {(x["id"], y) for x, y in checkout}],
+            "behind": [x for x in rest if (x[0]["id"], x[1]) in was],
+            "added": [x for x in rest if (x[0]["id"], x[1]) not in was]}
+
+
+def find_olds(project: Path, rows: list[dict] | None = None) -> list[tuple[dict, str]]:
+    """開いた repo に残る古い形の (行, 当たった file の相対 path)。読むのは main の中身（無ければ checkout）。"""
+    return olds_scan(project, rows)["found"]
+
+
+def find_olds_bounded(project: Path, budget: float = WATCH_BUDGET, table: Path = OLDS) -> dict:
+    """olds_scan を別の process で走らせ、budget 秒で殺す。1 つの file の正規表現の照らしは途中で止められないので、
     時間の上限は file の合間でなく process の外から掛ける。越えたら TimeoutError（黙って一部だけにしない）。"""
     cmd = [sys.executable, str(Path(__file__).resolve()), "olds", "--json", "--table", str(table), str(project)]
     try:
@@ -101,15 +187,27 @@ def find_olds_bounded(project: Path, budget: float = WATCH_BUDGET, table: Path =
     if p.returncode not in (0, 1):
         raise ValueError((p.stdout + p.stderr).strip() or f"olds が {p.returncode} で抜けた")
     rows = {r["id"]: r for r in olds_table(table)}
-    return [(rows[i], f) for i, f in json.loads(p.stdout)]
+    got = json.loads(p.stdout)
+    return {"ref": got["ref"], **{k: [(rows[i], f) for i, f in got.get(k) or []] for k in SCAN_KEYS}}
 
 
-def olds_text(found: list[tuple[dict, str]], project: Path) -> str:
-    lines = [f"## この repo（{project.name}）に土台の古い形（写し）が残っている — この仕事で消す\n",
-             "写しは土台が変わっても古いまま残り、誰も止めない。土台を直した同じ仕事で使う側も直す決まり（オーナー決定 2026-11-19）なので、"
-             "この repo の手順（CONTRIBUTING・CLAUDE.md）で 1 枝 1 PR を出して消す。頼みの仕事が別なら、その仕事を止めずに並べて出す:\n"]
-    lines += [f"- {f}: {r['what']} → {r['fix']}\n" for r, f in found]
-    return "".join(lines)
+def olds_text(scan: dict, project: Path) -> str | None:
+    ref = scan["ref"]
+    fixed = {(r["id"], f) for r, f in scan.get("fixed_here") or []}
+    remove = [(r, f, "（この枝では消えている＝枝を main へ入れれば済む）" if (r["id"], f) in fixed else "")
+              for r, f in scan["found"]] + [(r, f, "（この枝で足した）") for r, f in scan.get("added") or []]
+    lines = []
+    if remove:
+        src = f"main（{ref[:12]}）の中身" if ref else "checkout"
+        lines += [f"## この repo（{project.name}）に土台の古い形（写し）が残っている — この仕事で消す\n",
+                  f"読んだ物: {src}。写しは土台が変わっても古いまま残り、誰も止めない。土台を直した同じ仕事で使う側も直す決まり（オーナー決定 2026-11-19）なので、"
+                  "この repo の手順（CONTRIBUTING・CLAUDE.md）で 1 枝 1 PR を出して消す。頼みの仕事が別なら、その仕事を止めずに並べて出す:\n"]
+        lines += [f"- {f}: {r['what']} → {r['fix']}{note}\n" for r, f, note in remove]
+    if scan.get("behind"):
+        lines += [f"## この repo（{project.name}）の作業の枝は main より古い — 古い形は main では直っている\n",
+                  f"次は checkout には残るが main（{ref[:12]}）で直った（消す仕事は要らない。枝を main に追いつかせれば消える）: "
+                  + "・".join(f"{f}（{r['id']}）" for r, f in scan["behind"]) + "\n"]
+    return "".join(lines) or None
 
 
 def claude_md_text(project: Path) -> str | None:
@@ -256,9 +354,25 @@ def _short(f: dict) -> str:
     return f"入った土台 {f['installed'][:12]}・main の先端 {f['main'][:12]}・変わった plugin: {'・'.join(f['plugins'])}"
 
 
+def start_cause(f: dict | None) -> str | None:
+    """起動の時に入った土台が古い訳。比べる正本は setup の時の main の先端（入口 scripts/setup_plugins.py が
+    setup.json の main_at_setup に書く記録）で、hook の時の main ではない（setup の後に main が進んだだけの窓を
+    「setup script を直せ」と取り違えない）。
+    None＝古くない・比べられない / "setup"＝setup が main の先端と違う物を入れた / "after"＝setup は main の先端を
+    入れ、その後に main が進んだ / "unknown"＝setup の時の main の記録が無く見分けられない。"""
+    if not f or not f["plugins"]:
+        return None
+    rec = (_read_json(_home() / "af-foundation" / "setup.json") or {}).get("main_at_setup")
+    if not isinstance(rec, str) or not rec:
+        return "unknown"
+    return "after" if rec == f["installed"] else "setup"
+
+
 def stale_at_start_text(f: dict) -> str:
+    rec = (_read_json(_home() / "af-foundation" / "setup.json") or {}).get("main_at_setup") or ""
     return ("## 土台が古いまま立った窓 — setup script を直してから引き継いで閉じる\n"
-            f"この窓は main の先端より古い土台で立った（{_short(f)}）。setup script が版（tag）を指している・目録を取り直さない古い形（1 行目に marketplace update が無い）・入れ損ねている"
+            f"この窓は main の先端より古い土台で立った（{_short(f)}）。setup の時の main の先端は {rec[:12]} で、setup はそれと違う物を入れた。"
+            "setup script が版（tag）を指している・目録を取り直さない古い形（1 行目に marketplace update が無い）・入れ損ねている"
             "ので、直さずに立て直しても同じ物が入る。この返事では頼みに手を付けず次をする（人の作業は新しい窓で止まらず続く・🙋 の窓も同じ）:\n"
             "1. 環境の setup script を土台の docs/核の届け方.md の形（main の先端を入れる）に直す: "
             "claude-code-remote の get_environment → update_environment（直せる環境の時）。\n"
@@ -267,6 +381,20 @@ def stale_at_start_text(f: dict) -> str:
             "人と親の窓へ新しい窓の URL を返し、archive_session で自分の窓を閉じる。\n"
             "3. 直せない時（他のアカウントの環境・道具が無い・この窓自身が「古い土台の窓からの引き継ぎ」で立った）は引き継がず、"
             "UTC の環境なら連絡板の issue で setup script の直しを頼み、オーナーへ「核と守りが古い形で動いている」と 1 行知らせてから頼みを続ける。\n")
+
+
+def unknown_at_start_text(f: dict) -> str:
+    return ("## 土台が古いまま立った窓 — 起動の時から古いか、setup の後に main が進んだかが分からない\n"
+            f"この窓は main の先端より古い土台で立った（{_short(f)}）。setup の時に入れた main の先端の記録"
+            "（土台の入口 scripts/setup_plugins.py が ~/.claude/af-foundation/setup.json の main_at_setup に書く）が無いので、"
+            "setup script が古い物を入れたのか、setup の後に main が進んだだけなのかを見分けられない"
+            "（記録が無いのは、setup script が入口を通らない古い形か、入口が記録を書く前の版で入れた時）。この返事では頼みに手を付けず次をする:\n"
+            "1. claude-code-remote の get_environment で setup script を読み、土台の docs/核の届け方.md の形（目録の取り直しと入口）と照らす。"
+            "違えば update_environment で直す（直せない環境は親の窓・連絡板へ頼み、オーナーへ 1 行知らせて頼みを続ける）。\n"
+            "2. 形が正しかった・直せた時は、手の中の変更を push し、create_session で同じ repo・同じ環境に新しい窓を立てて引き継ぎ文"
+            "（元の頼み・済んだ事・枝と PR・未決・次の 1 手・窓の題と「古い土台の窓からの引き継ぎ」の 1 行）を渡し、"
+            "人と親の窓へ新しい窓の URL を返し、archive_session で自分の窓を閉じる。"
+            "この窓自身が「古い土台の窓からの引き継ぎ」で立った時は引き継がず、オーナーへ 1 行知らせて頼みを続ける。\n")
 
 
 def handover_text(f: dict) -> str:
@@ -289,7 +417,7 @@ def inject() -> int:
         parts.append(inject_text())
     except UNREADABLE as e:
         print(f"plugin core: 核.md が読めない（{e}）＝核は差し込まれていない", file=sys.stderr)
-    for name, make in (("古い形", lambda: (lambda f: olds_text(f, project) if f else None)(find_olds_bounded(project))),
+    for name, make in (("古い形", lambda: olds_text(find_olds_bounded(project), project)),
                        ("CLAUDE.md の量", lambda: claude_md_text(project)), ("入れ方", setup_text)):
         try:
             t = make()
@@ -303,16 +431,23 @@ def inject() -> int:
         # 同じ窓の 2 回目（文脈の圧縮・/clear・resume）: 起動の時の記録を書き直さない（途中で古くなった窓を
         # 「起動の時から古い」と取り違えて引き継ぎを消さない）。外へも見に行かない。
         f = state.get("start") if state.get("stale_at_start") else None
+        cause = state.get("cause") or "setup"
     else:
         try:
             f = freshness()
+            cause = start_cause(f)
         except Exception:  # noqa: BLE001  新しさの見張りが壊れても核の差し込みは止めない
-            f = None
+            f, cause = None, None
         if session:
-            _save_state(session, {"checked": time.time(), "stale_at_start": bool(f and f["plugins"]),
-                                  "comparable": f is not None, "start": f})
-    if f and f["plugins"]:
-        parts.append(stale_at_start_text(f))
+            # setup の後に main が進んだだけ（after）は「起動の時から古い」でなく、起動の後に古くなった窓と同じ
+            # 引き継ぎ（fresh が問いのたびに知らせる）。setup script を直させない。
+            state = {"checked": time.time(), "stale_at_start": cause in ("setup", "unknown"), "cause": cause,
+                     "comparable": f is not None, "start": f}
+            if cause == "after":
+                state["seen"] = f
+            _save_state(session, state)
+    if f and f["plugins"] and cause in ("setup", "unknown"):
+        parts.append(stale_at_start_text(f) if cause == "setup" else unknown_at_start_text(f))
     if parts:
         out = {"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": "\n".join(parts)}}
         sys.stdout.write(json.dumps(out, ensure_ascii=False))
@@ -436,13 +571,22 @@ def olds(dirs: list[Path], table: Path = OLDS, as_json: bool = False) -> int:
         if not d.is_dir():
             print(f"✗ {d} が無い")
             return 2
-        found = find_olds(d, rows)
+        try:
+            scan = olds_scan(d, rows)
+        except OSError as e:
+            print(f"✗ {d.name}: {e}")
+            return 2
+        found = scan["found"]
         if as_json:
-            print(json.dumps([[r["id"], f] for r, f in found], ensure_ascii=False))
-        for r, f in [] if as_json else found:
-            print(f"✗ {d.name}/{f}: {r['id']}（{r['what']}）")
-        if not found and not as_json:
-            print(f"✅ {d.name}: 古い形 0（見た形: {'・'.join(r['id'] for r in rows)}）")
+            print(json.dumps({"ref": scan["ref"], **{k: [[r["id"], f] for r, f in scan[k]] for k in SCAN_KEYS}},
+                             ensure_ascii=False))
+            bad += len(found)
+            continue
+        src = f"main {scan['ref'][:12]} の中身" if scan["ref"] else "checkout"
+        for r, f in found:
+            print(f"✗ {d.name}/{f}: {r['id']}（{r['what']}・読んだ物: {src}）")
+        if not found:
+            print(f"✅ {d.name}: 古い形 0（読んだ物: {src}・見た形: {'・'.join(r['id'] for r in rows)}）")
         bad += len(found)
     return 1 if bad else 0
 

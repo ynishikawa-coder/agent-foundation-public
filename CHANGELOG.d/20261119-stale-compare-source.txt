@@ -1,0 +1,2 @@
+- 直した: 起動の hook（plugin core の kaku.py inject）が、土台が古いまま立った窓の訳を、hook の時の main でなく setup の時に入れた main の先端の記録と比べて分ける。setup の後に main が進んだだけの窓には setup script を直せと言わず、起動の後に古くなった窓と同じ引き継ぎ（fresh）にする。記録が無い時は分からないと名指す。入口 scripts/setup_plugins.py は出所の main の先端を setup.json の main_at_setup に書く。
+- 直した: 古い形の照らし（kaku.py の起動の hook と olds）が、開いた repo の作業の枝の checkout でなく main（origin の既定の枝）の中身を読む。枝が main より古い時に main で直った古い形を「この仕事で消す」と言い切らず、枝が main より古いと添える。main を持たない dir は checkout を読む。
