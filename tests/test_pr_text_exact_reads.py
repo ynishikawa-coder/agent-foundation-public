@@ -138,3 +138,24 @@ def test_説明が名の全体に当てる正規表現と書く():
 def test_run_の塊の中の_uses_の行は呼び口と見ない():
     wf = "    steps:\n      - run: |\n          uses: ./public-guard\n          deny-words-file: other/x.txt\n"
     assert not P.calls_public_guard(wf, F) and P.deny_words_file(wf, F) == ""
+
+
+@pytest.mark.parametrize("rows", [["^fake-owner/far-public$", "^other/"], ["^other/", "^fake-owner/far-public$"],
+                                  ["^fake-owner/far-public$", 3]])
+def test_形の違う行が混じっても同じ並びの正しい行は効く_公開(env, tmp_path, rows):  # noqa: F811
+    """注入: 形の違う行を 1 つ混ぜる → 値の表の照らしが鍵ごと落としても、正しい行の repo の公開の照らしは外れない。"""
+    table = tmp_path / "values.json"
+    env["SKILL_VALUES"] = str(table)
+    table.write_text(json.dumps({"guard": {"public_repos_extra": rows}}), encoding="utf-8")
+    p = gh("add_issue_comment", issue_number=1, body="連絡は %s へ" % MAIL, repo="far-public")
+    assert "[public]" in deny_reason(env, p)
+
+
+def test_形の違う行が混じっても同じ並びの正しい行は効く_外す(env, tmp_path):  # noqa: F811
+    table = tmp_path / "values.json"
+    env["SKILL_VALUES"] = str(table)
+    table.write_text(json.dumps({"guard": {"pr_cleanup_exempt_repos": ["^fake-owner/fake-private$", "^x/"],
+                                           "pr_words_exempt_repos": ["^x/", "^fake-owner/fake-private$"]}}),
+                     encoding="utf-8")
+    body = "連絡: session_01CCCCCCCCCCCCCCCCCCCCCCCC\n"
+    assert deny_reason(env, gh("update_pull_request", repo="fake-private", pullNumber=1, body=body)) == ""

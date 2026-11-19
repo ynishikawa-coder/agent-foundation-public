@@ -101,16 +101,29 @@ def _matches(patterns, repo):
     return False
 
 
+def _repo_rows(key, data, vals):
+    """値の表 guard の repo の名の鍵（型 repo_names）の (名の全体の形の行, 形の違う行)。
+    値の表の照らしは形の違う行が 1 つでも在ると鍵ごと落とす（既定の [] に戻る）ので、生の行を読み、行ごとに分ける
+    （形の違う行が混じっても、同じ並びの正しい行は効く）。生の表が読めない時は vals の値を使う。"""
+    raw = G.table("guard", data or {}).get(key)
+    rows = raw if isinstance(raw, list) else (vals.get(key) or [])
+    bad = G.SV.bad_repo_names(rows)
+    return [r for r in rows if r not in bad], bad
+
+
+def _exempt(key, repo, data, vals):
+    """外す側の鍵（pr_cleanup_exempt_repos・pr_words_exempt_repos）に repo が在るか。名の全体の形の行だけで当てる
+    （形の違う行は外さず照らす向き＝値の表の照らしが名指す）。"""
+    good, _ = _repo_rows(key, data, vals)
+    return _matches(good, repo)
+
+
 def _public_extra(repo, data, vals):
-    """値の表 public_repos_extra に repo が在るか。名の全体の一致（_matches）だけで当てる。
-    ただし名の全体の形（型 repo_names＝^…$）でない行を値の表に書いた時は、値の表の照らしがその鍵ごと落とすので、
-    生の行を読み、形の違う行が名の一部にでも当たれば公開と見る（公開の照らしを黙って外さない＝安全の守り。
-    形の違いは値の表の照らし〔起動の知らせ・values_keys.py〕が名指す）。外す側の鍵（pr_*_exempt_repos）には
-    この受けを持たない＝形の違う行は外さず照らす。"""
-    if _matches(vals.get("public_repos_extra"), repo):
+    """値の表 public_repos_extra に repo が在るか。名の全体の形の行は全体の一致で当てる。形の違う行は、名の一部にでも
+    当たれば公開と見る（公開の照らしを黙って外さない＝安全の守り。形の違いは値の表の照らしが名指す）。"""
+    good, bad = _repo_rows("public_repos_extra", data, vals)
+    if _matches(good, repo):
         return True
-    raw = G.table("guard", data).get("public_repos_extra")
-    bad = G.SV.bad_repo_names(raw) if isinstance(raw, list) else []
     for p in bad:
         try:
             if isinstance(p, str) and p and re.search(p, repo, re.I):
@@ -268,7 +281,7 @@ def template_parts(path):
 
 
 def check_cleanup(body, repo, data, vals):
-    if repo and _matches(vals.get("pr_cleanup_exempt_repos"), repo):
+    if repo and _exempt("pr_cleanup_exempt_repos", repo, data, vals):
         return []
     body = FENCE.sub(" ", COMMENT.sub(" ", body))      # 注記（雛形の説明）とコードの囲みの中は数えない
     if NOT_NEEDED.search(body):
@@ -306,8 +319,8 @@ def visible_prose(body):
     return URL.sub(" ", INLINE.sub(" ", "\n".join(lines)))
 
 
-def check_words(texts, repo, vals):
-    if repo and _matches(vals.get("pr_words_exempt_repos"), repo):
+def check_words(texts, repo, vals, data=None):
+    if repo and _exempt("pr_words_exempt_repos", repo, data, vals):
         return []
     out = []
     for where, text in texts:
@@ -546,7 +559,7 @@ def findings(data, vals):
     if kind == "pr":
         if body.strip():
             out += [("cleanup", m) for m in check_cleanup(body, repo, data, vals)]
-        out += [("words", m) for m in check_words(texts, repo, vals)]
+        out += [("words", m) for m in check_words(texts, repo, vals, data)]
     out += [("public", m) for m in check_public(texts, repo, data, vals)]
     return out
 
