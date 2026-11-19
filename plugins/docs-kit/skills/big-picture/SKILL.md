@@ -22,6 +22,7 @@ python3 <この skill>/scripts/big_picture.py render  <絵.json> -o <出す.html
 python3 <この skill>/scripts/big_picture.py compare <合意した絵.json> <実物の絵.json>  # 差なし 0／差あり 1／照らせない 2
 python3 <この skill>/scripts/big_picture.py explain <絵.json> <問題 id>        # 説明のチャットの文
 python3 <この skill>/scripts/big_picture.py pick    <repo の根> <触った file>...   # 照らす絵を選ぶ（覆わない file があれば exit 2）
+python3 <この skill>/scripts/big_picture.py kin     <絵.json> <兄弟の合意した絵.json>...  # 意図を問う前に兄弟で答え済みの意図を引く
 ```
 
 HTML の型は `references/template.html`（手で直さない・外の物を読まない・`file://` で動く）。URL の `?tab=flow&layer=explain&p=<問題 id>` で開く所を指せる。
@@ -36,16 +37,17 @@ HTML の型は `references/template.html`（手で直さない・外の物を読
 | `meta.agreed` | `{by:"owner", date, record}` | 合意の印（`合意` に要る）。`record` はオーナーの決定の在り処を名で書く（公開の repo では URL を書かない） |
 | `meta.drawn_from`・`meta.drawn_by` | 文字列 | 実物を描いた元（`<repo>@<SHA12>`）と描いた窓（`実物` に要る） |
 | `tabs.<ctx｜flow｜arch>` | `{w, h, lanes?, areas?}` | 1. 全体の文脈／2. ワークフロー／3. 仕組みの構成。4. 決めた事と意図 は箱から自動で表にする。`lanes`＝`[{t, y, h}]`（流れの帯）・`areas`＝`[{t, k, x, y, w, h}]`（共通と個別の点線の枠） |
-| `boxes[]` | `{id, tab, t, k, side, role?, x, y, w, h, what, why, intent}` | `k`＝`owner`（人）・`ai`（AI の窓）・`part`（部品）・`store`（置き場・記録）・`ext`（外の物）。`what`＝何か・`why`＝記録にある理由（AI の文・出所つき）・`intent`＝**オーナーの意図（聞いた物だけ・聞いていなければ `null`）** |
+| `boxes[]` | `{id, tab, t, k, side, role?, x, y, w, h, what, why, intent, intent_from?}` | `k`＝`owner`（人）・`ai`（AI の窓）・`part`（部品）・`store`（置き場・記録）・`ext`（外の物）。`what`＝何か・`why`＝記録にある理由（AI の文・出所つき）・`intent`＝**オーナーの意図（聞いた物だけ・聞いていなければ `null`）**・`intent_from`＝兄弟から引いた意図の元 `{title, version, box}` |
 | `arrows[]` | `{from, to, label?}` | 同じタブの箱どうし。箱の間でコードが実際に配る・呼ぶ・読む流れは全部描く（代表の 1 本で済ませない＝照らす時に実物の絵と同じ粗さにするため） |
 | `problems[]` | `{id, title, date, at[], cause, via[], origin, why_here}` | 起きた問題の層（意図とは分ける）。`at`＝起きた所の箱・`cause`＝原因の箱・`via`＝原因から起きた所までの間の箱・`origin`＝`構造`／`単発`・`why_here`＝なぜここから起きたか |
 
+- **同じ問いを 2 度させない**: 意図を問う前に、ほかの製品の合意した絵（兄弟）を全部引き（合意の版は決定の記録に「全体の絵 … 合意の版」と在り処つきで残る・Javis は決定の DB）、`kin` に渡す。記録にある理由が兄弟と同じ所の答え済みの意図は、その `intent` を `［<兄弟の題>と同じ答え］<兄弟の意図>`、`intent_from` を `{title, version, box}` で埋めて問わない。問うのは `kin` が「聞く」と数えた意図だけ。兄弟を引かずに意図を問わない（オーナーは同じ理由で同じ物を作っている＝同じ答えを何回もさせない）。合意の版に固める前に、もう一度 `kin` に兄弟を渡し、引いた意図が兄弟の絵と合うかを照らす（`check` は引いた印に `intent_from` が無い時だけ止める・中身は `kin` が照らす）。
 - **意図は作らない**: 意図はオーナーに問うしか得られない。記録から拾った理由は `why` に置き、`intent` は `null` のまま＝**赤い点**（check が「意図をまだ聞いていない」と 1 行ずつ出す）。記録の解決策を意図として書かない。意図を問う時は核 §4 の選択肢の画面で、前提を 1〜2 文・選択肢は短く・推奨の印なし・1 画面 2〜3 問。
 - **単発と書くのは**、絵の上で構造に原因が無いと示せた時だけ（`why_here` にその根拠を書く）。
 
 ## 使い方
 
-1. **設計の初め**: 頼まれた仕組みの絵を描く（新しい仕組みは要件から・在る仕組みは先にコードから実物の絵を描く）。赤い点の意図を問うて埋め、`render` した HTML をオーナーに見せて OK を取る。OK が出たら `meta.kind: 合意`・`meta.agreed`・`meta.version` を付けて固定する。
+1. **設計の初め**: 頼まれた仕組みの絵を描く（新しい仕組みは要件から・在る仕組みは先にコードから実物の絵を描く）。赤い点は先に `kin` で兄弟の答えを当て、残った意図だけを問うて埋め、`render` した HTML をオーナーに見せて OK を取る。OK が出たら `meta.kind: 合意`・`meta.agreed`・`meta.version` を付けて固定する。
 2. **置き場**: 合意した絵の正は案件のページ（Javis は Notion の案件ページ）。土台（この repo）の絵だけは土台の repo の `docs/全体の絵.json`（UTC のレビューの窓も読むため）。repo ごとの置き場は値の表で指す（下）。HTML は毎回 JSON から描き直す写しで、正にしない。
 3. **作り終わり**: 書いた窓と別の目（checker の review-pr 点 13）が、コードから実物の絵を **自分で** 描いて（書いた窓の申告・PR 本文の絵は使わない）`compare` で合意した版と照らす。差なし＝green／差あり＝red で main へ入れずに止め、差を見せてオーナーに決めてもらう。
 4. **「なんでこうなるの？」と聞かれた時**: 3 つの形を全部出す。①`problems` に問題を足して `render` した絵を `?layer=explain&p=<id>` で渡す（起きた所・原因の箱が印つきになり、間の流れが光る）②`explain` の文をチャットに貼る（箱の名を挙げる）③原因の箱を押すと、その箱の意図と「なぜここから起きたか」が並ぶ（型がする）。足した問題は絵に残し、同じ箱で何度起きたかを「起きた問題」の層で見せる。

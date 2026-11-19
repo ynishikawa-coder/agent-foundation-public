@@ -9,6 +9,7 @@
     python3 big_picture.py compare <合意した絵.json> <実物の絵.json>
     python3 big_picture.py explain <絵.json> <起きた問題の id>
     python3 big_picture.py pick    <repo の根> <PR が触った file>...
+    python3 big_picture.py kin     <絵.json> <兄弟の合意した絵.json>...
 
 check:   形の誤り（欄の欠け・知らない値・重なった id・行き先の無い矢印・無い箱を指す問題）は exit 1。
          合意の絵で意図が空の箱は「赤い点」として 1 行ずつ警告する（exit 0・止めない）。
@@ -20,6 +21,12 @@ pick:    PR が触った file から、照らす合意した絵を選ぶ。値�
          文字列（repo 全体で 1 枚）か、[{name, path, covers: [path の頭…]}] の並び（1 repo に製品が複数）。
          無ければ docs/全体の絵.json 1 枚。選んだ絵を 1 行ずつ「絵 <名> <在り処>」と出す（exit 0）。
          どの絵も覆わない file が 1 つでもある・値の形が誤り・絵が無い 時は exit 2（照らせない＝黙って通さない）。
+kin:     意図を問う前に、ほかの製品の合意した絵（兄弟）で答え済みの意図を引く。意図が空の箱ごとに、兄弟の絵で記録にある
+         理由（why）が同じで意図のある箱を候補に出し、それ以外の赤い点を「聞く」と数える（exit 0）。
+         記録にある理由（why）が同じ箱だけを答え済みに数える（名・id だけ同じ箱は参考に出し、聞く側に数える）。答え済みの箱は
+         intent を「［<兄弟の題>と同じ答え］<兄弟の意図>」、intent_from を {title, version, box} で埋める（問わない）。
+         引いた意図（intent_from のある箱）は、渡した兄弟の合意した版の箱と、理由と意図が合うかを照らし、合わなければ exit 1。
+         兄弟が合意の絵でない（kind 合意・agreed が無い）・形の誤り・兄弟を 1 つも渡さない 時は exit 2（合意していない意図を引かない）。
 
 標準ライブラリだけ。
 """
@@ -50,6 +57,13 @@ def load(path):
 
 def _text(v):
     return isinstance(v, str) and v.strip() != ""
+
+
+CARRIED = re.compile(r"^［(.+?)と同じ答え］")
+
+
+def _from_ok(f):
+    return isinstance(f, dict) and all(_text(f.get(k)) for k in ("title", "version", "box"))
 
 
 def check(pic):
@@ -116,6 +130,8 @@ def check(pic):
                 errs.append("%s: %s（置き場所）が数でない" % (bid, f))
         if "intent" not in b:
             errs.append("%s: intent の欄が無い（聞いていなければ null と書く）" % bid)
+        elif _text(b.get("intent")) and CARRIED.match(b["intent"]) and not _from_ok(b.get("intent_from")):
+            errs.append("%s: 兄弟から引いた意図に intent_from（{title, version, box}＝どの兄弟のどの版のどの箱から）が無い" % bid)
         elif kind == "合意" and not _text(b.get("intent")):
             reds.append("赤い点: %s ›「%s」— オーナーの意図をまだ聞いていない" % (TABS.get(b.get("tab"), "?"), b.get("t", bid)))
 
@@ -336,7 +352,92 @@ def pick(root, files):
     return ([] if errs else chosen), errs
 
 
+def _norm(v):
+    return re.sub(r"\s+", "", v) if _text(v) else ""
+
+
+def kin(pic, siblings):
+    """(候補 [(箱, [(兄弟の題, 兄弟の箱, 何が同じか)])], 兄弟にも無い赤い点の箱 [箱], 誤り [文])。"""
+    errs = []
+    if not siblings:
+        return [], [], ["兄弟の合意した絵が 1 つも渡されていない（全製品の合意の版を決定の記録から引いて渡す）"]
+    e, _ = check(pic)
+    errs += ["絵の形の誤り: " + x for x in e]
+    sibs = []
+    for i, sp in enumerate(siblings):
+        e, _ = check(sp)
+        meta = sp.get("meta") if isinstance(sp, dict) else None
+        title = (meta or {}).get("title") or "兄弟 %d" % (i + 1)
+        if e:
+            errs += ["兄弟「%s」の形の誤り: %s" % (title, x) for x in e]
+        elif meta.get("kind") != "合意" or not isinstance(meta.get("agreed"), dict):
+            errs.append("兄弟「%s」は合意の絵でない（合意していない意図は引かない）" % title)
+        else:
+            sibs.append((title, sp))
+    if errs:
+        return [], [], errs
+    by_title = {(sp["meta"].get("title"), sp["meta"].get("version")): sp for _, sp in sibs}
+    found, left, bad = [], [], []
+    for b in pic.get("boxes", []):
+        src = b.get("intent_from")
+        if _from_ok(src):
+            # 引いた意図は、名を挙げた兄弟の合意した版の箱に、同じ理由で同じ意図として本当に在るか照らす（窓の申告で通さない）
+            sp = by_title.get((src["title"], src["version"]))
+            sb = next((x for x in (sp or {}).get("boxes", []) if x.get("id") == src["box"]), None)
+            want = "［%sと同じ答え］%s" % (src["title"], (sb or {}).get("intent"))
+            if sp is None:
+                bad.append("箱 %s: 引いた元の兄弟「%s」版 %s が渡されていない" % (b.get("id"), src["title"], src["version"]))
+            elif sb is None or not _text(sb.get("intent")):
+                bad.append("箱 %s: 兄弟「%s」に箱 %s の意図が無い" % (b.get("id"), src["title"], src["box"]))
+            elif _norm(sb.get("why")) != _norm(b.get("why")):
+                bad.append("箱 %s: 兄弟「%s」の箱 %s と記録にある理由（why）が違う＝同じ答えを当てられない" % (b.get("id"), src["title"], src["box"]))
+            elif _norm(b.get("intent")) != _norm(want):
+                bad.append("箱 %s: 引いた意図が兄弟「%s」の箱 %s の意図と違う" % (b.get("id"), src["title"], src["box"]))
+            continue
+        if _text(b.get("intent")):
+            continue
+        cands, near = [], []
+        for title, sp in sibs:
+            for sb in sp.get("boxes", []):
+                if not _text(sb.get("intent")):
+                    continue
+                if _norm(b.get("why")) and _norm(b.get("why")) == _norm(sb.get("why")):
+                    cands.append((title, sb, ["理由"] + [n for n, k in (("id", "id"), ("名", "t")) if _norm(b.get(k)) == _norm(sb.get(k))]))
+                elif any(_norm(b.get(k)) and _norm(b.get(k)) == _norm(sb.get(k)) for k in ("id", "t")):
+                    near.append((title, sb))
+        if cands:
+            found.append((b, cands))
+        else:
+            left.append((b, near))
+    if bad:
+        return found, left, bad
+    return found, left, []
+
+
 def main(argv):
+    if len(argv) >= 3 and argv[1] == "kin":
+        try:
+            found, left, errs = kin(load(argv[2]), [load(a) for a in argv[3:]])
+        except (ValueError, OSError, json.JSONDecodeError) as e:
+            found, left, errs = [], [], ["絵が読めない: %s" % e]
+        broken = [e for e in errs if e.startswith("箱 ")]
+        for e in errs:
+            print(("引いた意図の誤り: " if e in broken else "照らせない: ") + e)
+        if errs:
+            print(ROOT_CAUSE)
+            return 1 if broken and len(broken) == len(errs) else 2
+        for b, cands in found:
+            print("箱 %s（%s）: 兄弟で答え済み" % (b.get("id"), b.get("t")))
+            for title, sb, same in cands:
+                print("  - 「%s」の箱 %s（%s・%s が同じ）の意図: %s" % (title, sb.get("id"), sb.get("t"), "・".join(same),
+                                                                 sb.get("intent")))
+        for b, near in left:
+            print("箱 %s（%s）: 兄弟に同じ理由の答えが無い＝聞く" % (b.get("id"), b.get("t")))
+            for title, sb in near:
+                print("  - 参考: 「%s」の箱 %s は名か id だけ同じ（理由が違うので当てない）" % (title, sb.get("id")))
+        print("KIN 兄弟で答え済みの候補 %d・聞く赤い点 %d（同じ理由の箱は［<兄弟の題>と同じ答え］で埋め、問わない）"
+              % (len(found), len(left)))
+        return 0
     if len(argv) >= 3 and argv[1] == "pick":
         try:
             chosen, errs = pick(argv[2], argv[3:])
