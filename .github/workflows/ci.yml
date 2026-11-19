@@ -24,6 +24,23 @@ jobs:
       - name: 検査（入口は check_all の 1 本）
         run: bash scripts/check_all.sh
 
+  # 並ぶ PR が同じ file の同じ行の辺りを書き換えていないかを知らせる（scripts/pr_overlap.py・止めない）。
+  overlap:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: 重なる PR を知らせる
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: python3 scripts/pr_overlap.py --repo "${{ github.repository }}" --pr "${PR_NUMBER}"
+
   # 公開の検査（docs/公開の検査.md）。他の公開 repo と同じ action を、この repo では今の枝の物で呼ぶ。
   # job の名 public-guard を変えない（main の守りの必須の検査と、見回りがこの名で見る）。
   public-guard:

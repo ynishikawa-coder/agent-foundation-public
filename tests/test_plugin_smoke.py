@@ -81,12 +81,21 @@ def _guard_never_denies(d):
     f.write_text(broken, encoding="utf-8")
 
 
+def _drop_furumai_from_inject(d):
+    f = d / "plugins" / "core" / "scripts" / "kaku.py"
+    text = f.read_text(encoding="utf-8")
+    broken = text.replace("return (KAKU, FURUMAI)", "return (KAKU,)")
+    assert broken != text, "kaku.py の injected() の形が変わった（この注入を合わせる）"
+    f.write_text(broken, encoding="utf-8")
+
+
 @pytest.mark.parametrize("breaks,want", [
     (_drop_skill, "skill docs-kit:qa-html"),
     (_break_core_hook, "核が起動した窓に差し込まれていない"),
     (_drop_from_market, "plugin guard を入れられない"),
     (_guard_never_denies, "止めるべき作り物の入力を止めない"),
-], ids=["skill が欠ける", "核の hook が壊れる", "配りの器から plugin が落ちる", "守りが止めない"])
+    (_drop_furumai_from_inject, "振る舞い.md が起動した窓に差し込まれていない"),
+], ids=["skill が欠ける", "核の hook が壊れる", "配りの器から plugin が落ちる", "守りが止めない", "振る舞いの既定が届かない"])
 def test_届かない物を入れた土台は赤(tmp_path, breaks, want):
     src, sha = copy_of_foundation(tmp_path, breaks)
     code, out = smoke(src, sha)

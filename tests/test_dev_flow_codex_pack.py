@@ -188,10 +188,13 @@ def test_高エントロピーの塊は_dry_run_でも止まる(repo, tmp_path):
 
 
 def test_ふつうのコードと低いエントロピーの長い字は止めない(repo, tmp_path):
+    head = subprocess.run(["git", "rev-parse", "HEAD"], cwd=repo, capture_output=True, text=True).stdout.strip()
     (repo / "tools" / "plain.py").write_text(
         "def very_long_function_name_for_testing_purposes_only():\n"
         "    return 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'\n"
-        "COMMIT = '0123456789abcdef0123456789abcdef01234567'\n", encoding="utf-8")
+        f"COMMIT = '{head}'  # その repo の git の印は通す\n"
+        f"SHORT = '{head[:20]}'\n"
+        "NAME = 'session_PARENT01'\n", encoding="utf-8")
     res = run(repo, tmp_path / "out", "--file", "tools/plain.py")
     assert res.returncode == 0, res.stderr
 

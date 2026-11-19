@@ -14,7 +14,12 @@
   7. red（blocked を除く）は `## verdict` に `直し: 細目 §3「まず構造を疑う」` の行が在る
      （所見を直す行の一覧として返さず、根治の入口を指す。中身は細目が正本＝ここは指すだけ）。
 
-使い方: python3 verdict_form.py <コメントのファイル> [--writer <書いた窓の session id>] [--head <PR の先端の SHA>]
+  8. 所見の札（止める・台帳へ・直った）と段（設計・整地…）は、review-pr の SKILL.md の「判定の形」の節の
+     「- 札は」の行から読む（ここに写さない＝札や段を足す PR がこの file の定数を触らない）。読めない時は止まる。
+
+使い方: python3 verdict_form.py <コメントのファイル> --writer <書いた窓の session id> --head <PR の先端の SHA>
+  --writer と --head は欠かせない（欠けたら別の目と先端を照らさずに通さない＝exit 2）。
+  助手（Agent）の判定は立てた窓の session id で書く。書いた窓が立てた助手の判定は --writer と同じになり誤り。
   誤りを 1 行ずつ出し、誤りがあれば exit 1。
 """
 import re
@@ -26,8 +31,7 @@ SKILL = Path(__file__).resolve().parent.parent / "skills" / "review-pr" / "SKILL
 LINE1 = re.compile(r"^レビューした窓: (session_[A-Za-z0-9]+) 判定: (green|red)$")
 LINE2 = re.compile(r"^見た先端: ([0-9a-f]{12})$")
 VERDICT = re.compile(r"^(green|red)(?:（blocked: .+）)?$")
-CARD = re.compile(r"^- [\[［](止める|台帳へ|直った)[｜|](設計|整地|見本|承認|実装|レビュー)[\]］] \S")
-CARDS = ("止める", "台帳へ", "直った")
+STOP_CARD = "止める"   # 1 つでも在れば red になる札（判定の決まりの軸。名は SKILL.md の札の並びに在ることを load_cards が確かめる）
 POINT_ROW = re.compile(r"^\| (\d+) (\S[^|]*?) \|")
 POINT_LINE = re.compile(r"^- (\d+) ([^:：]+)[:：] ?(.*)$")
 VALUE = re.compile(r"^(pass|fail|N/A)(?:$|[ （(])")
@@ -46,6 +50,23 @@ def load_points(path=SKILL):
     if not points:
         raise ValueError("見る点の表が読めない: %s" % path)
     return points
+
+
+def load_cards(path=SKILL):
+    """review-pr の「判定の形」の「札は」の行から (札の並び, 段の並び)。読めなければ例外（黙って既定で進めない）。"""
+    text = Path(path).read_text(encoding="utf-8")
+    for ln in text.splitlines():
+        if ln.startswith("- 札は") and "段は" in ln:
+            cards = re.findall(r"`\[([^｜|\]`]+)[｜|]<段>\]`", ln)
+            m = re.search(r"段は((?:\s*`[^`]+`\s*・?)+)", ln)
+            steps = re.findall(r"`([^`]+)`", m.group(1)) if m else []
+            if cards and steps and STOP_CARD in cards:
+                return tuple(cards), tuple(steps)
+    raise ValueError("判定の形の札と段が読めない: %s" % path)
+
+
+def card_re(cards, steps):
+    return re.compile(r"^- [\[［](%s)[｜|](%s)[\]］] \S" % ("|".join(map(re.escape, cards)), "|".join(map(re.escape, steps))))
 
 
 def section(lines, head):
@@ -104,9 +125,13 @@ def check_points(lines, points, reviewer=None, writer=None):
     return errs, fails
 
 
-def check(text, writer=None, head=None, points=None):
+def check(text, writer=None, head=None, points=None, cards=None):
     if points is None:
         points = load_points()
+    if cards is None:
+        cards = load_cards()
+    card = card_re(*cards)
+    shape = "- [%s｜<段>] …" % "|".join(cards[0])
     errs = []
     lines = (text or "").splitlines()
     m1 = LINE1.match(lines[0].strip()) if lines else None
@@ -142,10 +167,10 @@ def check(text, writer=None, head=None, points=None):
         s = ln.strip()
         if not s.startswith("- "):
             continue
-        if not CARD.match(s):
-            errs.append("所見の行の札が `- [止める|台帳へ|直った｜<段>] …` でない: %s" % s[:40])
+        if not card.match(s):
+            errs.append("所見の行の札が `%s` でない: %s" % (shape, s[:40]))
             continue
-        if re.match(r"^- [\[［]止める", s):
+        if re.match(r"^- [\[［]%s" % STOP_CARD, s):
             stops += 1
     perrs, fails = check_points(lines, points, reviewer=reviewer, writer=writer)
     errs.extend(perrs)
@@ -164,10 +189,17 @@ def main(argv):
         sys.stderr.write(__doc__)
         return 2
     path, writer, head = args[0], None, None
-    if "--writer" in args:
-        writer = args[args.index("--writer") + 1]
-    if "--head" in args:
-        head = args[args.index("--head") + 1]
+    try:
+        if "--writer" in args:
+            writer = args[args.index("--writer") + 1]
+        if "--head" in args:
+            head = args[args.index("--head") + 1]
+    except IndexError:
+        writer = head = None
+    if not writer or not head or writer.startswith("--") or head.startswith("--"):
+        # 欠けた材料で通さない: 書いた窓が無いと別の目を、先端が無いと見た後の push を照らせない
+        sys.stderr.write("--writer <書いた窓の session id> と --head <PR の先端の SHA> の両方が要る（欠けたまま形を通さない）\n")
+        return 2
     with open(path, encoding="utf-8") as f:
         errs = check(f.read(), writer=writer, head=head)
     for e in errs:
