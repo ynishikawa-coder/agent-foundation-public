@@ -182,6 +182,8 @@ def _check_keys(where, node, specs, retired):
             out.append("%s は知らない鍵（効かない）。この欄の鍵: %s" % (at, known))
             bad.add(k)
             continue
+        if empty(v):
+            continue   # 空（""・[]・{}・null）は型を問わず「既定で動く」＝問題ではない
         if not _type_ok(spec["type"], v):
             out.append("%s の型が違う（%s で書く・今は %s）" % (at, TYPE_WORD[spec["type"]], type(v).__name__))
             bad.add(k)
@@ -252,10 +254,17 @@ def section(plugin, skill=None, *, explicit=None, starts=(), strict=True, env=No
     if strict:
         if problems:
             raise ValuesError(path, problems)
-        return dict(node) if isinstance(node, dict) else {}
+        return _usable(node, set())
     if None in bad or not isinstance(node, dict):
         return {}, problems
-    return {k: v for k, v in node.items() if k not in bad and not str(k).startswith("_")}, problems
+    return _usable(node, bad), problems
+
+
+def _usable(node, bad):
+    """道具に渡す欄: 注（_）・問題の鍵・空の値（＝既定で動く）を落とす。"""
+    if not isinstance(node, dict):
+        return {}
+    return {k: v for k, v in node.items() if k not in bad and not str(k).startswith("_") and not empty(v)}
 
 
 def empty(v):

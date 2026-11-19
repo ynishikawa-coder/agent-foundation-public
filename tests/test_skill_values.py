@@ -153,8 +153,9 @@ def test_common_の鍵はどれかの_SKILL_md_が使う():
 
 
 # ── 照らし（1 本の口） ──
-def test_表が無い・鍵が無い・空なら問題なし(tmp_path):
-    r = make_repo(tmp_path, {"docs-kit": {"make-deck": {"accent": ""}}, "guard": {}})
+def test_表が無い_鍵が無い_空なら問題なし(tmp_path):
+    r = make_repo(tmp_path, {"docs-kit": {"make-deck": {"accent": ""}, "qa-html": {"limits": ""}}, "guard": {"qa_page_exempt": ""},
+                             "dev-flow": {"codex": {"self_allow": "", "pack_dir": []}}})   # 型の違う空も既定で動く
     res = sv("check", cwd=r / "sub")
     assert res.returncode == 0, res.stderr
     empty = tmp_path / "empty"
@@ -180,7 +181,7 @@ def test_repo_自身の欄と注は照らさない(tmp_path):
     ({"common": {"rules": {"no_confirm": "x"}}}, "common.rules は畳んだ鍵"),          # 束 B（PR #43）で畳んだ写し
     ({"dev-flow": {"verify": {"code_done_rule": "x"}}}, "dev-flow.verify.code_done_rule は畳んだ鍵"),
 ])
-def test_知らない鍵・畳んだ鍵・型違いを名指しする(tmp_path, table, word):
+def test_知らない鍵_畳んだ鍵_型違いを名指しする(tmp_path, table, word):
     r = make_repo(tmp_path, table)
     res = sv("check", cwd=r / "sub" / "deep")
     assert res.returncode == 1 and word in res.stderr, res.stderr
