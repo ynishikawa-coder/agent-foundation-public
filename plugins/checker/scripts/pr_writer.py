@@ -75,6 +75,7 @@ def main(argv=None) -> int:
         print(f"✗ PR の commit（{a.base} に無い commit・先端 {a.head[:12]}）に `Claude-Session:` の行が無く、書いた窓が記録から決まらない"
               "（別の目を照らせない）。commit の説明の末尾に窓の `Claude-Session:` の行を付けて commit し直す")
         print("pr_writer: 赤")
+        print("直し: 行を付け直すだけで済ませず、記録の無い commit ができた原因を細目 §3「まず構造を疑う」で探して直す")
         return 1
     print(f"pr_writer: 緑（書いた窓の組: {','.join(ws)}）")
     return 0
