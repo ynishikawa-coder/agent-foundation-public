@@ -11,10 +11,13 @@ from pathlib import Path
 spec = importlib.util.spec_from_file_location("tsp", Path(__file__).with_name("test_setup_plugins.py"))
 tsp = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(tsp)
+spec = importlib.util.spec_from_file_location("tsc", Path(__file__).with_name("test_setup_plugins_catchup.py"))
+tsc = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(tsc)
 
 
 def test_目録の写しを進められなければ名指しして止める(tmp_path):
-    root, head = tsp.git_foundation(tmp_path, ["core"])
+    root, head = tsc.git_foundation(tmp_path, ["core"])
     r, _, note, home = tsp.run(tmp_path, root, source="github", FAKE_HEAD=head, FAKE_UPDATE_FAIL="1")
     assert r.returncode == 1, r.stdout
     assert "照らせない: 目録の写しを main の先端へ進められなかった" in note
@@ -34,7 +37,7 @@ def test_目録の台帳が無ければ試しと見ず照らす側に倒す(tmp_
 
 
 def test_入った_commit_の台帳が読めなければ名指しして止める(tmp_path):
-    root, head = tsp.git_foundation(tmp_path, ["core"])
+    root, head = tsc.git_foundation(tmp_path, ["core"])
     pj = tmp_path / "home" / ".claude" / "plugins" / "installed_plugins.json"
     pj.parent.mkdir(parents=True)
     pj.write_text("{", encoding="utf-8")   # 作り物の claude は FAKE_HEAD が無いと台帳に触れない
