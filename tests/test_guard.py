@@ -779,6 +779,12 @@ def test_pr_text_公開の_repo_へは置かない物の在る文を出す前に
     why = deny_reason(env, gh("issue_write", method="create", title="作り物", body="連絡は %s へ" % MAIL, **pub))
     assert "issue の本文: メールアドレス" in why
     assert deny_reason(env, gh("add_issue_comment", issue_number=1, body="作り物の確かめを足しました", **pub)) == ""
+    why = deny_reason(env, gh("merge_pull_request", pullNumber=1, merge_method="squash",
+                              commit_title="作り物", commit_message="連絡は %s へ" % MAIL, **pub))
+    assert "commit の説明: メールアドレス" in why
+    why = deny_reason(env, gh("push_files", branch="b", files=[], message="%s の直し" % PUBLIC_WORD, **pub))
+    assert "commit の説明: 置かない語" in why
+    assert deny_reason(env, gh("push_files", branch="b", files=[], message="作り物の直し", **pub)) == ""
     # 同じ文でも公開でない repo（取り出しが別の repo）は照らさない
     assert deny_reason(env, gh("add_issue_comment", issue_number=1, body="連絡は %s へ" % MAIL)) == ""
 

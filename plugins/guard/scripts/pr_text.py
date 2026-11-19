@@ -11,6 +11,8 @@ AI が自分で回すか、出した後に CI やレビューが拾うだけだ�
   コメント … add_issue_comment・update_issue_comment・add_reply_to_pull_request_comment・pull_request_review_write・
              add_comment_to_pending_review（本文）
   issue  … issue_write（題・本文）
+  commit … merge_pull_request（commit_title・commit_message）・push_files・create_or_update_file・delete_file（message）
+           ＝MCP から出す commit の説明。公開の検査だけを当てる
 照らす物（見分けは正本を直に読む・呼ぶ。ここに決まりを写さない）:
   verdict … コメントがレビューの判定（頭の行が `レビューした窓:` か、頭 5 行に `判定: green|red`）なら、checker の
             `scripts/verdict_form.py` をそのまま呼ぶ。赤なら止める。道具が見つからない・壊れた時も止める
@@ -43,6 +45,8 @@ PR_TOOLS = ("create_pull_request", "update_pull_request")
 COMMENT_TOOLS = ("add_issue_comment", "update_issue_comment", "add_reply_to_pull_request_comment",
                  "pull_request_review_write", "add_comment_to_pending_review")
 ISSUE_TOOLS = ("issue_write",)
+COMMIT_TOOLS = ("merge_pull_request", "push_files", "create_or_update_file", "delete_file")
+COMMIT_FIELDS = (("commit_title", "commit の題"), ("commit_message", "commit の説明"), ("message", "commit の説明"))
 
 VERDICT_FORM = ("checker", os.path.join("scripts", "verdict_form.py"), "AF_VERDICT_FORM")
 CLEANUP_TEMPLATE = ("dev-flow", os.path.join("skills", "preimpl-cleanup", "整地受領証.template.md"), "AF_CLEANUP_TEMPLATE")
@@ -61,7 +65,7 @@ COMMENT = re.compile(r"<!--.*?-->", re.S)
 
 def tool_kind(name):
     name = str(name or "")
-    for kind, names in (("pr", PR_TOOLS), ("comment", COMMENT_TOOLS), ("issue", ISSUE_TOOLS)):
+    for kind, names in (("pr", PR_TOOLS), ("comment", COMMENT_TOOLS), ("issue", ISSUE_TOOLS), ("commit", COMMIT_TOOLS)):
         if any(name == n or name.endswith("__" + n) for n in names):
             return kind
     return ""
@@ -285,6 +289,9 @@ def findings(data, vals):
     title = ti.get("title") if isinstance(ti.get("title"), str) else ""
     body = ti.get("body") if isinstance(ti.get("body"), str) else ""
     texts = []
+    if kind == "commit":
+        texts = [(where, ti[k]) for k, where in COMMIT_FIELDS if isinstance(ti.get(k), str) and ti[k].strip()]
+        return [("public", m) for m in check_public(texts, repo, data, vals)] if texts else []
     if title.strip():
         texts.append(("PR の題" if kind == "pr" else "issue の題", title))
     if body.strip():
