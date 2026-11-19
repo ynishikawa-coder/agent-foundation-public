@@ -72,6 +72,9 @@ OUTPUT_CONTRACT = [
 ]
 
 
+# 中止の時の最後の行（中身は細目 §3 が正本＝ここは指すだけ）
+ROOT_CAUSE = "直し: file を差し替えて出し直すだけで済ませず、混じった原因（渡す物の選び方）を細目 §3「まず構造を疑う」で探して直す"
+
 class Abort(Exception):
     pass
 
@@ -267,6 +270,7 @@ def main(argv=None) -> int:
         return 0
     except Abort as e:
         print(f"codex_pack: 中止 — {e}", file=sys.stderr)
+        print(ROOT_CAUSE, file=sys.stderr)
         return 1
 
 

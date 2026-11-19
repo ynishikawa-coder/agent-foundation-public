@@ -39,6 +39,8 @@ sys.dont_write_bytecode = True
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "..", "lib"))
 import skill_values  # noqa: E402  値の表の 1 本の口（plugin の lib/＝土台の skill-values/ への symlink）
 
+# 止まる時の最後の行（中身は細目 §3 が正本＝ここは指すだけ）
+ROOT_CAUSE = "直し: 欠けを埋めて出し直すだけで済ませず、欠けた原因（材料の受け方・型の欄）を細目 §3「まず構造を疑う」で探して直す"
 SKILL_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DEFAULT_TEMPLATE = os.path.join(SKILL_ROOT, "prompts", "base.txt")
 
@@ -163,6 +165,7 @@ def cmd_render(args):
         if hint:
             sys.stderr.write("  見本（会社の既定 docs-kit.make-deck.case_defaults・使うなら case.json に書く）: %s\n"
                              % json.dumps(hint, ensure_ascii=False))
+        sys.stderr.write(ROOT_CAUSE + "\n")
         return 1
 
     if args.out:
@@ -256,6 +259,8 @@ def self_test():
         print("  %s → %s" % (name, "OK" if ok else "NG"))
     verdict = all(ok for _, ok in results)
     print("判定:", "PASS ✅" if verdict else "FAIL ❌")
+    if not verdict:
+        print(ROOT_CAUSE)
     return 0 if verdict else 1
 
 
