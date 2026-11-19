@@ -82,6 +82,35 @@
       "pattern": "\"cleanup_followup\"\\s*:",
       "fix": "鍵を消す。[後片付け] は原因の台帳の行にする（土台の dev-flow:preimpl-cleanup）",
       "example": "      \"cleanup_followup\": \"…\""
+    },
+    {
+      "id": "codex-skill",
+      "what": "Codex（外の AI のレビュアー）へ渡す道の写し（skill dev-flow:codex・渡すパックの道具 codex_pack.py を呼ぶ・頼む文。土台はオーナーの決定で Codex を使わなくなり畳んだ）",
+      "files": [
+        "*.sh",
+        "*.md",
+        "*.yml",
+        "*.yaml",
+        "*.py",
+        ":(exclude)tests/**",
+        ":(exclude)**/tests/**",
+        ":(exclude)**/test_*.py",
+        ":(exclude)CHANGELOG.md",
+        ":(exclude)**/CHANGELOG.md"
+      ],
+      "pattern": "dev-flow:codex|codex_pack\\.py",
+      "fix": "行を消す。外のレビュアーへは渡さず、書いた窓と別の目のレビュー（skill checker:review-pr）を使う",
+      "example": "python3 skills/codex/codex_pack.py --task t1"
+    },
+    {
+      "id": "codex-values-key",
+      "what": "値の表の Codex の鍵 dev-flow.codex（土台が Codex の道具ごと畳んだ）",
+      "files": [
+        "config/skill-values.json"
+      ],
+      "pattern": "\"codex\"\\s*:\\s*\\{",
+      "fix": "dev-flow の中の \"codex\" の枠を消す",
+      "example": "    \"codex\": {\"clients\": {}}"
     }
   ]
 }

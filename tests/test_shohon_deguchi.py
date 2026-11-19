@@ -104,6 +104,8 @@ def test_Codex_のための物は残っていない():
     hits = []
     for base in (".claude-plugin", ".github", "plugins", "scripts", "public-guard", "shared", "docs"):
         for p in (ROOT / base).rglob("*"):
+            if p.name == "古い形.json":     # 使う側に残る Codex の物を名指す表（古い形の見本として名を持つ）
+                continue
             if p.is_file() and "__pycache__" not in p.parts and p.suffix in (".md", ".py", ".json", ".mjs", ".yml", ".txt"):
                 if re.search(r"codex", p.read_text(encoding="utf-8", errors="replace"), re.I):
                     hits.append(str(p.relative_to(ROOT)))
@@ -254,6 +256,8 @@ def test_paid_upstream_試験を回して_log_を書くだけの命令は止め�
     "yes " + "OPENAI" + "_API_KEY | head -1 > tests/test_b.py",
     "for i in 1; do echo " + "OPENAI" + "_API_KEY; done > tests/test_b.py",
     "if true; then echo " + "OPENAI" + "_API_KEY; fi > tests/test_b.py",
+    "cat > tests/.env <<'EOF'\n" + "OPENAI" + "_API_KEY=dummy\nEOF",           # heredoc の中の代入は書く中身
+    "cat > tests/fixtures/run.sh <<'EOF'\n" + "OPENAI" + "_API_KEY=$REAL python call.py\nEOF",
 ])
 def test_paid_upstream_引用符と_redirect_の中の区切りで中身を見落とさない(env, cmd):
     assert "有料の上流" in deny_reason(env, bash(cmd))

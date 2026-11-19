@@ -85,11 +85,37 @@ _ASSIGN_AT = re.compile(r"\s*((?:[A-Za-z_][A-Za-z0-9_]*=(?:'[^']*'|\"[^\"]*\"|[^
 _KEYWORD_AT = re.compile(r"\s*(?:then|do|else)\b")
 
 
+_HEREDOC = re.compile(r"<<-?\s*(['\"]?)([A-Za-z_][A-Za-z0-9_]*)\1")
+
+
 def written_text(cmd):
-    """照らす字: 命令の文全体から、命令の頭の環境の代入だけを抜いた物。引用符の中は命令の頭と見ない。
-    引用符が閉じない命令は何も抜かない（読めない形は全体を見る）。"""
+    """照らす字: 命令の文全体から、命令の頭の環境の代入だけを抜いた物。引用符の中と heredoc の中身は命令の頭と見ない
+    （そのまま照らす）。引用符が閉じない命令は何も抜かない（読めない形は全体を見る）。"""
     out, i, q, head = [], 0, "", True
+    tags = []                              # この行で開いた heredoc の終わりの印（改行の後は中身をそのまま写す）
     while i < len(cmd):
+        if not q and cmd[i] == "\n" and tags:
+            out.append("\n")
+            i += 1
+            for tag in tags:
+                while i < len(cmd):
+                    end = cmd.find("\n", i)
+                    line = cmd[i:] if end < 0 else cmd[i:end + 1]
+                    out.append(line)
+                    i += len(line)
+                    if line.strip() == tag:
+                        break
+            tags = []
+            head = True
+            continue
+        if not q:
+            h = _HEREDOC.match(cmd, i)
+            if h:
+                tags.append(h.group(2))
+                out.append(h.group(0))
+                i = h.end()
+                head = False
+                continue
         if not q and head:
             m = _ASSIGN_AT.match(cmd, i)
             if m:
