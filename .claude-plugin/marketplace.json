@@ -7,7 +7,7 @@
     {
       "name": "core",
       "source": "./plugins/core",
-      "description": "振る舞いの核（起動時に核を差し込む・細目の在り処を知らせる）"
+      "description": "振る舞いの核（起動時に核と振る舞いの既定を差し込む・形の細目の在り処を知らせる）"
     },
     {
       "name": "docs-kit",
