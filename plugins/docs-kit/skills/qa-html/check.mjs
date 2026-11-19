@@ -229,6 +229,7 @@ function frameKeys() {
 
 // 値の表の docs-kit.qa-html を、SKILL.md の「repo ごとの値」の表に載った鍵だけを読ませる形にする。
 // 表に無い鍵を読むと実行の時に止まる（書き方の字の形で照らさない）。Symbol と Object の元の名（toString 等）は通す。
+// 写す口（展開・Object.assign・Object.keys・JSON）も止まる。
 export function strictCompany(data) {
   const { keys, any } = frameKeys();
   return new Proxy(data && typeof data === "object" && !Array.isArray(data) ? data : {}, {
@@ -241,6 +242,15 @@ export function strictCompany(data) {
     has(t, k) {
       if (typeof k === "string" && !any && !keys.has(k)) throw new Error(`値の表の docs-kit.qa-html に無い鍵 ${k} を読んだ`);
       return Reflect.has(t, k);
+    },
+    // 回させない・写させない（{...c}・Object.assign・Object.keys・JSON.stringify・for in は止まる）＝普通の object に写して
+    // 照らしの外で読む道が無い。
+    ownKeys() {
+      throw new Error("値の表の docs-kit.qa-html の読み口は回さない・写さない（鍵を名指して読む）");
+    },
+    getOwnPropertyDescriptor(t, k) {
+      if (typeof k === "string" && !any && !keys.has(k)) throw new Error(`値の表の docs-kit.qa-html に無い鍵 ${k} を読んだ`);
+      return Reflect.getOwnPropertyDescriptor(t, k);
     },
   });
 }

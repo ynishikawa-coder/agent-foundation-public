@@ -120,14 +120,18 @@ class UnknownKey(Exception):
     """道具が値の表に無い鍵を読んだ（土台の不具合）。KeyError にしない＝`except KeyError` の既定の道で黙って飲まれない。"""
 
 
-class Strict(dict):
+class Strict:
     """値の表の 1 つの枠の読み口（土台の道具が値の表を読む時は全部これを通す）。
     表に載った鍵（allowed）だけを読ませ、表に無い鍵を読むと UnknownKey で止まる＝表とコードがずれると、読んだ所で
     実行の時に止まる（書き方の字の形を並べて照らさない）。any_key は `.*` の枠（中の名を repo が決める所）。
-    載った鍵の値（中の dict など）はそのまま返す（値の中の名は repo の物）。"""
+    載った鍵の値（中の dict など）はそのまま返す（値の中の名は repo の物）。
+    dict の子にしない・回させない（keys・items・for・dict(…)・{**…}・json に渡すと止まる）＝普通の dict に写して
+    照らしの外で読む道が無い。写す時は copy()（読み口のまま）。"""
+
+    __slots__ = ("_data", "frame", "allowed", "any_key")
 
     def __init__(self, data, frame, allowed, any_key=False):
-        super().__init__(data or {})
+        self._data = dict(data or {})
         self.frame = tuple(frame)
         self.allowed = frozenset(allowed)
         self.any_key = bool(any_key)
@@ -140,26 +144,34 @@ class Strict(dict):
 
     def __getitem__(self, key):
         self._ok(key)
-        return super().__getitem__(key)
+        return self._data[key]
 
     def get(self, key, default=None):
         self._ok(key)
-        return super().get(key, default)
+        return self._data.get(key, default)
 
     def __contains__(self, key):
         self._ok(key)
-        return super().__contains__(key)
+        return key in self._data
 
-    def setdefault(self, key, default=None):
+    def __setitem__(self, key, value):
         self._ok(key)
-        return super().setdefault(key, default)
-
-    def pop(self, key, *default):
-        self._ok(key)
-        return super().pop(key, *default)
+        self._data[key] = value
 
     def copy(self):
-        return Strict(dict(self), self.frame, self.allowed, self.any_key)
+        return Strict(self._data, self.frame, self.allowed, self.any_key)
+
+    def _no_walk(self, *_a, **_k):
+        raise UnknownKey("値の表の %s の読み口は回さない・写さない（鍵を名指して get で読む。写すなら copy()）"
+                         % ".".join(self.frame))
+
+    __iter__ = keys = items = values = __len__ = _no_walk
+
+    def __bool__(self):
+        return True
+
+    def __repr__(self):
+        return "Strict(%s)" % ".".join(self.frame)
 
 
 def strict_defaults():

@@ -50,6 +50,21 @@ def test_guard_の値は_DEFAULTS_に無い鍵を読むと止まる():
             read(vals)
 
 
+@pytest.mark.parametrize("copy", [
+    lambda v: dict(v), lambda v: {**v}, lambda v: dict(v.items()), lambda v: dict.get(v, "zz_ctx"),
+    lambda v: list(v), lambda v: json.dumps(v), lambda v: [k for k in v], lambda v: len(v),
+])
+def test_guard_の値は普通の_dict_に写して照らしの外で読む道が無い(copy):
+    """注入（レビュー #76 の所見 1）: 写す形・回す形で普通の dict にして表に無い鍵を None で読む道を塞ぐ。"""
+    G = load(PLUGINS / "guard/scripts/guard_common.py", "guard_common_t2")
+    vals = G.values({})
+    with pytest.raises((G.UnknownKey, TypeError)):
+        copy(vals)
+    c = vals.copy()                                    # 写すなら読み口のまま
+    with pytest.raises(G.UnknownKey):
+        c.get("zz_ctx")
+
+
 def _copy_guard(tmp_path, extra):
     d = tmp_path / "guard" / "scripts"
     shutil.copytree(PLUGINS / "guard/scripts", d, ignore=shutil.ignore_patterns("__pycache__"))
@@ -138,9 +153,19 @@ def test_qa_html_の検査は表に無い鍵を読むと止まる(code):
 
 
 def test_qa_html_の検査は表に載った鍵と元の名を通す():
-    r = node("const c = strictCompany({ later_lead: 'x' }); console.log(c.later_lead, c.limits ?? '-', String(c.toString === Object.prototype.toString), JSON.stringify({...c}));")
+    r = node("const c = strictCompany({ later_lead: 'x' }); console.log(c.later_lead, c.limits ?? '-', String(c.toString === Object.prototype.toString), Object.hasOwn(c, 'later_lead'));")
     assert r.returncode == 0, r.stderr
-    assert r.stdout.split() == ["x", "-", "true", '{"later_lead":"x"}']
+    assert r.stdout.split() == ["x", "-", "true", "true"]
+
+
+@pytest.mark.parametrize("copy", [
+    "const d = {...c}; d.zz_lead;", "const d = Object.assign({}, c); d.zz_lead;", "Object.keys(c);",
+    "JSON.stringify(c);", "for (const k in c) {}", "Object.entries(c);", "structuredClone(c);",
+])
+def test_qa_html_の検査は普通の_object_に写して照らしの外で読む道が無い(copy):
+    """注入（レビュー #76 の所見 1）: 展開・Object.assign・回す形で写して表に無い鍵を undefined で読む道を塞ぐ。"""
+    r = node("const c = strictCompany({ later_lead: 'x' }); " + copy)
+    assert r.returncode != 0, (copy, r.stdout)
 
 
 # ── 表の行を消すと、読んでいる道具が止まる（表とコードのずれを読む所で出す） ──
