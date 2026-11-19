@@ -188,17 +188,6 @@ def test_pr_text_整地の見出しは雛形を直に読む(env, tmp_path):
     assert "整地の雛形" in why and "見つからず" in why
 
 
-def test_pr_text_判定の形は道具を直に呼び無ければ止める(env, tmp_path):
-    _fake_gh(env)
-    env["AF_VERDICT_FORM"] = str(tmp_path / "無い.py")
-    why = deny_reason(env, gh("add_issue_comment", issue_number=1, body=verdict_comment()))
-    assert "[verdict]" in why and "見つからず" in why
-    broken = tmp_path / "verdict_form.py"
-    broken.write_text("import sys\nsys.exit(3)\n", encoding="utf-8")
-    env["AF_VERDICT_FORM"] = str(broken)
-    assert "壊れた" in deny_reason(env, gh("add_issue_comment", issue_number=1, body=verdict_comment()))
-
-
 def test_pr_text_誤って止まる_repo_は値の表で外せる(env, tmp_path):
     _fake_gh(env)
     table = tmp_path / "values.json"

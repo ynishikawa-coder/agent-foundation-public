@@ -1,4 +1,5 @@
 """PreToolUse — PR の題・本文と、PR・issue へのコメントを、GitHub へ出す前に照らす。崩れていれば AI だけを止めて書き直させる。
+PostToolUse — 出したコメントが判定かどうか見分けられなかった時だけ（判定の道具が無い・古い）、照らさずに通した事を知らせる（止めない）。
 
 なぜ在るか: レビューの判定の形・PR 本文の整地の 4 欄・人が読む文の言葉・公開の repo に置かない物は、決まりと道具はあるのに
 AI が自分で回すか、出した後に CI やレビューが拾うだけだった。そのため、形の崩れた判定が合流の材料になり、欄の欠けた PR 本文が
@@ -18,7 +19,8 @@ AI が自分で回すか、出した後に CI やレビューが拾うだけだ�
             --head・--writer で、判定を出す窓の本物の id を窓の環境の記録（CLAUDE_CODE_REMOTE_SESSION_ID）から読み --reviewer で
             渡す。本文の `書いた窓:`・判定の 1 行目の名乗りは手で書いた写しで、照らされる側。どれかが引けなければ止める）
             コメントが判定か（`verdict_form.py --looks`）と判定の形（`verdict_form.py`）を、checker の正本に直に聞く
-            （見分けも形もここに写さない）。赤なら止める。道具が見つからない・壊れた時も止める
+            （見分けも形もここに写さない）。赤なら止める。判定と見分けた後に道具が壊れた時も止める。道具が見つからない・古い版で
+            `--looks` に答えない時は判定かどうか見分けられないので止めず（ふつうのコメントまで止めない）、出した後に知らせる
   cleanup … PR の本文（本文を渡す時だけ）に、dev-flow の preimpl-cleanup の `整地受領証.template.md` の 4 つの見出し
             （`## 1.`〜`## 4.`。見出しの名は雛形から読む）が全部在り、雛形の `〔…〕` が残っていない事。整地の要らない PR
             （振る舞いを変えない: 誤字・記録だけ・版だけ等）は本文に `整地: 不要（<訳>）` の 1 行を書く（訳はレビューが照らす）
@@ -42,7 +44,7 @@ import sys
 
 import guard_common as G
 
-HOOKS = {"pre": "check"}
+HOOKS = {"pre": "check", "post": "notice"}
 
 TIMEOUT = 30
 SHOWN = 12
@@ -182,24 +184,30 @@ def pr_facts(repo, ti):
     return head.strip(), writers, ""
 
 
-def check_verdict(body, data):
-    # 判定のコメントかの見分けも判定の形の正本（checker の verdict_form.looks_verdict）を直に呼ぶ＝写さない。
-    # 道具が無い・読めない時は判定かどうかも分からないので止める（判定を見分けの外へ逃がさない）。
+def looks_verdict(body, data):
+    """(見分け, 道具の path, 見分けられない訳)。見分けは "verdict"／"other"／""（道具が無い・古い・壊れた＝見分けられない）。
+    判定のコメントかの見分けは判定の形の正本（checker の verdict_form.py --looks）を直に呼ぶ＝写さない。"""
     tool = _find_sibling(*VERDICT_FORM, data)
     if not tool:
-        return ["判定の形の道具（checker の verdict_form.py）が見つからず、判定かどうかも形も確かめられない。plugin checker を"
-                "guard と同じ版で入れる（または AF_VERDICT_FORM に path）"]
-    body_file = _tmp_file(body, "verdict")
+        return "", "", "判定の形の道具（checker の verdict_form.py）が見つからない"
     try:
-        p = _run([sys.executable, tool, "--looks", body_file])
+        p = _run([sys.executable, tool, "--looks", _tmp_file(body, "looks")])
     except (OSError, subprocess.SubprocessError) as e:
-        return ["判定の形の道具が走らなかった: %s" % e.__class__.__name__]
+        return "", tool, "判定の形の道具が走らなかった（%s）" % e.__class__.__name__
     looks = p.stdout.strip()
     if p.returncode != 0 or looks not in ("verdict", "other"):
-        tail = (p.stderr or p.stdout or "").strip().splitlines()[-2:]
-        return ["判定の形の道具が壊れた（--looks・exit %d）: %s" % (p.returncode, " / ".join(tail))]
-    if looks == "other":
+        tail = (p.stderr or p.stdout or "").strip().splitlines()[-1:]
+        return "", tool, "判定の形の道具が --looks に答えない（古い版か壊れた・exit %d）: %s" % (p.returncode, " / ".join(tail))
+    return looks, tool, ""
+
+
+def check_verdict(body, data):
+    # 判定かどうか見分けられない時（道具が無い・古い・壊れた）は止めない＝判定でないふつうのコメントまで止めない。
+    # 出した後に post の notice が知らせる（オーナーの同意の無い止める範囲の広がりを作らない）。
+    looks, tool, _why = looks_verdict(body, data)
+    if looks != "verdict":
         return []
+    body_file = _tmp_file(body, "verdict")
     ti = data.get("tool_input") or {}
     poster = poster_id()
     if not poster:
@@ -411,6 +419,22 @@ HEAD = {
     "words": "PR の題・本文に AI の中の呼び名が出ている",
     "public": "公開の repo に置かない物がある",
 }
+
+
+def notice(data, vals):
+    """PostToolUse: 出したコメントが判定かどうか見分けられなかった時だけ知らせる（止めない）。"""
+    if tool_kind(data.get("tool_name")) != "comment":
+        return ""
+    ti = data.get("tool_input")
+    body = ti.get("body") if isinstance(ti, dict) and isinstance(ti.get("body"), str) else ""
+    if not body.strip():
+        return ""
+    looks, _tool, why = looks_verdict(body, data)
+    if looks:
+        return ""
+    return ("[guard] 出したコメントがレビューの判定かどうか見分けられず、判定の形を照らさずに通した（止めていない）: %s。"
+            "plugin checker を guard と同じ版で入れる（または AF_VERDICT_FORM に path）。このコメントが判定なら、"
+            "checker の verdict_form.py で形を照らし、崩れていれば出し直す。" % why)
 
 
 def findings(data, vals):
