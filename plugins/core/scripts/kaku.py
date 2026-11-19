@@ -32,6 +32,8 @@ SAIMOKU = PLUGIN / "細目.md"
 OLDS = PLUGIN / "古い形.json"
 FRAME_BEGIN = "<!-- AF-CORE:BEGIN"
 # 常に読まれる量の上限（バイト・UTF-8）。数はここの 1 か所だけに置く。
+# 越えた時の最後の行（中身は細目 §3 が正本＝ここは指すだけ）
+ROOT_CAUSE = "直し: 文を移して量を合わせるだけで済ませず、決まりが増えた原因を細目 §3「まず構造を疑う」で探して畳む"
 LIMITS = {"核": 4800, "各社固有": 3000}
 MARKET = "agent-foundation"
 # 土台の振る舞いを運ぶ path。ここが変わった時だけ「古い土台」と見る（文書・試験・CI だけの変更では窓を替えない）。
@@ -325,6 +327,7 @@ def check(claude: Path | None) -> int:
     for b in bad:
         print(f"✗ {b}")
     if bad:
+        print(ROOT_CAUSE)
         return 1
     print("✅ 量の上限 緑")
     return 0

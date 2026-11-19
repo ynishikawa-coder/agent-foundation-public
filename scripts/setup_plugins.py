@@ -85,8 +85,8 @@ def save_state(state: dict) -> None:
         d = home() / "af-foundation"
         d.mkdir(parents=True, exist_ok=True)
         (d / STATE).write_text(json.dumps(state, ensure_ascii=False), encoding="utf-8")
-    except OSError:
-        pass
+    except OSError as e:  # 印が無いと起動の hook が「古い形の setup script」と取り違えるので、書けなかった事を残す
+        print(f"✗ 入れた印を書けない（起動の時に古い形と取り違えられる）: {e}", file=sys.stderr)
 
 
 def main() -> int:

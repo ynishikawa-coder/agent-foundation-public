@@ -2,7 +2,7 @@
 # 検査の入口（CI も手元もこの 1 本を呼ぶ）。
 # 1. tests/ を pytest で走らせる。
 # 2. scripts/checks/*.sh があれば名前の順に走らせる（後の窓はここに 1 本足すだけ）。
-# 最後の行: 通れば「check_all: 緑 …」、止まれば「check_all: 赤 …」。
+# 最後の行: 通れば「check_all: 緑 …」、止まれば「check_all: 赤 … 直し: …」（根治の入口を指す。中身は細目 §3 が正本）。
 set -uo pipefail
 cd "$(dirname "$0")/.."
 
@@ -30,5 +30,5 @@ if [ ${#failed[@]} -eq 0 ]; then
   echo "check_all: 緑 (${ran} 本)"
   exit 0
 fi
-echo "check_all: 赤 (${#failed[@]}/${ran} 本: ${failed[*]})"
+echo "check_all: 赤 (${#failed[@]}/${ran} 本: ${failed[*]}) 直し: 赤の行を 1 つずつ潰さず、細目 §3「まず構造を疑う」で原因から直す"
 exit 1

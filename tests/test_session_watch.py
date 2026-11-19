@@ -324,3 +324,12 @@ def test_問いを出したターンは短くても札を求める():
     rs.insert(len(rs) - 1, ask)  # 最後のターンで問いを出してから短く締める
     assert sw.Log(rs).turn_asked()
     assert "card" in codes(rs)
+
+
+def test_拾えば最後の行で根治の入口を指し拾わなければ出さない():
+    """拾った物を出し直すだけで返す古い形（指す行が無い）に戻すと赤。"""
+    bad = subprocess.run([sys.executable, str(SCRIPT), str(LOGS / "plain_unanswered.jsonl")], capture_output=True, text=True)
+    assert bad.returncode == 1 and bad.stdout.strip().splitlines()[-1] == sw.ROOT_CAUSE
+    assert "細目 §3「まず構造を疑う」" in sw.ROOT_CAUSE
+    ok = subprocess.run([sys.executable, str(SCRIPT), str(LOGS / "child_ok.jsonl")], capture_output=True, text=True)
+    assert ok.returncode == 0 and sw.ROOT_CAUSE not in ok.stdout

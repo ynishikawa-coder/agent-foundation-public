@@ -35,6 +35,8 @@ ROOT = Path(__file__).resolve().parent.parent
 MARKET = "agent-foundation"
 KAKU_HEAD = "# 振る舞いの核（agent-foundation）"
 # 守りの hook が止めるべき作り物の入力（試験の file から有料の上流の鍵を読む線）。guard の pre は必ず deny を返す。
+ROOT_CAUSE = ("直し: 届かない物を 1 つずつ足し直すだけで済ませず、届かない形になった原因を細目 §3「まず構造を疑う」で探して直す"
+              "（届くべき物は正本を直に読む形か・配りの器と正本が 2 つになっていないか）")
 GUARD_PROBE = {"tool_name": "Write", "session_id": "smoke", "tool_input": {
     "file_path": "/smoke/tests/test_probe.py", "content": 'os.environ["OPENAI_API_KEY"]'}}
 
@@ -217,6 +219,7 @@ def main(argv=None) -> int:
         print(f"✗ {b}")
     if bad:
         print(f"plugin-smoke: 赤 ({len(bad)} 件)")
+        print(ROOT_CAUSE)
         return 1
     print("plugin-smoke: 緑")
     return 0
