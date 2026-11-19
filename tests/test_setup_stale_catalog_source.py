@@ -5,7 +5,7 @@ fork（`<名>-fork`）や、名を道に含む別の出所も「今の目録」�
 今の形: 目録の `repo`（GitHub の短い名）か `url` が、`marketplace add` に渡す名と同じ時だけ今の目録と見なす。
 字の照らし（json.dumps の形が戻っていないか）と動きの照らし（外すか）は別の試験に分ける。字の照らしを取り出す所で
 先に止めると、文書を丸ごと戻した時に動きの試験がどれも同じ所で止まり、動きの歯が効いているかが結果から読めない
-（tests/test_setup_stale_catalog_source_teeth.py が片方ずつ壊して照らす）。
+（字は tests/test_setup_stale_catalog_source_text.py。tests/test_setup_stale_catalog_source_teeth.py が片方ずつ壊して照らす）。
 本物の claude は要らない（外す命令は印を打つ殻に替え、外すかの決め方だけを回す）。
 """
 import json
@@ -48,10 +48,6 @@ def removes(tmp_path, source, entry=True):
     r = subprocess.run(["bash", "-c", part], capture_output=True, text=True, env={"HOME": str(home), "PATH": "/usr/bin:/bin"})
     assert "Traceback" not in r.stderr, r.stderr
     return "REMOVED" in r.stdout
-
-
-def test_字_出所を文字列の包含で見る形が戻っていない():
-    assert "json.dumps" not in decide_text(), "出所を文字列の包含で見る形が戻った"
 
 
 def test_合格_今の目録は外さない(tmp_path):

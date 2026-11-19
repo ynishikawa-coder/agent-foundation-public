@@ -3,7 +3,7 @@
 前の形: 塊を取り出す decide_part が先に「json.dumps が無いか」（字の照らし）を当て、動きの試験もどれもそこを通った。
 文書を戻すと全部の試験が同じ字の照らしで止まり、動きの照らし（fork を外すか）が効いているかは結果から読めなかった。
 字だけが壊れた（無害な json.dumps が入った）時も、動きの試験が全部赤になって、どちらが壊れたか分からなかった。
-今の形: 字の照らしは試験 1 本に分け、動きの試験は字を見ない。
+今の形: 字の照らしは別の file（test_setup_stale_catalog_source_text.py）の試験 1 本に分け、動きの試験は字を見ない。
 ここでは小箱に試験の file と壊した文書を置いて回し、どの試験が赤になったかで照らす。
 """
 import re
@@ -16,6 +16,7 @@ import pytest
 
 ROOT = Path(__file__).resolve().parent.parent
 TEST = "tests/test_setup_stale_catalog_source.py"
+TEXT = "tests/test_setup_stale_catalog_source_text.py"
 DOC = "docs/核の届け方.md"
 NOW = '(s.get("repo") or s.get("url"))!=a[2]'
 
@@ -30,21 +31,21 @@ BROKEN = {
 
 
 def run_box(tmp_path, doc_text):
-    for rel in [TEST]:
+    for rel in [TEST, TEXT]:
         (tmp_path / rel).parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(ROOT / rel, tmp_path / rel)
     (tmp_path / DOC).parent.mkdir(parents=True, exist_ok=True)
     (tmp_path / DOC).write_text(doc_text, encoding="utf-8")
     r = subprocess.run([sys.executable, "-m", "pytest", "-q", "-rA", "-p", "no:cacheprovider", "-c", "/dev/null",
-                        f"--rootdir={tmp_path}", f"--confcutdir={tmp_path}", str(tmp_path / TEST)],
+                        f"--rootdir={tmp_path}", f"--confcutdir={tmp_path}", str(tmp_path / TEST), str(tmp_path / TEXT)],
                        capture_output=True, text=True, cwd=tmp_path, timeout=300)
     out = r.stdout + r.stderr
     red = set()
     ran = 0
-    for kind, name in re.findall(r"^(PASSED|FAILED|ERROR) \S+::(\S+)", out, re.M):
+    for kind, path in re.findall(r"^(PASSED|FAILED|ERROR) (\S+?)::", out, re.M):
         ran += 1
         if kind != "PASSED":
-            red.add("字" if name.startswith("test_字") else "動き")
+            red.add("字" if path.endswith(Path(TEXT).name) else "動き")
     return ran, red, out
 
 
