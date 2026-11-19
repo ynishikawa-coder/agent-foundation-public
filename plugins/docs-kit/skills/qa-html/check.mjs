@@ -1271,6 +1271,7 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
   const values = loadValues({ explicit: at("--values"), starts: [dirname(resolve(file))] });
   const priorPath = at("--prior") ?? priorPathFor(file);
   let opts = { values, priorPath, priorExplicit: args.includes("--prior") };
+  let priorMark = null;
   if (args.includes("--prior-input") || args.includes("--run-prior")) {
     const page = readPage(file);
     if (page.error) {
@@ -1294,6 +1295,8 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
     // 落ちた時も書き換える（前の回の結果を残すと、後でページの path だけで呼ぶ guard が古い結果で緑にする）
     writeFileSync(priorPath, JSON.stringify(got.raw ? { ...got.raw, page_version: page.version } : { error: got.error }, null, 2) + "\n");
     opts = { values, prior: { ...got, from: `prior_check_cmd → ${priorPath}` } };
+    // 引き終えた時だけ出す決まった行（guard の prior_ask が、同じ呼び出しの返りにこの行が在る時だけ「引いた跡」に数える）
+    if (got.raw) priorMark = `prior-check: ${page.questions.length} 件`;
   }
   const results = files.map((f) => {
     const o = f === file ? opts
@@ -1309,5 +1312,6 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
     if (results.some((r) => !r.ok)) console.log(ROOT_CAUSE);
     if (results.length > 1) console.log(`照らした file ${results.length}・赤 ${results.filter((r) => !r.ok).length}`);
   }
+  if (priorMark) (args.includes("--json") ? console.error : console.log)(priorMark);   // 最後の行（| tail でも残る）
   process.exit(results.every((r) => r.ok) ? 0 : 1);
 }

@@ -244,47 +244,122 @@ def matches_tool(block, matchers):
     return any(m(block) for m in matchers)
 
 
-# ── Bash の命令で走る物（命令の字に含むだけの echo・grep・# の注を、走らせた事に数えない）──
-_SHELL_SEPS = {";", "&", "&&", "||", "|", "|&", "(", ")", ";;", ";&", ";;&"}
+# ── shell の命令を読む口（parse_shell・PR #70・#77・#82 で同じ名と同じ意味）──
+# 命令の字を「走る命令ごとの argv の並び」と「読み切れなかった形の名指し」に分ける。読み切れない形が 1 つでも在れば、
+# 呼ぶ側はその見張りの安全な側に倒す（跡を数える見張りなら数えない）。知らない形を「走った」の側に倒さない。
 _SHELLS = {"bash", "sh", "zsh", "dash", "ksh"}
+_PREFIXES = {"env", "command", "builtin", "exec", "time", "nice", "nohup", "sudo", "timeout", "stdbuf", "xargs"}
 _WRAP_TAKES = {"sudo": ("-u", "-g", "-C", "-D", "-h", "-p", "-r", "-t", "-U"), "nice": ("-n",), "exec": ("-a",),
-               "timeout": ("-k", "-s", "--signal", "--kill-after"), "env": ("-u", "-C", "-S", "--unset", "--chdir")}
+               "timeout": ("-k", "-s", "--signal", "--kill-after"), "env": ("-u", "-C", "-S", "--unset", "--chdir"),
+               "xargs": ("-I", "-L", "-n", "-P", "-s", "-d", "-E", "-a", "--max-args", "--max-procs", "--delimiter",
+                         "--arg-file", "--replace", "--max-lines", "--eof")}
+_OTHER_WRAPS = {"flock", "chroot", "su", "doas", "runuser", "sg", "watch", "parallel", "nsenter", "unshare", "setsid",
+                "ionice", "taskset", "script", "strace", "ltrace", "fakeroot", "firejail", "proot", "busybox", "entr",
+                "ssh", "docker", "podman", "kubectl", "nix-shell", "caffeinate", "chronic", "unbuffer"}
+_KEYWORDS = {"if", "then", "else", "elif", "fi", "while", "until", "do", "done", "for", "case", "esac", "select",
+             "function", "{", "}", "!", "[[", "]]", "coproc"}
+_PUNCT = set(";&|()<>\n")
+_HEREDOC = re.compile(r"""'([^'\n]*)'|"([^"\n]*)"|\\?([^\s;&|()<>'"]+)""")
 
 
-def _strip_comments(cmd):
-    """引用の外で語の頭に在る # から行末までを消す（行の終わりは残す）。"""
-    out, i, n, q = [], 0, len(cmd), ""
+def _scan(cmd, unknowns):
+    """注（語の頭の # から行末）・ヒアドキュメントの本文・行の継ぎ（\\ と改行）を除いた字。$(…)・`…`・閉じていない引用・
+    読めないヒアドキュメントを unknowns に足す。"""
+    out, i, n, q, pend = [], 0, len(cmd), "", []
     while i < n:
         c = cmd[i]
         if q == "'":
             q = "" if c == "'" else q
-        elif c == "\\" and i + 1 < n:
-            out.append(cmd[i:i + 2])
+            out.append(c)
+            i += 1
+            continue
+        if c == "\\" and i + 1 < n:
+            if cmd[i + 1] != "\n":
+                out.append(cmd[i:i + 2])
             i += 2
             continue
-        elif q == '"':
+        if c == "`" or cmd.startswith("$(", i):
+            unknowns.append("$(…)・`…`（中で走る命令を数えない）")
+        if q == '"':
             q = "" if c == '"' else q
-        elif c in "'\"":
+            out.append(c)
+            i += 1
+            continue
+        if c in "'\"":
             q = c
-        elif c == "#" and (i == 0 or cmd[i - 1] in " \t\n;&|()"):
+        elif c == "#" and (not out or out[-1][-1] in " \t\n;&|()"):
             while i < n and cmd[i] != "\n":
                 i += 1
             continue
+        elif cmd.startswith("<<", i) and not cmd.startswith("<<<", i):
+            j = i + 2
+            dash = j < n and cmd[j] == "-"
+            j += int(dash)
+            while j < n and cmd[j] in " \t":
+                j += 1
+            m = _HEREDOC.match(cmd, j)
+            if not m:
+                unknowns.append("読めないヒアドキュメント")
+                i = j
+                continue
+            pend.append((next(g for g in m.groups() if g is not None), dash))
+            out.append(" ")
+            i = m.end()
+            continue
+        elif c == "\n" and pend:
+            out.append("\n")
+            i += 1
+            for delim, dash in pend:          # 本文はデータ＝走る命令に数えない
+                while i < n:
+                    e = cmd.find("\n", i)
+                    e = n if e < 0 else e
+                    line, i = cmd[i:e], e + 1
+                    if (line.lstrip("\t") if dash else line) == delim:
+                        break
+            pend = []
+            continue
         out.append(c)
         i += 1
+    if q:
+        unknowns.append("閉じていない引用")
     return "".join(out)
 
 
-def _tokens(cmd):
-    lx = shlex.shlex(_strip_comments(cmd), posix=True, punctuation_chars=";&|()<>\n")
+def _split(text, unknowns):
+    """argv の並び。向け替えとその先は除く。"""
+    lx = shlex.shlex(text, posix=True, punctuation_chars=";&|()<>\n")
     lx.whitespace, lx.whitespace_split, lx.commenters = " \t\r", True, ""
-    return list(lx)
+    try:
+        toks = list(lx)
+    except ValueError:
+        unknowns.append("閉じていない引用")
+        return []
+    cmds, cur, skip = [], [], False
+    for t in toks + [";"]:
+        if skip:
+            skip = False
+            continue
+        if t and set(t) <= _PUNCT:
+            if "(" in t or ")" in t:
+                unknowns.append("括弧の組（subshell・関数・<(…)）")
+            if "&&" in t or "||" in t:
+                unknowns.append("条件の枝（&&・||）")
+            if ("<" in t or ">" in t) and not set(t) & set(";()\n"):
+                skip = True              # 向け替えと、その先
+                if cur and cur[-1].isdigit():
+                    cur.pop()            # 2>&1 の 2
+                continue
+            if cur:
+                cmds.append(cur)
+            cur = []
+        else:
+            cur.append(t)
+    return cmds
 
 
-def _unwrap(argv):
-    """前置き（VAR=値・env・command・time・sudo・nohup・exec・nice・timeout・stdbuf）を外した argv。走らない形
-    （command -v 等）は []。"""
-    i = 0
+def _unwrap(argv, unknowns):
+    """(前置きを外した argv, xargs を通したか, exec か)。走らない形（command -v 等）と表に無い前置きは []。"""
+    i, via_xargs, is_exec = 0, False, False
     while i < len(argv):
         w = argv[i]
         if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*=.*", w, re.S):
@@ -292,70 +367,95 @@ def _unwrap(argv):
             continue
         base = os.path.basename(w)
         if base in ("command", "builtin") and i + 1 < len(argv) and argv[i + 1] in ("-v", "-V"):
-            return []
-        if base not in ("env", "command", "builtin", "time", "nohup", "exec", "sudo", "nice", "timeout", "stdbuf"):
+            return [], via_xargs, is_exec
+        if base in _OTHER_WRAPS:
+            unknowns.append("表に無い前置き（%s）" % base)
+            return [], via_xargs, is_exec
+        if base not in _PREFIXES:
             break
+        via_xargs |= base == "xargs"
+        is_exec |= base == "exec"
         takes = _WRAP_TAKES.get(base, ())
         i += 1
         while i < len(argv) and (argv[i].startswith("-") or (base == "env" and "=" in argv[i])):
             i += 2 if argv[i] in takes else 1
         if base == "timeout" and i < len(argv):
             i += 1               # 時間
-    return argv[i:]
+    return argv[i:], via_xargs, is_exec
 
 
-def shell_runs(cmd, depth=0):
-    """Bash の命令の字で走る命令ごとの argv の並び（前置きを外し、bash -c・eval の中へ降りる）。読めない字は []。
-    走らせた事を字で見ず、走る道具（命令の頭）と引数の並びで見るための口。$(…) と `…` の中は数えない（数えない側＝止める側）。"""
-    try:
-        toks = _tokens(str(cmd or ""))
-    except ValueError:
-        return []
-    runs, cur, skip = [], [], False
-    for t in toks + [";"]:
-        if skip:
-            skip = False
+def parse_shell(cmd, _depth=0):
+    """Returns (simple_commands, unknowns).
+
+    simple_commands: 走る命令ごとの argv の並び。前置き（VAR=・env・command・builtin・exec・time・nice・nohup・sudo・timeout・
+      stdbuf・xargs）を外し、`bash|sh|zsh -c <字>` と `eval <字>` の中へ降りる。ヒアドキュメントの本文は除く（データ）。
+      注は語の頭の # からだけ。
+    unknowns: 読み切れなかった形の名指し（$(…)・`…`・頭に変数・閉じていない引用・関数の定義・shell への管〔| bash〕・
+      find -exec・xargs で shell・表に無い前置き〔flock 等〕・-c の後の --・括弧の組・条件の枝〔&&・||〕・制御の語・
+      exit/exec の後の命令 など）。呼ぶ側は unknowns が空でなければその見張りの安全な側に倒す（跡を数えるなら数えない）。
+    標準の道具だけで書く（副作用なし）。"""
+    unknowns = []
+    if _depth > 3:
+        return [], ["入れ子が深すぎる（bash -c・eval）"]
+    cmds = _split(_scan(str(cmd or ""), unknowns), unknowns)
+    out, ended = [], False
+    for argv in cmds:
+        if ended:
+            unknowns.append("exit・return・exec の後の命令（走らない）")
+        if argv[0] in _KEYWORDS:
+            unknowns.append("制御の語（%s）" % argv[0])
             continue
-        if t in _SHELL_SEPS or not t.strip("\n"):
-            if cur:
-                runs.append(cur)
-            cur = []
-        elif set(t) <= set("<>&|") and ("<" in t or ">" in t):
-            skip = True          # 向け替えと、その先
-            if cur and cur[-1].isdigit():
-                cur.pop()        # 2>&1 の 2
-        else:
-            cur.append(t)
-    out = []
-    for argv in runs:
-        argv = _unwrap(argv)
+        argv, via_xargs, is_exec = _unwrap(argv, unknowns)
         if not argv:
             continue
         base = os.path.basename(argv[0])
-        if depth < 3 and base in _SHELLS:
-            flags = [j for j, a in enumerate(argv[1:], 1) if re.fullmatch(r"-[A-Za-z]*c[A-Za-z]*", a)]
-            if flags and flags[0] + 1 < len(argv):
-                out += shell_runs(argv[flags[0] + 1], depth + 1)
-                continue
-        if depth < 3 and base == "eval":
-            out += shell_runs(" ".join(argv[1:]), depth + 1)
+        if "$" in argv[0]:
+            unknowns.append("頭に変数（%s）" % argv[0])
             continue
+        if base in ("exit", "return") or is_exec:
+            ended = True
+        if base in _SHELLS:
+            flags = [j for j, a in enumerate(argv[1:], 1) if re.fullmatch(r"-[A-Za-z]*c[A-Za-z]*", a)]
+            if via_xargs:
+                unknowns.append("xargs で shell")
+            elif flags and flags[0] + 1 < len(argv):
+                inner = argv[flags[0] + 1]
+                if inner == "--":
+                    unknowns.append("-c の後の --")
+                else:
+                    sub, unk = parse_shell(inner, _depth + 1)
+                    out += sub
+                    unknowns += unk
+            elif "-s" in argv[1:] or not [a for a in argv[1:] if not a.startswith("-")]:
+                unknowns.append("shell が標準入力を読む（| bash・<<EOF）")
+            else:
+                out.append(argv)         # 台本の file を走らせる
+            continue
+        if base == "eval":
+            sub, unk = parse_shell(" ".join(argv[1:]), _depth + 1)
+            out += sub
+            unknowns += unk
+            continue
+        if base == "find" and set(argv[1:]) & {"-exec", "-execdir", "-ok", "-okdir"}:
+            unknowns.append("find -exec")
         out.append(argv)
-    return out
+    return out, list(dict.fromkeys(unknowns))
 
 
-def _bash_runs(block):
+def _bash_parse(block):
     if block.get("name") != "Bash" or not isinstance(block.get("input"), dict):
-        return []
-    return shell_runs(block["input"].get("command"))
+        return [], []
+    return parse_shell(block["input"].get("command"))
 
 
-def runs_command(block, want):
-    """Bash の呼び出し 1 つが、命令 want（shell の 1 行）を走らせたか。want の各命令について、走った命令のどれかの頭の道具
-    （名だけで比べる）と引数の並びが頭から同じ時だけ（後ろに引数が足されてもよい）。"""
-    wants = shell_runs(want)
-    ran = _bash_runs(block) if wants else []
-    return bool(ran) and all(any(_same_head(r, w) for r in ran) for w in wants)
+def runs_command(block, want, loose=False):
+    """Bash の呼び出し 1 つが、命令 want（shell の 1 行）を走らせると字から読めるか。want の各命令について、走る命令のどれか
+    の頭の道具（名だけで比べる）と引数の並びが頭から同じ時だけ（後ろに引数が足されてもよい）。読み切れない形が在れば False
+    （loose=True は読み切れない形を見ずに当てる＝数えなかった理由を名指すためだけに使う）。字から読めても走った証ではない
+    （証は同じ tool_use_id の返り＝result_state）。"""
+    wants, wunk = parse_shell(want)
+    ran, unk = _bash_parse(block) if wants and not wunk else ([], [])
+    return bool(ran) and (loose or not unk) and all(any(_same_head(r, w) for r in ran) for w in wants)
 
 
 def _same_head(ran, want):
@@ -363,10 +463,13 @@ def _same_head(ran, want):
             and ran[1:len(want)] == want[1:])
 
 
-def runs_script(block, script, flag):
-    """Bash の呼び出し 1 つが、script（例 check.mjs）を flag（例 --run-prior）つきで走らせたか（node <script> … か
-    <script> … の形。script は走らせた引数の名で見る）。"""
-    for argv in _bash_runs(block):
+def runs_script(block, script, flag, loose=False):
+    """Bash の呼び出し 1 つが、script（例 check.mjs）を flag（例 --run-prior）つきで走らせると字から読めるか（node <script> …
+    か <script> … の形）。読み切れない形が在れば False（loose は runs_command と同じ）。"""
+    ran, unk = _bash_parse(block)
+    if unk and not loose:
+        return False
+    for argv in ran:
         rest = argv
         if os.path.basename(argv[0]) in ("node", "nodejs"):
             args = [j for j, a in enumerate(argv[1:], 1) if not a.startswith("-")]
@@ -376,6 +479,44 @@ def runs_script(block, script, flag):
         if os.path.basename(rest[0]) == script and flag in rest[1:]:
             return True
     return False
+
+
+def bash_unknowns(block):
+    return _bash_parse(block)[1]
+
+
+# ── 走った証（呼び出しを tool_use_id で返りに結ぶ）──
+# 字から読めても走ったとは限らない（拒まれた・hook に止められた・中断した）。走ったかは同じ tool_use_id の返りで見る。
+EXIT_CODE = re.compile(r"\AExit code -?\d+\b")
+EMPTY_OUTPUT = {"", "(No content)", "(Bash completed with no output)", "(no output)"}
+
+
+def tool_results(row):
+    """user の行の道具の返り（tool_result の塊）の並び。"""
+    if row.get("type") != "user":
+        return []
+    msg = row.get("message")
+    c = msg.get("content") if isinstance(msg, dict) else None
+    return [b for b in c if isinstance(b, dict) and b.get("type") == "tool_result"] if isinstance(c, list) else []
+
+
+def result_text(res):
+    c = (res or {}).get("content")
+    if isinstance(c, str):
+        return c
+    if isinstance(c, list):
+        return "\n".join(str(b.get("text") or "") for b in c if isinstance(b, dict) and b.get("type") == "text")
+    return ""
+
+
+def result_state(res):
+    """返り 1 つの読み: "ok"（誤りなく返った）・"exit"（Bash が走って 0 でない数で終わった＝返りの頭が Exit code N）・
+    "none"（返りが無い）・"no"（拒まれた・hook に止められた・中断・読めない＝走った証にしない）。"""
+    if not isinstance(res, dict):
+        return "none"
+    if res.get("is_error") is not True:
+        return "ok"
+    return "exit" if EXIT_CODE.match(result_text(res)) else "no"
 
 
 def truthy(v):

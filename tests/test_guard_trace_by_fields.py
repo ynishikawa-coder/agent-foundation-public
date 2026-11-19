@@ -1,7 +1,10 @@
 """guard の跡の見分け（prior_ask・context_size）: 跡は道具の名と入力の欄で見て、頼みの境は頼みの印で切り、
 引く先の無い repo の窓を止めず、値の表の壊れた形は黙って通さず名指すか（注入の試験・入力は全部作り物）。"""
 import importlib.util
+import itertools
 import json
+import shutil
+import subprocess
 import sys
 
 import pytest
@@ -17,8 +20,23 @@ import guard_common as G  # noqa: E402
 LOOKUP_TOOL = "mcp__fake__lookup_records"
 
 
+_IDS = itertools.count(1)
+
+
 def use(name, inp):
-    return {"type": "assistant", "message": {"content": [{"type": "tool_use", "name": name, "input": inp}]}}
+    return {"type": "assistant", "message": {"content": [{"type": "tool_use", "id": "toolu_fake%d" % next(_IDS),
+                                                          "name": name, "input": inp}]}}
+
+
+def result(tid, out="作り物の結果", err=False):
+    return {"type": "user", "toolUseResult": {"stdout": out},
+            "message": {"content": [{"type": "tool_result", "tool_use_id": tid, "content": out, "is_error": err}]}}
+
+
+def call(name, inp, out="作り物の結果", err=False):
+    """道具の呼び出しと、同じ tool_use_id の返りの 2 行。"""
+    u = use(name, inp)
+    return [u, result(u["message"]["content"][0]["id"], out, err)]
 
 
 def owner(text, uuid, pid=None):
@@ -45,13 +63,14 @@ def lookup(env, tmp_path, specs):
 
 
 def log(tmp_path, *rows, name="t.jsonl"):
-    return write_log(tmp_path / name, [owner("作り物の頼み", "u1", "p1"), *rows])
+    flat = [r for row in rows for r in (row if isinstance(row, list) else [row])]
+    return write_log(tmp_path / name, [owner("作り物の頼み", "u1", "p1"), *flat])
 
 
 # ── 1. 跡は道具の名と入力の欄で見る（入力にその字を含むだけの呼び出しを跡に数えない）──
 FAKE_TRACES = [
-    ("Bash の命令に道具の名の字を書いただけ", use("Bash", {"command": "echo %s" % LOOKUP_TOOL})),
-    ("Grep で問いの表の字を探しただけ", use("Grep", {"pattern": "問いの表", "path": "/x/作り物のコード"})),
+    ("Bash の命令に道具の名の字を書いただけ", call("Bash", {"command": "echo %s" % LOOKUP_TOOL})),
+    ("Grep で問いの表の字を探しただけ", call("Grep", {"pattern": "問いの表", "path": "/x/作り物のコード"})),
 ]
 
 
@@ -67,8 +86,8 @@ def test_引いた跡は入力にその字を含むだけの呼び出しで数�
 
 def test_引いた跡は道具の名と挙げた入力の欄が当たれば数える(env, tmp_path):
     lookup(env, tmp_path, NEW_FORMS)
-    assert deny_reason(env, ask_with(log(tmp_path, use("Grep", {"pattern": "会議", "path": "/x/問いの表.md"})))) == ""
-    assert deny_reason(env, ask_with(log(tmp_path, use(LOOKUP_TOOL, {"q": "会議"}), name="b.jsonl"))) == ""
+    assert deny_reason(env, ask_with(log(tmp_path, call("Grep", {"pattern": "会議", "path": "/x/問いの表.md"})))) == ""
+    assert deny_reason(env, ask_with(log(tmp_path, call(LOOKUP_TOOL, {"q": "会議"}), name="b.jsonl"))) == ""
 
 
 def test_引き継ぎの跡は命令の字に送る道具の名を含むだけでは数えない(env, tmp_path):
@@ -92,13 +111,13 @@ SAME_REQUEST = [
 @pytest.mark.parametrize("name,row", SAME_REQUEST, ids=[c[0] for c in SAME_REQUEST])
 def test_hookの差し戻しの行は頼みの境に数えない(env, tmp_path, name, row):
     lookup(env, tmp_path, [{"tool": LOOKUP_TOOL}])
-    tpath = log(tmp_path, use(LOOKUP_TOOL, {"q": "会議"}), row)
+    tpath = log(tmp_path, call(LOOKUP_TOOL, {"q": "会議"}), row)
     assert deny_reason(env, ask_with(tpath)) == ""
 
 
 def test_頼みの印が替わった人の行は新しい頼みとして引き直させる(env, tmp_path):
     lookup(env, tmp_path, [{"tool": LOOKUP_TOOL}])
-    tpath = log(tmp_path, use(LOOKUP_TOOL, {"q": "会議"}), owner("次の作り物の頼み", "u2", "p2"))
+    tpath = log(tmp_path, call(LOOKUP_TOOL, {"q": "会議"}), owner("次の作り物の頼み", "u2", "p2"))
     assert "引いた跡が会話ログに無い" in deny_reason(env, ask_with(tpath))
 
 
@@ -124,10 +143,11 @@ def test_引く先の無いrepoでは画面を止めず起動の時に知らせ�
 
 def test_確認ページの前の答えを引く命令を引く先に使う(env, tmp_path):
     values(env, tmp_path, {"docs-kit": {"qa-html": {"prior_check_cmd": "python3 tools/作り物の引く道具.py"}}})
-    tpath = log(tmp_path, use("Read", {"file_path": "/x/a"}))
+    tpath = log(tmp_path, call("Read", {"file_path": "/x/a"}))
     assert deny_reason(env, ask_with(tpath)) and deny_reason(env, ask_with(tpath)), "引く先が在れば上限まで止める"
     for i, cmd in enumerate(["python3 tools/作り物の引く道具.py < q.json", "node /x/qa-html/check.mjs p.html --run-prior"]):
-        assert deny_reason(env, ask_with(log(tmp_path, use("Bash", {"command": cmd}), name="r%d.jsonl" % i))) == ""
+        tpath = log(tmp_path, call("Bash", {"command": cmd}, out=MARKED), name="r%d.jsonl" % i)
+        assert deny_reason(env, ask_with(tpath)) == ""
     assert hook(env, "start", {"session_id": "s1"}).get("additionalContext", "").find("照らしていない") < 0
 
 
@@ -149,13 +169,14 @@ NOT_RUN = [
 @pytest.mark.parametrize("name,cmd", NOT_RUN, ids=[c[0] for c in NOT_RUN])
 def test_引く命令の字を含むだけのBashは走らせた跡に数えない(env, tmp_path, name, cmd):
     values(env, tmp_path, {"docs-kit": {"qa-html": {"prior_check_cmd": "python3 tools/作り物の引く道具.py"}}})
-    why = deny_reason(env, ask_with(log(tmp_path, use("Bash", {"command": cmd}))))
+    why = deny_reason(env, ask_with(log(tmp_path, call("Bash", {"command": cmd}))))
     assert "引いた跡が会話ログに無い" in why, (cmd, why)
 
 
+MARKED = "🟢 緑  作り物.html（問い 2）\nprior-check: 2 件"     # check.mjs --run-prior が引き終えた時の返り
+
 RAN = [
-    ("前置きの環境変数と向け替え", "A=1 python3 tools/作り物の引く道具.py < q.json > out.json"),
-    ("&& の後", "cd /x && python3 tools/作り物の引く道具.py --x"),
+    ("前置きの環境変数と向け替え", "A=1 python3 tools/作り物の引く道具.py < q.json 2>&1"),
     ("管の後", "cat q.json | python3 tools/作り物の引く道具.py"),
     ("bash -c の中", "bash -lc 'cd /x; python3 tools/作り物の引く道具.py'"),
     ("env・time・sudo の前置き", "sudo -u a env B=2 time python3 tools/作り物の引く道具.py"),
@@ -167,7 +188,7 @@ RAN = [
 @pytest.mark.parametrize("name,cmd", RAN, ids=[c[0] for c in RAN])
 def test_引く命令を走らせたBashは跡に数える(env, tmp_path, name, cmd):
     values(env, tmp_path, {"docs-kit": {"qa-html": {"prior_check_cmd": "python3 tools/作り物の引く道具.py"}}})
-    assert deny_reason(env, ask_with(log(tmp_path, use("Bash", {"command": cmd})))) == "", cmd
+    assert deny_reason(env, ask_with(log(tmp_path, call("Bash", {"command": cmd}, out=MARKED)))) == "", cmd
 
 
 # ── 4. 値の表の壊れた形は黙って通さず名指す ──
@@ -190,7 +211,7 @@ def test_跡の形のinputの偽の値は名だけの形に広げず名指す(en
     with pytest.raises(ValueError):
         G.compile_matcher({"tool": "Bash", "input": inp})
     lookup(env, tmp_path, [{"tool": "Bash", "input": inp}])
-    why = deny_reason(env, ask_with(log(tmp_path, use("Bash", {"command": "ls"}))))
+    why = deny_reason(env, ask_with(log(tmp_path, call("Bash", {"command": "ls"}))))
     assert "引いた跡が会話ログに無い" in why and "壊れた形" in why, why
     note = hook(env, "start", {"session_id": "s1"}).get("additionalContext", "")
     assert "guard.ask_prior_lookup: 跡の形として読めない" in note, note
@@ -199,8 +220,8 @@ def test_跡の形のinputの偽の値は名だけの形に広げず名指す(en
 # ── 5. 壊れる 1 段目: 文字列の古い形は今までどおり読み、起動の時に古い形と名指す ──
 def test_文字列の古い形は今までどおり字に当てて読み起動の時に名指す(env, tmp_path):
     lookup(env, tmp_path, ['"q": "会議"', "create_session\\b"])
-    assert deny_reason(env, ask_with(log(tmp_path, use(LOOKUP_TOOL, {"q": "会議"})))) == "", "入力の JSON に当てる古い形"
-    assert deny_reason(env, ask_with(log(tmp_path, use("mcp__x__create_session", {}), name="b.jsonl"))) == "", \
+    assert deny_reason(env, ask_with(log(tmp_path, call(LOOKUP_TOOL, {"q": "会議"})))) == "", "入力の JSON に当てる古い形"
+    assert deny_reason(env, ask_with(log(tmp_path, call("mcp__x__create_session", {}), name="b.jsonl"))) == "", \
         "名の一部に当てていた古い形の意味を変えない"
     note = hook(env, "start", {"session_id": "s1"}).get("additionalContext", "")
     assert "guard.ask_prior_lookup: 古い形の跡" in note and "2 段目" in note, note
@@ -250,3 +271,100 @@ def test_値の表の並びの鍵は全部壊れの名指しの分けに載る()
 def test_既定の引き継ぎの跡の形は全部読める():
     ok, bad = G.tool_matchers(G.DEFAULTS, "context_handoff")
     assert not bad and len(ok) == len(G.DEFAULTS["context_handoff"])
+
+
+# ── 6. 「走った」を頼んだ字で決めず、走った証（同じ tool_use_id の返り・引く道具が出す行）で見る ──
+CMD = "python3 tools/作り物の引く道具.py"
+RUN = "node /x/qa-html/check.mjs p.html --run-prior"
+DENIED = "Permission to use Bash with command %s has been denied." % CMD
+BLOCKED = "PreToolUse:Bash hook error: [作り物の hook] 止めた"
+
+
+def prior_values(env, tmp_path):
+    values(env, tmp_path, {"docs-kit": {"qa-html": {"prior_check_cmd": CMD}}})
+
+
+# 注入: どれも引く命令を走らせていない（か、走った証が返りに無い）のに、f0b43ab は跡に数えて画面を通していた
+NOT_COUNTED = [
+    ("ヒアドキュメントの本文に命令", [call("Bash", {"command": "cat > notes.md <<'EOF'\n%s\nEOF" % CMD}, out="")],
+     None),
+    ("ヒアドキュメントの本文に check.mjs", [call("Bash", {"command": "cat > a.md <<EOF\n%s\nEOF" % RUN}, out="")], None),
+    ("false && の後", [call("Bash", {"command": "false && " + CMD}, out="Exit code 1", err=True)], "条件の枝"),
+    ("cd && の後", [call("Bash", {"command": "cd /x && " + CMD})], "条件の枝"),
+    ("exit の後", [call("Bash", {"command": "exit 0; " + CMD}, out="")], "exit"),
+    ("改行で書いた if false の枝", [call("Bash", {"command": "if false\nthen\n%s\nfi" % CMD}, out="")], "制御の語"),
+    ("while false の中", [call("Bash", {"command": "while false\ndo\n%s\ndone" % CMD}, out="")], "制御の語"),
+    ("呼ばない関数の本体", [call("Bash", {"command": "f() {\n%s\n}" % CMD}, out="")], "括弧の組"),
+    ("$(…) の中", [call("Bash", {"command": "x=$(%s)" % RUN}, out="")], "$(…)"),
+    ("`…` の中", [call("Bash", {"command": "x=`%s`" % CMD}, out="")], None),
+    ("shell への管", [call("Bash", {"command": "echo '%s' | bash" % CMD}, out=MARKED)], None),
+    ("権限で拒まれた", [call("Bash", {"command": CMD}, out=DENIED, err=True)], "拒まれた"),
+    ("hook に止められた check.mjs", [call("Bash", {"command": RUN}, out=BLOCKED, err=True)], "拒まれた"),
+    ("誤りで終わった命令", [call("Bash", {"command": CMD}, out="Exit code 1\nTraceback 作り物", err=True)], "0 でない"),
+    ("返りの無い呼び出し", [use("Bash", {"command": CMD})], "無い"),
+    ("出力の無い命令（file へ向け替え）", [call("Bash", {"command": CMD + " > out.json"},
+                                               out="(Bash completed with no output)")], "出力が空"),
+    ("引き終えた行の無い check.mjs", [call("Bash", {"command": RUN}, out="--run-prior: 値の表に無い")], "prior-check"),
+    ("落ちた check.mjs", [call("Bash", {"command": RUN}, out="Exit code 2\n読めない", err=True)], "prior-check"),
+    ("返りの tool_use_id が違う", [use("Bash", {"command": RUN}), result("toolu_別の呼び出し", MARKED)], "無い"),
+]
+
+
+@pytest.mark.parametrize("name,rows,named", NOT_COUNTED, ids=[c[0] for c in NOT_COUNTED])
+def test_走った証の無い呼び出しは引いた跡に数えず理由を名指す(env, tmp_path, name, rows, named):
+    prior_values(env, tmp_path)
+    why = deny_reason(env, ask_with(log(tmp_path, *rows)))
+    assert "引いた跡が会話ログに無い" in why, (name, why)
+    if named:
+        assert "跡に数えなかった呼び出し" in why and named in why, (name, why)
+
+
+COUNTED = [
+    ("check.mjs が引き終えた行を返した", [call("Bash", {"command": RUN}, out=MARKED)]),
+    ("ページが赤で 0 でない数で終わっても引き終えた行が在る",
+     [call("Bash", {"command": RUN}, out="Exit code 1\n🔴 赤\nprior-check: 2 件", err=True)]),
+    ("| tail でも最後の行が残る", [call("Bash", {"command": RUN + " 2>&1 | tail -3"}, out=MARKED)]),
+    ("値の表の命令が出力を返した", [call("Bash", {"command": CMD + " < q.json"}, out='{"checked": {"q1": "x"}}')]),
+    ("拒まれた後に走らせ直した", [call("Bash", {"command": CMD}, out=DENIED, err=True), call("Bash", {"command": CMD})]),
+]
+
+
+@pytest.mark.parametrize("name,rows", COUNTED, ids=[c[0] for c in COUNTED])
+def test_走った証の在る呼び出しは引いた跡に数える(env, tmp_path, name, rows):
+    prior_values(env, tmp_path)
+    assert deny_reason(env, ask_with(log(tmp_path, *rows))) == "", name
+
+
+def test_値の表の引く先の跡も拒まれた呼び出しは数えない(env, tmp_path):
+    lookup(env, tmp_path, [{"tool": LOOKUP_TOOL}])
+    for i, out in enumerate(["ユーザーが拒んだ", "作り物の誤り"]):
+        tpath = log(tmp_path, call(LOOKUP_TOOL, {"q": "会議"}, out, True), name="d%d.jsonl" % i)
+        why = deny_reason(env, ask_with(tpath, sid="d%d" % i))
+        assert "引いた跡が会話ログに無い" in why and "拒まれた" in why, why
+
+
+def test_値の表の命令が読み切れない形なら名指してcheck_mjsだけを数える(env, tmp_path):
+    values(env, tmp_path, {"docs-kit": {"qa-html": {"prior_check_cmd": "cd tools && " + CMD}}})
+    why = deny_reason(env, ask_with(log(tmp_path, call("Bash", {"command": "cd tools && " + CMD}))))
+    assert "引いた跡が会話ログに無い" in why and "prior_check_cmd が読み切れない形" in why, why
+    assert deny_reason(env, ask_with(log(tmp_path, call("Bash", {"command": RUN}, out=MARKED), name="b.jsonl"))) == ""
+
+
+NODE = shutil.which("node")
+
+
+@pytest.mark.skipif(not NODE, reason="node が無い")
+def test_check_mjs_の本物の返りを跡に数え落ちた回は数えない(env, tmp_path):
+    from test_docs_kit import CHECK, filled_template, prior_cmd, write_values
+    page = tmp_path / "確認.html"
+    page.write_text(filled_template(), encoding="utf-8")
+    for i, (cmd, counted) in enumerate([(prior_cmd(tmp_path), True), ("false", False)]):
+        env["SKILL_VALUES"] = str(write_values(tmp_path, {"prior_check_cmd": cmd}))
+        res = subprocess.run([NODE, str(CHECK), str(page), "--run-prior"], capture_output=True, text=True, cwd=tmp_path)
+        out = (res.stdout + res.stderr).strip()
+        if res.returncode:
+            out = "Exit code %d\n%s" % (res.returncode, out)
+        run = "node %s %s --run-prior" % (CHECK, page)
+        tpath = log(tmp_path, call("Bash", {"command": run}, out=out, err=res.returncode != 0), name="n%d.jsonl" % i)
+        why = deny_reason(env, ask_with(tpath, sid="n%d" % i))
+        assert (why == "") is counted, (cmd, out, why)
