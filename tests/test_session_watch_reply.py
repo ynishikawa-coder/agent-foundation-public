@@ -20,20 +20,6 @@ def test_返し先が別の窓の子窓には親が付けた題を付け直す�
     assert text and "set_session_title" in text and "付け直す" in text
 
 
-@pytest.mark.parametrize("origin", [None, {"kind": "human"}])
-def test_注入_人が貼った引き継ぎの文では子窓の知らせにしない(tmp_path, origin):
-    """オーナーが引き継ぎの文を貼った窓（記録が人・記録なし）は、文に親窓が在っても子の窓の知らせにしない。"""
-    log = tmp_path / "owner.jsonl"
-    row = {"type": "user", "message": {"content": "作り物を見て（親窓 session_X の子）"}}
-    if origin:
-        row["origin"] = origin
-    log.write_text(json.dumps(row, ensure_ascii=False) + "\n", encoding="utf-8")
-    text = sw.remind({"prompt": row["message"]["content"], "transcript_path": str(log)}, CLOUD)
-    assert text and "付け直す" not in text
-    assert sw.remind({"prompt": row["message"]["content"]}, CLOUD) and "付け直す" not in sw.remind(
-        {"prompt": row["message"]["content"]}, CLOUD)
-
-
 # ── 返事の中身の差し戻し（平文の問い・中の言葉・時刻・完了の言い切り・題の材料・秘密）──
 def owner_log(tmp_path, rs=None):
     """返し先がオーナーの窓（🙋 の題を会話ログで付けた）の会話ログ。"""

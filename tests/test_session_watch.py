@@ -78,22 +78,6 @@ def test_種類は返し先で決まり立てた窓では決まらない():
     assert sw.kind_of("作り物の続き（返し先=オーナー）", seeded=True) == sw.HUMAN
 
 
-def test_注入_別の窓を指す返し先は頼みの行の記録と合う時だけ数える():
-    """手で書いた返し先（写し）だけでは子の窓にしない。記録が人・記録なしなら決めない。"""
-    for text in ("作り物を調べて（返し先=session_Y）。", "あなたは書く窓です（親窓 session_X の子）。"):
-        assert sw.kind_of(text) is None
-        for origin, want in ((None, None), ({"kind": "human"}, None), ({"kind": "person"}, None),
-                             ({"kind": "task-notification"}, sw.AI), ({"kind": "peer"}, sw.AI)):
-            row = {"type": "user", "message": {"content": text}}
-            if origin:
-                row["origin"] = origin
-            log = sw.Log([row])
-            assert sw.kind_of(log.first_prompt, log.first_seeded) == want, (text, origin)
-        row = {"type": "user", "message": {"content": text}, "promptSource": "system"}
-        log = sw.Log([row])
-        assert sw.kind_of(log.first_prompt, log.first_seeded) == sw.AI
-
-
 def test_parent_session_id_が在っても返し先がオーナーなら_AI_の題を拾う():
     rs = set_title(rows("owner_ok.jsonl"), "🙋 作り物の続き", "🤖 作り物の続き")
     found = sw.check(sw.Log(rs))

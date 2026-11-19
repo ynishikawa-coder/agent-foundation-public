@@ -9,7 +9,8 @@ from pathlib import Path
 
 import pytest
 
-from test_pr_text import REVIEWER, STRANGER, WRITER, verdict_comment
+from test_pr_text import (REVIEWER, STRANGER, WRITER, _fake_gh, cleanup_body, deny_reason, env, gh,  # noqa: F401
+                          verdict_comment)
 from test_pr_writer import commit, git
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -87,3 +88,72 @@ def test_記録の無い_PR_は書いた窓の組を出さず止まる(tmp_path)
     git(r, "checkout", "-qb", "claude/x")
     head = commit(r, "f")
     assert _writers(r, head)[0] == 2
+
+
+# ── 窓の名乗りは記録から（手で書いた写しは照らされる側）──
+def test_注入_判定の名乗りを偽っても出す窓の記録で照らす(env):
+    """書いた窓が、レビューの窓の id を 1 行目に書いて自分の PR に green を出す（前の形: 1 行目の字を判定した窓と読み、通った）。"""
+    p = gh("add_issue_comment", issue_number=1, body=verdict_comment())      # 1 行目は REVIEWER と名乗る
+    _fake_gh(env)
+    assert deny_reason(env, p) == ""                                          # 出す窓が本当に REVIEWER なら通る
+    env["CLAUDE_CODE_REMOTE_SESSION_ID"] = "cse_" + WRITER[len("session_"):]  # 出す窓は本当は書いた窓
+    why = deny_reason(env, p)
+    assert "[verdict]" in why and "判定を出す窓" in why, why
+    env["CLAUDE_CODE_REMOTE_SESSION_ID"] = "cse_" + STRANGER[len("session_"):]  # 書いていない第三の窓が他の窓を名乗る
+    assert "[verdict]" in deny_reason(env, p)
+
+
+@pytest.mark.parametrize("value", [None, "", "session_01BBBB", "cse_", "cse_ab-cd"])
+def test_注入_出す窓の記録が無ければ判定を通さない(env, value):
+    p = gh("add_issue_comment", issue_number=1, body=verdict_comment())
+    _fake_gh(env)
+    if value is None:
+        env.pop("CLAUDE_CODE_REMOTE_SESSION_ID")
+    else:
+        env["CLAUDE_CODE_REMOTE_SESSION_ID"] = value
+    why = deny_reason(env, p)
+    assert "判定の材料" in why and "CLAUDE_CODE_REMOTE_SESSION_ID" in why, why
+
+
+def test_注入_途中の_commit_を書いた窓も書いた側(env):
+    """commit が A→B→A と並ぶと、途中を書いた B の判定は別の目でない（前の形: 本文の写し・先端の 1 窓だけを書いた窓と見た）。"""
+    p = gh("add_issue_comment", issue_number=1, body=verdict_comment())
+    _fake_gh(env, commits=[WRITER, REVIEWER, None, WRITER])                  # 本文は WRITER・先端も WRITER
+    why = deny_reason(env, p)
+    assert "[verdict]" in why and "別の目でない" in why, why
+    _fake_gh(env, commits=[WRITER, STRANGER, WRITER])                         # 途中の窓が出す窓と違えば通る
+    assert deny_reason(env, p) == ""
+
+
+def test_注入_本文の書いた窓の写しを偽っても_commit_の記録で照らす(env):
+    p = gh("add_issue_comment", issue_number=1, body=verdict_comment())
+    _fake_gh(env, writer=WRITER, commits=[REVIEWER])     # 本文の写しは最初の窓のまま・直しの commit は出す窓が書いた
+    why = deny_reason(env, p)
+    assert "[verdict]" in why and "別の目でない" in why, why
+
+
+def _tail():
+    """整地の欄の揃った本文の、頭の塊（最初の空行まで）を除いた残り（窓の id を含まない）。"""
+    return cleanup_body().split("\n\n", 1)[1]
+
+
+WORDS_BAD = [
+    ("頭の塊の検査の欄", "親窓: %s\n書いた窓: %s\n検査: %s の結果\n\n" % (WRITER, WRITER, STRANGER)),
+    ("頭の塊の job の欄", "job: %s\n\n" % STRANGER),
+    ("頭の塊の外の書いた窓の行", "job: x\n\n書いた窓: %s が直した\n\n" % STRANGER),
+    ("頭の塊の外の親窓の行", "job: x\n\n## 何をどう変えたか\n親窓: %s の頼み\n\n" % STRANGER),
+    ("頭の塊の外の検査の行", "job: x\n\n検査: %s の結果\n\n" % STRANGER),
+]
+
+
+@pytest.mark.parametrize("name,head", WORDS_BAD, ids=[c[0] for c in WORDS_BAD])
+def test_注入_窓の_id_を数えない欄は頭の塊の親窓と書いた窓だけ(env, name, head):
+    """前の形: 行頭が job: や 検査: ならどの行でも窓の id を数えず、公開の PR にそのまま出た。"""
+    assert STRANGER not in _tail()
+    why = deny_reason(env, gh("create_pull_request", title="作り物", head="b", base="main", body=head + _tail()))
+    assert "[words]" in why and STRANGER in why, why
+
+
+def test_頭の塊の親窓と書いた窓の欄の窓の_id_は数えない(env):
+    body = "親窓: %s\n書いた窓: %s\njob: 20261119-fake\n検査: 緑\n\n" % (STRANGER, WRITER) + _tail()
+    assert deny_reason(env, gh("create_pull_request", title="作り物", head="b", base="main", body=body)) == ""

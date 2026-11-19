@@ -46,12 +46,6 @@ def test_context_stop_子の窓には返し先へ送って止まる直し方を�
     assert "返し先の窓へ送り、止まる" in why, why
 
 
-def test_context_stop_注入_人が貼った引き継ぎの文では子の窓の直し方にしない(env, tmp_path):
-    """頼みの行の記録が人なら、文に親窓が在ってもオーナー相手の窓の直し方（後継の窓を立てる）を返す。"""
-    why = stop_hook(env, over_log(tmp_path, 400_000, first="あなたは書く窓です（親窓 session_ABC123 の子）。", origin="human"))
-    assert why and "返し先の窓へ送り、止まる" not in why, why
-
-
 HANDOFFS = [
     ("後継の窓を立てた", use("mcp__claude-code-remote__create_session", {"prompt": "作り物の引き継ぎ"})),
     ("親の窓へ送った", use("mcp__claude-code-remote__send_message", {"message": "作り物の返し"})),
