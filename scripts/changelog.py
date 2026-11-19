@@ -26,7 +26,21 @@ OLD_FILE = "00000000-断片へ移す前.txt"
 # 移す前の記録は動かさない（頭へ足せば、同じ所へ追記する形がこの file へ移るだけ）。中身の印で止める。
 OLD_SHA256 = "93e5dda7492211d6997bb3046b0bd8659069845e88da658d149b85fb6430eaff"
 NAME_RE = re.compile(r"^\d{8}-[0-9A-Za-z][0-9A-Za-z._-]*\.txt$")
-LINE_RE = re.compile(r"^- (壊れる|足した|直した|畳んだ)(（[^）\n]+）)?: \S")
+README = ROOT / DIR_NAME / "README.md"
+
+
+def load_cards(path=README):
+    """札の並び。正本は CHANGELOG.d/README.md の「札は `…`・`…` のどれか」の行（ここに写さない）。読めなければ例外。"""
+    for ln in Path(path).read_text(encoding="utf-8").splitlines():
+        m = re.search(r"札は(.+?)のどれか", ln)
+        cards = re.findall(r"`([^`]+)`", m.group(1)) if m else []
+        if cards:
+            return tuple(cards)
+    raise ValueError("札の並びが読めない: %s" % path)
+
+
+CARDS = load_cards()
+LINE_RE = re.compile(r"^- (%s)(（[^）\n]+）)?: \S" % "|".join(map(re.escape, CARDS)))
 JST = timezone(timedelta(hours=9))
 # CHANGELOG.md の中身はこれだけ（記録を書く所は CHANGELOG.d/）。見出しや地の文でも足せば赤。
 MAIN_TEXT = """# 変更の記録
@@ -77,7 +91,7 @@ def check(root: Path = ROOT) -> list[str]:
             continue
         for n, line in enumerate(text.splitlines(), 1):
             if line.strip() and not LINE_RE.match(line):
-                errs.append(f"{DIR_NAME}/{p.name}:{n}: 行は「- 壊れる: …」「- 足した: …」「- 直した: …」「- 畳んだ: …」の形"
+                errs.append(f"{DIR_NAME}/{p.name}:{n}: 行は" + "".join(f"「- {c}: …」" for c in CARDS) + "の形"
                             "（札の後に（…）を添えてよい）。1 項は 1 行")
     return errs
 
