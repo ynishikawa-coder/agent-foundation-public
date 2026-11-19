@@ -94,6 +94,28 @@ class Abort(Exception):
     pass
 
 
+def values_reader():
+    """値の表の読み口（土台の plugin guard の scripts/values_keys.py）を直に読む（写さない）。表に無い鍵を読むと止まる。
+    在り処: repo の形 plugins/guard・入れた plugin の形 cache/<市場>/guard/<版>（同じ版を先に、無ければ新しい物）。
+    見つからなければ止める（読み口を通さずに値の表を読まない）。"""
+    if "af_values_keys" in sys.modules:
+        return sys.modules["af_values_keys"]
+    plugin = Path(__file__).resolve().parents[2]
+    rel = Path("scripts") / "values_keys.py"
+    cands = [plugin.parent / "guard" / rel, plugin.parent.parent / "guard" / plugin.name / rel]
+    cands += sorted((plugin.parent.parent / "guard").glob("*/scripts/values_keys.py"),
+                    key=lambda p: p.stat().st_mtime, reverse=True)
+    for c in cands:
+        if c.is_file():
+            import importlib.util
+            spec = importlib.util.spec_from_file_location("af_values_keys", c)
+            mod = importlib.util.module_from_spec(spec)
+            sys.modules["af_values_keys"] = mod
+            spec.loader.exec_module(mod)
+            return mod
+    raise Abort("値の表の読み口（土台の plugin guard の scripts/values_keys.py）が見つからない。土台の plugin guard を入れる")
+
+
 def repo_root(start: Path) -> Path:
     res = subprocess.run(["git", "rev-parse", "--show-toplevel"], cwd=start,
                          capture_output=True, text=True)
@@ -107,7 +129,7 @@ def load_values(root: Path, path: str | None) -> dict:
     if not p.is_file():
         if path:
             raise Abort(f"--values に渡した値の表が無い: {p}")
-        return {}
+        return values_reader().section({}, "dev-flow", "codex")
     try:
         data = json.loads(p.read_text(encoding="utf-8"))
     except json.JSONDecodeError as e:
@@ -121,7 +143,7 @@ def load_values(root: Path, path: str | None) -> dict:
     vals = flow.get("codex", {})
     if not isinstance(vals, dict):
         raise Abort("値の表の dev-flow.codex が表（JSON の object）でない")
-    return vals
+    return values_reader().section(vals, "dev-flow", "codex")
 
 
 def rel_of(root: Path, f: str) -> str:

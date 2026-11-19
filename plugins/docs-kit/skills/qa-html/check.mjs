@@ -31,8 +31,8 @@
 //   <名>.prior.json（--prior で替える）に書いてから検査する。--prior-input は命令へ渡す JSON を出すだけ。
 //   別の検査（配る口の検査など）からは import { checkQa, checkQaJson, checkFile } で呼ぶ。
 import { spawnSync } from "node:child_process";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 // ── 問いの決まりの表（1 か所）。会社ごとに足す語は config/skill-values.json の docs-kit.qa-html.internal_words
@@ -202,13 +202,59 @@ export function findValues(...starts) {
   return null;
 }
 
-function loadCompany(valuesPath) {
-  if (!valuesPath) return {};
+// 値の表の読み口（土台の plugin guard の scripts/values_keys.py）を直に呼び、この枠で読んでよい鍵を取る（写さない）。
+// 在り処: repo の形 plugins/guard・入れた plugin の形 cache/<市場>/guard/<版>（同じ版を先に、無ければ新しい物）。
+// 見つからない・読めない時は止める（読み口を通さずに値の表を読まない）。
+let FRAME_KEYS = null;
+function frameKeys() {
+  if (FRAME_KEYS) return FRAME_KEYS;
+  const plugin = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
+  const rel = join("scripts", "values_keys.py");
+  const market = dirname(dirname(plugin));
+  const cands = [join(dirname(plugin), "guard", rel), join(market, "guard", basename(plugin), rel)];
   try {
-    return JSON.parse(readFileSync(valuesPath, "utf8"))?.["docs-kit"]?.["qa-html"] ?? {};
+    const vers = readdirSync(join(market, "guard")).map((v) => join(market, "guard", v, rel)).filter((f) => existsSync(f));
+    cands.push(...vers.sort((a, b) => statSync(b).mtimeMs - statSync(a).mtimeMs));
   } catch {
-    return {};
+    /* 入れた plugin の形でない */
   }
+  const vk = cands.find((f) => existsSync(f));
+  if (!vk) throw new Error("値の表の読み口（土台の plugin guard の scripts/values_keys.py）が見つからない。土台の plugin guard を入れる");
+  const r = spawnSync(process.env.PYTHON || "python3", [vk, "--keys", "docs-kit", "qa-html"], { encoding: "utf8" });
+  if (r.status !== 0) throw new Error(`値の表の読み口が鍵を返さない: ${r.stderr || r.error}`);
+  const got = JSON.parse(r.stdout);
+  FRAME_KEYS = { keys: new Set(got.keys), any: got.any };
+  return FRAME_KEYS;
+}
+
+// 値の表の docs-kit.qa-html を、SKILL.md の「repo ごとの値」の表に載った鍵だけを読ませる形にする。
+// 表に無い鍵を読むと実行の時に止まる（書き方の字の形で照らさない）。Symbol と Object の元の名（toString 等）は通す。
+export function strictCompany(data) {
+  const { keys, any } = frameKeys();
+  return new Proxy(data && typeof data === "object" && !Array.isArray(data) ? data : {}, {
+    get(t, k, r) {
+      if (typeof k === "string" && !any && !keys.has(k) && !(k in Object.prototype)) {
+        throw new Error(`値の表の docs-kit.qa-html に無い鍵 ${k} を読んだ（読む鍵は SKILL.md の「repo ごとの値」の表に行を足してから読む）`);
+      }
+      return Reflect.get(t, k, r);
+    },
+    has(t, k) {
+      if (typeof k === "string" && !any && !keys.has(k)) throw new Error(`値の表の docs-kit.qa-html に無い鍵 ${k} を読んだ`);
+      return Reflect.has(t, k);
+    },
+  });
+}
+
+function loadCompany(valuesPath) {
+  let data = {};
+  if (valuesPath) {
+    try {
+      data = JSON.parse(readFileSync(valuesPath, "utf8"))?.["docs-kit"]?.["qa-html"] ?? {};
+    } catch {
+      data = {};
+    }
+  }
+  return strictCompany(data);
 }
 
 const mask = (s) => s.replace(/<!--[\s\S]*?(-->|$)/g, (m) => " ".repeat(m.length));

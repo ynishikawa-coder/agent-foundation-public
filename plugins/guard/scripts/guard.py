@@ -7,7 +7,7 @@
   どの出来事でどの見張りが回るかは、各見張りの file の頭の HOOKS が正本（ここに一覧を写さない）。
 
 止めるのは pre だけ（permissionDecision=deny）。post と start は隣に文を出すだけ。
-どの見張りも壊れた時は黙って通す（1 つの故障で他の見張りや仕事を止めない）。exit は常に 0。
+どの見張りも壊れた時は黙って通す（1 つの故障で他の見張りや仕事を止めない）。exit は 0（試験の時だけ、値の表に無い鍵を読んだ見張りが在れば 3）。
 """
 import ast
 import glob
@@ -24,6 +24,9 @@ import guard_common as G  # noqa: E402
 
 EVENTS = {"pre": "PreToolUse", "post": "PostToolUse", "start": "SessionStart"}
 # 止めた時の最後の行（どの見張りの止めにも 1 か所で付ける。中身は細目 §3 が正本＝ここは指すだけ）
+UNKNOWN_READS = []   # 値の表に無い鍵を読んだ見張り（G.Strict が止めた所）
+# 試験の時（GUARD_STRICT_KEYS が真）は、表に無い鍵を読んだ見張りが在れば exit 3 にして試験を赤にする。窓の中では exit 0 のまま
+# （exit 0 でないと他の見張りの止めの JSON が読まれず、戻せない操作の止めまで消えるため。文は stderr に残す）。
 ROOT_CAUSE = "直し: 止められた所を直して出し直すだけで済ませず、その形が出た原因を細目 §3「まず構造を疑う」で探して直す"
 
 
@@ -31,6 +34,10 @@ def _run(module, func, data, vals):
     """1 つの見張りを走らせる。import から呼び出しまでを try の中に置く＝1 つが壊れても他は走る。"""
     try:
         return getattr(importlib.import_module(module), func)(data, vals) or ""
+    except G.UnknownKey as e:
+        UNKNOWN_READS.append("%s.%s: %s" % (module, func, e))
+        sys.stderr.write("[guard] 値の表に無い鍵を読んだ（土台の不具合）%s\n" % UNKNOWN_READS[-1])
+        return ""
     except Exception as e:      # noqa: BLE001
         sys.stderr.write("[guard] %s.%s: %s\n" % (module, func, e))
         return ""
@@ -65,7 +72,7 @@ def run(event, data):
     try:
         vals = G.values(data)
     except Exception:          # noqa: BLE001
-        vals = dict(G.DEFAULTS)
+        vals = G.strict_defaults()
     outs = [o for o in (_run(m, f, data, vals) for m, f in watchers(event)) if o]
     if not outs:
         return None
@@ -89,7 +96,7 @@ def main(argv):
     out = run(event, data)
     if out:
         print(json.dumps(out, ensure_ascii=False))
-    return 0
+    return 3 if UNKNOWN_READS and G.truthy(os.environ.get("GUARD_STRICT_KEYS")) else 0
 
 
 if __name__ == "__main__":

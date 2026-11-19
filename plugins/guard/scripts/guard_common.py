@@ -109,9 +109,59 @@ def project_dir(payload=None):
     return d
 
 
+class UnknownKey(Exception):
+    """道具が値の表に無い鍵を読んだ（土台の不具合）。KeyError にしない＝`except KeyError` の既定の道で黙って飲まれない。"""
+
+
+class Strict(dict):
+    """値の表の 1 つの枠の読み口（土台の道具が値の表を読む時は全部これを通す）。
+    表に載った鍵（allowed）だけを読ませ、表に無い鍵を読むと UnknownKey で止まる＝表とコードがずれると、読んだ所で
+    実行の時に止まる（書き方の字の形を並べて照らさない）。any_key は `.*` の枠（中の名を repo が決める所）。
+    載った鍵の値（中の dict など）はそのまま返す（値の中の名は repo の物）。"""
+
+    def __init__(self, data, frame, allowed, any_key=False):
+        super().__init__(data or {})
+        self.frame = tuple(frame)
+        self.allowed = frozenset(allowed)
+        self.any_key = bool(any_key)
+
+    def _ok(self, key):
+        if self.any_key or key in self.allowed:
+            return
+        raise UnknownKey("値の表の %s に無い鍵 %r を読んだ（読む鍵は SKILL.md の「repo ごとの値」の表か guard の DEFAULTS に"
+                         "行を足してから読む）" % (".".join(self.frame), key))
+
+    def __getitem__(self, key):
+        self._ok(key)
+        return super().__getitem__(key)
+
+    def get(self, key, default=None):
+        self._ok(key)
+        return super().get(key, default)
+
+    def __contains__(self, key):
+        self._ok(key)
+        return super().__contains__(key)
+
+    def setdefault(self, key, default=None):
+        self._ok(key)
+        return super().setdefault(key, default)
+
+    def pop(self, key, *default):
+        self._ok(key)
+        return super().pop(key, *default)
+
+    def copy(self):
+        return Strict(dict(self), self.frame, self.allowed, self.any_key)
+
+
+def strict_defaults():
+    return Strict(DEFAULTS, ("guard",), DEFAULTS)
+
+
 def values(payload=None):
-    """値の表の "guard" を既定に重ねて返す。読めない・型が違う値は既定のまま。"""
-    out = dict(DEFAULTS)
+    """値の表の "guard" を既定に重ねて返す（Strict＝DEFAULTS に無い鍵を読むと止まる）。読めない・型が違う値は既定のまま。"""
+    out = strict_defaults()
     path = os.environ.get("SKILL_VALUES") or ""
     if not path:
         root = project_dir(payload)

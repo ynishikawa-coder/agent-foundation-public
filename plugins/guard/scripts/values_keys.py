@@ -13,10 +13,22 @@
 `_` で始まる鍵（_readme などの注）はどこでも通す。
 
   values_keys.py [<skill-values.json>]  … 知らない鍵を並べ、在れば exit 1（使う側の CI・手元で回す口）
+  values_keys.py --keys <plugin> [<skill>] … その枠で読んでよい鍵を JSON で出す（JS の道具の読み口が使う）
 hook（guard.py から）:
   check(data, vals)     … PreToolUse: Write・Edit・MultiEdit で値の表を書いた後に知らない鍵が残り、
-                          書く前より減っていなければ止める（AI の書き込みだけを止める・人の手は止めない）
+                          書く前より減っていなければ止める（AI の書き込みだけを止める・人の手は止めない）。
+                          どの道具でも、値の表の中身の控えを窓の一時の置き場に取る（下の after が照らす）。
+  after(data, vals)     … PostToolUse: どの道具（Bash の sed -i・リダイレクト・python -c・他の道具）でも、道具の前の控えと
+                          比べて値の表が変わり、知らない鍵が残って減っていなければ、元へ戻すよう強く知らせる
+                          （書き方の字の形を並べない＝道具の前と後の中身で照らす。hook は AI の道具にだけ回る＝人の手は照らさない。
+                          書いた後なので止めずに戻させる）
   resurface(data, vals) … SessionStart: 値の表に知らない鍵が在れば知らせる
+読み口（土台の道具が値の表を読む時は全部ここを通す・写さない）:
+  section(data, plugin, skill)  … 値の表の 1 つの枠（dict）を、表に載った鍵だけを読ませる G.Strict にして返す。
+                                  表に無い鍵を読むと実行の時に G.UnknownKey で止まる。
+  require(path)                 … 鍵の path（tuple）が表に載っていなければ G.UnknownKey（1 つずつ引く読み口が使う）。
+  他の plugin の道具（dev-flow の codex_pack.py・spec-doc の seal.py、docs-kit の skill_values.py・qa-html の check.mjs）は、
+  この file を隣の plugin（repo の形 plugins/guard・入れた plugin の形 cache/<市場>/guard/<版>）から直に読む。
 """
 from __future__ import annotations
 
@@ -25,6 +37,7 @@ import json
 import os
 import re
 import sys
+import time
 
 sys.dont_write_bytecode = True
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -35,7 +48,8 @@ FOUNDATION = ("core", "checker", "dev-flow", "docs-kit", "guard", "session-watch
 SECTION = re.compile(r"^## repo ごとの値[^\n]*\n(.*?)(?=^## |\Z)", re.M | re.S)
 TICK = re.compile(r"`([^`]+)`")
 WRITE_TOOLS = ("Write", "Edit", "MultiEdit")
-HOOKS = {"pre": "check", "start": "resurface"}
+HOOKS = {"pre": "check", "post": "after", "start": "resurface"}
+SNAP_TTL = 6 * 3600   # 道具が失敗して後の照らしが回らなかった控えを残す長さ（秒）
 
 
 def _plugins_root(guard_root=None):
@@ -132,6 +146,29 @@ def unknown(table, known=None):
     return out
 
 
+def frame_keys(frame, known=None):
+    """枠（tuple）の中で読んでよい鍵の名の集まりと、`.*` の枠か。"""
+    keys = (known or known_keys())[0]
+    frame = tuple(frame)
+    n = len(frame)
+    names = {k[n] for k in keys if len(k) > n and k[:n] == frame}
+    return names - {"*"}, "*" in names
+
+
+def section(data, *frame, known=None):
+    """値の表の 1 つの枠を、表に載った鍵だけを読ませる読み口にして返す（data が dict でなければ空の枠）。"""
+    names, any_key = frame_keys(frame, known)
+    return G.Strict(data if isinstance(data, dict) else {}, frame, names, any_key)
+
+
+def require(path, known=None):
+    """鍵の path が表に載った鍵（かその下）でなければ G.UnknownKey。"""
+    path = tuple(path)
+    if not _leaf(path, (known or known_keys())[0]):
+        raise G.UnknownKey("値の表に無い鍵 %s を読んだ（読む鍵は SKILL.md の「repo ごとの値」の表に行を足してから読む）"
+                           % ".".join(path))
+
+
 def _is_values_path(path):
     path = (path or "").replace("\\", "/")
     return path.endswith("/" + G.VALUES_REL.replace(os.sep, "/")) or path == G.VALUES_REL.replace(os.sep, "/")
@@ -170,6 +207,10 @@ def _say(keys, where):
 
 
 def check(data, vals):
+    try:
+        _snap(data, vals)        # どの道具でも控える（止めない・壊れても下の照らしは回す）
+    except Exception as e:      # noqa: BLE001
+        sys.stderr.write("[guard] values_keys の控え: %s\n" % e)
     tool = data.get("tool_name") or ""
     inp = data.get("tool_input") or {}
     if tool not in WRITE_TOOLS or not isinstance(inp, dict):
@@ -199,9 +240,103 @@ def check(data, vals):
     return _say(now, path)
 
 
-def resurface(data, vals):
+def _table_path(data):
     root = G.project_dir(data)
-    path = os.environ.get("SKILL_VALUES") or (os.path.join(root, G.VALUES_REL) if root else "")
+    return os.environ.get("SKILL_VALUES") or (os.path.join(root, G.VALUES_REL) if root else "")
+
+
+def _read(path):
+    try:
+        with open(path, encoding="utf-8") as f:
+            return f.read()
+    except OSError:
+        return None
+
+
+def _snap_dir(data):
+    return os.path.join(G.tmp_dir("values_keys"), G.safe_id(data.get("session_id") or "no-session"))
+
+
+def _snap(data, vals):
+    """道具の前の値の表の中身を控える（道具ごとに 1 つ。窓の中だけ）。"""
+    path = _table_path(data)
+    if not path:
+        return
+    d = _snap_dir(data)
+    os.makedirs(d, exist_ok=True)
+    now = time.time()
+    for old in glob.glob(os.path.join(d, "*.json")):
+        try:
+            if now - os.path.getmtime(old) > SNAP_TTL:
+                os.remove(old)
+        except OSError:
+            pass
+    name = G.safe_id(data.get("tool_use_id") or "") or "no-tool-use"
+    with open(os.path.join(d, name + ".json"), "w", encoding="utf-8") as f:
+        json.dump({"path": path, "text": _read(path), "at": now}, f, ensure_ascii=False)
+
+
+def after(data, vals):
+    """道具の後: 控えの中で一番古い物（失敗して後の照らしが回らなかった道具の前も含む）と今の中身を比べる。"""
+    path = _table_path(data)
+    d = _snap_dir(data)
+    if not path or not os.path.isdir(d):
+        return ""
+    snaps = []
+    for p in glob.glob(os.path.join(d, "*.json")):
+        try:
+            with open(p, encoding="utf-8") as f:
+                s = json.load(f)
+            if s.get("path") == path:
+                snaps.append((s.get("at") or 0, p, s))
+        except Exception:      # noqa: BLE001
+            continue
+    if not snaps:
+        return ""
+    snaps.sort(key=lambda x: x[0])
+    before = snaps[0][2].get("text")
+    mine = os.path.join(d, (G.safe_id(data.get("tool_use_id") or "") or "no-tool-use") + ".json")
+    mine_at = next((at for at, p, _s in snaps if p == mine), None)
+    now_text = _read(path)
+    msg = "" if now_text == before else _judge(before, now_text, path)
+    if msg:
+        return ("AI の道具（%s）の間に値の表が書き換わった。%s\n"
+                "書いた後なので止めていない: この道具で書いた物なら、今すぐ元へ戻す（`git diff -- %s` で見て、"
+                "`git checkout -- %s` か書き直しで知らない鍵を残さない形にする）。人が書いた物なら戻さず人に知らせる。"
+                % (data.get("tool_name") or "?", msg, path, path))
+    if mine_at is not None:   # 照らしが済んだ＝この道具と、それより前の控えは要らない（後に始まった道具の控えは残す）
+        for at, p, _s in snaps:
+            if at <= mine_at:
+                _drop(p)
+    return ""
+
+
+def _drop(p):
+    try:
+        os.remove(p)
+    except OSError:
+        pass
+
+
+def _judge(before_text, now_text, path):
+    """道具の前後の中身から、知らせる文か ""（Write・Edit の止めと同じ線: 知らない鍵が残り、減っていなければ）。"""
+    if now_text is None:
+        return ""
+    now = _load(now_text)
+    if now is None:
+        return "値の表 %s が JSON として読めない形になった（土台の道具は読めない値の表を黙って既定で動く）。" % path
+    known = known_keys()
+    keys = unknown(now, known)
+    if not keys:
+        return ""
+    was = unknown(_load(before_text) or {}, known) if before_text else []
+    if set(keys) < set(was):
+        return ""
+    return _say(keys, path)
+
+
+def resurface(data, vals):
+    path = _table_path(data)
     if not path or not os.path.isfile(path):
         return ""
     with open(path, encoding="utf-8") as f:
@@ -213,6 +348,10 @@ def resurface(data, vals):
 
 
 def main(argv):
+    if len(argv) > 2 and argv[1] == "--keys":
+        names, any_key = frame_keys(tuple(argv[2:]))
+        print(json.dumps({"frame": argv[2:], "keys": sorted(names), "any": any_key}, ensure_ascii=False))
+        return 0
     path = argv[1] if len(argv) > 1 else G.VALUES_REL
     try:
         with open(path, encoding="utf-8") as f:
