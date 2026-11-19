@@ -6,8 +6,12 @@
 だけの所は AI だけ止めて書き直させる形にしてよい・オーナーの操作は止めない）。止まるのは AI の呼び出しだけ（画面はまだ人に
 出ていない）。
 
-跡とは: 会話ログ（transcript_path）の、最後の頼み（人か親の窓が打った行）より後の道具の呼び出しのうち、
-  「道具の名 + 入力の JSON」が値の表 guard.ask_prior_lookup（正規表現の並び）のどれかに当たる物。
+跡とは: 会話ログ（transcript_path）の、最後の頼み（人か親の窓が打った行）より後の道具の呼び出しのうち、道具が実際に
+  読んだ物（read_sigs）が値の表 guard.ask_prior_lookup（正規表現の並び）のどれかに当たる物。入力の JSON の字は探さない:
+  - Bash でない道具: guard_common の読み手（read_call）が「読む」と読んだ呼び出し（名か action の動詞が読む類で、書く・送る・
+    消す類が無い）だけを「道具の名 + 入力の JSON」で照らす（作る・送る道具の入力に引く先の名が在っても読んではいない）。
+  - Bash: 読み手（cmd_read）が解いた段ごとの語で、引数を出すだけの命令（EMITS_ARGS＝echo・printf など。引数を読まずに
+    字として出す）でない段だけを「Bash <段の語>」で照らす（heredoc の中身は語に入らない）。
   引く先（決定の記録・問いの表の置き場と道具）は会社ごとに違うので、名は値の表から読む（ここに決め打ちしない）。
 
 値の表に ask_prior_lookup が無い repo: 引いたかを機械で見分けられない＝知らない値。既定で止める側に倒し、窓ごとに 1 回だけ
@@ -25,6 +29,7 @@ import json
 import os
 import re
 
+import cmd_read as R
 import guard_common as G
 
 ASK_TOOL = "AskUserQuestion"
@@ -40,13 +45,27 @@ def _tool_uses(row):
     return [b for b in c if isinstance(b, dict) and b.get("type") == "tool_use"]
 
 
-def _sig(block):
-    """道具の名 + 入力の JSON（当てる相手）。"""
+# 引数を読まずに字として出すだけの命令（その段の語は「読んだ先」でない）
+EMITS_ARGS = frozenset({"echo", "printf", ":", "true", "false"})
+
+
+def read_sigs(block):
+    """道具が実際に読んだ物の並び（当てる相手）。読まない呼び出しは空。"""
+    name = str(block.get("name") or "")
+    ti = block.get("input") if isinstance(block.get("input"), dict) else {}
+    if name == "Bash":
+        cmd = ti.get("command")
+        if not isinstance(cmd, str):
+            return []
+        return ["Bash " + " ".join(w.text for w in seg) for seg in R.read(cmd).segments
+                if seg and R.prog_name(seg) not in EMITS_ARGS]
+    if not G.read_call(name, ti).reads:
+        return []
     try:
-        body = json.dumps(block.get("input") or {}, ensure_ascii=False, sort_keys=True)
+        body = json.dumps(ti, ensure_ascii=False, sort_keys=True)
     except (TypeError, ValueError):
-        body = str(block.get("input") or "")
-    return "%s %s" % (block.get("name") or "", body)
+        body = str(ti)
+    return ["%s %s" % (name, body)]
 
 
 def scan(tpath, patterns):
@@ -61,8 +80,7 @@ def scan(tpath, patterns):
         for b in _tool_uses(row):
             if b.get("name") == ASK_TOOL:
                 continue
-            sig = _sig(b)
-            if any(re.search(p, sig) for p in patterns):
+            if any(re.search(p, sig) for sig in read_sigs(b) for p in patterns):
                 found = True
                 break
     return turn, found
@@ -131,7 +149,8 @@ def check(data, vals):
         return ""
     return "\n".join([
         head,
-        "跡と数える物: 最後の頼みより後の道具の呼び出しのうち、値の表 guard.ask_prior_lookup に当たる物"
+        "跡と数える物: 最後の頼みより後に道具が実際に読んだ物（読む道具の呼び出し・Bash の読む段。echo などで名を書いた"
+        "だけ・作る／送る道具の入力に名が在るだけは数えない）のうち、値の表 guard.ask_prior_lookup に当たる物"
         "（今の値: %s）。" % "・".join(patterns[:6]),
         "直し方: " + HOW,
         "引く道具が繋がっていない等で引けない時: 同じ頼みの中で %d 回止めた後は通す。その時は問いの前にチャットで"

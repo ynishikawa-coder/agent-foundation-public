@@ -120,7 +120,7 @@
           "default": []
         },
         "context_stop_max": {"type": "int", "default": 2},
-        "context_handoff": {"type": "regex", "default": ["create_session\\b", "send_message\\b", "\"file_path\": \"[^\"]*(?:引き継ぎ|handoff)[^\"]*\""]},
+        "context_handoff": {"type": "regex", "default": []},
         "ask_prior_lookup": {"type": "regex", "default": []},
         "ask_prior_exempt": {"type": "regex", "default": []}
       }

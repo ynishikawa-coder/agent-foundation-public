@@ -23,11 +23,6 @@ import skill_values as SV  # noqa: E402  値の表の 1 本の口（土台の sk
 
 DEFAULTS = SV.defaults("guard")
 
-# 窓の種類の決まり（session-watch の title-mark と同じ線）: 最初の頼みの文の返し先が別の窓なら子の窓（文脈の知らせだけが読む）。
-RETURN_TO_WINDOW = re.compile(r"返し先\s*[=＝:：]\s*session_[A-Za-z0-9]+")
-CHILD_OF = re.compile(r"（親窓\s*session_[A-Za-z0-9]+\s*の子）")
-
-
 GUARD_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
@@ -144,7 +139,6 @@ def state_dir(vals, payload=None):
     return d
 
 
-GUARD_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
 def now_utc():
@@ -222,5 +216,110 @@ def first_owner_text(path):
     return ""
 
 
-def is_child_prompt(text):
-    return bool(RETURN_TO_WINDOW.search(text or "") or CHILD_OF.search(text or ""))
+def _session_watch():
+    """窓の種類の正本 session-watch の session_watch.py（同じ版）。読めなければ None。"""
+    path = os.environ.get("AF_SESSION_WATCH") or sibling_plugin_file("session-watch", os.path.join("scripts", "session_watch.py"))
+    if not path or not os.path.isfile(path):
+        return None
+    try:
+        sw = load_module("af_session_watch", path)
+    except Exception:          # noqa: BLE001
+        return None
+    return sw if all(hasattr(sw, n) for n in ("kind_of", "own_id", "AI")) else None
+
+
+def is_child_prompt(text, own=None):
+    """最初の頼みの文が自分でない窓を指すか（＝その窓へ返す子の窓）。言い回し（「返し先: 」「返事は … へ」「親窓 … の子」）を
+    並べず、窓の種類の正本 session_watch.kind_of（NFKC で寄せた文に自分でない窓の id が在るか・自分の id は環境の
+    CLAUDE_CODE_REMOTE_SESSION_ID）を直に呼ぶ（写さない）。own を渡せば自分の id の印の後ろとして使う。
+    正本が読めない時は子の窓と見ない（文脈の知らせの文の選び分けだけ＝人のいる窓の文に倒す）。"""
+    sw = _session_watch()
+    if sw is None:
+        return False
+    return sw.kind_of(text, own) == sw.AI
+
+
+# ── 道具の呼び出しを類で読む（道具の名の字の並び・名の末尾の列挙でなく、名を語に割った動詞の類と入力の欄）──
+# 動詞の類の正本は irreversible（DESTROY・READ・UNDOABLE と words_of）＝ここでは写さず、その中の「外へ出す」類を名指しする。
+SEND_VERBS = frozenset({"send", "post", "reply", "respond", "notify", "tell", "broadcast", "dm"})          # 送る・投稿
+MAKE_VERBS = frozenset({"create", "spawn", "start", "launch", "new", "fork", "open", "add", "insert", "append",
+                        "write", "upload", "publish", "duplicate", "copy", "import", "generate", "save", "put"})  # 作る・立てる
+SET_VERBS = frozenset({"set", "rename", "update", "edit"})                                                 # 付ける・替える
+WINDOW_NOUNS = frozenset({"session", "sessions", "agent", "agents", "window", "windows"})                  # 窓（他の AI の窓）
+LOCAL_OUT = frozenset({"send", "post", "reply", "publish", "share"})   # mcp でない道具で外へ出す動詞（Write・Edit は手元）
+_ACTION_KEYS = ("action", "method", "operation", "op")
+
+
+def _verb_reader():
+    import irreversible as IR   # 動詞の類の正本（irreversible が guard_common を読むので、ここでは呼ぶ時に読む）
+    return IR
+
+
+def tool_words(name, tool_input=None):
+    """(名の語, 入力の action・method の語)。MCP の道具は mcp__<server>__ の後ろだけを割る（server の名は語にしない）。"""
+    IR = _verb_reader()
+    name = str(name or "")
+    part = name.split("__", 2)[-1] if name.startswith("mcp__") else name
+    ti = tool_input if isinstance(tool_input, dict) else {}
+    act = [w for k in _ACTION_KEYS if isinstance(ti.get(k), str) for w in IR.words_of(ti[k])]
+    return IR.words_of(part), act
+
+
+def is_prose(text):
+    """文か（人や窓が読む字）。URL・path・id（空白の無い英数字と _ . : - だけ）だけの字でない物。"""
+    t = str(text or "").strip()
+    return bool(t) and not re.fullmatch(r"(?:https?://|/|~/|\./)\S*|[A-Za-z0-9_.:\-]+", t)
+
+
+def input_strings(v, where="", out=None, limit=2000):
+    """入力の中の字を (欄の場所, 字) で全部。"""
+    out = [] if out is None else out
+    if len(out) >= limit:
+        return out
+    if isinstance(v, str):
+        out.append((where or "入力", v))
+    elif isinstance(v, dict):
+        for k, x in v.items():
+            input_strings(x, "%s.%s" % (where, k) if where else str(k), out, limit)
+    elif isinstance(v, list):
+        for i, x in enumerate(v):
+            input_strings(x, "%s[%d]" % (where, i), out, limit)
+    return out
+
+
+class Call:
+    """1 つの道具の呼び出しを類で読んだ物。
+    reads   … 読むだけ（名か action の動詞が読む類で、書く・送る・消す類が無い。mcp でない道具は書く類が無ければ読む）
+    sends   … 人か他の窓へ文を送る（送る・投稿の動詞があり、入力に文が在る）
+    window  … 他の窓を立てる・付ける・送る（名の語が窓の類で、作る・立てる・付ける・送るの動詞）
+    out     … 手元の外へ出す（mcp の道具で送る・作る・付ける類の動詞・mcp でない道具で外へ出す動詞）
+    texts   … 入力の中の文 [(欄, 字)]
+    title   … 窓の題（窓を立てる・付ける呼び出しの入力の title 欄）か None"""
+
+    def __init__(self, name, tool_input):
+        IR = _verb_reader()
+        self.name = str(name or "")
+        self.input = tool_input if isinstance(tool_input, dict) else {}
+        words, act = tool_words(self.name, self.input)
+        verbs = set(words) | set(act)
+        self.mcp = self.name.startswith("mcp__")
+        writes = verbs & (IR.UNDOABLE | IR.DESTROY | SEND_VERBS | MAKE_VERBS | SET_VERBS)
+        self.reads = (bool(verbs & IR.READ) or not self.mcp) and not writes
+        self.texts = [(w, t) for w, t in input_strings(self.input) if is_prose(t)]
+        say = bool(verbs & SEND_VERBS)
+        self.sends = say and bool(self.texts)
+        self.window = bool(set(words) & WINDOW_NOUNS) and bool(verbs & (SEND_VERBS | MAKE_VERBS | SET_VERBS))
+        self.out = (bool(verbs & (SEND_VERBS | MAKE_VERBS | SET_VERBS)) if self.mcp else bool(verbs & LOCAL_OUT))
+        t = self.input.get("title")
+        self.title = t if self.window and isinstance(t, str) and t.strip() else None
+        self.spawns = self.window and bool(verbs & MAKE_VERBS)
+
+    @property
+    def asks(self):
+        """他の窓か人へ頼みの文を渡す呼び出しか（送る・窓を立てる）。"""
+        return bool(self.texts) and (self.sends or (self.window and not self.reads))
+
+
+def read_call(name, tool_input):
+    """道具の呼び出しを類で読む（outbound・qa_page・context_size・prior_ask・pr_text が共に呼ぶ 1 つの読み手）。"""
+    return Call(name, tool_input)

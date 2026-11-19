@@ -158,7 +158,7 @@ STATES = (ASKING, WAITING, DONE)
 CARDS = ("✅", "❓", "⏳", "🛑")
 
 # 窓の id（最初の頼みの文に在れば、その窓へ返す）。自分の id は環境の実物から読む。
-SESSION_ID = re.compile(r"(?<![A-Za-z0-9])session_([A-Za-z0-9]+)")
+SESSION_ID = re.compile(r"(?<![A-Za-z0-9])session_((?=[A-Za-z0-9]*[0-9])[A-Za-z0-9]+)")   # 窓の id の芯は数字を含む長い英数（session_start 等の語は窓でない）
 OWN_ID_ENV = "CLAUDE_CODE_REMOTE_SESSION_ID"
 
 # 締めの 2 行の型（ここ 1 か所）。前後の ` と ** は許す。
