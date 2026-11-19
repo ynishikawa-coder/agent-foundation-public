@@ -1,1 +1,1 @@
-- 直した: 細目 §4 の手の窓に「GitHub の手は AI が打つ」を足した。合流・PR は repo が付いていなければ add_repo（push）で付けて打つ。main の守り（ruleset）は正本 `.github/rulesets/main.json` を PR で直し、main に入ると job `rulesets` が書き戻す（鍵 RULESET_TOKEN はオーナーが 1 回だけ置く）。必須の検査に plugin-smoke を足した。人の手へ回すのは道具が実際に拒んだ時だけで、拒みの原文を添える（オーナーの指摘 2026-11-19）。
+- 直した: 細目 §4 の手の窓: 合流・PR は repo が付いていなければ add_repo（push）で付けて打つ。main の守り（ruleset）は正本 `.github/rulesets/main.json` を PR で直し（CONTRIBUTING）、main に入ると job `rulesets` が書き戻す（鍵 RULESET_TOKEN はオーナーが 1 回だけ置く）。人の手へ回すのは道具が実際に拒んだ時だけで、拒みの原文を添える（オーナーの指摘 2026-11-19）。

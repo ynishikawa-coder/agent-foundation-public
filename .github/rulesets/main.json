@@ -51,10 +51,6 @@
           {
             "context": "plugin-smoke",
             "integration_id": 15368
-          },
-          {
-            "context": "plugin-smoke",
-            "integration_id": 15368
           }
         ]
       }
