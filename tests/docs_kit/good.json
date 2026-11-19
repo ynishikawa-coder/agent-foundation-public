@@ -202,7 +202,8 @@
         {
           "value": "lender",
           "label": "貸した側が直す",
-          "change": "直す費用を貸した側の請求に入れます"
+          "change": "直す費用を貸した側の請求に入れます",
+          "recommended": "貸した物の手入れは今も貸した側がしているため"
         },
         {
           "value": "borrower",
