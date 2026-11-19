@@ -87,3 +87,53 @@ def test_入口は版ごとの記録も残す(tmp_path, monkeypatch):
     d = tmp_path / ".claude" / "af-foundation"
     assert json.loads((d / ("setup-" + "a" * 40 + ".json")).read_text())["catalog_sha"] == "a" * 40
     assert (d / "setup.json").is_file()
+
+
+def _own_record(home, sha, at="2026-11-19T20:57:09+0900"):
+    (home / ".claude" / "af-foundation" / f"setup-{sha}.json").write_text(json.dumps(
+        {"entry": "scripts/setup_plugins.py", "catalog_sha": sha, "main_at_setup": sha, "at": at,
+         "refreshed": True, "stale": []}), encoding="utf-8")
+
+
+def _rows(home, update):
+    pj = home / ".claude" / "plugins" / "installed_plugins.json"
+    table = json.loads(pj.read_text(encoding="utf-8"))
+    for name, rows in table["plugins"].items():
+        for r in rows:
+            update(name, r)
+    pj.write_text(json.dumps(table), encoding="utf-8")
+
+
+def test_注入_版ごとの記録の後に入口を通らず同じ版を入れ直した箱は記録を読まない(tmp_path, monkeypatch):
+    """注入: 版ごとの記録が在っても、今動いている版の行が記録の時より後に入れ直されていれば（入口を通らない古い形の
+    setup script）、その記録で after と決めず、分からない・setup script が古い形と名指す（setup.json と同じ照らし）。"""
+    home = _home(tmp_path, rec_sha="c" * 40, main_at="c" * 40)
+    monkeypatch.setenv("HOME", str(home))
+    sha = kaku.installed_sha()
+    _own_record(home, sha)
+    _rows(home, lambda n, r: r.update(lastUpdated="2026-11-19T13:00:00.000Z"))   # 記録（11:57Z）の後に入れ直した
+    rec, why = kaku.setup_record()
+    assert rec is None and "入れ直した" in why
+    assert kaku.start_cause({"plugins": ["guard"], "installed": sha}) == "unknown"
+    assert "setup script が古い形" in (kaku.setup_text() or "")
+
+
+def test_並んだ入れ直しが別の版の行を後で書いても今動いている版の記録を読む(tmp_path, monkeypatch):
+    """起動の口の入れ直しは別の版（新しい先端）の行を記録の後に書く。今動いている版の行は変わっていないので記録を読む。"""
+    home = _home(tmp_path, rec_sha="c" * 40, main_at="c" * 40)
+    monkeypatch.setenv("HOME", str(home))
+    sha = kaku.installed_sha()
+    _own_record(home, sha)
+    _rows(home, lambda n, r: n != "core@agent-foundation" and r.update(gitCommitSha="c" * 40,
+                                                                    lastUpdated="2026-11-19T13:00:00.000Z"))
+    assert kaku.setup_record()[0]["catalog_sha"] == sha
+
+
+def test_立った後に古くなった窓は圧縮の後も引き継ぎが消えない(tmp_path):
+    f = Foundation(tmp_path)
+    f.install(main_at_setup=f.installed)
+    f.hook("inject")
+    _commit(f.work, {"plugins/guard/x.py": "x\n"}, "立った後に守りを変える")
+    assert "引き継いで閉じる" in f.hook("fresh")
+    assert "土台が古いまま立った窓" not in f.hook("inject", source="compact")
+    assert "引き継いで閉じる" in f.hook("fresh")

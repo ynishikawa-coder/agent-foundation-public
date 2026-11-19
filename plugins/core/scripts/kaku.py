@@ -368,6 +368,13 @@ def setup_record() -> tuple[dict | None, str | None]:
     # 書き換わる＝今動いている版の記録を版の名で引けば取り違えない。同じ版を後で入れ直しても動く物は同じ。
     own = _read_json(_home() / "af-foundation" / f"setup-{have}.json") if have else None
     if isinstance(own, dict) and own.get("catalog_sha") == have:
+        # 版ごとの記録にも記録の時の照らしを当てる（入口を通らない古い形が同じ版を記録の後に入れ直したのを見逃さない）。
+        # 見るのは今動いている版の行だけ: 並んだ入れ直しが書いた別の版の行は、今動いている物を変えていない。
+        at = _when(own.get("at"))
+        same = [t for rows in user_rows().values() for r in rows if r.get("gitCommitSha") == have
+                for t in [_when(r.get("lastUpdated"))] if t is not None]
+        if at is None or (same and max(same) > at + 2):
+            return None, "入口の記録の時が土台の plugin を入れ直した時より前（記録の後に入口を通らずに入れ直した）"
         return own, None
     state = _read_json(_home() / "af-foundation" / "setup.json")
     if not isinstance(state, dict):
