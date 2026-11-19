@@ -27,6 +27,8 @@
 決め方の正本は window_kind 1 つ（決まりの文 KIND_RULE を skill title-mark がそのまま載せ、細目 §4 は skill を指す。試験が照らす）:
   手の窓（作業名が `手:` で始まる窓）は返し先によらず 🙋 ／ それ以外は最初の頼みの文に書かれた返し先で
   `返し先=オーナー` → 🙋 ／ `返し先=session_…` → 🤖 ／ `（親窓 session_… の子）` → 🤖 ／ 書いていない → 決めない。
+  別の窓を指す返し先は手で書いた写しなので、頼みの行の記録（origin.kind が人でない・promptSource が system＝
+  別の窓や仕組みから来た頼み）と合う時だけ数える。オーナーが引き継ぎの文を貼った窓は 🤖 にしない。
 
 使い方:
   python3 session_watch.py <transcript.jsonl>  … 拾った物を 1 行ずつ出す（拾えば exit 1）
@@ -116,6 +118,8 @@ CARDS = ("✅", "❓", "⏳", "🛑")
 # 最初の頼みの文に書く返し先（型はここ 1 か所）。
 RETURN_TO = re.compile(r"返し先\s*[=＝:：]\s*(オーナー|session_[A-Za-z0-9]+)")
 CHILD_OF = re.compile(r"（親窓\s*session_[A-Za-z0-9]+\s*の子）")
+# 人が打った頼みの記録（会話ログの行の origin.kind。plugin guard の guard_common.HUMAN_ORIGINS と同じ線）
+HUMAN_ORIGINS = ("human", "person")
 
 # 締めの 2 行の型（ここ 1 か所）。前後の ` と ** は許す。
 CLOSE_AI = re.compile(r"^[`*]*AI がこの後やること: ?\S")
@@ -192,6 +196,16 @@ def text_of(row):
     return ""
 
 
+def seeded_by_record(row):
+    """頼みの行が人の打った物でなく別の窓・仕組みから来た事を、行の記録が示すか。記録が無ければ False。"""
+    if not isinstance(row, dict):
+        return False
+    origin = row.get("origin")
+    if isinstance(origin, dict) and isinstance(origin.get("kind"), str) and origin["kind"]:
+        return origin["kind"] not in HUMAN_ORIGINS
+    return row.get("promptSource") == "system"
+
+
 def is_owner_text(row):
     """ターンの境界になる頼みの文か（道具の返り・見張りの差し戻し〔isMeta〕を除く）。"""
     if row.get("type") != "user" or row.get("isMeta") or "toolUseResult" in row:
@@ -233,6 +247,7 @@ class Log(object):
     def __init__(self, rows):
         self.events = []        # 出た順: ("title", str) / ("ask", [問い]) / ("answer", {問い: 答え}) / ("owner", str)
         self.first_prompt = ""
+        self.first_seeded = False   # 最初の頼みの行の記録が、人でなく別の窓・仕組みから来た頼みを示すか
         self.cloud = False
         turn_start = 0
         for row in rows:
@@ -242,6 +257,7 @@ class Log(object):
             if is_owner_text(row):
                 if not self.first_prompt:
                     self.first_prompt = text_of(row)
+                    self.first_seeded = seeded_by_record(row)
                 self.events.append(("owner", text_of(row)))
                 turn_start = len(self.events)
                 continue
@@ -308,24 +324,27 @@ def _norm(text):
 # 窓の種類の決まりの文（skill title-mark はこの文をそのまま載せ、細目 §4 は skill を指す＝試験が照らす）。決め方は window_kind。
 KIND_RULE = ("種類の決め方は 2 段: まず手の窓（作業名が `手:` で始まる窓）は返し先によらず `🙋`（相手はオーナー）。"
              "それ以外は窓の最初の頼みの文に書いた返し先だけで決める: `返し先=オーナー` → `🙋`／"
-             "`返し先=session_…` か `（親窓 session_… の子）` → `🤖`／どれも無い → 窓が自分で決める（点検は種類の食い違いを拾わない）。")
+             "`返し先=session_…` か `（親窓 session_… の子）` → `🤖`（別の窓を指す返し先は手で書いた写しなので、頼みの行の記録が人の打った物でない時＝別の窓や仕組みから来た頼みの時だけ数える。オーナーが引き継ぎの文を貼った窓は `🤖` にしない）／どれも無い → 窓が自分で決める（点検は種類の食い違いを拾わない）。")
 
 
-def kind_of(first_prompt):
-    """最初の頼みの文に書かれた返し先で種類を決める。書いていなければ None（決めない）。手の窓は見ない＝window_kind を使う。"""
+def kind_of(first_prompt, seeded=False):
+    """最初の頼みの文に書かれた返し先で種類を決める。書いていなければ None（決めない）。手の窓は見ない＝window_kind を使う。
+    別の窓を指す返し先（写し）は、頼みの行の記録が人の打った物でない時（seeded）だけ数える。"""
     m = RETURN_TO.search(first_prompt or "")
-    if m:
-        return HUMAN if m.group(1) == "オーナー" else AI
-    if CHILD_OF.search(first_prompt or ""):
+    if m and m.group(1) == "オーナー":
+        return HUMAN
+    if not seeded:
+        return None
+    if m or CHILD_OF.search(first_prompt or ""):
         return AI
     return None
 
 
-def window_kind(first_prompt, title=None):
+def window_kind(first_prompt, title=None, seeded=False):
     """窓の種類の正本（KIND_RULE）。手の窓（作業名が `手:`）は返し先によらず 🙋、ほかは最初の頼みの返し先。"""
     if HAND_TITLE.match(split_title(title)[2]):
         return HUMAN
-    return kind_of(first_prompt)
+    return kind_of(first_prompt, seeded)
 
 
 def split_title(title):
@@ -501,7 +520,7 @@ def ai_window(log):
     for k, v in log.events:
         if k == "title":
             last = v
-    return (window_kind(log.first_prompt, last) or split_title(last)[0]) == AI
+    return (window_kind(log.first_prompt, last, log.first_seeded) or split_title(last)[0]) == AI
 
 
 def words(log, closing, data=None):
@@ -606,7 +625,7 @@ def check(log, closing=None, data=None):
                                    "（同じ題でもよい。会話ログに載れば照らせる）"))
         if title is not None:
             tk, tm, _ = split_title(title)
-            kind = window_kind(log.first_prompt, title)
+            kind = window_kind(log.first_prompt, title, log.first_seeded)
             found += [("title", m) for m in title_shape(title)]
             if tk is not None and kind and tk != kind:
                 found.append(("title", "題の種類が %s だが、この窓の種類は %s（題: %s・決め方は skill title-mark の種類の決め方）"
@@ -766,7 +785,8 @@ def remind(data, env=None):
 def remind_title(log, data):
     if titled(log):
         return None
-    kind = window_kind(log.first_prompt or str(data.get("prompt") or ""))
+    kind = (window_kind(log.first_prompt, None, log.first_seeded) if log.first_prompt
+            else window_kind(str(data.get("prompt") or "")))
     if kind == AI:
         return REMIND_CHILD   # 親が create_session で付けた題は会話ログに無い＝返事の差し戻しで照らせないので、付け直させる
     which = ("%s（最初の頼みの返し先から）" % kind) if kind else (

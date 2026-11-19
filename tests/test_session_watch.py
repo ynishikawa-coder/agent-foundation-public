@@ -71,9 +71,11 @@ def test_モーダルで聞き直したターンは平文の問いにしない()
 def test_種類は返し先で決まり立てた窓では決まらない():
     first = rows("owner_ok.jsonl")[0]
     assert sw.kind_of(sw.text_of(first)) == sw.HUMAN
-    assert sw.kind_of("作り物を調べて（返し先=session_Y）。") == sw.AI
-    assert sw.kind_of("あなたは書く窓です（親窓 session_X の子）。") == sw.AI
+    assert sw.kind_of("作り物を調べて（返し先=session_Y）。", seeded=True) == sw.AI
+    assert sw.kind_of("あなたは書く窓です（親窓 session_X の子）。", seeded=True) == sw.AI
     assert sw.kind_of("作り物を直して") is None
+    assert sw.kind_of("作り物を直して", seeded=True) is None
+    assert sw.kind_of("作り物の続き（返し先=オーナー）", seeded=True) == sw.HUMAN
 
 
 def test_parent_session_id_が在っても返し先がオーナーなら_AI_の題を拾う():
