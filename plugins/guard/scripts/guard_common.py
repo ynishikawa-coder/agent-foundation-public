@@ -212,13 +212,14 @@ def is_owner_row(row):
 
 
 def window_kind_of_log(path):
-    """会話ログの窓の種類（🤖／🙋／None）。正本 window_shape.window_kind に、最初の頼みの文と、窓が自分で付けた最後の題
-    （手の窓は返し先によらず 🙋）を渡す。読めない時は None。"""
-    first, title = "", None
+    """会話ログの窓の種類（🤖／🙋／None）。正本 window_shape.window_kind に、最初の頼みの文・その行の記録
+    （人が打った頼みでない＝seeded_by_record。別の窓を指す返し先の写しはこれと合う時だけ数える）と、窓が自分で付けた
+    最後の題（手の窓は返し先によらず 🙋）を渡す。読めない時は None。"""
+    first, seeded, title = "", False, None
     try:
         for row in iter_rows(path):
             if not first and is_owner_row(row):
-                first = text_of(row)
+                first, seeded = text_of(row), W.seeded_by_record(row)
             if row.get("type") != "assistant":
                 continue
             msg = row.get("message")
@@ -229,7 +230,7 @@ def window_kind_of_log(path):
                         title = t
     except Exception:
         return None
-    return W.window_kind(first, title)
+    return W.window_kind(first, title, seeded)
 
 
 def is_child_window(path):

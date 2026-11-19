@@ -13,9 +13,12 @@ def use(name, inp):
 
 
 # ── context_size の Stop（目安を越えて引き継がずに締める AI を差し戻す）──
-def over_log(tmp_path, tokens, *after, first="作り物の頼み", name="o.jsonl"):
+def over_log(tmp_path, tokens, *after, first="作り物の頼み", name="o.jsonl", origin=None):
+    head = {"type": "user", "message": {"content": first}}
+    if origin:
+        head["origin"] = {"kind": origin}       # 頼みの行の記録
     return write_log(tmp_path / name, [
-        {"type": "user", "message": {"content": first}},
+        head,
         {"type": "assistant", "message": {"usage": {"input_tokens": 10, "cache_read_input_tokens": tokens - 10},
                                           "content": []}},
         *after])
@@ -38,7 +41,8 @@ def test_context_stop_目安を越えて引き継がずに締めると差し戻�
 
 
 def test_context_stop_子の窓には返し先へ送って止まる直し方を返す(env, tmp_path):
-    why = stop_hook(env, over_log(tmp_path, 400_000, first="あなたは書く窓です（親窓 session_01ABC1230000000000 の子）。"))
+    why = stop_hook(env, over_log(tmp_path, 400_000, first="あなたは書く窓です（親窓 session_01ABC1230000000000 の子）。",
+                                  origin="task-notification"))
     assert "返し先の窓へ送り、止まる" in why, why
 
 

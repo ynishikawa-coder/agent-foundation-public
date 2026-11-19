@@ -23,7 +23,9 @@ def env(tmp_path):
     e = {k: v for k, v in os.environ.items() if not k.startswith(("AF_", "SKILL_VALUES", "CLAUDE_PROJECT_DIR"))}
     e.update({"AF_GUARD_TMP": str(tmp_path / "tmp"), "AF_GUARD_STATE": str(tmp_path / "state"),
               "CLAUDE_PROJECT_DIR": str(proj), "PYTHONDONTWRITEBYTECODE": "1",
-              "TMPDIR": str(tmp_path / "scratch")})
+              "TMPDIR": str(tmp_path / "scratch"),
+              # 判定を出す窓の本物の id の記録（harness が窓の環境に置く cse_<x>）。試験はレビューの窓に固定する
+              "CLAUDE_CODE_REMOTE_SESSION_ID": "cse_" + REVIEWER[len("session_"):]})
     return e
 
 
@@ -50,14 +52,20 @@ def gh(tool, owner="fake-owner", repo="fake-private", **ti):
 FAKE_HEAD = "0123456789ab" + "c" * 28
 
 
-def _fake_gh(env, head=FAKE_HEAD, writer=WRITER, fail=False):
-    """作り物の gh（PR の先端と本文の `書いた窓:` を返す）を PATH の頭に置く。実の GitHub へは出ない。"""
+def _fake_gh(env, head=FAKE_HEAD, writer=WRITER, fail=False, commits=None):
+    """作り物の gh を PATH の頭に置く。実の GitHub へは出ない。
+    PR を引く呼び出しには先端と本文の `書いた窓:`（写し）を、commit を引く呼び出しには各 commit の説明（`Claude-Session:` の
+    記録。既定は書いた窓の 1 本）を返す。commits の None の要素は記録の無い commit。"""
     bindir = Path(env["CLAUDE_PROJECT_DIR"]).parent / "fakebin"
     bindir.mkdir(exist_ok=True)
     gh_path = bindir / "gh"
     body = "書いた窓: %s\\n" % writer if writer else "作り物の本文\\n"
+    commits = [WRITER] if commits is None else commits
+    msgs = "".join("作り物の commit\\n\\n" + ("Claude-Session: https://claude.ai/code/%s\\n" % c if c else "")
+                   for c in commits)
     gh_path.write_text("#!/bin/sh\n" + ("echo 'not found' >&2; exit 1\n" if fail else
-                       "printf '%%s\\n%%s' '%s' '%s'\n" % (head, body)), encoding="utf-8")
+                       'case "$*" in *"/commits"*) printf \'%s\' ;; *) printf \'%%s\\n%%s\' \'%s\' \'%s\' ;; esac\n'
+                       % (msgs, head, body)), encoding="utf-8")
     gh_path.chmod(0o755)
     env["PATH"] = str(bindir) + os.pathsep + env.get("PATH", "")
     return env
@@ -281,8 +289,10 @@ def test_pr_text_判定の材料は_PR_から引き_引けなければ止め_先
     assert "[verdict]" in deny_reason(env, p) and "先端" in deny_reason(env, p)
     _fake_gh(env, writer=REVIEWER)                                 # 書いた窓が自分の PR に判定を付けた
     assert "[verdict]" in deny_reason(env, p)
-    _fake_gh(env, writer="")                                       # PR 本文に書いた窓が無い
-    assert "書いた窓" in deny_reason(env, p)
+    _fake_gh(env, writer="")                                       # PR 本文に書いた窓が無い（写しが無くても記録で照らす）
+    assert deny_reason(env, p) == ""
+    _fake_gh(env, commits=[None])                                  # commit に書き手の記録が無い（本文の写しだけでは決めない）
+    assert "判定の材料" in deny_reason(env, p) and "Claude-Session" in deny_reason(env, p)
     _fake_gh(env, fail=True)                                       # PR を引けない
     assert "判定の材料" in deny_reason(env, p)
     env["PATH"] = str(Path(env["CLAUDE_PROJECT_DIR"]).parent / "空")   # gh が無い
