@@ -18,6 +18,8 @@
     ask_term_allow           … 中の言葉と数えない字（見つけた字に当てる正規表現の並び・誤って止まる時だけ）
     ask_topic_stopwords_extra … 話題の語と数えない語の足し
     ask_shape_exempt         … 問いの形の見張りから外す問いの文（正規表現の並び・誤って止まる時だけ）
+    ask_rec_notice_kinds     … 推奨の印を付けない問いの形 {名: [正規表現]}（既定は ask_shape.REC_NOTICE_KINDS・知らせるだけ）
+    ask_rec_notice_exempt    … 上の知らせから外す問いの文（正規表現の並び）
     outbound_secret_allow    … 外へ渡す道具の入力の鍵の照らしで、鍵と数えない字（当たった字に当てる正規表現の並び・作り物の見本だけ）
     number_request_exempt    … 番号だけの頼みの照らしから外す文（正規表現の並び・誤って止まる時だけ）
 """
@@ -45,6 +47,8 @@ DEFAULTS = {
     "ask_term_allow": [],
     "ask_topic_stopwords_extra": [],
     "ask_shape_exempt": [],
+    "ask_rec_notice_kinds": {},
+    "ask_rec_notice_exempt": [],
     "outbound_secret_allow": [],
     "number_request_exempt": [],
 }
