@@ -41,6 +41,8 @@ jobs:
         run: bash scripts/check_all.sh
 
   # 並ぶ PR が同じ file の同じ行の辺りを書き換えていないかを知らせる（scripts/pr_overlap.py・止めない）。
+  # 見ていない時（材料が無い・他の PR を読めない）は exit 3 と注記 ::warning:: で名指す。job は止めないので step を
+  # continue-on-error で回す（step は外れの印・注記が残り、「重なりは無い」の緑と同じ印にならない）。
   overlap:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
@@ -52,6 +54,7 @@ jobs:
         with:
           persist-credentials: false
       - name: 重なる PR を知らせる
+        continue-on-error: true
         env:
           GITHUB_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ github.event.pull_request.number }}

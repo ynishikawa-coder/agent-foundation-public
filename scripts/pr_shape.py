@@ -13,7 +13,8 @@ PR の先端（pr_head）は、CI の PR では HEAD（main と合わせた merg
 見る事（どれも PR の枝の差分 <base>...HEAD で見る）:
   1. 変更の記録の断片: 足した CHANGELOG.d/ の file は、枝 claude/<日付>-<話題> から決まる <日付>-<話題>.txt の 1 つだけ。
      枝の名は GitHub の上で 1 つに決まる＝この名なら 2 本の PR が同じ名の断片を作れない（名の決まりを守るかに頼らない）。
-  2. 試験の file の末尾への追記: 元から在る tests/**/test_*.py の試験（def test_）を増やさない。
+  2. 試験の file の末尾への追記: 元から在る tests/**/test_*.py の試験を増やさない（書き換え・型の変化・名の変更の全部で、
+     class の中の試験も ast で数える。在る parametrize の行を足すのはよく、parametrize の軸を足すのは試験を増やす物と見る）。
      新しい試験は、守る約束の名の新しい file（tests/test_<約束>.py）に置く。並ぶ PR が同じ file の末尾へ足すと、
      1 本入るたびに残りが全部衝突するので、足す所を PR ごとに別の file にする（直す・消すのはよい）。
 止めるのは AI の窓の枝（claude/ で始まる枝）だけ。claude/ で始まるのに claude/<8 桁の日付>-<話題> の形でない枝は
@@ -25,6 +26,8 @@ exit: 0=緑 / 1=赤 / 2=照らせない（比べる元が無い等）/ 3=照ら�
 from __future__ import annotations
 
 import argparse
+import ast
+import posixpath
 import re
 import subprocess
 import sys
@@ -32,7 +35,6 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 BRANCH = re.compile(r"^claude/(\d{8}-[0-9A-Za-z][0-9A-Za-z._-]*)$")
-TEST_DEF = re.compile(r"^(?:async\s+)?def\s+test_", re.M)
 ROOT_CAUSE = "直し: 足す所を動かして通すだけで済ませず、同じ所へ足す形になった原因を細目 §3「まず構造を疑う」で探して直す"
 
 
@@ -109,13 +111,121 @@ def check(root: Path, branch: str, base: str) -> list[str]:
         path = paths[-1]
         if st == "A" and path.startswith("CHANGELOG.d/") and path != want:
             errs.append(f"{path}: 足す断片の名は枝から決まる {want} だけ（同じ名を 2 本の PR が作って衝突しない形）")
-        if st == "M" and re.match(r"^tests/(?:.*/)?test_[^/]*\.py$", path):
-            before = show(root, mb, path)
-            after = (root / path).read_text(encoding="utf-8") if (root / path).is_file() else ""
-            if before is not None and len(TEST_DEF.findall(after)) > len(TEST_DEF.findall(before)):
-                n = len(TEST_DEF.findall(after)) - len(TEST_DEF.findall(before))
-                errs.append(f"{path}: 元から在る試験の file に試験を {n} 本足した。新しい試験は守る約束の名の新しい file"
-                            "（tests/test_<約束>.py）に置く（並ぶ PR が同じ file の末尾へ足して衝突しない形）")
+    errs += grown_test_files(root, mb, rows)
+    return errs
+
+
+# ── 元から在る試験の file の試験を増やしていないか ──
+# 照らす変更: 書き換え（M）・型の変化（T＝file と symlink の入れ替え）・名の変更（git が見つける R と、見つけない
+# D+A＝消した試験の file と同じ名の試験を持つ足した file）。試験は ast で数える（字下げした class の中の試験・
+# test_ の名に代入した物も）。parametrize は、在る軸の行（argvalues）を足すのは許し、軸（decorator）を足すのを照らす。
+TEST_PATH = re.compile(r"^tests/(?:.*/)?test_[^/]*\.py$")
+GROW = "新しい試験は守る約束の名の新しい file（tests/test_<約束>.py）に置く（並ぶ PR が同じ file の末尾へ足して衝突しない形）"
+
+
+def _is_parametrize(dec: ast.expr) -> bool:
+    f = dec.func if isinstance(dec, ast.Call) else dec
+    return isinstance(f, ast.Attribute) and f.attr == "parametrize"
+
+
+def tests_shape(src: str) -> dict[str, int]:
+    """試験の file の {試験の名（class の中は Class.名）: parametrize の軸の数}。名が重なれば後の物（pytest と同じ）。
+    構文が読めなければ ValueError。"""
+    try:
+        tree = ast.parse(src)
+    except SyntaxError as e:
+        raise ValueError(f"構文が読めない（{e.msg}・{e.lineno} 行）") from None
+    out: dict[str, int] = {}
+
+    def walk(body, prefix: str, axes: int) -> None:
+        for node in body:
+            if isinstance(node, ast.ClassDef):
+                walk(node.body, f"{prefix}{node.name}.", axes + sum(map(_is_parametrize, node.decorator_list)))
+            elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name.startswith("test"):
+                out[prefix + node.name] = axes + sum(map(_is_parametrize, node.decorator_list))
+            elif isinstance(node, (ast.Assign, ast.AnnAssign)):
+                for t in (node.targets if isinstance(node, ast.Assign) else [node.target]):
+                    if isinstance(t, ast.Name) and t.id.startswith("test"):
+                        out[prefix + t.id] = axes
+
+    walk(tree.body, "", 0)
+    return out
+
+
+def _blob(root: Path, ref: str, path: str, hops: int = 8) -> str | None:
+    """ref の path の中身（symlink は指す先を ref の木の中で辿った中身）。無ければ None。"""
+    for _ in range(hops):
+        r = subprocess.run(["git", "ls-tree", ref, "--", path], cwd=root, capture_output=True, text=True)
+        meta = r.stdout.split("\t", 1)[0].split() if r.returncode == 0 else []
+        if not meta:
+            return None
+        body = show(root, ref, path)
+        if meta[0] != "120000" or body is None:
+            return body
+        path = posixpath.normpath(posixpath.join(posixpath.dirname(path), body.strip()))
+    return None
+
+
+def _now(root: Path, path: str) -> str:
+    p = root / path
+    return p.read_text(encoding="utf-8") if p.is_file() else ""  # symlink は指す先の中身
+
+
+def grown_test_files(root: Path, mb: str, rows_nr: list[list[str]]) -> list[str]:
+    """元から在る試験の file（名を変えた物・型を変えた物を含む）に試験・parametrize の軸を足した所の名指し。"""
+    errs: list[str] = []
+    pairs: list[tuple[list[str], str]] = []  # ([分かれ目の側の path], 今の path)
+    renamed = [ln.split("\t") for ln in git(root, "diff", "--name-status", "-M", mb).splitlines() if ln]
+    moved_from, moved_to = set(), set()
+    for st, *paths in renamed:
+        if st.startswith("R") and len(paths) == 2 and (TEST_PATH.match(paths[0]) or TEST_PATH.match(paths[1])):
+            pairs.append(([paths[0]], paths[1]))
+            moved_from.add(paths[0])
+            moved_to.add(paths[1])
+    for st, *paths in rows_nr:
+        path = paths[-1]
+        if st in ("M", "T") and TEST_PATH.match(path):
+            pairs.append(([path], path))
+    # git が名の変更と見なかった D+A: 足した試験の file が、消した試験の file と同じ名の試験を持てば、そこから移した物
+    gone = {p[-1]: None for st, *p in rows_nr if st == "D" and TEST_PATH.match(p[-1]) and p[-1] not in moved_from}
+    for g in gone:
+        try:
+            gone[g] = tests_shape(_blob(root, mb, g) or "")
+        except ValueError:
+            gone[g] = {}
+    for st, *paths in rows_nr:
+        path = paths[-1]
+        if st != "A" or not TEST_PATH.match(path) or path in moved_to:
+            continue
+        try:
+            names = set(tests_shape(_now(root, path)))
+        except ValueError:
+            continue  # 新しい試験の file の構文は pytest が赤にする
+        src = [g for g, shape in gone.items() if shape and names & set(shape)]
+        if src:
+            pairs.append((src, path))
+    for before_paths, path in pairs:
+        moved = before_paths != [path]
+        label = f"{path}（元は {'・'.join(before_paths)}）" if moved else path
+        try:
+            shapes = [tests_shape(_blob(root, mb, b) or "") for b in before_paths]
+            after = tests_shape(_now(root, path))
+        except ValueError as e:
+            errs.append(f"{label}: 試験の数を照らせない（{e}）。直してから照らす")
+            continue
+        before: dict[str, int] = {}
+        for s in shapes:
+            before.update(s)
+        n = len(after) - sum(map(len, shapes))
+        new = sorted(k for k in after if k not in before)
+        # 名を変えた file では、元の file に無い名の試験も足した物と見る（数を揃えて入れ替える形を通さない）
+        if n > 0 or (moved and new):
+            errs.append(f"{label}: 元から在る試験の file に試験を {max(n, len(new))} 本足した"
+                        f"（{'・'.join(new[:5]) or '数が増えた'}）。{GROW}")
+        axes = sorted(k for k in after if k in before and after[k] > before[k])
+        if axes:
+            errs.append(f"{label}: 元から在る試験に parametrize の軸を足して試験を増やした（{'・'.join(axes[:5])}）。"
+                        f"在る parametrize の行を足すのはよい。{GROW}")
     return errs
 
 

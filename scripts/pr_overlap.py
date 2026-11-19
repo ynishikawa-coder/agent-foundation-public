@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""開いている他の PR と、同じ file の同じ行の辺りを書き換えていないかを知らせる（止めない・exit は常に 0）。
+"""開いている他の PR と、同じ file の同じ行の辺りを書き換えていないかを知らせる（止めない・見た時は exit 0）。
 
 なぜ在るか: 並ぶ PR が 細目.md・核.md・CONTRIBUTING.md・各 SKILL.md の同じ節を書き換えると（追記でなく本当の重なり）、
 後に入る方が合流の時に初めて衝突に気づき、見直しをやり直していた。同じ節を同時に直すのは中身の食い違いなので
@@ -11,6 +11,10 @@
 
   python3 scripts/pr_overlap.py --repo <owner/name> --pr <番号>      # CI（GITHUB_TOKEN で読むだけ）
   python3 scripts/pr_overlap.py --self <patch の JSON> --others <JSON>  # 試験（{pr: {file: patch}} の形）
+
+exit: 0=見た（重なりの有無は文で知らせる・止めない）/ 3=見ていない（材料が無い・他の PR を読めない）。
+  見ていない時を 0 で終えると、知らせを出せなかった job が「重なりは無い」と同じ緑の印に見える。なので 3 で終え、
+  GitHub の上では ::warning:: の注記も出す（job は止めない＝ci.yml の job overlap は step を continue-on-error で回す）。
 """
 from __future__ import annotations
 
@@ -22,6 +26,7 @@ import sys
 import urllib.request
 
 CONTEXT = 3
+UNSEEN = 3  # 見ていない（緑に数えない）
 HUNK = re.compile(r"^@@ -(\d+)(?:,(\d+))? \+\d+(?:,\d+)? @@", re.M)
 
 
@@ -111,6 +116,14 @@ def on_base_tip(repo: str, base_tip: str, head: str, token: str, cache: dict) ->
     return on_tip(files, cache.get(mb) or {})
 
 
+def unseen(why: str) -> int:
+    """見ていない事を名指して exit 3（緑の印にしない）。GitHub の上では注記 ::warning:: も出す。"""
+    print(f"pr_overlap: 見ていない — {why}（重なる PR が無いとは言えない）")
+    if os.environ.get("GITHUB_ACTIONS") == "true":
+        print(f"::warning title=pr_overlap 見ていない::{why}（重なる PR が無いとは言えない）")
+    return UNSEEN
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--repo")
@@ -125,8 +138,7 @@ def main(argv=None) -> int:
         else:
             token = os.environ.get("GITHUB_TOKEN") or ""
             if not (a.repo and a.pr and token):
-                print("pr_overlap: 知らせ — 照らす材料（--repo・--pr・GITHUB_TOKEN）が無いので見ていない")
-                return 0
+                return unseen("照らす材料（--repo・--pr・GITHUB_TOKEN）が無い")
             me = _get(f"https://api.github.com/repos/{a.repo}/pulls/{a.pr}", token)
             base = me["base"]["ref"]
             tip = _get(f"https://api.github.com/repos/{a.repo}/branches/{base}", token)["commit"]["sha"]
@@ -135,9 +147,8 @@ def main(argv=None) -> int:
             opened = _get(f"https://api.github.com/repos/{a.repo}/pulls?state=open&per_page=100", token)
             others_r = {f"#{p['number']}": on_base_tip(a.repo, tip, p["head"]["sha"], token, cache)
                         for p in opened if p["number"] != a.pr and (p.get("base") or {}).get("ref") == base}
-    except Exception as e:  # noqa: BLE001  知らせる道具が壊れても PR は止めない（壊れた事は名指しで出す）
-        print(f"pr_overlap: 知らせ — 他の PR を読めず見ていない（{e}）")
-        return 0
+    except Exception as e:  # noqa: BLE001  知らせる道具が壊れても PR は止めない（見ていない事を exit 3 で名指す）
+        return unseen(f"他の PR を読めない（{e}）")
     hits = overlaps(mine, others) if a.self_json else overlaps_ranges(mine_r, others_r)
     for pr, f, (s, e) in hits:
         print(f"⚠ {pr} も {f} の {s}〜{e} 行の辺りを書き換えている（同じ節の本当の重なり）")
