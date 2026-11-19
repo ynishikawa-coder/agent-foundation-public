@@ -4,11 +4,13 @@
 
 値の表（在る時だけ読む・無ければ既定で動く）: config/skill-values.json の "guard"。探し方・鍵の一覧・型・既定は
   plugin の lib/skill_values.py と lib/schema.json（＝土台の skill-values/ の正本への symlink）が持つ＝ここに写さない。
-  知らない鍵・畳んだ鍵・型の違う値は、その鍵だけ既定で動き（守りを止めない）、窓の起動の時に名指しで知らせる（values_keys）。
-  鍵の意味は skill guard:guard-rules の「値の表」。
+  知らない鍵・畳んだ鍵・型の違う値は、その鍵だけ既定で動き（守りを止めない）、窓の起動の時に名指しで知らせる。
+  鍵の意味は skill guard:guard-rules の「値の表」（皆の鍵）と skills/guard-rules/見張り/<見張りの名>.md（各見張りの鍵）。
+  ここに見張りの名や鍵を並べない（見張りを足す PR が全部ここへ足して衝突した）。
 """
 from __future__ import annotations
 
+import ast
 import glob
 import json
 import os
@@ -22,6 +24,26 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."
 import skill_values as SV  # noqa: E402  値の表の 1 本の口（土台の skill-values/ への symlink）
 
 DEFAULTS = SV.defaults("guard")
+HERE = os.path.dirname(os.path.abspath(__file__))
+HELPERS = ("guard", "guard_common")
+
+
+def declared(path):
+    """見張りの file の頭の宣言 HOOKS を、import せず字の宣言として読む（{"HOOKS": …} か宣言が無ければ {}）。
+    file 自体が読めない（構文の誤り）時は例外を上げる（呼ぶ側がその file だけを外す）。"""
+    with open(path, encoding="utf-8") as f:
+        tree = ast.parse(f.read())
+    for n in tree.body:
+        if isinstance(n, ast.Assign) and any(isinstance(t, ast.Name) and t.id == "HOOKS" for t in n.targets):
+            return {"HOOKS": ast.literal_eval(n.value)}
+    return {}
+
+
+def watcher_files(here=None):
+    """同じ dir の見張りの file（手伝いの部品 guard・guard_common を除く）を名の順に。"""
+    d = here or HERE
+    return [p for p in sorted(glob.glob(os.path.join(d, "*.py")))
+            if os.path.basename(p)[:-3] not in HELPERS]
 
 # 窓の種類の決まり（session-watch の title-mark と同じ線）: 最初の頼みの文の返し先が別の窓なら子の窓（文脈の知らせだけが読む）。
 # 文の返し先は手で書いた写しなので、最初の頼みの行の記録（人が打った頼みでない＝seeded_by_record）と合う時だけ数える。
@@ -155,7 +177,7 @@ def patterns(vals, key, flags=0):
 
 def tool_sig(block):
     """道具の呼び出し 1 つの当てる相手: 道具の名・空白 1 つ・入力の JSON（鍵の順に並べた 1 行）。
-    値の表 guard.ask_prior_lookup・context_handoff の当てる相手の正本（schema.json の against と同じ形）。"""
+    値の表 guard の「道具の呼び出し 1 つ」に当てる鍵（schema.json の against がこの形の鍵）の当てる相手の正本。"""
     try:
         body = json.dumps(block.get("input") or {}, ensure_ascii=False, sort_keys=True)
     except (TypeError, ValueError):

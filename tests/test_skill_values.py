@@ -143,9 +143,13 @@ def test_SKILL_md_の鍵は鍵の一覧と同じ(plugin, skill, keys):
 
 
 def test_guard_の鍵は_guard_rules_の例と同じ():
-    text = (PLUGINS / "guard" / "skills" / "guard-rules" / "SKILL.md").read_text(encoding="utf-8")
-    example = json.loads(re.search(r"```json\n(.*?)```", text, re.S).group(1))
-    assert set(example["guard"]) == set(SCHEMA["sections"]["guard"]["keys"])
+    """SKILL.md（皆の鍵）と 見張り/<名>.md（各見張りの鍵）の値の表の例を合わせた鍵が、schema の guard の欄と同じ。"""
+    d = PLUGINS / "guard" / "skills" / "guard-rules"
+    keys = set()
+    for p in [d / "SKILL.md", *sorted((d / "見張り").glob("*.md"))]:
+        for b in re.findall(r"```json\n(.*?)```", p.read_text(encoding="utf-8"), re.S):
+            keys |= set(json.loads(b).get("guard") or {})
+    assert keys == set(SCHEMA["sections"]["guard"]["keys"])
 
 
 def test_common_の鍵はどれかの_SKILL_md_が使う():

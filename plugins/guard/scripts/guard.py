@@ -10,8 +10,6 @@
 止めるのは pre（permissionDecision=deny）と stop（decision=block・AI の締めだけ・上限つき）。post と start は隣に文を出すだけ。
 どの見張りも壊れた時は黙って通す（1 つの故障で他の見張りや仕事を止めない）。exit は常に 0。
 """
-import ast
-import glob
 import importlib
 import json
 import os
@@ -42,17 +40,10 @@ def watchers(event):
     （入口に一覧を持たない＝見張りを足す PR が同じ 1 行へ足して互いに衝突しない）。読むのは字の宣言だけで import しない
     （import で壊れる見張りも、ここでは他を巻き込まない）。並びは module の名の順。"""
     out = []
-    for path in sorted(glob.glob(os.path.join(HERE, "*.py"))):
+    for path in G.watcher_files(HERE):
         name = os.path.basename(path)[:-3]
-        if name in ("guard", "guard_common"):
-            continue
         try:
-            with open(path, encoding="utf-8") as f:
-                tree = ast.parse(f.read())
-            hooks = next(ast.literal_eval(n.value) for n in tree.body if isinstance(n, ast.Assign)
-                         and any(isinstance(t, ast.Name) and t.id == "HOOKS" for t in n.targets))
-        except StopIteration:
-            continue                     # 宣言の無い file は見張りでない（手伝いの部品）
+            hooks = G.declared(path).get("HOOKS")
         except Exception as e:           # noqa: BLE001
             sys.stderr.write("[guard] %s の HOOKS が読めない: %s\n" % (name, e))
             continue
@@ -61,13 +52,22 @@ def watchers(event):
     return out
 
 
+def fix_doc(name):
+    """見張りの直し方の在り処（1 見張り 1 file。止めた文・知らせた文の末に付け、SKILL の表を引かせない）。"""
+    return os.path.join(os.path.dirname(HERE), "skills", "guard-rules", "見張り", name + ".md")
+
+
 def run(event, data):
     """出す JSON（dict）か None。"""
     try:
         vals = G.values(data)
     except Exception:          # noqa: BLE001
         vals = dict(G.DEFAULTS)
-    outs = [o for o in (_run(m, f, data, vals) for m, f in watchers(event)) if o]
+    outs = []
+    for m, f in watchers(event):
+        o = _run(m, f, data, vals)
+        if o:
+            outs.append("%s\n直し方と値の表の鍵: %s" % (o, fix_doc(m)))
     if not outs:
         return None
     if event == "stop":

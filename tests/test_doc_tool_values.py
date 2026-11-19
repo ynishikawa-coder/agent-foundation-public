@@ -16,7 +16,7 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parent.parent
-GUARD_SKILL = ROOT / "plugins/guard/skills/guard-rules/SKILL.md"
+GUARD_RULES = ROOT / "plugins/guard/skills/guard-rules"
 WATCH_SKILL = ROOT / "plugins/session-watch/skills/watch-log/SKILL.md"
 REVIEW_SKILL = ROOT / "plugins/checker/skills/review-pr/SKILL.md"
 QA_DIR = ROOT / "plugins/docs-kit/skills/qa-html"
@@ -65,6 +65,11 @@ def _read(p):
     return Path(p).read_text(encoding="utf-8")
 
 
+def _guard_text():
+    """guard-rules の文の全部: SKILL.md（皆の事）と 見張り/<名>.md（1 見張り 1 file）を並べた物。"""
+    return "\n".join(_read(p) for p in [GUARD_RULES / "SKILL.md", *sorted((GUARD_RULES / "見張り").glob("*.md"))])
+
+
 # ── 1 「分からない」の選択肢の見分け（正本は guard の ask_shape.is_dunno・細目 §4）──────────────
 
 def _dunno_word(text):
@@ -84,7 +89,7 @@ def test_細目の分からないは_ask_shape_の見分けに当たる():
 
 
 def test_guard_rules_に書いた分からないの形は全部_ask_shape_の見分けに当たる():
-    forms = _dunno_forms(_read(GUARD_SKILL))
+    forms = _dunno_forms(_guard_text())
     assert len(forms) >= 2 and all(AS.is_dunno(f) for f in forms), forms
 
 
@@ -214,17 +219,19 @@ def test_なぜ聞くかの表を書き換えると検査の文も変わり_表�
     assert out["why"]["once"] == "作り物の文" and out["threw"] is True
 
 
-# ── 5 guard の既定の値（guard_common.DEFAULTS ↔ guard-rules の SKILL.md）────────────────────
+# ── 5 guard の既定の値（guard_common.DEFAULTS ↔ guard-rules の文）────────────────────
 
 def _skill_defaults(text):
     said = {k: int(v) for k, v in re.findall(r"`(\w+)`[^`（〔]{0,4}[（〔]既定 (\d+)[）〕]", text)}
-    block = json.loads(text.split("## 値の表", 1)[1].split("```json", 1)[1].split("```", 1)[0])["guard"]
+    block = {}
+    for b in re.findall(r"```json\n(.*?)```", text, re.S):
+        block.update(json.loads(b).get("guard") or {})
     nums = {k: v for k, v in block.items() if isinstance(v, int) and not isinstance(v, bool)}
     return said, nums
 
 
 def test_guard_の既定の数は_SKILL_の値と同じ():
-    said, nums = _skill_defaults(_read(GUARD_SKILL))
+    said, nums = _skill_defaults(_guard_text())
     ints = {k: v for k, v in GC.DEFAULTS.items() if isinstance(v, int) and not isinstance(v, bool)}
     assert said and all(GC.DEFAULTS.get(k) == v for k, v in said.items()), said
     assert nums == ints, "値の表の例の数と guard の既定の数が違う（片方だけ変えた）"
@@ -232,7 +239,7 @@ def test_guard_の既定の数は_SKILL_の値と同じ():
 
 def test_SKILL_の既定を書き換えると_guard_の既定とずれて赤():
     """注入の試験。"""
-    text = _read(GUARD_SKILL).replace("（既定 60）", "（既定 61）").replace('"context_limit": 300000', '"context_limit": 300001')
+    text = _guard_text().replace("（既定 60）", "（既定 61）").replace('"context_limit": 300000', '"context_limit": 300001')
     said, nums = _skill_defaults(text)
     assert said["ask_question_max_chars"] != GC.DEFAULTS["ask_question_max_chars"]
     assert nums["context_limit"] != GC.DEFAULTS["context_limit"]
@@ -248,7 +255,7 @@ def _watch_stop(text):
 
 
 def _prior_max(text):
-    row = next(ln for ln in text.splitlines() if ln.startswith("| prior_ask"))
+    row = next(ln for ln in text.splitlines() if "同じ頼みの中で" in ln)
     m = re.search(r"同じ頼みの中で (\d+) 回まで", row)
     return int(m.group(1)) if m else None
 
@@ -259,7 +266,7 @@ def test_Stop_で差し戻す札と回数は_watch_log_の文と同じ():
 
 
 def test_聞く前に引いた跡で止める回数は_guard_rules_の文と同じ():
-    assert _prior_max(_read(GUARD_SKILL)) == PA.ASK_PRIOR_MAX
+    assert _prior_max(_guard_text()) == PA.ASK_PRIOR_MAX
 
 
 def test_回数と札を書き換えると道具とずれて赤():
@@ -267,7 +274,7 @@ def test_回数と札を書き換えると道具とずれて赤():
     w = _read(WATCH_SKILL).replace("同じターンで 2 回まで", "同じターンで 3 回まで").replace("・`neighbor` は、Stop", " は、Stop")
     codes, most = _watch_stop(w)
     assert codes != SW.STOP_CODES and most != SW.STOP_MAX
-    assert _prior_max(_read(GUARD_SKILL).replace("同じ頼みの中で 2 回まで", "同じ頼みの中で 5 回まで")) != PA.ASK_PRIOR_MAX
+    assert _prior_max(_guard_text().replace("同じ頼みの中で 2 回まで", "同じ頼みの中で 5 回まで")) != PA.ASK_PRIOR_MAX
 
 
 # ── 7 変更の記録の札（正本は CHANGELOG.d/README.md・changelog が直に読む）と枝の名（CONTRIBUTING ↔ pr_shape）──
@@ -324,10 +331,10 @@ def test_推奨の語は_3_か所で同じ():
     tool = _alts(AS._REC_WORD.pattern)
     assert AS._REC_WORD.flags & re.I, "選択肢の画面の見張りは大小を問わない"
     assert _alts(_qa_rules()["recommend"]) == tool, "確認ページの検査の推奨の語が選択肢の画面の見張りと違う"
-    assert _skill_rec_words(_read(GUARD_SKILL)) == tool, "guard-rules の推奨の語の並びが見張りと違う"
+    assert _skill_rec_words(_guard_text()) == tool, "guard-rules の推奨の語の並びが見張りと違う"
 
 
 def test_推奨の語を_1_つ抜くと赤():
     """注入の試験。"""
-    bad = _read(GUARD_SKILL).replace("・おススメ・", "・")
+    bad = _guard_text().replace("・おススメ・", "・")
     assert _skill_rec_words(bad) != _alts(AS._REC_WORD.pattern)
