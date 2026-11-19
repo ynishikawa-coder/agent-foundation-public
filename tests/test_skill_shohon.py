@@ -94,3 +94,41 @@ def test_verify_は完了と根治の終わりを核と細目の節で指す():
     desc = next(ln for ln in text.splitlines() if ln.startswith("description:"))
     assert "核 §7" in desc, "verify の description がコードの完了の正本（核 §7）を指していない"
     assert "細目 §7「根治の終わり」" in text, "verify が根治の終わり（原因の台帳）を指していない"
+
+
+# ── 点検の道具（session_watch.py）も ✅＝終わった に結ぶ（title-mark と同じ正本・核 §7）──
+def _sw():
+    import copy
+    import importlib.util
+    import sys
+    spec = importlib.util.spec_from_file_location("session_watch_shohon", P / "session-watch" / "scripts" / "session_watch.py")
+    sw = importlib.util.module_from_spec(spec)
+    sys.dont_write_bytecode = True
+    spec.loader.exec_module(sw)
+    base = sw.read_rows(ROOT / "tests" / "session_watch" / "child_ok.jsonl")
+
+    def make(title, text):
+        rs = copy.deepcopy(base)
+        for r in rs:
+            for b in (r.get("message") or {}).get("content") or []:
+                if isinstance(b, dict) and b.get("type") == "tool_use" and b["input"].get("title") == "🤖✅ 作り物の作業":
+                    b["input"]["title"] = title
+        rs[-1]["message"]["content"] = [{"type": "text", "text": text}]
+        return [m for c, m in sw.check(sw.Log(rs)) if c == "title"]
+    return make
+
+
+CLOSE = "\nAI がこの後やること: なし\nあなたがやること: なし。この窓は閉じて大丈夫です。"
+
+
+def test_点検は止まった窓に完了の印を求めない():
+    make = _sw()
+    assert make("🤖 作り物の作業", "🛑止まった\n権限が無い。外せる人はオーナー。" + CLOSE) == []
+    assert make("🤖✅ 作り物の作業", "✅ 終わった\n作り物を終えた。" + CLOSE) == []
+
+
+def test_点検は終わった以外の札に付いた完了の印を拾う():
+    make = _sw()
+    assert make("🤖✅ 作り物の作業", "🛑止まった\n権限が無い。外せる人はオーナー。" + CLOSE)
+    assert make("🤖✅ 作り物の作業", "✅終わった（一部）\n残りは直す窓へ。" + CLOSE)
+    assert make("🤖 作り物の作業", "✅ 終わった\n作り物を終えた。" + CLOSE)
