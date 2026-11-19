@@ -1,0 +1,3 @@
+- 足した: 決まりの文を 1 つ消しても試験が緑のままになる穴を、試験の側から照らす `tests/test_rule_holes.py`。核・振る舞いの既定・細目の文を 1 文ずつ消して決まりの試験を回し、赤にならない文は `tests/data/試験で守らない文.txt`（今 181 文・原因の台帳の行が持つ）に載った物だけを許す。新しい文・書き換えた文は、その文を照らす試験を同じ PR で足す（CONTRIBUTING §5）。
+- 直した: 残りの受け皿の試験は古い言い回しの一覧に頼らず、「後へ回す」言葉（後で・持ち越・保留・DEFER・follow-up・箱へ など）を使う決まりの行が原因の台帳を指すかで照らす（新しい名の受け皿を足しても赤）。
+- 壊れる: guard に守り `values_keys` を足した（オーナー同意 2026-11-19・AI だけ止める）。使う側の repo の `config/skill-values.json` に土台が読まない鍵（畳んだ・名を変えた鍵か書き違い）を残す Write・Edit・MultiEdit を止め、起動の時に知らせる。知っている鍵の正本は各 skill の SKILL.md の「repo ごとの値」の表と guard の値（pdf-read に表を足した）。手で照らす口は `python3 plugins/guard/scripts/values_keys.py <値の表>`（知らない鍵が在れば exit 1）。
