@@ -2,7 +2,7 @@
 
 前の形: PR 本文の頭の `書いた窓:`（手で書く写し）を先端の commit の窓と照らした。本文は push の後でしか直せないので、
 別の窓が main を取り込んで push する度に先端の窓が変わり、その push の CI が毎回 1 回赤になった（PR 92・run 44585946954）。
-今の形: 本文の写しを畳み、書いた窓は PR の commit 全部の `Claude-Session:` の窓の組。push の時点で決まる物だけで照らす。
+今の形: 本文の写しを照らさず（古い土台の窓のために型の行は 2 段目まで残す）、書いた窓は PR の commit 全部の `Claude-Session:` の窓の組。push の時点で決まる物だけで照らす。
 """
 import os
 import subprocess
@@ -125,16 +125,14 @@ def test_本文の写しを読む口が残っていない():
     assert "PR_BODY" not in sh and "PR_HEAD_SHA" in sh
 
 
-def test_PR_の型に書いた窓の欄を置かず_使う側の残りは古い形で名指す():
-    import json
-    import re
+def test_PR_の型の書いた窓の行は古い土台の窓のためだけに残し_今の道具は読まない():
+    """壊れる 1 段目: 古い土台の窓の守りの hook は判定の材料に本文の `書いた窓:` を読むので、型の行は 2 段目まで残す。
+    今の道具（CI の照らし・守りの hook）はその行を読まない＝取り込みの後に直さなくても赤にも止めにもならない。"""
     t = (ROOT / ".github" / "pull_request_template.md").read_text(encoding="utf-8")
-    assert not any(re.match(r"書いた窓\s*[:：]", ln) for ln in t.splitlines())
-    olds = json.loads((ROOT / "plugins" / "core" / "古い形.json").read_text(encoding="utf-8"))["olds"]
-    row = next(o for o in olds if o["id"] == "pr-writer-field")
-    assert ".github/pull_request_template.md" in row["files"]
-    assert re.search(row["pattern"], row["example"], re.M)
-    assert re.search(row["pattern"], "書いた窓: <先端の commit の Claude-Session の session id>", re.M)
+    assert t.splitlines()[0].startswith("書いた窓:")
+    assert "CI も今の道具も読まない" in t
+    pr_text = (ROOT / "plugins" / "guard" / "scripts" / "pr_text.py").read_text(encoding="utf-8")
+    assert "WRITER_LINE" not in pr_text and ".body" not in pr_text
 
 
 def test_入口は_PR_で取り込みの_push_でも緑_記録が無ければ赤(tmp_path):
