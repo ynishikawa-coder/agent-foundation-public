@@ -28,6 +28,7 @@ import re
 import guard_common as G
 
 ASK_TOOL = "AskUserQuestion"
+HOOKS = {"pre": "check"}
 ASK_PRIOR_MAX = 2      # 同じ頼みの中で止める回数の上限
 
 

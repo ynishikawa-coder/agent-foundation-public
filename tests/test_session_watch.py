@@ -426,3 +426,21 @@ def test_拾えば最後の行で根治の入口を指し拾わなければ出�
     assert "細目 §3「まず構造を疑う」" in sw.ROOT_CAUSE
     ok = subprocess.run([sys.executable, str(SCRIPT), str(LOGS / "child_ok.jsonl")], capture_output=True, text=True)
     assert ok.returncode == 0 and sw.ROOT_CAUSE not in ok.stdout
+
+
+def test_知らない印と読めないログは拾う物なしに化けず止まる(tmp_path):
+    for arg in ("--remnd", str(tmp_path / "無いログ.jsonl")):
+        p = subprocess.run([sys.executable, str(SCRIPT), arg], capture_output=True, text=True)
+        assert p.returncode == 2 and p.stdout == "", arg
+
+
+def test_hook_の口の印は知らない印の照らしより前で通る(tmp_path):
+    """--remind と --stop を知らない印の照らしの後ろに置くと、hook が exit 2 で落ちる＝その形に戻すと赤。"""
+    import os
+    env = dict(os.environ, AF_SESSION_WATCH_TMP=str(tmp_path / "sw"))
+    for flag in ("--remind", "--stop"):
+        p = subprocess.run([sys.executable, str(SCRIPT), flag], input="{}", capture_output=True, text=True, env=env)
+        assert p.returncode == 0 and "使い方" not in p.stderr, flag
+    out = subprocess.run([sys.executable, str(SCRIPT), "--stop"], env=env, capture_output=True, text=True,
+                         input=json.dumps(stop_data("作り物を直した。\n根拠は 2 つ。\n1 つ目。\n2 つ目。"), ensure_ascii=False))
+    assert json.loads(out.stdout)["decision"] == "block"            # hook_stop に届いている

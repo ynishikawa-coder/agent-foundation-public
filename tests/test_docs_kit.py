@@ -888,6 +888,13 @@ def test_1枚ずつの印は_file_が2つなら止まる(tmp_path):
 
 
 @needs_node
+@pytest.mark.parametrize("flags,word", [(["--jsno"], "知らない印"), (["--values", "a.json", "--values", "b.json"], "2 度")])
+def test_知らない印と同じ印の2度書きは止まる(flags, word):
+    res = subprocess.run([NODE, str(CHECK), str(DATA / "good.json"), *flags], capture_output=True, text=True)
+    assert res.returncode == 2 and word in res.stderr and res.stdout == ""
+
+
+@needs_node
 def test_file_を2つ渡して1つでも赤なら根治の入口を指す(tmp_path):
     good = tmp_path / "確認.html"
     good.write_text(filled_template("copy"), encoding="utf-8")

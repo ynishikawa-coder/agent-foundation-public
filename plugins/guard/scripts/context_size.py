@@ -43,6 +43,10 @@ MSG_UNATTENDED = (
 )
 
 
+
+# この見張りが回る出来事と関数（guard.py がこの宣言を読んで回す＝入口の一覧に足さない）
+HOOKS = {"post": "check", "stop": "stop"}
+
 def measure(tpath):
     """最新の assistant の入力の総量＝今の文脈の大きさ。"""
     ctx = 0
