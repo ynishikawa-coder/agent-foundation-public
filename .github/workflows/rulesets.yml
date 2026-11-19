@@ -1,0 +1,22 @@
+name: rulesets
+# main の守り（ruleset）の正本は .github/rulesets/main.json。main に入った時にこの job が GitHub へ書き戻す。
+# クラウドの窓は GitHub の設定の口へ書けない（通り道が 403）ので、守りの直しは PR でこの file を直す。
+# 鍵 RULESET_TOKEN（repo の管理の権限）は environment `rulesets`（main からしか使えない）の秘密に置く。
+# repo の秘密に置かない（どの枝の workflow からも読めてしまう）。鍵が無い時は書かずに赤で止まる。PR と手動では回らない。
+on:
+  push:
+    branches: [main]
+    paths: [".github/rulesets/**"]
+permissions:
+  contents: read
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    environment: rulesets
+    steps:
+      - uses: actions/checkout@v4
+      - name: 書き戻す
+        env:
+          GH_TOKEN: ${{ secrets.RULESET_TOKEN }}
+          RULESET_ID: "27175248"
+        run: python3 scripts/ruleset_apply.py
