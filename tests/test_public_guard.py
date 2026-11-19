@@ -298,7 +298,10 @@ def _routes(full, wf_text=None, contexts=(), rules=()):
     return r
 
 
-CALLER = "    steps:\n      - uses: ynishikawa-coder/agent-foundation-public/public-guard@main\n"
+# 呼び口の雛形と同じ形（PR・push で走る workflow の job public-guard の step）。見分けは workflow の読み手が正本。
+CALLER = ("on:\n  push:\n    branches: [main]\n  pull_request:\njobs:\n  public-guard:\n    name: public-guard\n"
+          "    runs-on: ubuntu-latest\n    steps:\n      - uses: ynishikawa-coder/agent-foundation-public/public-guard@main\n")
+LOCAL_CALLER = CALLER.replace("ynishikawa-coder/agent-foundation-public/public-guard@main", "./public-guard")
 
 
 def test_見回り_呼び口と守りがあれば外れ0():
@@ -336,14 +339,14 @@ def test_見回り_非公開とarchiveは見ない():
 
 def test_見回り_土台は自分の枝の物を呼んでよい():
     full = patrol.FOUNDATION
-    gh = FakeGitHub(_routes(full, "      - uses: ./public-guard\n", rules=["public-guard", "plugin-smoke"]))
+    gh = FakeGitHub(_routes(full, LOCAL_CALLER, rules=["public-guard", "plugin-smoke"]))
     assert patrol.patrol(gh, [full.split("/")[0]]) == {}
 
 
 def test_見回り_土台は_plugin_smoke_が必須でなければ外れ():
     """main の先端を配る代わりの守り（入れて起動する試験）が合流の必須から外れたら知らせる（注入の試験）。"""
     full = patrol.FOUNDATION
-    found = patrol.patrol(FakeGitHub(_routes(full, "      - uses: ./public-guard\n", rules=["public-guard"])),
+    found = patrol.patrol(FakeGitHub(_routes(full, LOCAL_CALLER, rules=["public-guard"])),
                           [full.split("/")[0]])
     assert any("plugin-smoke" in p for p in found[full])
 

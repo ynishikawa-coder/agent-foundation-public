@@ -40,15 +40,6 @@ def _tool_uses(row):
     return [b for b in c if isinstance(b, dict) and b.get("type") == "tool_use"]
 
 
-def _sig(block):
-    """道具の名 + 入力の JSON（当てる相手）。"""
-    try:
-        body = json.dumps(block.get("input") or {}, ensure_ascii=False, sort_keys=True)
-    except (TypeError, ValueError):
-        body = str(block.get("input") or "")
-    return "%s %s" % (block.get("name") or "", body)
-
-
 def scan(tpath, patterns):
     """(最後の頼みの印, 跡が在るか)。最後の頼みより後の道具の呼び出しだけを見る。"""
     turn, found = "", False
@@ -61,8 +52,7 @@ def scan(tpath, patterns):
         for b in _tool_uses(row):
             if b.get("name") == ASK_TOOL:
                 continue
-            sig = _sig(b)
-            if any(re.search(p, sig) for p in patterns):
+            if G.SV.hit(patterns, G.tool_sig(b)) is not None:
                 found = True
                 break
     return turn, found
@@ -85,9 +75,9 @@ def _bump(kind, key):
 
 
 def _all_exempt(qs, vals):
-    pats = [p for p in (vals.get("ask_prior_exempt") or []) if isinstance(p, str) and p]
+    pats = G.patterns(vals, "ask_prior_exempt")
     texts = [str(q.get("question") or "") for q in qs if isinstance(q, dict)]
-    return bool(pats) and bool(texts) and all(any(re.search(p, t) for p in pats) for t in texts)
+    return bool(pats) and bool(texts) and all(G.SV.hit(pats, t) is not None for t in texts)
 
 
 HOW = ("聞く前に引く（細目 §4）: 問いの候補ごとに、この会社の決定の記録と問いの表（前に聞いた問いと答えの表）を、問いと同じ言葉で"
@@ -107,7 +97,7 @@ def check(data, vals):
     if not tpath or not os.path.isfile(tpath) or "/subagents/" in tpath.replace(os.sep, "/"):
         return ""
     sid = G.safe_id(data.get("session_id") or os.path.basename(tpath)) or "window"
-    patterns = [p for p in (vals.get("ask_prior_lookup") or []) if isinstance(p, str) and p]
+    patterns = G.patterns(vals, "ask_prior_lookup")
     head = ("[guard] 選択肢の画面を出す前に、この頼みの中で決定の記録と問いの表を引いた跡が会話ログに無いので止めた"
             "（オーナー同意 2026-11-19・人の操作は止めていない・画面はまだ人に出ていない）。")
     if not patterns:
@@ -132,7 +122,7 @@ def check(data, vals):
     return "\n".join([
         head,
         "跡と数える物: 最後の頼みより後の道具の呼び出しのうち、値の表 guard.ask_prior_lookup に当たる物"
-        "（今の値: %s）。" % "・".join(patterns[:6]),
+        "（今の値: %s）。" % "・".join(str(r) for _, _, r in patterns[:6]),
         "直し方: " + HOW,
         "引く道具が繋がっていない等で引けない時: 同じ頼みの中で %d 回止めた後は通す。その時は問いの前にチャットで"
         "「引けなかった（何で）」を書いてから出す。" % ASK_PRIOR_MAX,

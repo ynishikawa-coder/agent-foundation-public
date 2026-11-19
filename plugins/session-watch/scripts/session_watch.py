@@ -415,7 +415,8 @@ def reply_exempt(data=None):
     pats = got.get("reply_exempt") if isinstance(got, dict) else None
     ok, bad = [], []
     for p in pats or []:
-        if not isinstance(p, str) or not p:
+        p = G.SV._row_pattern(p) if G and hasattr(G, "SV") else (p if isinstance(p, str) else None)   # 行は字か {"pattern": 字}（型 patterns）
+        if not p:
             continue
         try:
             re.compile(p)

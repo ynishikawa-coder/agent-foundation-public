@@ -156,6 +156,8 @@ def check_match(spec_dir: Path, values: dict) -> tuple[list[str], list[str]]:
     if not rows:
         return early + [f"{f.name} の §6 に行が 1 つも無い＝照合していない"], []
     allow = values.get("decision_match_allow", [])
+    if isinstance(allow, list):
+        allow = [skill_values._row_pattern(p) or p for p in allow]   # 行は字か {"pattern": 字}（型 patterns）
     if not isinstance(allow, list) or not all(isinstance(p, str) and p for p in allow):
         raise Abort("値の表の decision_match_allow は空でない字（正規表現）の並びで書く")
     try:
