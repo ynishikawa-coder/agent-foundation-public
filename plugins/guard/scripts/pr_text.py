@@ -39,7 +39,7 @@ import sys
 
 import guard_common as G
 
-HOOKS = {"pre": "check"}
+HOOKS = {"pre": "check", "post": "notice"}
 
 TIMEOUT = 30
 SHOWN = 12
@@ -148,24 +148,30 @@ def pr_facts(repo, ti):
     return head.strip(), m.group(1), ""
 
 
-def check_verdict(body, data):
-    # 判定のコメントかの見分けも判定の形の正本（checker の verdict_form.looks_verdict）を直に呼ぶ＝写さない。
-    # 道具が無い・読めない時は判定かどうかも分からないので止める（判定を見分けの外へ逃がさない）。
+def looks_verdict(body, data):
+    """(見分け, 道具の path, 見分けられない訳)。見分けは "verdict"／"other"／""（道具が無い・古い・壊れた＝見分けられない）。
+    判定のコメントかの見分けは判定の形の正本（checker の verdict_form.py --looks）を直に呼ぶ＝写さない。"""
     tool = _find_sibling(*VERDICT_FORM, data)
     if not tool:
-        return ["判定の形の道具（checker の verdict_form.py）が見つからず、判定かどうかも形も確かめられない。plugin checker を"
-                "guard と同じ版で入れる（または AF_VERDICT_FORM に path）"]
-    body_file = _tmp_file(body, "verdict")
+        return "", "", "判定の形の道具（checker の verdict_form.py）が見つからない"
     try:
-        p = _run([sys.executable, tool, "--looks", body_file])
+        p = _run([sys.executable, tool, "--looks", _tmp_file(body, "looks")])
     except (OSError, subprocess.SubprocessError) as e:
-        return ["判定の形の道具が走らなかった: %s" % e.__class__.__name__]
+        return "", tool, "判定の形の道具が走らなかった（%s）" % e.__class__.__name__
     looks = p.stdout.strip()
     if p.returncode != 0 or looks not in ("verdict", "other"):
-        tail = (p.stderr or p.stdout or "").strip().splitlines()[-2:]
-        return ["判定の形の道具が壊れた（--looks・exit %d）: %s" % (p.returncode, " / ".join(tail))]
-    if looks == "other":
+        tail = (p.stderr or p.stdout or "").strip().splitlines()[-1:]
+        return "", tool, "判定の形の道具が --looks に答えない（古い版か壊れた・exit %d）: %s" % (p.returncode, " / ".join(tail))
+    return looks, tool, ""
+
+
+def check_verdict(body, data):
+    # 判定かどうか見分けられない時（道具が無い・古い・壊れた）は止めない＝判定でないふつうのコメントまで止めない。
+    # 出した後に post の notice が知らせる（オーナーの同意の無い止める範囲の広がりを作らない）。
+    looks, tool, _why = looks_verdict(body, data)
+    if looks != "verdict":
         return []
+    body_file = _tmp_file(body, "verdict")
     ti = data.get("tool_input") or {}
     head, writer, err = pr_facts(_repo_name(ti), ti)
     if err:
@@ -339,6 +345,22 @@ HEAD = {
     "words": "PR の題・本文に AI の中の呼び名が出ている",
     "public": "公開の repo に置かない物がある",
 }
+
+
+def notice(data, vals):
+    """PostToolUse: 出したコメントが判定かどうか見分けられなかった時だけ知らせる（止めない）。"""
+    if tool_kind(data.get("tool_name")) != "comment":
+        return ""
+    ti = data.get("tool_input")
+    body = ti.get("body") if isinstance(ti, dict) and isinstance(ti.get("body"), str) else ""
+    if not body.strip():
+        return ""
+    looks, _tool, why = looks_verdict(body, data)
+    if looks:
+        return ""
+    return ("[guard] 出したコメントがレビューの判定かどうか見分けられず、判定の形を照らさずに通した（止めていない）: %s。"
+            "plugin checker を guard と同じ版で入れる（または AF_VERDICT_FORM に path）。このコメントが判定なら、"
+            "checker の verdict_form.py で形を照らし、崩れていれば出し直す。" % why)
 
 
 def findings(data, vals):
