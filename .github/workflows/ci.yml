@@ -71,8 +71,11 @@ jobs:
     name: plugin-smoke
     runs-on: ubuntu-latest
     steps:
+      # 入れる commit（PR の枝の先端）と同じ commit を checkout する。期待の文は checkout の正本で作るので、
+      # PR の枝に main を合わせた物を checkout すると、入った copy と差し込む口が食い違う。
       - uses: actions/checkout@v4
         with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
       - uses: actions/setup-python@v5
         with:

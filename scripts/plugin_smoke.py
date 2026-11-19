@@ -312,16 +312,15 @@ def smoke(source: str, repo: Path, expect_sha: str | None) -> list[str]:
                 pass
         expect = None
         core_root = Path(rows.get("core", {}).get("installPath") or "/nonexistent")
-        if same_inject_code(repo, core_root):
-            try:
-                expect = expected_context(repo, env, proj, str(init.get("session_id") or "smoke"))
-            except (OSError, subprocess.SubprocessError, ValueError) as e:
-                return bad + [f"正本の差し込む口を回せない: {e}"]
-        else:
-            # CI の checkout（PR の枝に main を合わせた物）と入った copy（PR の枝）で差し込む口が違う＝同じ材料でも文が
-            # 違ってよい。黙って弱めず、全体の比べを飛ばした事を出し、核の部と節の切れ目だけを比べる
-            print("plugin-smoke: 入った copy の kaku.py が正本の checkout と違うので、文脈の全体の比べは飛ばし、"
-                  "核の部の一字違わずと、その後ろが節の切れ目で始まる事だけを見た（main を取り込むと全体を比べる）")
+        if not same_inject_code(repo, core_root):
+            # 期待の文は checkout の正本の差し込む口で作る。入った copy の口が違えば同じ材料でも文が違いうるので、
+            # 照らしを弱めて通さず赤にする（CI は入れる commit と同じ commit を checkout する・ci.yml の plugin-smoke）
+            return bad + ["入った copy の差し込む口 kaku.py が正本の checkout と一字違わず同じでない"
+                          "（入れる commit と同じ commit を checkout して回す。差し込む口を書き換える誤りもここで止まる）"]
+        try:
+            expect = expected_context(repo, env, proj, str(init.get("session_id") or "smoke"))
+        except (OSError, subprocess.SubprocessError, ValueError) as e:
+            return bad + [f"正本の差し込む口を回せない: {e}"]
         bad += core_problems(ctx, want, expect)
 
         # 4. 守りの hook: 入った copy の hooks.json に書かれた命令をそのまま回す。
