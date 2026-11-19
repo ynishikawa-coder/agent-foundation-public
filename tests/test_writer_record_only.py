@@ -23,7 +23,7 @@ def test_注入_本文の書いた窓の写しは書いた窓の組に足さな�
     assert deny_reason(env, p) == ""
 
 
-def test_注入_書いた窓の欄は古い形の行が在る間は通し_畳んだら数える(env):
+def test_注入_書いた窓の欄は型に行が在る間は通し_畳んだら数える(env):
     """壊れる 2 段（CONTRIBUTING.md §8）: PR の型に `書いた窓:` の行が在る間（1 段目）は本文の頭の塊の
     `書いた窓: <窓の id>` を通す。型から行を消した 2 段目からは窓の id として数える。"""
     tpl = (ROOT / ".github" / "pull_request_template.md").read_text(encoding="utf-8")
