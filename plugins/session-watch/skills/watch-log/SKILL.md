@@ -5,7 +5,7 @@ description: 会話ログ（transcript の JSONL）を手で点検にかけ、�
 
 # 会話ログの点検
 
-点検は会話ログだけを読む（環境の値・外の台帳・`get_session` の返りを見ない）。手で回す: `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/session_watch.py" <transcript.jsonl>`。拾った物を 1 行ずつ出し、拾えば exit 1。
+点検は会話ログだけを読む（環境の値・外の台帳・`get_session` の返りを見ない）。手で回す: `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/session_watch.py" <transcript.jsonl>`。拾った物を 1 行ずつ出し、拾えば exit 1（最後の行で細目 §3「まず構造を疑う」 を指す）。拾われた物は下の直し方で出し直すだけで済ませず、細目 §3「まず構造を疑う」で原因から直す。
 
 `title`（今の題で直せる物）・`card`・`close` の 3 つは、Stop の hook（`session_watch.py --stop`）も同じ見張りで見て、崩れていれば返事を届ける前に AI だけを差し戻して書き直させる（`decision: block`。人の操作は止めない）。同じターンで 2 回までで、越えたら通して届ける（窓が回り続けない）。見張りが誤って差し戻す時の逃げ道は環境変数 `AF_SESSION_WATCH_STOP=0`。「問いを出す前に ❓ を付けていない」は過ぎた事で今は直せないので差し戻さない。ほかの札（`plain`・`idk`・`unanswered`・`rest`・`hand`）は手で回す点検と知らせるだけ。
 

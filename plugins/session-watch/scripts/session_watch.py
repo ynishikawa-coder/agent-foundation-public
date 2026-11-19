@@ -38,6 +38,7 @@ import sys
 ASK = "AskUserQuestion"
 SET_TITLE_SUFFIX = "set_session_title"
 REMOTE_PREFIX = "mcp__claude-code-remote__"
+ROOT_CAUSE = "直し: 拾われた所を出し直すだけで済ませず、細目 §3「まず構造を疑う」で原因から直す"
 
 AI = "🤖"       # 返し先が別の窓か仕組み
 HUMAN = "🙋"    # 返し先がオーナー（オーナーが話しかける窓）
@@ -554,7 +555,7 @@ def stop(data, env=None):
     if _count(env, data.get("session_id"), reset=not data.get("stop_hook_active")) > STOP_MAX:
         sys.stderr.write("[session-watch] 差し戻しが %d 回を越えたので通す\n" % STOP_MAX)
         return None
-    return STOP_HEAD + "\n" + "\n".join("- %s: %s" % (c, m) for c, m in found)
+    return STOP_HEAD + "\n" + "\n".join("- %s: %s" % (c, m) for c, m in found) + "\n" + ROOT_CAUSE
 
 
 def hook_stop(stdin):
@@ -579,6 +580,8 @@ def main(argv):
     found = watch(argv[1])
     for code, msg in found:
         print("%s: %s" % (code, msg))
+    if found:
+        print(ROOT_CAUSE)
     return 1 if found else 0
 
 

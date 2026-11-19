@@ -95,6 +95,11 @@ def test_試験から有料の上流へつなぐ線を止める(env, name, paylo
     assert denied(env, payload) is want
 
 
+def test_有料の上流を止めた文は根治の入口を指す(env):
+    """止めた file の直し方だけを並べる古い形（線を書いた原因を見させない）に戻すと赤。"""
+    assert "細目 §3「まず構造を疑う」" in deny_reason(env, PAID_CASES[0][1])
+
+
 def test_有料の印は値の表で足せる(env, tmp_path):
     table = tmp_path / "values.json"
     table.write_text(json.dumps({"guard": {"paid_markers_extra": ["api.example-paid.test"]}}), encoding="utf-8")
@@ -116,6 +121,13 @@ def test_答えの無い問いは台帳に積まれ隣に1行鳴り次の窓で�
     assert "答えのないまま閉じました（1 件）" in note
     again = hook(env, "start", {"session_id": "s2"}).get("additionalContext", "")
     assert "作り物の置き場を A と B のどちらにしますか" in again and "A（推奨）" in again
+
+
+def test_出し直させる文は根治の入口を指す(env):
+    """答えの無い問いを出し直させるだけの古い形（原因を見させない）に戻すと赤。"""
+    hook(env, "post", ask_result())
+    again = hook(env, "start", {"session_id": "s2"}).get("additionalContext", "")
+    assert "細目 §3「まず構造を疑う」" in again
 
 
 def test_答えが返れば台帳から降りて冒頭に出ない(env):
@@ -149,6 +161,12 @@ def test_離席中はメールを送る道具も止め別の窓は止めない(e
     hook(env, "post", ask_result())
     assert denied(env, {"tool_name": "mcp__mail-x__send_email", "session_id": "s1", "tool_input": {}})
     assert not denied(env, {"tool_name": "mcp__mail-x__send_email", "session_id": "other", "tool_input": {}})
+
+
+def test_離席の止めの文は根治の入口を指す(env):
+    """同じ問いを出し直させるだけの古い形に戻すと赤。"""
+    hook(env, "post", ask_result())
+    assert "細目 §3「まず構造を疑う」" in deny_reason(env, bash(DROP))
 
 
 def test_答えが返ると離席の止めが解ける(env):
@@ -367,6 +385,7 @@ def test_qa_page_型を写さない独自の問いのページは止まる(env, 
     why = deny_reason(env, publish("kakunin.html", cwd=str(tmp_path)))
     assert "qa-html の検査を通っていない" in why and "<script> の JSON に questions／qs" in why
     assert "型の qa:css の印が無い" in why
+    assert "細目 §3「まず構造を疑う」" in why and "もう一度 publish する" not in why, "止めた文が出し直しだけを促す古い形に戻った"
 
 
 @needs_node
@@ -599,6 +618,8 @@ def test_ask_shape_読みにくい問いは画面を出す前に止め何でど�
     why = deny_reason(env, payload)
     assert want in why, why
     assert "直し方" in why and "画面はまだ人に出ていない" in why
+    assert "直して出し直す。" not in why and why.strip().splitlines()[-1].endswith("細目 §3「まず構造を疑う」で探して直す"), \
+        "止めた文が出し直しだけを促す古い形に戻った"
 
 
 ASK_GOOD = [

@@ -351,6 +351,7 @@ def stop_data(text, tpath="", active=False, sid="s1"):
 def test_返事の形を崩すと_AI_へ差し戻す(tmp_path, broken, code):
     reason = sw.stop(stop_data(broken), stop_env(tmp_path))
     assert reason and ("- %s:" % code) in reason and "書き直す" in reason
+    assert reason.strip().splitlines()[-1] == sw.ROOT_CAUSE, "差し戻しが書き直しだけを促す形に戻った"
 
 
 def test_型どおりの返事と一言の返事は差し戻さない(tmp_path):
@@ -416,3 +417,12 @@ def test_問いの前に題を問いの印にしなかった過ぎた事は差�
     log.write_text("\n".join(json.dumps(r, ensure_ascii=False) for r in rs) + "\n", encoding="utf-8")
     assert any(c == "title" and m.startswith(sw.ASK_BEFORE) for c, m in sw.check(sw.Log(rs), OK_REPLY))
     assert sw.stop(stop_data(OK_REPLY, str(log)), stop_env(tmp_path)) is None
+
+
+def test_拾えば最後の行で根治の入口を指し拾わなければ出さない():
+    """拾った物を出し直すだけで返す古い形（指す行が無い）に戻すと赤。"""
+    bad = subprocess.run([sys.executable, str(SCRIPT), str(LOGS / "plain_unanswered.jsonl")], capture_output=True, text=True)
+    assert bad.returncode == 1 and bad.stdout.strip().splitlines()[-1] == sw.ROOT_CAUSE
+    assert "細目 §3「まず構造を疑う」" in sw.ROOT_CAUSE
+    ok = subprocess.run([sys.executable, str(SCRIPT), str(LOGS / "child_ok.jsonl")], capture_output=True, text=True)
+    assert ok.returncode == 0 and sw.ROOT_CAUSE not in ok.stdout
