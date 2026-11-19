@@ -84,6 +84,6 @@ def test_部品の箱と結べない絵は照らせない(fake, tmp_path, label,
 
 def test_この_repo_の流れが合意した全体の絵に全部在る():
     if not PICTURE.is_file():
-        pytest.skip("合意した全体の絵（docs/全体の絵.json）がまだ main に無い（PR #37 で入る）。入ればこの照らしが効く")
+        pytest.skip("待ち: docs/全体の絵.json（合意した全体の絵）が無い。入れば飛ばさず照らす（入ったのに飛べば check_all が赤）")
     res = run("check", str(PICTURE))
     assert res.returncode == 0, res.stdout

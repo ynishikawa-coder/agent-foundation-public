@@ -13,7 +13,7 @@
 照らせない＝赤。claude/ で始まらない枝（人が GitHub の画面で直した patch-1 など）は止めず、照らさなかった事を 1 行知らせる
 （新しく人の操作を止める物はオーナーの同意が要る＝核 §3）。main（PR でない push）・枝の名が分からない時（手元の
 detached HEAD）も照らさず、照らしていない事をそのまま出す（緑と言わない）。
-exit: 0=緑 / 1=赤 / 2=照らせない（比べる元が無い等）。
+exit: 0=緑 / 1=赤 / 2=照らせない（比べる元が無い等）/ 3=照らしていない（緑に数えない・check_all が名指す）。
 """
 from __future__ import annotations
 
@@ -78,13 +78,13 @@ def main(argv=None) -> int:
     a = ap.parse_args(argv)
     if a.branch == "main":
         print("pr_shape: 照らしていない（main への push＝PR の差分が無い）")
-        return 0
+        return 3
     if a.branch in ("HEAD", ""):
         print("pr_shape: 照らしていない（枝の名が分からない＝detached HEAD。GITHUB_HEAD_REF に枝の名を渡すと照らす）")
-        return 0
+        return 3
     if not a.branch.startswith("claude/"):
         print(f"pr_shape: 照らしていない（{a.branch} は AI の窓の枝 claude/… でない＝人の PR は止めない）")
-        return 0
+        return 3
     try:
         errs = check(a.repo, a.branch, a.base)
     except OSError as e:
