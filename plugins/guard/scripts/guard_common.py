@@ -2,29 +2,10 @@
 
 どの口も壊れた時は既定に倒す（見張りの故障で窓を止めない）。仕事の中身や特定の窓の名前は持たない。
 
-値の表（在る時だけ読む・無ければ既定で動く）:
-  repo の根の config/skill-values.json の "guard"。読む順は 環境変数 SKILL_VALUES → $CLAUDE_PROJECT_DIR → hook の cwd。
-    context_limit            … 文脈の量の目安（token・既定 300000）
-    unattended_env           … 真なら「人のいない窓」（夜の自走など）とみなす環境変数の名の並び（既定 ["AF_UNATTENDED"]）
-    state_dir                … 未回答の台帳を置く dir（既定 ~/.claude/af-guard。相対なら repo の根から）
-    paid_markers_extra       … 有料の上流の印（鍵名・エンドポイント）の足し
-    irreversible_bash_extra  … 戻せない Bash の足し [{"pattern": 正規表現, "why": 理由}]
-    irreversible_tools_extra … 戻せない道具の名の足し [{"pattern": 正規表現, "why": 理由}]
-    qa_page_exempt           … 問いのページの検査から外す file（path に当てる正規表現の並び・問いのページでない物だけ）
-    ask_pick_one_exempt      … 1 つだけ選ばせる問いの見張りから外す問いの文（正規表現の並び・意図や事実を問う問いだけ）
-    ask_question_max_chars   … 選択肢の画面の問いの文の字数の上限（既定 60・0 で見ない）
-    ask_question_max_sentences … 同じく文の数の上限（既定 1・0 で見ない）
-    ask_inner_terms_extra    … AI の中の言葉とみなす字の足し（正規表現の並び）
-    ask_term_allow           … 中の言葉と数えない字（見つけた字に当てる正規表現の並び・誤って止まる時だけ）
-    ask_topic_stopwords_extra … 話題の語と数えない語の足し
-    ask_shape_exempt         … 問いの形の見張りから外す問いの文（正規表現の並び・誤って止まる時だけ）
-    ask_rec_notice_kinds     … 推奨の印を付けない問いの形 {名: [正規表現]}（既定は ask_shape.REC_NOTICE_KINDS・知らせるだけ）
-    ask_rec_notice_exempt    … 上の知らせから外す問いの文（正規表現の並び）
-    outbound_secret_allow    … 外へ渡す道具の入力の鍵の照らしで、鍵と数えない字（当たった字に当てる正規表現の並び・作り物の見本だけ）
-    number_request_exempt    … 番号だけの頼みの照らしから外す文（正規表現の並び・誤って止まる時だけ）
-    pr_cleanup_exempt_repos  … PR 本文の整地の欄を照らさない repo（owner/repo に当てる正規表現の並び・整地を PR 本文の外に置く repo だけ）
-    pr_words_exempt_repos    … PR の題・本文の言葉を照らさない repo（同じ形）
-    public_repos_extra       … 手元に取り出しが無くても公開とみなす repo（同じ形）
+値の表（在る時だけ読む・無ければ既定で動く）: config/skill-values.json の "guard"。探し方・鍵の一覧・型・既定は
+  plugin の lib/skill_values.py と lib/schema.json（＝土台の skill-values/ の正本への symlink）が持つ＝ここに写さない。
+  知らない鍵・畳んだ鍵・型の違う値は、その鍵だけ既定で動き（守りを止めない）、窓の起動の時に名指しで知らせる（values_keys）。
+  鍵の意味は skill guard:guard-rules の「値の表」。
 """
 from __future__ import annotations
 
@@ -32,33 +13,15 @@ import glob
 import json
 import os
 import re
+import sys
 import tempfile
 from datetime import datetime, timezone
 
-VALUES_REL = os.path.join("config", "skill-values.json")
-DEFAULTS = {
-    "context_limit": 300_000,
-    "unattended_env": ["AF_UNATTENDED"],
-    "state_dir": os.path.join("~", ".claude", "af-guard"),
-    "paid_markers_extra": [],
-    "irreversible_bash_extra": [],
-    "irreversible_tools_extra": [],
-    "qa_page_exempt": [],
-    "ask_pick_one_exempt": [],
-    "ask_question_max_chars": 60,
-    "ask_question_max_sentences": 1,
-    "ask_inner_terms_extra": [],
-    "ask_term_allow": [],
-    "ask_topic_stopwords_extra": [],
-    "ask_shape_exempt": [],
-    "ask_rec_notice_kinds": {},
-    "ask_rec_notice_exempt": [],
-    "outbound_secret_allow": [],
-    "number_request_exempt": [],
-    "pr_cleanup_exempt_repos": [],
-    "pr_words_exempt_repos": [],
-    "public_repos_extra": [],
-}
+sys.dont_write_bytecode = True
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib"))
+import skill_values as SV  # noqa: E402  値の表の 1 本の口（土台の skill-values/ への symlink）
+
+DEFAULTS = SV.defaults("guard")
 
 # 窓の種類の決まり（session-watch の title-mark と同じ線）: 最初の頼みの文の返し先が別の窓なら子の窓（文脈の知らせだけが読む）。
 RETURN_TO_WINDOW = re.compile(r"返し先\s*[=＝:：]\s*session_[A-Za-z0-9]+")
@@ -71,7 +34,9 @@ GUARD_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 def sibling_plugin_file(plugin, rel, guard_root=None):
     """隣の plugin の file の path か ""。正本を写さず直に読むための在り処探し。
     repo の形: plugins/guard と plugins/<plugin> が隣。
-    入れた plugin の形: cache/<市場>/guard/<版> と cache/<市場>/<plugin>/<版>。同じ版を先に、無ければ新しい物。"""
+    入れた plugin の形: cache/<市場>/guard/<版> と cache/<市場>/<plugin>/<同じ版>。
+    同じ版だけを見る（別の版へ降りない＝正本と guard の版が食い違ったまま照らさない。見つからなければ "" で、
+    呼ぶ側が止めて「同じ版で入れ直す」と名指しする）。"""
     here = guard_root or GUARD_ROOT
     cand = os.path.join(os.path.dirname(here), plugin, rel)
     if os.path.isfile(cand):
@@ -79,11 +44,7 @@ def sibling_plugin_file(plugin, rel, guard_root=None):
     ver = os.path.basename(here)
     market = os.path.dirname(os.path.dirname(here))
     same = os.path.join(market, plugin, ver, rel)
-    if os.path.isfile(same):
-        return same
-    import glob
-    found = sorted(glob.glob(os.path.join(market, plugin, "*", rel)), key=os.path.getmtime, reverse=True)
-    return found[0] if found else ""
+    return same if os.path.isfile(same) else ""
 
 
 def foundation_file(rel, guard_root=None):
@@ -116,30 +77,39 @@ def project_dir(payload=None):
     return d
 
 
+def _starts(payload):
+    root = project_dir(payload)
+    return [root] if root else []
+
+
 def values(payload=None):
-    """値の表の "guard" を既定に重ねて返す。読めない・型が違う値は既定のまま。"""
+    """値の表の "guard" を既定に重ねて返す。読めない・問題のある鍵は既定のまま（名指しは values_problems）。"""
     out = dict(DEFAULTS)
-    for k, v in table("guard", payload).items():
-        if k in DEFAULTS and isinstance(v, type(DEFAULTS[k])) and not (isinstance(v, bool)):
+    try:
+        got, _ = SV.section("guard", strict=False, starts=_starts(payload))
+    except Exception:  # noqa: BLE001  見張りの故障で窓を止めない
+        return out
+    for k, v in got.items():
+        if k in DEFAULTS and v is not None:
             out[k] = v
     return out
 
 
 def table(section, payload=None):
-    """値の表の 1 つの節を dict で返す（無い・読めない時は {}）。読む順は values() と同じ。他の plugin の口も使う。"""
-    path = os.environ.get("SKILL_VALUES") or ""
-    if not path:
-        root = project_dir(payload)
-        path = os.path.join(root, VALUES_REL) if root else ""
-    if not path or not os.path.isfile(path):
-        return {}
+    """値の表の 1 つの節を dict で返す（無い・読めない時は {}）。探し方は値の表の 1 本の口（lib/skill_values.py）。他の plugin の口も使う。"""
     try:
-        with open(path, encoding="utf-8") as f:
-            got = json.load(f)
-        got = got.get(section) if isinstance(got, dict) else None
-    except Exception:
+        tbl, _ = SV.load(SV.find(starts=_starts(payload)))
+    except Exception:  # noqa: BLE001  見張りの故障で窓を止めない
         return {}
+    got = tbl.get(section) if isinstance(tbl, dict) else None
     return got if isinstance(got, dict) else {}
+
+
+def values_problems(payload=None):
+    """(表の path, 表全体の問題の並び)。表が無ければ (None, [])。"""
+    path = SV.find(starts=_starts(payload))
+    table, problems = SV.load(path)
+    return path, problems + SV.check(table)
 
 
 def truthy(v):
