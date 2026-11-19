@@ -22,8 +22,8 @@ CI では exit 0 でない物は皆赤。
       AF_DENY_WORDS（1 行 1 語）／AF_DENY_WORDS_FILE（その形のファイルの path）
     CI（GITHUB_ACTIONS=true）でどれも無い時は黙って通さず止める。手元でどれも無い時だけ飛ばす（exit 3）。
 語そのものは出力に出さない（どこに当たったかだけを出す）。
---pattern-skip に名指したファイル: 印 `public-guard: 形の見本` が無い file は 1 段目の前の形（形を file ごと外す）。
-印が在る file は、印の行の個人の情報の形だけを外す（秘密の形は印の行でも外さない・印の無い行は全部照らす・置かない語と顧客の語は外さない）。
+--pattern-skip に名指したファイル: 1 段目は個人の情報の形を file ごと外す（前の形）。秘密の形は file 全体で照らす。
+置かない語と顧客の語は外さない。印の行だけに絞るのは 2 段目。
 
 使い方: python3 guard.py [--repo DIR] [--range REV|ALL] [--deny-words-file F] [--pattern-skip PATH ...] [--files-only]
         python3 guard.py --text <場所の名>=<file> [--text …] [--deny-words-file F]
@@ -232,16 +232,11 @@ SKIP_MARK = "public-guard: 形の見本"
 def skipped_pattern_hits(where: str, text: str) -> list[str]:
     """--pattern-skip のファイルの形の照らし（壊れる 1 段目）。
 
-    印が 1 行も無い file は前の形: 形の照らしを file ごと外す（秘密も個人の情報も）。使う側の CI をこの PR で赤にしない。
-    見つけ方は plugins/core/古い形.json の public-guard-skip-whole-file。印を 1 行でも書いた file は新しい形:
-    印の無い行は全部照らし、印の行は個人の情報の形だけ外し、秘密の形は印の行でも照らす。
+    個人の情報の形は前の形のまま file ごと外す（使う側の見本の行をこの PR で赤にしない）。
+    秘密の形は file 全体で照らす（前は file ごと外れて、本物の鍵が入っても緑だった）。
+    印の行だけに絞る 2 段目は、古い形 public-guard-skip-whole-file を畳む時。
     """
-    if SKIP_MARK not in text:
-        return []
-    lines = text.splitlines()
-    plain = "\n".join(ln for ln in lines if SKIP_MARK not in ln)
-    marked = "\n".join(ln for ln in lines if SKIP_MARK in ln)
-    return pattern_hits(where, plain) + [f"{where}: {label}" for label in secret_labels(marked)]
+    return [f"{where}: {label}" for label in secret_labels(text)]
 
 
 def word_hits(where: str, text: str, words: list[str]) -> list[str]:

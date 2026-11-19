@@ -77,7 +77,7 @@ jobs:
           deny-bundle: ${{ secrets.AF_DENY_BUNDLE }}
           deny-words: ${{ secrets.AF_DENY_WORDS }}
           deny-words-file: tests/data/denylist.txt
-          pattern-skip: public-guard/guard.py tests/test_public_guard.py
+          pattern-skip: public-guard/guard.py tests/test_public_guard.py plugins/core/古い形.json
 
   # 入れて起動する試験（scripts/plugin_smoke.py）。土台は版で止めず main の先端を配るので、合流の前に
   # 使う側と同じ入れ方（docs/核の届け方.md の setup script の塊を、目録だけ GitHub の <repo>#<枝> に替えてそのまま回す）で入れて窓を起動し、

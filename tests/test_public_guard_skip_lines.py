@@ -1,7 +1,7 @@
-"""--pattern-skip は file 全体でなく、印 `public-guard: 形の見本` を書いた行の個人の情報の形だけを外す（注入の試験）。
+"""--pattern-skip の 1 段目（注入の試験）。
 
-前の形: pattern-skip に名指した file（土台では guard.py と tests/test_public_guard.py）は、中身も歴史も秘密・個人の
-情報の形の照らしから丸ごと外れ、本物の鍵が入っても緑だった。今の形: 印の無い行は全部照らし、印の行でも秘密の形は照らす。
+前の形: 名指した file は秘密も個人の情報の形も file ごと外れた。1 段目: 個人の情報の形は file ごと外したまま
+（使う側の見本の行を赤にしない）、秘密の形は file 全体で照らす。印の行だけに絞るのは 2 段目。
 """
 import pytest
 
@@ -28,12 +28,12 @@ def test_1段目_印の無い_file_は前の形で形を_file_ごと外す(tmp_p
     assert r.returncode == 0, r.stdout
 
 
-def test_注入_印を書いた_file_の印の無い行は赤(tmp_path):
-    """印を 1 行でも書いた file は新しい形。印の無い行の個人の情報は赤（%r は改行を字にするので、行は file に分けて書く）。"""
+def test_1段目_印を書いた_file_でも個人の情報の形は_file_ごと外す(tmp_path):
+    """1 段目は個人の情報の形を file ごと外す。印の無い行を赤にするのは 2 段目。"""
     repo = make_repo(tmp_path / "r")
     commit(repo, {"pat.py": "EXAMPLE = %r\n# %s\n" % ("電話 " + PHONE, MARK)})
     r = cli(repo, "--range", "ALL", "--pattern-skip", "pat.py", env_extra=ENV)
-    assert r.returncode == 1 and "pat.py: 電話番号" in r.stdout and "commit" in r.stdout, r.stdout
+    assert r.returncode == 0 and "電話番号" not in r.stdout, r.stdout
 
 
 @pytest.mark.parametrize("line, label", [
@@ -50,8 +50,8 @@ def test_印の行でも顧客の語は外さない(tmp_path):
     assert r.returncode == 1 and "顧客の語" in r.stdout, r.stdout
 
 
-def test_土台の_skip_の_file_の形の行には皆印が在る():
-    """ci.yml の pattern-skip の file で、個人の情報の形に当たる行は印の行だけ（印の無い行が当たれば CI が赤になる）。"""
+def test_土台の_skip_の_file_に秘密の形は無い():
+    """ci.yml の pattern-skip の file に秘密の形が無い（1 段目は秘密の形を file 全体で照らす）。"""
     import workflow_reader as W
     ci = (guard.Path(guard.__file__).resolve().parent.parent / ".github" / "workflows" / "ci.yml")
     (call,) = [c for c in W.counted(ci.read_text(encoding="utf-8"), "") if c.check == "public-guard"]
