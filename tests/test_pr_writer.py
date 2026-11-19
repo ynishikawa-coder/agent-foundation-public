@@ -1,4 +1,4 @@
-"""PR 本文の `書いた窓:` を先端の commit の `Claude-Session:` で照らす（scripts/pr_writer.py の注入の試験）。
+"""PR 本文の `書いた窓:` を先端の commit の `Claude-Session:` で照らす（plugins/checker/scripts/pr_writer.py の注入の試験）。
 
 前の形: 本文の `書いた窓:` は最初に PR を出した窓が手で書き、直しの往復で別の窓が commit しても付いて来なかった
 （別の目の照らしは本文の窓を書いた窓として読む）。今の形: 先端の commit の窓と違えば CI の job check で赤。
@@ -9,7 +9,7 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-TOOL = ROOT / "scripts" / "pr_writer.py"
+TOOL = ROOT / "plugins" / "checker" / "scripts" / "pr_writer.py"
 CHECK = ROOT / "scripts" / "checks" / "pr_writer.sh"
 A, B = "session_01AAAAAAAAAAAAAAAAAAAAAAAA", "session_01BBBBBBBBBBBBBBBBBBBBBBBB"
 BRANCH = "claude/20261119-test"
@@ -52,7 +52,7 @@ def run(repo, head, body, branch=BRANCH):
 
 
 def body(writer):
-    return f"親窓: {A}\n書いた窓: {writer}\njob: 20261119-test\n検査: x\n\n## 何をどう変えたか\n"
+    return f"書いた窓: {writer}\njob: 20261119-test\n検査: x\n\n## 何をどう変えたか\n"
 
 
 def test_合格_本文の窓と先端の窓が同じなら緑(tmp_path):
@@ -90,7 +90,7 @@ def test_注入_Claude_Session_の無い_PR_は赤(tmp_path):
 
 def test_注入_本文に書いた窓が無い_形でないは赤(tmp_path):
     repo, head = repo_with(tmp_path, [A])
-    assert run(repo, head, "親窓: x\n")[0] == 1
+    assert run(repo, head, "job: x\n")[0] == 1
     assert run(repo, head, body("<session id>"))[0] == 1
 
 
@@ -124,6 +124,7 @@ def test_CI_の_job_check_が本文と先端を渡す():
 def test_入口は_PR_で本文が違えば赤(tmp_path):
     repo, head = repo_with(tmp_path, [A, B])
     (repo / "scripts" / "checks").mkdir(parents=True)
+    (repo / "plugins" / "checker" / "scripts").mkdir(parents=True)
     for p in (TOOL, CHECK):
         (repo / p.relative_to(ROOT)).write_bytes(p.read_bytes())
     git(repo, "update-ref", "refs/remotes/origin/main", "main")

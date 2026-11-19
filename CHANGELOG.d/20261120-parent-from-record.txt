@@ -1,0 +1,5 @@
+- 壊れる（1 段目）: PR の型の頭の `親窓:` の欄を畳んだ（手で書く写しで、どの道具も窓の親の記録と照らせない。窓の親はサーバの記録 get_session の parent_session_id を読む）。使う側の `.github/pull_request_template.md` に残る `親窓:` の行は古い形 `pr-parent-field` として起動の hook が名指すので、その repo の窓が消す。古い本文は守りの hook がまだ通す（2 段目で頭の塊の `親窓:` も窓の id として数える）。
+- 直した: 子の窓の見分けの記録を guard の guard_common.seeded_by_record の 1 か所にした。最初の頼みを受けた時（会話ログに行がまだ無い）は窓の環境の CLAUDE_CODE_CHILD_SESSION を読み、親が付けた題を付け直す知らせを出す。session-watch は人の頼みの印（human・person）の写しを消し、隣の正本を直に読む。
+- 直した: 書いた窓の組を出す道具 pr_writer.py を plugin checker の中へ移した（review-pr が呼ぶ道具が使う側の repo に無かった）。土台の CI は plugins/checker/scripts/pr_writer.py を呼ぶ。
+- 直した: 守りの hook が判定を出す前に PR の commit を引く時、GitHub の一覧が 250 本で切れて全部を引けなければ判定を通さない（切れた先の書いた窓が組から落ちていた）。
+- 直した: skill title-mark と session_watch の説明の「誰が立てたか（origin）では決めない」を、立てた記録は返し先の写しを数えるかの照らしにだけ使う形に合わせた。

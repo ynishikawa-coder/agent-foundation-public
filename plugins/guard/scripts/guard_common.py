@@ -213,16 +213,20 @@ def is_owner_row(row):
             and bool(text_of(row).strip()))
 
 
-# 人が打った頼みの記録（会話ログの行の origin.kind。Claude Code が頼みを受けた口で付ける＝文の中身では変わらない）
+# 人が打った頼みの記録（会話ログの行の origin.kind。Claude Code が頼みを受けた口で付ける＝文の中身では変わらない）。
+# 正本はここ 1 か所（plugin session-watch も隣の正本としてこれを直に読む＝写さない）。
 HUMAN_ORIGINS = ("human", "person")
+# 窓の親の記録: 別の窓が create_session で立てた窓に、クラウドの仕組みが窓の環境へ入れる印（道具の呼び出しの文では変わらない）。
+CHILD_SESSION_ENV = "CLAUDE_CODE_CHILD_SESSION"
 
 
-def seeded_by_record(row):
-    """頼みの行が、人が打った物でなく別の窓・仕組みから来た事を、行の記録が示すか。
-    記録: origin.kind が人の物でない（別の窓の create_session・send_message・知らせ等）か promptSource が system。
+def seeded_by_record(row, env=None):
+    """頼みの行が、人が打った物でなく別の窓・仕組みから来た事を、記録が示すか（子の窓の見分けの記録の正本）。
+    記録: 頼みの行が在れば行の origin.kind が人の物でない（別の窓の create_session・send_message・知らせ等）か
+    promptSource が system。頼みの行がまだ無い時（最初の頼みを受けた hook）は、窓の環境の CHILD_SESSION_ENV。
     記録が無い・読めない時は False（文だけで子の窓と決めない）。"""
     if not isinstance(row, dict):
-        return False
+        return truthy((os.environ if env is None else env).get(CHILD_SESSION_ENV))
     origin = row.get("origin")
     if isinstance(origin, dict) and isinstance(origin.get("kind"), str) and origin["kind"]:
         return origin["kind"] not in HUMAN_ORIGINS

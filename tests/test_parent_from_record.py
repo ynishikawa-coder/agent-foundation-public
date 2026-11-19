@@ -1,0 +1,110 @@
+"""窓の親の記録と人の頼みの印を、1 つの正本から直に読む注入の試験（台帳の 3 行: 最初の知らせ・本文の親窓の欄・人の印の写し）。
+
+前の形:
+  - 最初の知らせ（session-watch の remind_title）は、会話ログに頼みの行がまだ無い時に頼みの文しか読めず、子の窓と決めなかった。
+  - PR 本文の頭の `親窓:` の欄は手で書いた写しで、どの道具も窓の親の記録と照らさず、窓の id の照らしからも外していた。
+  - 人の頼みの印（origin.kind の human・person）を guard の guard_common と session-watch の session_watch の 2 か所に写していた。
+今の形: 子の窓かの記録は guard_common.seeded_by_record の 1 か所（頼みの行の origin、行が無い時は窓の環境の
+`CLAUDE_CODE_CHILD_SESSION`）。session_watch はそれを隣の正本として直に読む。`親窓:` の欄は畳んだ（親は get_session の記録）。
+"""
+import importlib.util
+import json
+from pathlib import Path
+
+import pytest
+
+from test_pr_text import STRANGER, WRITER, cleanup_body, deny_reason, env, gh  # noqa: F401  env は fixture
+from test_session_watch import CLOUD, sw
+
+ROOT = Path(__file__).resolve().parent.parent
+GC_PATH = ROOT / "plugins" / "guard" / "scripts" / "guard_common.py"
+CHILD = "作り物を見て（親窓 session_X の子）"
+CHILD_ENV = dict(CLOUD, CLAUDE_CODE_CHILD_SESSION="1")
+
+
+def load_gc():
+    spec = importlib.util.spec_from_file_location("gc_for_parent_test", GC_PATH)
+    m = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(m)
+    return m
+
+
+def empty_log(tmp_path):
+    log = tmp_path / "empty.jsonl"
+    log.write_text("", encoding="utf-8")
+    return str(log)
+
+
+# ── 1. 最初の知らせ: 会話ログに行が無い時は窓の環境の記録を読む ──
+def test_注入_ログに行が無くても環境の記録が子なら子の窓の知らせ(tmp_path):
+    text = sw.remind({"prompt": CHILD, "transcript_path": empty_log(tmp_path)}, CHILD_ENV)
+    assert text and "付け直す" in text, text
+
+
+def test_ログに行が無く環境の記録も無ければ文だけで子の窓にしない(tmp_path):
+    text = sw.remind({"prompt": CHILD, "transcript_path": empty_log(tmp_path)}, CLOUD)
+    assert text and "付け直す" not in text, text
+
+
+def test_環境の記録が子でも返し先がオーナーなら_オーナー相手の窓(tmp_path):
+    text = sw.remind({"prompt": "作り物を見て（返し先=オーナー）", "transcript_path": empty_log(tmp_path)}, CHILD_ENV)
+    assert text and "付け直す" not in text and "🙋（最初の頼みの返し先から）" in text, text
+
+
+def test_注入_頼みの行が人の記録なら環境の記録より行を正本にする():
+    gc = load_gc()
+    row = {"type": "user", "message": {"content": CHILD}, "origin": {"kind": "human"}}
+    assert gc.seeded_by_record(row, {"CLAUDE_CODE_CHILD_SESSION": "1"}) is False
+    assert gc.seeded_by_record(None, {"CLAUDE_CODE_CHILD_SESSION": "1"}) is True
+    assert gc.seeded_by_record(None, {}) is False
+
+
+# ── 3. 人の頼みの印は guard_common の 1 か所だけ ──
+def test_注入_session_watch_に人の印の写しを置かない():
+    assert not hasattr(sw, "HUMAN_ORIGINS"), "人の印の表を session_watch に写している（正本は guard_common）"
+
+
+def test_注入_正本の人の印を変えると_session_watch_の判定も変わる(monkeypatch):
+    G = sw.neighbor("guard_common")
+    assert G is not None
+    row = {"type": "user", "message": {"content": CHILD}, "origin": {"kind": "task-notification"}}
+    assert sw.Log([row]).first_seeded is True
+    monkeypatch.setattr(G, "HUMAN_ORIGINS", G.HUMAN_ORIGINS + ("task-notification",))
+    assert sw.Log([row]).first_seeded is False
+
+
+# ── 2. PR 本文の `親窓:` の欄は畳んだ（照らせない写しを置かない）──
+def test_PR_の型に親窓の欄を置かない():
+    t = (ROOT / ".github" / "pull_request_template.md").read_text(encoding="utf-8")
+    assert not any(ln.startswith("親窓") for ln in t.splitlines())
+
+
+def test_使う側の型に残る親窓の欄は古い形として名指す():
+    """壊れる（1 段目）: 土台の型から畳み、使う側の型に残る欄は古い形の一覧で起動の hook が名指す（古い本文はまだ通す）。"""
+    import re
+    olds = json.loads((ROOT / "plugins" / "core" / "古い形.json").read_text(encoding="utf-8"))["olds"]
+    row = next(o for o in olds if o["id"] == "pr-parent-field")
+    assert ".github/pull_request_template.md" in row["files"]
+    assert re.search(row["pattern"], "親窓: <session id>", re.M)
+
+
+# ── #93 のレビューの台帳: review-pr が指す道具は plugin の中に在る（使う側の repo に土台の scripts/ は無い）──
+def test_注入_review_pr_が呼ぶ道具は全部_plugin_の中に在る():
+    import re
+    plugin = ROOT / "plugins" / "checker"
+    s = (plugin / "skills" / "review-pr" / "SKILL.md").read_text(encoding="utf-8")
+    calls = re.findall(r"python3\s+\"?([^\s\"`]+\.py)", s)
+    assert calls, "review-pr の SKILL.md に道具の呼び出しが無い"
+    for c in calls:
+        assert c.startswith("${CLAUDE_PLUGIN_ROOT}/"), "plugin の外の道具を呼んでいる（使う側の repo に無い）: " + c
+        assert (plugin / c.split("/", 1)[1]).is_file(), c
+
+
+def test_注入_PR_の_commit_を全部引けなければ判定を通さない(env):
+    """GitHub の PR の commit の一覧は 250 本で切れる。切れた先の commit を書いた窓が組から落ち、別の目として通っていた。"""
+    from test_pr_text import REVIEWER, _fake_gh, verdict_comment
+    _fake_gh(env, commits=[WRITER], total=300)
+    why = deny_reason(env, gh("add_issue_comment", issue_number=1, body=verdict_comment()))
+    assert "全部は引けない" in why, why
+    _fake_gh(env, commits=[WRITER])
+    assert deny_reason(env, gh("add_issue_comment", issue_number=1, body=verdict_comment())) == ""

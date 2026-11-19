@@ -91,6 +91,16 @@
       "pattern": "(?m)(?:^|[「『【\\[\"'`“])[ \\t#*]*他の窓へ回す",
       "fix": "欄を「## 残り（原因の台帳の行）」にし、残りは原因の台帳に行を入れてから行の題と行き先だけを写す（土台の .github/pull_request_template.md の形）",
       "example": "## 他の窓へ回す"
+    },
+    {
+      "id": "pr-parent-field",
+      "what": "PR の型の頭の `親窓:` の欄（手で書く写しで、どの道具も窓の親の記録と照らせない）",
+      "files": [
+        ".github/pull_request_template.md"
+      ],
+      "pattern": "^親窓\\s*[:：]",
+      "fix": "PR の型から `親窓:` の行を消す。窓の親はサーバの記録（get_session の parent_session_id）を読む",
+      "example": "親窓: <session id>"
     }
   ]
 }
