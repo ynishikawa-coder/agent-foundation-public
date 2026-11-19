@@ -14,7 +14,15 @@
       関わらない問いは冒頭で画面に出さず締めの 1 行で知らせる。
   drop（命令: python3 unanswered.py drop <key>... --why <一言>／list）
     - AI が答え済み・もう要らないと見た問いを台帳から降ろす（降ろした控えは dropped_recent に残る）。
+    - 台帳に残る問いは全部渡す（頭の N 件で切らない。出し直す問いが 4 を越えたら 4 問ずつ続けて出させる）。
     - 台帳の寿命は最後に出てから LEDGER_TTL_HOURS（古い問いが毎回鳴らない。1 時間答えの無い問いは親の窓が知らせる）。
+      寿命を過ぎた問いは黙って消さない: 読む・積む時は残し、次の resurface で文面ごと一度知らせてから降ろす
+      （降ろした控えは台帳の expired_recent に残る）。
+    - 行の状態（生きている／寿命切れ／文面が無い）の正本は row_state の 1 つ。resurface・人のいない窓・list が同じに読む
+      （口ごとに別の filter で決めると、どの口にも載らない行が黙って残る）。
+    - 人のいない窓（unattended_env が真）の SessionStart は、寿命切れと文面の無い行を黙って控え（expired_recent・
+      notified=false）へ移すだけ。知らせは次の人のいる窓の resurface が、まだ知らせていない控えごと一度出す。
+    - 文面（question）の無い行は出し直せない＝欠けた材料。生きていても寿命切れと同じに知らせて降ろす。
   離席の窓（away）
     - 窓（セッション）ごとの印 1 個。止める側は在席中は stat 1 回で終わる。持ち越した問いは窓を開けない
       ＝1 件の未回答がずっと戻せない操作を塞ぐことは起きない。
@@ -46,7 +54,7 @@ SCHEMA = "af-guard/unanswered/v1"
 LEDGER_NAME = "unanswered-questions.json"
 ANSWERED_KEEP = 20     # 観測用に残す「答えが返った問い」「降ろした問い」の上限（判定には使わない）
 CONTAIN_MIN = 16       # 文面の含有で同じ問いとみなす最低の長さ（短い問い同士の取り違えを防ぐ）
-MAX_SHOW = 4           # 冒頭で出し直させる上限（モーダルは 1 回 4 問まで）
+ASK_BATCH = 4          # モーダル 1 回に載る問いの数（出し直しはこの数ずつ続けて出させる）
 LEDGER_TTL_HOURS = 24  # 台帳の寿命（最後に出てから）
 ROOT_CAUSE = ("出し直すだけで済ませず、答えが返らなかった原因（聞く時・問いの形・聞き方）を"
               "細目 §3「まず構造を疑う」で探して直してください。")
@@ -134,12 +142,33 @@ def ledger_path(vals, payload=None):
 
 
 def _empty():
-    return {"schema": SCHEMA, "pending": [], "answered_recent": [], "dropped_recent": []}
+    return {"schema": SCHEMA, "pending": [], "answered_recent": [], "dropped_recent": [], "expired_recent": []}
 
 
 def _fresh(p):
     ts = G.parse_ts(p.get("last_seen_at")) if isinstance(p, dict) else None
     return ts is not None and (G.parse_ts(G.now_utc()) - ts).total_seconds() < LEDGER_TTL_HOURS * 3600
+
+
+def row_state(p):
+    """台帳の 1 行の状態の正本: "live"（出し直す）／"expired"（寿命切れ）／"broken"（文面が無く出し直せない）。
+    dict でない行は None（_parse が先に捨てる）。"""
+    if not isinstance(p, dict):
+        return None
+    if not norm(p.get("question")):
+        return "broken"
+    return "live" if _fresh(p) else "expired"
+
+
+def _unnotified(e):
+    """控え（expired_recent）の行で、まだ人のいる窓で知らせていない物（人のいない窓が移した物）。"""
+    return isinstance(e, dict) and e.get("notified") is False
+
+
+def _trim_expired(recent):
+    """控えの上限は知らせ済みの物にだけ当てる（まだ知らせていない物は上限で黙って落とさない）。"""
+    done = [e for e in recent if not _unnotified(e)]
+    return done[-ANSWERED_KEEP:] + [e for e in recent if _unnotified(e)]
 
 
 def _parse(raw):
@@ -149,10 +178,10 @@ def _parse(raw):
         return _empty()
     if not isinstance(d, dict):
         return _empty()
-    for k in ("pending", "answered_recent", "dropped_recent"):
+    for k in ("pending", "answered_recent", "dropped_recent", "expired_recent"):
         if not isinstance(d.get(k), list):
             d[k] = []
-    d["pending"] = [p for p in d["pending"] if _fresh(p)]      # 寿命を過ぎた問いは読む時に降ろす
+    d["pending"] = [p for p in d["pending"] if isinstance(p, dict)]   # 寿命を過ぎた問いも残す（降ろすのは知らせてから）
     d["schema"] = SCHEMA
     return d
 
@@ -256,6 +285,31 @@ def drop(data, keys, why):
     return gone
 
 
+def retire(data, keys, notified, notified_marks=(), keyless=0):
+    """寿命切れ・文面の無い行を台帳から降ろし、控えを expired_recent へ。戻り値＝降ろした件数。
+    keys に在る行と、key の無い文面なしの行を読んだ数（keyless）までだけを、降ろす直前に row_state で照らし直して
+    降ろす（読んでから書くまでに積まれた・積み直された行は、知らせずに降ろさない）。notified=False は人のいない窓が黙って移す時。
+    notified_marks（(key, expired_at) の並び）は、知らせ終えた控えに印を付ける。"""
+    now = G.now_utc()
+    keep, gone = [], []
+    for p in data.get("pending", []):
+        st = row_state(p)
+        hit = st in ("expired", "broken") and p.get("key") in keys
+        if st == "broken" and not p.get("key") and keyless > 0:
+            hit, keyless = True, keyless - 1
+        (gone if hit else keep).append(p)
+    data["pending"] = keep
+    recent = list(data.get("expired_recent") or [])
+    marks = set(notified_marks)
+    for e in recent:
+        if _unnotified(e) and (e.get("key"), e.get("expired_at")) in marks:
+            e["notified"] = True
+    recent += [{"key": p.get("key"), "question": p.get("question"), "state": row_state(p),
+                "expired_at": now, "notified": notified} for p in gone]
+    data["expired_recent"] = _trim_expired(recent)
+    return len(gone)
+
+
 # ── 離席の窓（窓＝セッションの中だけで閉じる）──
 def away_path(session_id):
     sid = G.safe_id(session_id)
@@ -330,46 +384,100 @@ def capture(data, vals):
         open_away(session_id, unanswered)
     if not unanswered:
         return ""
-    stems = " / ".join("「%s」" % i["question"][:48] for i in unanswered[:4])
+    stems = " / ".join("「%s」" % i["question"][:48] for i in unanswered)
     return REMINDER.format(n=len(unanswered), stems=stems, ttl=LEDGER_TTL_HOURS, ledger=path or "(置き場を決められず)")
 
 
+def _lines_for(n, it, with_key=True):
+    out = []
+    if with_key:
+        out.append("%d. key: %s（初めて閉じた %s・閉じた回数 %s）" % (
+            n, it.get("key", ""), str(it.get("first_seen_at", ""))[:16], it.get("timeouts", 1)))
+        out.append("   question: %s" % it.get("question", ""))
+    else:
+        out.append("%d. question: %s" % (n, it.get("question", "")))
+    if it.get("header"):
+        out.append("   header: %s" % it["header"])
+    for o in it.get("options") or []:
+        out.append("   - %s : %s" % (o.get("label", ""), (o.get("description") or "")[:160]))
+    out.append("")
+    return out
+
+
+def _quiet_retire(path):
+    """人のいない窓: 寿命切れ・文面の無い行を、知らせずに控えへ移す（知らせは次の人のいる窓）。台帳が無ければ作らない。"""
+    if not path or not os.path.isfile(path):
+        return
+    old = [p for p in read_ledger(path).get("pending", []) if row_state(p) not in (None, "live")]
+    keys = {p.get("key") for p in old if p.get("key")}
+    keyless = sum(1 for p in old if not p.get("key"))
+    if old:
+        update_ledger(path, lambda d: retire(d, keys, notified=False, keyless=keyless))
+
+
+def _expired_line(n, it):
+    if row_state(it) == "broken" or not norm(it.get("question")):
+        return ["%d. （文面が無い行・key: %s。出し直せないので降ろす）" % (n, it.get("key") or "なし"), ""]
+    return _lines_for(n, it, with_key=False)
+
+
 def resurface(data, vals):
-    """SessionStart。台帳に残る問いを出し直させる文（無ければ ""）。"""
-    if G.unattended_by_env(vals):
-        return ""
+    """SessionStart。台帳に残る問いを全部渡し、寿命を過ぎた・文面の無い問いは知らせてから降ろす文（無ければ ""）。
+    人のいない窓では知らせず、寿命切れ・文面の無い行を控えへ移すだけ（次の人のいる窓が知らせる）。"""
     path = ledger_path(vals, data)
-    items = [p for p in read_ledger(path).get("pending", []) if isinstance(p, dict) and p.get("question")]
-    if not items:
+    if G.unattended_by_env(vals):
+        _quiet_retire(path)
         return ""
-    lines = ["<unanswered-question-carryover>",
-             "前の窓で答えのないまま閉じた問いが %d 件あります。今の窓の流れの中で、1 件ずつ次のどれかにします。" % len(items),
-             "- 答え済み（今の頼み・会話・決定の記録で答えが出ている）か、もう要らない問い → 出さずに台帳から降ろす:",
-             "    %s" % DROP_CMD,
-             "- 今の頼みと関わる問い → 出す前にチャットで前提（何の件で・なぜまだ答えが要るか）を 1〜2 文書き、"
-             "AskUserQuestion で出し直す。問いの文は今の流れに合わせて短く言い直してよい。言い直した問いに答えが"
-             "返ったら、元の問いを上の drop で降ろす（言い直した問いを機械は元の問いと結ばない）。",
-             "- 今の頼みと関わらない問い → この窓の最初に画面で出さない。返事の締めの「あなたがやること」に 1 行"
-             "（何の件の問いが残っているか）で知らせ、オーナーが求めた時に出す。",
-             "同じ問いを言い方だけ変えて何度も出さない。",
-             ROOT_CAUSE, ""]
-    for n, it in enumerate(items[:MAX_SHOW], 1):
-        lines.append("%d. key: %s（初めて閉じた %s・閉じた回数 %s）" % (
-            n, it.get("key", ""), it.get("first_seen_at", "")[:16], it.get("timeouts", 1)))
-        lines.append("   question: %s" % it.get("question", ""))
-        if it.get("header"):
-            lines.append("   header: %s" % it["header"])
-        for o in it.get("options") or []:
-            lines.append("   - %s : %s" % (o.get("label", ""), (o.get("description") or "")[:160]))
+    ledger = read_ledger(path)
+    rows = [p for p in ledger.get("pending", []) if row_state(p)]
+    items = [p for p in rows if row_state(p) == "live"]
+    gone = [p for p in rows if row_state(p) != "live"]
+    moved = [e for e in ledger.get("expired_recent", []) if _unnotified(e)]   # 人のいない窓が移した物
+    expired = moved + gone
+    if not items and not expired:
+        return ""
+    # 寿命切れの知らせを前に置く（文の後ろが切られても、降ろす問いは読まれる）
+    lines = ["<unanswered-question-carryover>"]
+    if expired:
+        lines += ["次の %d 件は最後に出てから %d 時間を過ぎたので、台帳から降ろします（文面が無い行は出し直せないので"
+                  "一緒に降ろす。この知らせが最後です）。" % (len(expired), LEDGER_TTL_HOURS),
+                  "今の頼みと関わってまだ要る問いなら、前提を添えて AskUserQuestion で出し直してください"
+                  "（出せば台帳に積み直されます）。", ""]
+        for n, it in enumerate(expired, 1):
+            lines += _expired_line(n, it)
+        keys = {p.get("key") for p in gone if p.get("key")}
+        keyless = sum(1 for p in gone if not p.get("key"))
+        marks = [(e.get("key"), e.get("expired_at")) for e in moved]
+        if not update_ledger(path, lambda d: retire(d, keys, notified=True, notified_marks=marks, keyless=keyless)):
+            lines.append("（台帳を書けず、降ろせませんでした。次の窓でもう一度知らせます）")
+        lines += ["降ろした問いの控え: 台帳 %s の expired_recent" % path]
+        if not items:
+            lines.append(ROOT_CAUSE)     # 寿命切れだけの時も、答えが返らなかった原因へ向ける
         lines.append("")
-    if len(items) > MAX_SHOW:
-        lines.append("（ほか %d 件は台帳に残ります。モーダルは 1 回 4 問までなので次の機会に）" % (len(items) - MAX_SHOW))
-    lines.append("答えが返れば台帳から自動で降ります。また閉じれば次の窓へ持ち越します。台帳: %s" % path)
-    lines.append("降ろす時の key は上の各行の key。")
+    if items:
+        lines += ["前の窓で答えのないまま閉じた問いが %d 件あります。今の窓の流れの中で、1 件ずつ次のどれかにします。" % len(items),
+                  "- 答え済み（今の頼み・会話・決定の記録で答えが出ている）か、もう要らない問い → 出さずに台帳から降ろす:",
+                  "    %s" % DROP_CMD,
+                  "- 今の頼みと関わる問い → 出す前にチャットで前提（何の件で・なぜまだ答えが要るか）を 1〜2 文書き、"
+                  "AskUserQuestion で出し直す。問いの文は今の流れに合わせて短く言い直してよい。言い直した問いに答えが"
+                  "返ったら、元の問いを上の drop で降ろす（言い直した問いを機械は元の問いと結ばない）。"
+                  "出す問いが %d を越えたら %d 問ずつ続けて出す（どの問いも飛ばさない）。" % (ASK_BATCH, ASK_BATCH),
+                  "- 今の頼みと関わらない問い → この窓の最初に画面で出さない。返事の締めの「あなたがやること」に 1 行"
+                  "（何の件の問いが残っているか）で知らせ、オーナーが求めた時に出す。",
+                  "同じ問いを言い方だけ変えて何度も出さない。下の %d 件を全部、どれかにする。" % len(items),
+                  ROOT_CAUSE, ""]
+        for n, it in enumerate(items, 1):
+            lines += _lines_for(n, it)
+        lines.append("答えが返れば台帳から自動で降ります。また閉じれば次の窓へ持ち越します。台帳: %s" % path)
+        lines.append("降ろす時の key は上の各行の key。")
     lines.append("</unanswered-question-carryover>")
     return "\n".join(lines)
 
 
+LIST_MARK = {"live": "",
+             "expired": "[寿命切れ・次の窓の冒頭で知らせて降ろす] ",
+             "broken": "[文面が無い・次の窓の冒頭で知らせて降ろす] ",
+             "moved": "[寿命切れ・人のいない窓が控えへ移した・次の人のいる窓で知らせる] "}
 DROP_CMD = 'python3 "%s" drop <key> --why "<答え済み・要らない訳を一言>"' % os.path.abspath(__file__)
 
 
@@ -378,19 +486,29 @@ def cli(argv):
     payload = {"cwd": os.getcwd()}
     vals = G.values(payload)
     path = ledger_path(vals, payload)
-    if not argv or argv[0] not in ("drop", "list"):
-        sys.stderr.write("使い方: unanswered.py drop <key>... [--why 文] ／ unanswered.py list\n")
+    usage = "使い方: unanswered.py drop <key>... --why 文 ／ unanswered.py list\n"
+    if not argv or argv[0] not in ("drop", "list") or (argv[0] == "list" and argv[1:]):
+        sys.stderr.write(usage)
         return 2
     if argv[0] == "list":
-        for p in read_ledger(path).get("pending", []):
-            if isinstance(p, dict):
-                print("%s\t%s" % (p.get("key", ""), p.get("question", "")))
+        ledger = read_ledger(path)
+        for p in ledger.get("pending", []):
+            if row_state(p):
+                print("%s\t%s%s" % (p.get("key", ""), LIST_MARK[row_state(p)], p.get("question", "")))
+        for e in ledger.get("expired_recent", []):
+            if _unnotified(e):
+                print("%s\t%s%s" % (e.get("key", ""), LIST_MARK["moved"], e.get("question") or ""))
         return 0
     args, why = list(argv[1:]), ""
     if "--why" in args:
         i = args.index("--why")
         why = " ".join(args[i + 1:]).strip()
         args = args[:i]
+    # 知らない印・2 度目の --why は既定で止める（key や訳の文に紛れて黙って通さない）
+    bad = [a for a in args + why.split() if a.startswith("--")]   # 訳の側に紛れた印（2 度目の --why も）も止める
+    if bad:
+        sys.stderr.write("知らない印: %s\n%s" % (" ".join(bad), usage))
+        return 2
     if not args or not why:
         sys.stderr.write("drop には key と --why（答え済み・要らない訳）が要る\n")
         return 2

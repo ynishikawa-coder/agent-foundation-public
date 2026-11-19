@@ -147,10 +147,17 @@ def report_issue(gh: GitHub, here: str, found: dict, text: str) -> None:
     issues = [i for i in gh.pages(f"/repos/{here}/issues?state=open")
               if i.get("title") == ISSUE_TITLE and "pull_request" not in i]
     if found:
-        if issues:
-            gh.req(f"/repos/{here}/issues/{issues[0]['number']}", "PATCH", {"body": text})
-        else:
+        if not issues:
             gh.req(f"/repos/{here}/issues", "POST", {"title": ISSUE_TITLE, "body": text})
+            return
+        # 同じ題の issue が 2 つ以上開いていれば、いちばん古い 1 つを書き替え、残りは行き先を書いて閉じる
+        # （1 つ目だけ直して残りを古い本文のまま開いておかない）
+        keep, *dups = sorted(issues, key=lambda i: i["number"])
+        gh.req(f"/repos/{here}/issues/{keep['number']}", "PATCH", {"body": text})
+        for i in dups:
+            gh.req(f"/repos/{here}/issues/{i['number']}/comments", "POST",
+                   {"body": f"同じ題の issue が重なっていたので、#{keep['number']} へまとめて閉じます。"})
+            gh.req(f"/repos/{here}/issues/{i['number']}", "PATCH", {"state": "closed", "state_reason": "not_planned"})
     else:
         for i in issues:
             gh.req(f"/repos/{here}/issues/{i['number']}/comments", "POST", {"body": text})

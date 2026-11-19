@@ -297,14 +297,124 @@ def test_助手の中では文脈を見ない(env, tmp_path):
     assert hook(env, "post", post_tool(tpath)) == {}
 
 
-def test_寿命を過ぎた問いは冒頭に出ない(env, tmp_path):
-    hook(env, "post", ask_result())
+def _age_ledger(tmp_path, keys=None):
     ledger = next((tmp_path / "state").rglob("unanswered-questions.json"))
     data = json.loads(ledger.read_text(encoding="utf-8"))
     for p in data["pending"]:
-        p["last_seen_at"] = "2000-01-01T00:00:00.000000Z"
+        if keys is None or p["key"] in keys:
+            p["last_seen_at"] = "2000-01-01T00:00:00.000000Z"
     ledger.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
-    assert hook(env, "start", {"session_id": "s2"}) == {}
+    return data
+
+
+def test_寿命を過ぎた問いは黙って消さず_一度知らせてから降ろす(env, tmp_path):
+    hook(env, "post", ask_result())
+    _age_ledger(tmp_path)
+    note = hook(env, "start", {"session_id": "s2"}).get("additionalContext", "")
+    assert "時間を過ぎたので、台帳から降ろします" in note and "作り物の置き場を A と B のどちらにしますか" in note
+    assert "前の窓で答えのないまま閉じた問い" not in note          # 出し直しの頼みには入れない
+    assert "答えが返らなかった原因" in note                          # 寿命切れだけでも根治の入口を指す
+    assert hook(env, "start", {"session_id": "s3"}) == {}           # 知らせたのは一度だけ
+    ledger = next((tmp_path / "state").rglob("unanswered-questions.json"))
+    assert [e["question"] for e in json.loads(ledger.read_text(encoding="utf-8"))["expired_recent"]] == \
+        ["作り物の置き場を A と B のどちらにしますか"]
+
+
+def test_寿命を過ぎた問いも次の問いを積む時には消えない(env, tmp_path):
+    hook(env, "post", ask_result())
+    _age_ledger(tmp_path)
+    hook(env, "post", many_questions(1, sid="s2", start=9))        # 別の問いを積む＝台帳を書き直す
+    note = hook(env, "start", {"session_id": "s3"})["additionalContext"]
+    assert "作り物の置き場を A と B のどちらにしますか" in note and "作り物の問い 9 番" in note
+    assert note.index("台帳から降ろします") < note.index("前の窓で答えのないまま閉じた問い")   # 切られても先に読まれる
+
+
+def test_人のいない窓だけが続いても寿命切れは台帳に残らず_次の人のいる窓で一度知らせる(env, tmp_path):
+    hook(env, "post", ask_result())
+    _age_ledger(tmp_path)
+    env["AF_UNATTENDED"] = "1"
+    assert hook(env, "start", {"session_id": "n1"}) == {}            # 人のいない窓は知らせない
+    ledger = next((tmp_path / "state").rglob("unanswered-questions.json"))
+    data = json.loads(ledger.read_text(encoding="utf-8"))
+    assert data["pending"] == []                                      # 台帳には残らない
+    assert [e["notified"] for e in data["expired_recent"]] == [False]
+    assert "人のいない窓が控えへ移した" in run_cli(env, "list").stdout   # 一覧にも印つきで出る
+    del env["AF_UNATTENDED"]
+    note = hook(env, "start", {"session_id": "s2"}).get("additionalContext", "")
+    assert "台帳から降ろします" in note and "作り物の置き場を A と B のどちらにしますか" in note
+    assert hook(env, "start", {"session_id": "s3"}) == {}           # 知らせたのは一度だけ
+
+
+def test_人のいない窓は台帳が無ければ作らない(env, tmp_path):
+    env["AF_UNATTENDED"] = "1"
+    assert hook(env, "start", {"session_id": "n1"}) == {}
+    assert not list(tmp_path.rglob("unanswered-questions.json"))
+
+
+def test_まだ知らせていない控えは上限で黙って落ちない(env, tmp_path):
+    hook(env, "post", ask_result())
+    ledger = next((tmp_path / "state").rglob("unanswered-questions.json"))
+    data = json.loads(ledger.read_text(encoding="utf-8"))
+    data["expired_recent"] = [{"key": "k%d" % i, "question": "作り物の古い問い %d" % i, "notified": True,
+                               "expired_at": "2000-01-01T00:00:00.000000Z"} for i in range(25)]
+    ledger.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+    _age_ledger(tmp_path)
+    env["AF_UNATTENDED"] = "1"
+    hook(env, "start", {"session_id": "n1"})
+    recent = json.loads(ledger.read_text(encoding="utf-8"))["expired_recent"]
+    assert [e["question"] for e in recent if e.get("notified") is False] == ["作り物の置き場を A と B のどちらにしますか"]
+
+
+def test_文面の無い行も黙って残さず_知らせて降ろす(env, tmp_path):
+    hook(env, "post", ask_result())
+    ledger = next((tmp_path / "state").rglob("unanswered-questions.json"))
+    data = json.loads(ledger.read_text(encoding="utf-8"))
+    data["pending"].append({"key": "nokeytext", "last_seen_at": data["pending"][0]["last_seen_at"]})
+    data["pending"].append({"last_seen_at": "2000-01-01T00:00:00.000000Z"})          # key も文面も無い
+    ledger.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+    assert "[文面が無い" in run_cli(env, "list").stdout
+    note = hook(env, "start", {"session_id": "s2"})["additionalContext"]
+    assert "文面が無い行・key: nokeytext" in note and "文面が無い行・key: なし" in note
+    assert "作り物の置き場を A と B のどちらにしますか" in note       # 生きている問いはそのまま出し直しへ
+    left = json.loads(ledger.read_text(encoding="utf-8"))["pending"]
+    assert [p["question"] for p in left] == ["作り物の置き場を A と B のどちらにしますか"]
+
+
+def test_一覧は寿命切れに印を付ける(env, tmp_path):
+    hook(env, "post", ask_result())
+    assert "[寿命切れ" not in run_cli(env, "list").stdout
+    _age_ledger(tmp_path)
+    out = run_cli(env, "list").stdout
+    assert "[寿命切れ・次の窓の冒頭で知らせて降ろす] 作り物の置き場" in out
+
+
+def many_questions(n, sid="s1", start=1):
+    qs = [{"question": "作り物の問い %d 番はどちらにしますか" % i, "header": "問い%d" % i,
+           "options": [{"label": "甲", "description": "作り物"}, {"label": "乙", "description": "作り物"}]}
+          for i in range(start, start + n)]
+    return {"tool_name": "AskUserQuestion", "session_id": sid, "transcript_path": "",
+            "tool_response": {"questions": qs, "answers": {}}}
+
+
+def test_出し直しは頭の4件で切らず_5件目まで全部渡す(env):
+    hook(env, "post", many_questions(4))
+    hook(env, "post", many_questions(1, sid="s1b", start=5))        # 4＋1＝5 件（モーダル 1 回の数を 1 つ越える）
+    note = hook(env, "start", {"session_id": "s2"})["additionalContext"]
+    assert "5 件" in note and "4 問ずつ続けて出す" in note and "下の 5 件を全部" in note
+    for i in range(1, 6):
+        assert "作り物の問い %d 番はどちらにしますか" % i in note
+    assert "次の機会に" not in note
+
+
+def test_閉じた問いが5つでも隣の1行に全部の文面が載る(env):
+    note = hook(env, "post", many_questions(5))["additionalContext"]
+    assert "（5 件）" in note and "作り物の問い 5 番" in note
+
+
+def test_離席の止めは閉じた問いが多い時ほか何件と置き場を出す(env):
+    hook(env, "post", many_questions(4))
+    why = deny_reason(env, bash(DROP))
+    assert "4 件" in why and "ほか 1 件" in why and "unanswered-questions.json" in why
 
 
 def test_子の窓の問いも台帳に積み離席の止めが働く(env, tmp_path):
@@ -483,6 +593,126 @@ def test_qa_page_入れた_plugin_の形でも検査を見つける(tmp_path):
             os.environ["AF_QA_CHECK"] = old
 
 
+def test_qa_page_赤が多い時ほか何件と全部の出し方を出す(env, tmp_path):
+    fake = tmp_path / "fake_check.mjs"
+    fake.write_text('console.log(JSON.stringify({ok: false, red: Array.from({length: 13}, (_, i) => "作り物の赤 " + (i + 1))}));'
+                    "process.exit(1);\n", encoding="utf-8")
+    page = tmp_path / "kakunin.html"
+    page.write_text(STATE_PAGE, encoding="utf-8")
+    if not shutil.which("node"):
+        pytest.skip("node が無い（作り物の検査は node で動く）")
+    why = deny_reason(dict(env, AF_QA_CHECK=str(fake)), publish(page))
+    assert "検査の赤 13 件" in why and "作り物の赤 12" in why and "ほか 1 件" in why and str(fake) in why
+
+
+def test_qa_page_51個目に在る問いの並びも見分ける(tmp_path):
+    sys.path.insert(0, str(PLUGIN / "scripts"))
+    try:
+        import qa_page
+    finally:
+        sys.path.pop(0)
+    rows = [{"x": i} for i in range(50)] + [{"questions": [{"q": "作り物", "options": ["甲", "乙"]}]}]
+    assert qa_page._has_question_list({"pages": rows})
+
+
+# ── pick_one（選択肢の画面で作業・論点・原因を 1 つだけ選ばせる問い）──
+def picked(env, payload):
+    """pick_one が止めたか（同じ pre で ask_shape も走るので、pick_one の理由の印で見分ける）。"""
+    out = hook(env, "pre", payload)
+    return out.get("permissionDecision") == "deny" and "ask_pick_one_exempt" in out.get("permissionDecisionReason", "")
+
+
+def ask(question, labels=("作り物の A（推奨）", "作り物の B", "分からない"), multi=False, sid="s1"):
+    q = {"question": question, "header": "作り物", "multiSelect": multi,
+         "options": [{"label": l, "description": "作り物"} for l in labels]}
+    return {"tool_name": "AskUserQuestion", "session_id": sid, "tool_input": {"questions": [q]}}
+
+
+@pytest.mark.parametrize("question", [
+    "作り物の論点が 3 つあります。どれを進めますか",
+    "どの論点を先に詰めますか",
+    "何から始めますか",
+    "どれを優先しますか",
+    "まずどちらに取り掛かりますか",
+    "作り物の崩れの原因はどれだと思いますか",
+    "どれが一番の原因に近いですか",
+    "何を先にやりますか",
+    "原因は何だと思いますか",
+    "次にどの作業を進めますか",
+    "どれを進めたいですか",
+    # 3 回目のレビューで挙がった「すべき」の形
+    "どれを優先すべきですか",
+    "どれから優先すべきでしょうか",
+    "どれを先にやるべきですか",
+    "どれに着手すべきですか",
+    "どれに対応すべきですか",
+])
+def test_pick_one_作業や論点や原因を1つだけ選ばせる問いを止める(env, question):
+    out = hook(env, "pre", ask(question))
+    assert out.get("permissionDecision") == "deny"
+    assert "全部" in out["permissionDecisionReason"] and "ask_pick_one_exempt" in out["permissionDecisionReason"]
+    # 推奨の印は作り方の分かれ道だけ（細目 §4）。止めた文がやり方の問いに印を勧めると、答えを寄せる問いを作り直させる。
+    assert "（推奨）」" not in out["permissionDecisionReason"] and "細目 §4「推奨の印」" in out["permissionDecisionReason"]
+
+
+@pytest.mark.parametrize("question", [
+    "作り物の置き場を A と B のどちらにしますか",
+    "この言葉はどちらの意味ですか",
+    "表とコードが食い違っています。どちらが正しいですか",
+    "作り物の PR を main へ入れてよいですか",
+    "作業は済みましたか",
+    "どの会社の話ですか",
+    "どの資料が根拠ですか",                 # 「根」は「根拠」に当たらない
+    "どちらが根拠として正しいですか",
+    "この修正の優先度は高いですか",         # 「優先度」は事実の問い
+    "優先度はどのくらいですか",
+    "何をやりたいですか",                   # 「何を」＋やる は意図の問い（順の語が無い）
+    "このPRで何を扱いますか",
+    # 2 回目のレビューで挙がった形（過去・受け身・「が」を挟む・意味・事実の問い）
+    "どの設定が優先されますか",
+    "どの資料を先に読みましたか",
+    "どちらを先に作りましたか",
+    "先にどの会社の話か教えてください",
+    "まずどちらの意味か確かめたいです。どちらの意味ですか",
+    "原因はどの資料に書いてありますか",
+    "障害の要因として何が書かれていましたか",
+    "どの原因の話ですか",
+    "どちらが根本原因として正しいですか",   # AI の見立てが合っているかを問う形（直し方 3）
+    "どの環境から始めましたか",
+])
+def test_pick_one_意図や事実を問う問いは通す(env, question):
+    assert not picked(env, ask(question))
+
+
+def test_pick_one_全部を選べる問いと全部やる道が在る問いは通す(env):
+    assert not picked(env, ask("どれを進めますか", multi=True))
+    assert not picked(env, ask("作り物の論点をどう進めますか。どれを進めますか",
+                               labels=("全部この窓で順に", "それぞれ別の窓で同時に", "分からない")))
+
+
+def test_pick_one_問いが複数でも1つでも当たれば止め当たった問いを名指す(env):
+    p = ask("この言葉はどちらの意味ですか")
+    p["tool_input"]["questions"].append(ask("どれから着手しますか")["tool_input"]["questions"][0])
+    out = hook(env, "pre", p)
+    assert out.get("permissionDecision") == "deny"
+    reason = out["permissionDecisionReason"]
+    assert "どれから着手しますか" in reason and "どちらの意味" not in reason
+
+
+def test_pick_one_誤って止まる形は値の表で外せる(env, tmp_path):
+    vals = tmp_path / "proj" / "config"
+    vals.mkdir(parents=True)
+    (vals / "skill-values.json").write_text(json.dumps({"guard": {"ask_pick_one_exempt": ["^作り物の試しの順"]}},
+                                                       ensure_ascii=False), encoding="utf-8")
+    assert not picked(env, ask("作り物の試しの順として、どれを先に詰めますか"))
+    assert picked(env, ask("どれを先に詰めますか"))
+
+
+def test_pick_one_選択肢の画面でない道具と壊れた入力は見ない(env):
+    assert not denied(env, bash("echo どれを進めますか"))
+    assert not denied(env, {"tool_name": "AskUserQuestion", "tool_input": {"questions": "こわれた"}})
+
+
 # ── ask_shape（選択肢の画面の問いの形）──
 def ask_pre(*qs):
     return {"tool_name": "AskUserQuestion", "session_id": "s1", "tool_input": {"questions": list(qs)}}
@@ -622,6 +852,68 @@ def test_ask_shape_判定の値は値の表で変えられ誤って止まる形�
     assert "例の関所" in deny_reason(env, ask_pre(q("例の関所を外しますか")))
 
 
+# ── 推奨の印を付けない形の問い（済んだか・意図）に印が付いたら、画面の後に知らせる（止めない）──
+def ask_post(text, labels=("終わった（推奨）", "うまくいかない", "分からない")):
+    qq = q(text, header="作り物", labels=labels)
+    return {"tool_name": "AskUserQuestion", "session_id": "s1", "tool_input": {"questions": [qq]},
+            "tool_response": {"questions": [qq], "answers": {qq["question"]: labels[0]}}}
+
+
+def notice_text(env, payload):
+    return hook(env, "post", payload).get("additionalContext", "")
+
+
+REC_NOTICE = [
+    ("済んだか", ask_post("設定の保存は終わりましたか？"), "済んだかの確認"),
+    ("済んだか 2", ask_post("作り物の画面で送りましたか"), "済んだかの確認"),
+    ("意図", ask_post("この並びにしたのはなぜですか", labels=("見やすさ（推奨）", "前の形のまま", "分からない")), "意図・考え"),
+    ("済んでいますか", ask_post("作り物の手続きはもう済んでいますか"), "済んだかの確認"),
+    ("完了していますか", ask_post("作り物の登録は完了していますか"), "済んだかの確認"),
+    ("終わってますか", ask_post("作り物の送信は終わってますか"), "済んだかの確認"),
+    ("反映されましたか", ask_post("作り物の設定は反映されましたか"), "済んだかの確認"),
+    ("考え", ask_post("作り物の色の好みはどちらですか", labels=("青 (Recommended)", "緑", "分からない")), "意図・考え"),
+]
+
+
+@pytest.mark.parametrize("name,payload,want", REC_NOTICE, ids=[c[0] for c in REC_NOTICE])
+def test_ask_shape_済んだかや意図の問いの推奨の印は画面の後に知らせ止めない(env, name, payload, want):
+    txt = notice_text(env, payload)
+    assert want in txt and "止めていない" in txt, txt
+    pre = dict(payload)
+    pre.pop("tool_response")
+    assert deny_reason(env, pre) == ""      # 画面の前には止めない（知らせるだけ）
+
+
+REC_QUIET = [
+    ("分かれ道の印", ask_post("作り物の置き場をどちらにしますか", labels=("A（推奨）", "B", "分からない"))),
+    ("意図した動きの分かれ道", ask_post("意図した動きに近い直し方はどちらですか", labels=("A（推奨）", "B", "分からない"))),
+    ("好みに合う置き場の分かれ道", ask_post("作り物の置き場を A と B のどちらにしますか", labels=("A（推奨）", "B", "分からない"))),
+    ("印の無い済んだか", ask_post("設定の保存は終わりましたか？", labels=("終わった", "うまくいかない", "分からない"))),
+    ("選択肢の画面の外", {"tool_name": "Bash", "tool_input": {"command": "echo 終わりましたか（推奨）"}}),
+]
+
+
+@pytest.mark.parametrize("name,payload", REC_QUIET, ids=[c[0] for c in REC_QUIET])
+def test_ask_shape_分かれ道の印や印の無い問いは知らせない(env, name, payload):
+    assert "推奨の印が付いた問い" not in notice_text(env, payload)
+
+
+def test_ask_shape_推奨の印の知らせの形は値の表で替え外せる(env, tmp_path):
+    table = tmp_path / "values.json"
+    env["SKILL_VALUES"] = str(table)
+    done = ask_post("設定の保存は終わりましたか？")
+    table.write_text(json.dumps({"guard": {"ask_rec_notice_exempt": ["^設定の保存"]}}), encoding="utf-8")
+    assert "推奨の印が付いた問い" not in notice_text(env, done)
+    table.write_text(json.dumps({"guard": {"ask_rec_notice_kinds": {"作り物の形": ["置き場"]}}}), encoding="utf-8")
+    txt = notice_text(env, ask_post("作り物の置き場をどちらにしますか", labels=("A（推奨）", "B", "分からない")))
+    assert "作り物の形" in txt
+    assert "推奨の印が付いた問い" not in notice_text(env, done)   # 形を替えたら既定の形は使わない
+    table.write_text(json.dumps({"guard": {"ask_rec_notice_kinds": {"壊れた形": ["(終わり"], "済んだか": ["終わりましたか"]}}}),
+                     encoding="utf-8")
+    txt = notice_text(env, done)
+    assert "壊れていて" in txt and "(終わり" in txt and "済んだか に見える" in txt, txt   # 壊れた形があっても他の形は照らす
+
+
 def test_ask_shape_選択肢の画面の外は見ない(env):
     assert deny_reason(env, {"tool_name": "Bash", "tool_input": {"command": "echo Q202611-67 v0.21.0"}}) == ""
 
@@ -653,6 +945,16 @@ def test_答え済みの問いはAIが台帳から降ろせ次の窓に出ない
     assert p.returncode == 0 and "降ろした" in p.stdout, p.stdout + p.stderr
     assert hook(env, "start", {"session_id": "s3"}) == {}
     assert run_cli(env, "drop", "nokey", "--why", "x").returncode == 1
+
+
+def test_降ろしの口は知らない印で止まる(env):
+    hook(env, "post", ask_result())
+    key = run_cli(env, "list").stdout.split("\t")[0]
+    for args in (("drop", key, "--force", "--why", "x"), ("drop", key, "--why", "x", "--why", "y"),
+                 ("drop", key, "--why", "x", "--force"), ("list", "--all")):
+        p = run_cli(env, *args)
+        assert p.returncode == 2, args
+    assert key in run_cli(env, "list").stdout                         # 止まった間に降ろしていない
 
 
 def _ask_post(question, labels, answered, sid):
@@ -906,3 +1208,22 @@ def test_pr_text_照らしの途中で壊れたら黙って通さず止める(en
     why = deny_reason(env, gh("add_issue_comment", issue_number=1, body="作り物の確かめ", repo="fake-public"))
     assert "[broken]" in why and "照らせない文は出さない" in why
     assert deny_reason(env, gh("create_branch", branch="b", from_branch="main")) == ""
+
+
+def test_読んでから書くまでに積まれた_key_の無い行は知らせずに降ろさない():
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("unanswered_t", UNANSWERED)
+    uq = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(uq)
+    data = {"pending": [{"last_seen_at": "2000-01-01T00:00:00.000000Z"}, {"last_seen_at": "2000-01-01T00:00:00.000000Z"}],
+            "expired_recent": []}
+    assert uq.retire(data, set(), notified=True, keyless=1) == 1     # 読んで知らせたのは 1 行だけ
+    assert len(data["pending"]) == 1 and len(data["expired_recent"]) == 1
+
+
+def test_推奨の印の崩れと1つだけ選ばせる問いが両方当たれば理由を両方つないで返す(env):
+    """ask_shape の rec と pick_one は同じ pre で走る。片方の理由が他方を消すと、AI が片方だけ直して 2 度止まる。"""
+    why = deny_reason(env, ask_pre(q("どれを進めますか", header="進め方", labels=("作り物の A", "作り物の B（推奨）", "分からない"))))
+    assert "[rec]" in why and "1 つ目でない" in why, why
+    assert "ask_pick_one_exempt" in why and "細目 §4「推奨の印」" in why, why
+    assert why.strip().splitlines()[-1].endswith("細目 §3「まず構造を疑う」で探して直す"), why

@@ -14,8 +14,8 @@
   7. red（blocked を除く）は `## verdict` に `直し: 細目 §3「まず構造を疑う」` の行が在る
      （所見を直す行の一覧として返さず、根治の入口を指す。中身は細目が正本＝ここは指すだけ）。
 
-使い方: python3 verdict_form.py <コメントのファイル> [--writer <書いた窓の session id>] [--head <PR の先端の SHA>]
-  誤りを 1 行ずつ出し、誤りがあれば exit 1。
+使い方: python3 verdict_form.py <コメントのファイル> [<ファイル> …] [--writer <書いた窓の session id>] [--head <PR の先端の SHA>]
+  ファイルは全部照らす（2 つ以上の時は誤りの頭にファイルの名）。誤りを 1 行ずつ出し、どれかに誤りがあれば exit 1。
 """
 import re
 import sys
@@ -163,16 +163,37 @@ def main(argv):
     if not args:
         sys.stderr.write(__doc__)
         return 2
-    path, writer, head = args[0], None, None
-    if "--writer" in args:
-        writer = args[args.index("--writer") + 1]
-    if "--head" in args:
-        head = args[args.index("--head") + 1]
-    with open(path, encoding="utf-8") as f:
-        errs = check(f.read(), writer=writer, head=head)
-    for e in errs:
-        print(e)
-    return 1 if errs else 0
+    opts, paths, i = {"--writer": None, "--head": None}, [], 0
+    while i < len(args):
+        a = args[i]
+        if a in opts:
+            if opts[a] is not None:
+                sys.stderr.write("%s を 2 度書いている（どちらを使うか決められない）\n" % a)
+                return 2
+            if i + 1 >= len(args) or args[i + 1].startswith("--"):
+                sys.stderr.write("%s の後に値を書く\n" % a)
+                return 2
+            opts[a] = args[i + 1]
+            i += 2
+            continue
+        if a.startswith("--"):
+            sys.stderr.write("知らない印: %s\n" % a)
+            return 2
+        paths.append(a)
+        i += 1
+    if not paths:
+        sys.stderr.write(__doc__)
+        return 2
+    bad = 0
+    for path in paths:
+        with open(path, encoding="utf-8") as f:
+            errs = check(f.read(), writer=opts["--writer"], head=opts["--head"])
+        bad += bool(errs)
+        for e in errs:
+            print(("%s: %s" % (path, e)) if len(paths) > 1 else e)
+    if len(paths) > 1:
+        print("照らしたファイル %d・誤りのあるファイル %d" % (len(paths), bad))
+    return 1 if bad else 0
 
 
 if __name__ == "__main__":
