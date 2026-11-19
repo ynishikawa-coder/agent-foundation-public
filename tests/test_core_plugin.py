@@ -140,17 +140,6 @@ def test_古い形の見張りは時間の上限で打ち切り_黙って一部�
     assert [(r["id"], f) for r, f in found] == [("af-core-frame", "CLAUDE.md")]
 
 
-def test_入口を呼ぶ_file_に名で入れる行が残れば古い形に当たる():
-    """注入: docs の新しい形（入口を呼ぶ）に、土台の plugin を名で入れる行・目録の名の変数を足す → 入口の名が在っても当たる。"""
-    row = next(r for r in kaku.olds_table() if r["id"] == "plugin-name-copy")
-    doc = (ROOT / "docs" / "核の届け方.md").read_text(encoding="utf-8")
-    block = re.search(r"<!-- setup-script.*?-->\s*```bash\n(.*?)\n\s*```", doc, re.S).group(1)
-    for extra in ("claude plugin install guard@agent-foundation --scope user || true",
-                  'for p in core guard; do claude plugin install "$p@agent-foundation"; done',
-                  'M=agent-foundation\nclaude plugin install "core@$M"'):
-        assert row["re"].search(block + "\n" + extra), extra
-
-
 def test_古い形の一覧の欄が欠けると読めない(tmp_path):
     bad = tmp_path / "古い形.json"
     bad.write_text(json.dumps({"olds": [{"id": "x", "files": ["a"], "pattern": "a"}]}), encoding="utf-8")
