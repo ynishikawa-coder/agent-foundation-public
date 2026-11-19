@@ -1049,6 +1049,8 @@ def test_values_keys_手で回す口は知らない鍵で_exit_1(tmp_path):
 
 # 道具のコードが読む鍵。表と読む側がずれると、読まれている鍵を知らない鍵と言い、値の表への書き込みを全部止める（PR #59 のレビュー）。
 # 値の表を読む file は全部ここに載せる（載っていない file が値の表を読むと赤＝知らない読み口は既定で止める）。
+# 鍵を読む形は字の形で並べた網で、並べない形（別名・分割代入・鍵の名を組み立てる形）は通る。表とコードがずれた時の本当の止めは values_keys 自身
+# （コードが読む鍵を表が持たなければ、その鍵を書いた値の表への AI の書き込みが止まり、止めた文が土台の表に行を足す道を示す）。
 _読む口 = {   # path: その file が読む値の表の枠
     "plugins/docs-kit/skills/qa-html/check.mjs": ("docs-kit", "qa-html"),
     "plugins/dev-flow/skills/codex/codex_pack.py": ("dev-flow", "codex"),
@@ -1074,7 +1076,7 @@ def _コードが読む鍵(rel, text):
 
 def test_values_keys_値の表を読む_file_は全部読む口に載る():
     out = subprocess.run(["git", "ls-files", "plugins"], cwd=ROOT, capture_output=True, text=True, check=True).stdout.split()
-    touch = [r for r in out if r.endswith((".py", ".mjs", ".js")) and _値の表に触れる.search((ROOT / r).read_text(encoding="utf-8"))]
+    touch = [r for r in out if r.endswith((".py", ".mjs", ".js", ".sh")) and _値の表に触れる.search((ROOT / r).read_text(encoding="utf-8"))]
     assert "plugins/dev-flow/skills/spec-doc/seal.py" in touch, "拾い方が壊れた"
     unknown = [r for r in touch if r not in _読む口 and r not in _読まない口]
     assert not unknown, f"値の表を読むのに読む口に載っていない file（載せて鍵を照らす）: {unknown}"

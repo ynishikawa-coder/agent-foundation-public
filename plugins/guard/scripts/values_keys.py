@@ -163,6 +163,7 @@ def _say(keys, where):
     return ("値の表 %s に、土台が読まない鍵が在る（土台が畳んだ・名を変えた鍵か、書き違い）。読まれずに黙って効かない:\n%s\n"
             "直し方: 消すか、今の名の鍵へ移す（今の鍵は各 skill の SKILL.md の「repo ごとの値」の表と guard の値）。"
             "repo が自分で持つ値なら、土台の plugin の名と common の外の頭へ移す。この repo の PR で直す（skill `guard:guard-rules`）。"
+            "土台の道具が今も読む鍵なのに表に行が無いだけなら、値の表は直さず、土台の repo でその skill の SKILL.md の「repo ごとの値」の表に行を足す PR を出す。"
             "古い鍵が残った訳（土台を直した仕事が使う側の値の表まで届かなかった等）は、細目 §3「まず構造を疑う」で原因から直す。"
             % (where, "\n".join("  - " + k for k in keys)))
 
