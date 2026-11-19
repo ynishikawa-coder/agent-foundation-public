@@ -1,0 +1,3 @@
+- 直した: 決まりの文を消しても赤にならない穴の照らし `tests/test_rule_holes.py` が、決まりの file を open の口（Path.read_text・open()・read_bytes）と module の頭の定数で読む試験、parametrize・tmp_path・monkeypatch・capsys を使う試験も決まりの試験に数える（前は引数の無い試験の Path.read_text だけ＝穴を多めに出していた）。表の文はまとめて消して確かめ、守られた文は速い試験から回す。
+- 直した: 守らない文の表 `tests/data/試験で守らない文.txt` を 180 文から 120 文にし、どの行も訳（形＝見出し・表の行／判断＝機械が照らせる値の無い既定）を持つ（訳の無い行は赤）。4 札・窓の題の印・手の窓の 4 欄・締めの 2 行・完了の 4 状態・問いの形の照らし・量の上限・時計の文は、文の値を道具（session-watch・guard・kaku.py・設定）の値と突き合わせる `tests/test_rule_tool_values.py` が守る。
+- 直した: 試験が見分けない決まりの文の崩れ（語の差し替えの弱め・核と細目の外の文を消す・後へ回す言葉の表に無い言い回しの受け皿）は、review-pr の点 12 が red にする（`tests/test_review_reads_rule_text.py` が点の文を守る）。
