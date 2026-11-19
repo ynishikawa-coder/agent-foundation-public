@@ -13,6 +13,8 @@
         ③ <script id="state"> などの JSON に、問いの並び（qs・questions）で、選択肢（options・choices）を持つ物
   JSON: 問いの並び（questions・qs）で、選択肢を持つ物（Artifact 型へ渡す問いのデータ）
 検査が走らない（check.mjs が見つからない・node が無い・検査が壊れた）時も止める＝緑を確かめられない物は出さない。
+  （pr_text の判定の道具・整地の雛形と outbound の題の形は、正本が無い時は止めず出した後に知らせる。ここは作った時から
+  止める形で、問いのページはオーナーや相手に直に出る物なので、緑を確かめられない時は止めたまま残す）
   check.mjs の在り処は guard と同じ commit の docs-kit だけ: 同じ repo の plugins/docs-kit か、入れた plugin の
   cache/<市場>/docs-kit/<guard と同じ版>。別の版の docs-kit・path を渡す口（前の AF_QA_CHECK）は使わない＝型と検査の版が
   食い違ったまま判定しない（同じ版が無ければ止めて、docs-kit を同じ版で入れ直すよう名指しする）。
