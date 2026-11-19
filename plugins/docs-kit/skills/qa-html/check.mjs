@@ -895,6 +895,20 @@ export function checkFile(path, { priorPath, priorExplicit = false, ...opts } = 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const args = process.argv.slice(2);
   const takesValue = new Set(["--values", "--prior"]);
+  const KNOWN = new Set([...takesValue, "--json", "--run-prior", "--prior-input"]);
+  // 知らない印・同じ印の 2 度書きは既定で止める（打ち間違えた印を黙って無視して、頼んだ検査をせずに緑にしない。
+  // checker の verdict_form.py と同じ決まり）
+  const flags = args.filter((a, i) => a.startsWith("--") && !takesValue.has(args[i - 1]));
+  const unknown = flags.filter((f) => !KNOWN.has(f));
+  if (unknown.length) {
+    console.error(`知らない印: ${unknown.join(" ")}（使える印: ${[...KNOWN].join(" ")}）`);
+    process.exit(2);
+  }
+  const twice = [...KNOWN].filter((f) => flags.filter((x) => x === f).length > 1);
+  if (twice.length) {
+    console.error(`${twice.join("・")} を 2 度書いている（どちらを使うか決められない）`);
+    process.exit(2);
+  }
   // file は全部照らす（1 つ目だけ照らして残りを黙って通さない）
   const files = args.filter((a, i) => !a.startsWith("--") && !takesValue.has(args[i - 1]));
   if (!files.length) {

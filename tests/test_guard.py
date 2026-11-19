@@ -329,6 +329,65 @@ def test_寿命を過ぎた問いも次の問いを積む時には消えない(e
     assert note.index("台帳から降ろします") < note.index("前の窓で答えのないまま閉じた問い")   # 切られても先に読まれる
 
 
+def test_人のいない窓だけが続いても寿命切れは台帳に残らず_次の人のいる窓で一度知らせる(env, tmp_path):
+    hook(env, "post", ask_result())
+    _age_ledger(tmp_path)
+    env["AF_UNATTENDED"] = "1"
+    assert hook(env, "start", {"session_id": "n1"}) == {}            # 人のいない窓は知らせない
+    ledger = next((tmp_path / "state").rglob("unanswered-questions.json"))
+    data = json.loads(ledger.read_text(encoding="utf-8"))
+    assert data["pending"] == []                                      # 台帳には残らない
+    assert [e["notified"] for e in data["expired_recent"]] == [False]
+    assert "人のいない窓が控えへ移した" in run_cli(env, "list").stdout   # 一覧にも印つきで出る
+    del env["AF_UNATTENDED"]
+    note = hook(env, "start", {"session_id": "s2"}).get("additionalContext", "")
+    assert "台帳から降ろします" in note and "作り物の置き場を A と B のどちらにしますか" in note
+    assert hook(env, "start", {"session_id": "s3"}) == {}           # 知らせたのは一度だけ
+
+
+def test_人のいない窓は台帳が無ければ作らない(env, tmp_path):
+    env["AF_UNATTENDED"] = "1"
+    assert hook(env, "start", {"session_id": "n1"}) == {}
+    assert not list(tmp_path.rglob("unanswered-questions.json"))
+
+
+def test_まだ知らせていない控えは上限で黙って落ちない(env, tmp_path):
+    hook(env, "post", ask_result())
+    ledger = next((tmp_path / "state").rglob("unanswered-questions.json"))
+    data = json.loads(ledger.read_text(encoding="utf-8"))
+    data["expired_recent"] = [{"key": "k%d" % i, "question": "作り物の古い問い %d" % i, "notified": True,
+                               "expired_at": "2000-01-01T00:00:00.000000Z"} for i in range(25)]
+    ledger.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+    _age_ledger(tmp_path)
+    env["AF_UNATTENDED"] = "1"
+    hook(env, "start", {"session_id": "n1"})
+    recent = json.loads(ledger.read_text(encoding="utf-8"))["expired_recent"]
+    assert [e["question"] for e in recent if e.get("notified") is False] == ["作り物の置き場を A と B のどちらにしますか"]
+
+
+def test_文面の無い行も黙って残さず_知らせて降ろす(env, tmp_path):
+    hook(env, "post", ask_result())
+    ledger = next((tmp_path / "state").rglob("unanswered-questions.json"))
+    data = json.loads(ledger.read_text(encoding="utf-8"))
+    data["pending"].append({"key": "nokeytext", "last_seen_at": data["pending"][0]["last_seen_at"]})
+    data["pending"].append({"last_seen_at": "2000-01-01T00:00:00.000000Z"})          # key も文面も無い
+    ledger.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+    assert "[文面が無い" in run_cli(env, "list").stdout
+    note = hook(env, "start", {"session_id": "s2"})["additionalContext"]
+    assert "文面が無い行・key: nokeytext" in note and "文面が無い行・key: なし" in note
+    assert "作り物の置き場を A と B のどちらにしますか" in note       # 生きている問いはそのまま出し直しへ
+    left = json.loads(ledger.read_text(encoding="utf-8"))["pending"]
+    assert [p["question"] for p in left] == ["作り物の置き場を A と B のどちらにしますか"]
+
+
+def test_一覧は寿命切れに印を付ける(env, tmp_path):
+    hook(env, "post", ask_result())
+    assert "[寿命切れ" not in run_cli(env, "list").stdout
+    _age_ledger(tmp_path)
+    out = run_cli(env, "list").stdout
+    assert "[寿命切れ・次の窓の冒頭で知らせて降ろす] 作り物の置き場" in out
+
+
 def many_questions(n, sid="s1", start=1):
     qs = [{"question": "作り物の問い %d 番はどちらにしますか" % i, "header": "問い%d" % i,
            "options": [{"label": "甲", "description": "作り物"}, {"label": "乙", "description": "作り物"}]}
@@ -888,6 +947,16 @@ def test_答え済みの問いはAIが台帳から降ろせ次の窓に出ない
     assert run_cli(env, "drop", "nokey", "--why", "x").returncode == 1
 
 
+def test_降ろしの口は知らない印で止まる(env):
+    hook(env, "post", ask_result())
+    key = run_cli(env, "list").stdout.split("\t")[0]
+    for args in (("drop", key, "--force", "--why", "x"), ("drop", key, "--why", "x", "--why", "y"),
+                 ("drop", key, "--why", "x", "--force"), ("list", "--all")):
+        p = run_cli(env, *args)
+        assert p.returncode == 2, args
+    assert key in run_cli(env, "list").stdout                         # 止まった間に降ろしていない
+
+
 def _ask_post(question, labels, answered, sid):
     qq = {"question": question, "header": "置き場",
           "options": [{"label": lb, "description": "作り物"} for lb in labels]}
@@ -922,6 +991,17 @@ def test_同じ選択肢で物だけ違う問いを閉じず重ねもしない(e
     hook(env, "post", _ask_post(right, labels, False, "s4"))
     again = hook(env, "start", {"session_id": "s5"}).get("additionalContext", "")
     assert "2 件あります" in again and left in again and right in again
+
+
+def test_読んでから書くまでに積まれた_key_の無い行は知らせずに降ろさない():
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("unanswered_t", UNANSWERED)
+    uq = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(uq)
+    data = {"pending": [{"last_seen_at": "2000-01-01T00:00:00.000000Z"}, {"last_seen_at": "2000-01-01T00:00:00.000000Z"}],
+            "expired_recent": []}
+    assert uq.retire(data, set(), notified=True, keyless=1) == 1     # 読んで知らせたのは 1 行だけ
+    assert len(data["pending"]) == 1 and len(data["expired_recent"]) == 1
 
 
 def test_推奨の印の崩れと1つだけ選ばせる問いが両方当たれば理由を両方つないで返す(env):

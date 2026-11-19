@@ -422,9 +422,11 @@ def check(log, closing=None):
 
 
 def watch(path):
+    """拾った物の並び。ログが読めなければ OSError を上げる（読めない＝拾う物なし＝緑、に化かさない）。"""
+    rows = read_rows(path)
     try:
-        return check(Log(read_rows(path)))
-    except (OSError, ValueError, TypeError, AttributeError):
+        return check(Log(rows))
+    except (ValueError, TypeError, AttributeError):
         return []
 
 
@@ -581,10 +583,15 @@ def main(argv):
         return hook_remind(sys.stdin)
     if argv[1:] == ["--stop"]:
         return hook_stop(sys.stdin)
-    if len(argv) != 2:
-        sys.stderr.write("使い方: session_watch.py <transcript.jsonl>\n")
+    # 知らない印・数の違う引数・読めないログは既定で止める（打ち間違いを「拾う物なし＝緑」にしない）
+    if len(argv) != 2 or argv[1].startswith("--"):
+        sys.stderr.write("使い方: session_watch.py <transcript.jsonl> ／ session_watch.py --remind ／ session_watch.py --stop\n")
         return 2
-    found = watch(argv[1])
+    try:
+        found = watch(argv[1])
+    except OSError as e:
+        sys.stderr.write("ログを読めない: %s（%s）\n" % (argv[1], e.strerror or e))
+        return 2
     for code, msg in found:
         print("%s: %s" % (code, msg))
     if found:
