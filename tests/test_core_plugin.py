@@ -118,18 +118,21 @@ def test_問いは選ぶ問いと開いた問いに分け_分からないを置�
         assert word in s4, f"核 §4 に無い: {word}"
     assert "例え話にせず" in _節(kaku_text, 2)
     s4d = _節((PLUGIN / "細目.md").read_text(encoding="utf-8"), 4)
-    for word in ["選ぶ問いと開いた問い", "問いの言葉", "開発用語", "業界の専門用語", "決まりの言葉", "オーナーの言葉", "例え話に替えず"]:
+    for word in ["どの問いにも「分からない」の選択肢", "AI の今の読み", "選ぶ問いと開いた問い", "問いの言葉", "開発用語", "業界の専門用語", "決まりの言葉", "オーナーの言葉", "例え話に替えず"]:
         assert word in s4d, f"細目 §4 に無い: {word}"
 
 
 def test_古い根治と聞き方の言い回しが土台に残らない():
     olds = ["根治の 4 つの問い", "①構造の原因", "いつも選択肢の画面", "返事の中で平文の問いを出さない",
-            "専門用語は日常の言葉にする", "名前・数字など選べない答えも候補を選択肢に置き"]
+            "専門用語は日常の言葉にする", "専門の語は日常の言葉に言い換え", "名前・数字など選べない答えも候補を選択肢に置き"]
     hits = []
-    for p in sorted((ROOT / "plugins").rglob("*")):
-        if p.is_file() and p.suffix in {".md", ".py", ".json"}:
+    for p in sorted(ROOT.rglob("*")):
+        rel = p.relative_to(ROOT)
+        if rel.parts[0] in {".git", "tests"} or p.name == "CHANGELOG.md":
+            continue                       # 試験の中の古い語の一覧と、変更の記録の経緯は除く
+        if p.is_file() and p.suffix in {".md", ".py", ".json", ".mjs", ".html"}:
             text = p.read_text(encoding="utf-8")
-            hits += [f"{p.relative_to(ROOT)}: {o}" for o in olds if o in text]
+            hits += [f"{rel}: {o}" for o in olds if o in text]
     assert not hits, hits
 
 
