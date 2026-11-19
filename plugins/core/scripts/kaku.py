@@ -7,13 +7,16 @@
                                       写しの枠（AF-CORE:BEGIN）がまだ在る時は、核が二重に入らないよう何もしない。
   python3 kaku.py check [--claude P]  核と振る舞いの既定が在り、上限の内かを照らす。--claude を渡すと、その CLAUDE.md（写しの枠が在れば
                                       枠の外だけ）が各社固有の上限の内かも照らす。
-exit: inject は何が起きても 0（窓の起動を止めない）。check は 0=緑 / 1=上限を越えた / 2=読めない。
+  python3 kaku.py grow --base REF     毎回差し込む物（核・振る舞いの既定）が git の REF の時より増えていないかを照らす。
+                                      足すなら同じ変更で同じだけ畳む（上限の内で足し続けて満杯にしない）。
+exit: inject は何が起きても 0（窓の起動を止めない）。check・grow は 0=緑 / 1=越えた・増えた / 2=読めない。
 """
 from __future__ import annotations
 
 import argparse
 import json
 import os
+import subprocess
 import sys
 from pathlib import Path
 
@@ -112,15 +115,59 @@ def check(claude: Path | None) -> int:
     return 0
 
 
+# 毎回差し込む物＝増やさない物。足す時は同じ変更で同じだけ畳む（上限の内でも純増は赤）。
+ALWAYS = (KAKU, FURUMAI)
+GROW_FIX = "直し: 足すなら同じ変更で同じだけ畳む（重複を細目・skill の正本へ寄せる）。量を合わせるだけで済ませず、細目 §3「まず構造を疑う」で増えた原因から畳む"
+
+
+def base_text(ref: str, path: Path) -> str:
+    """git の ref の時の中身。読めない（ref が無い・その時に file が無い）時は OSError で止める。"""
+    top = subprocess.run(["git", "rev-parse", "--show-toplevel"], cwd=path.parent, capture_output=True, text=True)
+    if top.returncode != 0:
+        raise OSError(f"git の外: {top.stderr.strip()}")
+    rel = path.resolve().relative_to(Path(top.stdout.strip()).resolve()).as_posix()
+    r = subprocess.run(["git", "show", f"{ref}:{rel}"], cwd=path.parent, capture_output=True)
+    if r.returncode != 0:
+        raise OSError(f"{ref}:{rel} が読めない: {r.stderr.decode('utf-8', 'replace').strip()}")
+    return r.stdout.decode("utf-8")
+
+
+def grow(ref: str) -> int:
+    bad = []
+    for path in ALWAYS:
+        try:
+            now = size(path.read_text(encoding="utf-8"))
+            before = size(base_text(ref, path))
+        except UNREADABLE as e:
+            # 比べる元が無い時に黙って緑にしない（既定で止める）
+            print(f"✗ {path.name} の増え方を照らせない: {e}")
+            return 2
+        if now > before:
+            bad.append(f"{path.name} が {ref} より増えた: {before} → {now} バイト（+{now - before}）")
+        else:
+            print(f"・{path.name}: {before} → {now} バイト")
+    for b in bad:
+        print(f"✗ {b}")
+    if bad:
+        print(GROW_FIX)
+        return 1
+    print("✅ 毎回差し込む物は増えていない")
+    return 0
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description="核の差し込みと量の上限の照らし")
     sub = ap.add_subparsers(dest="cmd", required=True)
     sub.add_parser("inject", help="SessionStart の hook から呼ぶ")
     c = sub.add_parser("check", help="量の上限を照らす")
     c.add_argument("--claude", type=Path, help="照らす repo の根の CLAUDE.md")
+    g = sub.add_parser("grow", help="毎回差し込む物が REF より増えていないかを照らす")
+    g.add_argument("--base", required=True, help="比べる元の git の ref（例: main との分かれ目）")
     a = ap.parse_args(argv)
     if a.cmd == "inject":
         return inject()
+    if a.cmd == "grow":
+        return grow(a.base)
     return check(a.claude)
 
 
