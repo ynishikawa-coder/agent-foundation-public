@@ -6,6 +6,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 ROOT = Path(__file__).resolve().parent.parent
 PLUGIN = ROOT / "plugins" / "core"
 TOOL = PLUGIN / "scripts" / "kaku.py"
@@ -239,3 +241,34 @@ def test_核から細目へ移した物が細目に在る():
     assert "「ほぼ終わった」と書かない" in _節(saimoku, 7)
     s8 = _節(saimoku, 8)
     assert "Javis は Notion と Drive" in s8 and "**またぐ連絡**" in s8
+
+
+# 赤・red・抜けを返す skill と道具（台帳の原因「skill と道具が赤・red・抜けを単発の手直しや付け足しで返す」）
+赤を返す所 = {
+    "plugins/checker/skills/review-pr/SKILL.md": ["red は書いた窓へ直に 1 行（`判定 <PR> <枝>@<SHA12> verdict=green|red レビューした窓=<自分> 物差し=<最後の行>`）。"],
+    "plugins/docs-kit/skills/theory-mock/SKILL.md": ["NG なら直してから（"],
+    "plugins/docs-kit/skills/blueprint/SKILL.md": ["が出たら直してから渡す。"],
+    "plugins/docs-kit/skills/qa-html/SKILL.md": ["**緑でなければ渡さない**（"],
+    "plugins/dev-flow/skills/spec-doc/SKILL.md": ["**違反は設計書を直す**"],
+    "plugins/docs-kit/skills/pdf-read/SKILL.md": ["必ず特定してから渡す。"],
+    "plugins/docs-kit/skills/make-deck/SKILL.md": ["前案件で漏れた表現を次案件の禁止に足す（add-one）"],
+    "plugins/docs-kit/skills/compose-message/SKILL.md": ["`recipient_rules` に 1 行足す"],
+    "plugins/guard/skills/guard-rules/SKILL.md": [],
+    "plugins/session-watch/skills/watch-log/SKILL.md": [],
+    "plugins/dev-flow/skills/verify/SKILL.md": ["＋恒久の対応を残りに書く"],
+    "CONTRIBUTING.md": ["試験を飛ばして緑にしない。赤を消すために試験を消さない。", "red の時は、同じ枝に直して push し"],
+    "plugins/checker/scripts/verdict_form.py": [],
+    "plugins/docs-kit/skills/qa-html/check.mjs": [],
+    "plugins/guard/scripts/unanswered.py": [],
+    "plugins/session-watch/scripts/session_watch.py": [],
+}
+
+
+@pytest.mark.parametrize("rel", sorted(赤を返す所))
+def test_赤を返す所は根治の入口を指し単発の手直しの形が無い(rel):
+    """赤・red・抜けを返す所が、直して出し直す・1 行足すだけの古い形に戻ると赤。指す先の正本が無くなっても赤。"""
+    assert "**まず構造を疑う**" in _節((PLUGIN / "細目.md").read_text(encoding="utf-8"), 3), "指す先の正本が無い"
+    text = (ROOT / rel).read_text(encoding="utf-8")
+    assert "細目 §3「まず構造を疑う」" in text, f"{rel} が根治の入口（細目 §3「まず構造を疑う」）を指さない"
+    for old in 赤を返す所[rel]:
+        assert old not in text, f"{rel} に単発の手直しの古い形が残る: {old}"

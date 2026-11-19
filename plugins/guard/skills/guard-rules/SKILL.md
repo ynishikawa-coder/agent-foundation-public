@@ -5,7 +5,7 @@ description: 守りの hook（guard の 5 つ）に止められた・知らさ�
 
 # 守りの hook（guard）
 
-1 本の入口（`${CLAUDE_PLUGIN_ROOT}/scripts/guard.py`）を、プラグインの `hooks/hooks.json` が 3 つの出来事で回す。止めるのは PreToolUse だけで、他は隣に文を出すだけ。どれも壊れた時は黙って通す。
+1 本の入口（`${CLAUDE_PLUGIN_ROOT}/scripts/guard.py`）を、プラグインの `hooks/hooks.json` が 3 つの出来事で回す。止めるのは PreToolUse だけで、他は隣に文を出すだけ。どれも壊れた時は黙って通す。止められた・知らされた時は下の直し方でその場を出し直すだけで済ませず、その形が出た原因を細目 §3「まず構造を疑う」で探して直す。
 
 | 見張り | 出来事 | する事 | 止められた・知らされた時の直し方 |
 |---|---|---|---|

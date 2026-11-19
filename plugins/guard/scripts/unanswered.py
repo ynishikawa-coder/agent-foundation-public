@@ -38,6 +38,8 @@ ANSWERED_KEEP = 20     # 観測用に残す「答えが返った問い」の上�
 CONTAIN_MIN = 16       # 文面の含有で同じ問いとみなす最低の長さ（短い問い同士の取り違えを防ぐ）
 MAX_SHOW = 4           # 冒頭で出し直させる上限（モーダルは 1 回 4 問まで）
 LEDGER_TTL_HOURS = 24  # 台帳の寿命（最後に出てから）
+ROOT_CAUSE = ("出し直すだけで済ませず、答えが返らなかった原因（聞く時・問いの形・聞き方）を"
+              "細目 §3「まず構造を疑う」で探して直してください。")
 _WS = re.compile(r"\s+")
 
 
@@ -313,7 +315,8 @@ def resurface(data, vals):
         return ""
     lines = ["<unanswered-question-carryover>",
              "前の窓で答えのないまま閉じた問いが %d 件あります。" % len(items),
-             "この応答の最初に AskUserQuestion で出し直してください（文面・選択肢はそのまま。要約しない・作り直さない）。", ""]
+             "この応答の最初に AskUserQuestion で出し直してください（文面・選択肢はそのまま。要約しない・作り直さない）。",
+             ROOT_CAUSE, ""]
     for n, it in enumerate(items[:MAX_SHOW], 1):
         lines.append("%d. question: %s" % (n, it.get("question", "")))
         if it.get("header"):
