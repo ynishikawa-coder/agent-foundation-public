@@ -3,22 +3,26 @@
 
 使い方:
   python3 kaku.py inject              SessionStart の hook が呼ぶ。核（同じ plugin の 核.md）と振る舞いの既定
-                                      （振る舞い.md）を窓の文脈へ毎回差し込み、形の細目（細目.md）の在り処を知らせる。開いた repo の根の CLAUDE.md に
-                                      写しの枠（AF-CORE:BEGIN）がまだ在る時は、核が二重に入らないよう差し込まない。
+                                      （振る舞い.md）を窓の文脈へいつも差し込み、形の細目（細目.md）の在り処を知らせる。使う側に残った写し・古い形は名指しで知らせる:
+                                      開いた repo の古い形（古い形.json の一覧・核の写しの枠など）／CLAUDE.md の量の上限越え／
+                                      古い形の setup script（土台の入口 scripts/setup_plugins.py を通っていない）／入っていない plugin。
                                       あわせて、窓の最初の 1 回だけ、入った土台が main の先端と同じかを見て窓ごとに覚える（古ければ知らせる）。
   python3 kaku.py fresh               UserPromptSubmit の hook が呼ぶ。起動の後に main の先端の plugin が変わったら、
                                       この窓を新しい窓へ引き継いで閉じるよう AI に知らせる（人の作業は止めない）。
-  python3 kaku.py check [--claude P]  核と振る舞いの既定が在り、上限の内かを照らす。--claude を渡すと、その CLAUDE.md（写しの枠が在れば
-                                      枠の外だけ）が各社固有の上限の内かも照らす。
+  python3 kaku.py check [--claude P]  核と振る舞いの既定が在り、上限の内かを照らす。--claude を渡すと、その CLAUDE.md が各社固有の上限の内で
+                                      核の写しの枠を持たないかも照らす。
   python3 kaku.py grow --base REF     毎回差し込む物（injected() の一覧）が git の REF の時より増えていないかを照らす。
                                       足すなら同じ変更で同じだけ畳む（上限の内で足し続けて満杯にしない）。
-exit: inject と fresh は何が起きても 0（窓の起動も人の作業も止めない）。check・grow は 0=緑 / 1=越えた・増えた / 2=読めない。
+  python3 kaku.py olds DIR...         使う側の checkout に古い形.json の古い形が残っていないかを照らす
+                                      （「壊れる（2 段目）」の前に、使う側が移ったのを記録で確かめる口）。
+exit: inject と fresh は何が起きても 0（窓の起動も人の作業も止めない）。check・grow・olds は 0=緑 / 1=外れ・増えた / 2=読めない。
 """
 from __future__ import annotations
 
 import argparse
 import json
 import os
+import re
 import subprocess
 import sys
 import time
@@ -28,8 +32,8 @@ PLUGIN = Path(__file__).resolve().parent.parent
 KAKU = PLUGIN / "核.md"
 FURUMAI = PLUGIN / "振る舞い.md"
 SAIMOKU = PLUGIN / "細目.md"
+OLDS = PLUGIN / "古い形.json"
 FRAME_BEGIN = "<!-- AF-CORE:BEGIN"
-FRAME_END = "<!-- AF-CORE:END -->"
 # 越えた時の最後の行（中身は細目 §3 が正本＝ここは指すだけ）
 ROOT_CAUSE = "直し: 文を移して量を合わせるだけで済ませず、決まりが増えた原因を細目 §3「まず構造を疑う」で探して畳む"
 # 常に読まれる量の上限（バイト・UTF-8）。数はここの 1 か所だけに置く。
@@ -38,6 +42,8 @@ MARKET = "agent-foundation"
 # 土台の振る舞いを運ぶ path。ここが変わった時だけ「古い土台」と見る（文書・試験・CI だけの変更では窓を替えない）。
 CARRIERS = ("plugins", ".claude-plugin")
 FRESH_INTERVAL = 900  # 起動の後に main の先端を見に行く間（秒）。毎回の問いごとに外へ出ない。
+# 起動の時の古い形の見張りに使ってよい時間（秒）。越えたら打ち切って名指しする（hook の上限に当たって核の差し込みごと落ちない）。
+WATCH_BUDGET = 5
 
 
 # 読めない時の類（無い・権限・UTF-8 でない中身）を 1 か所で受ける。どの読みもこれで受け、欠けを名指しする。
@@ -48,19 +54,82 @@ def size(text: str) -> int:
     return len(text.encode("utf-8"))
 
 
-def has_frame(claude_md: Path) -> bool:
+# ── 使う側に残った古い形（写し）を名指しする ──
+
+def olds_table(path: Path = OLDS) -> list[dict]:
+    """古い形の一覧。形が違えば ValueError（黙って一部だけ見ない）。"""
+    data = json.loads(path.read_text(encoding="utf-8"))
+    rows = data.get("olds") if isinstance(data, dict) else None
+    if not isinstance(rows, list):
+        raise ValueError(f"{path.name} に olds の並びが無い")
+    keys = {"id", "what", "files", "pattern", "fix", "example"}
+    for r in rows:
+        if not isinstance(r, dict) or set(r) != keys or not isinstance(r["files"], list) or not r["files"]:
+            raise ValueError(f"{path.name} の行の欄が {sorted(keys)} でない: {r!r}")
+        r["re"] = re.compile(r["pattern"])
+    return rows
+
+
+def _tracked(project: Path, specs: list[str]) -> list[Path]:
+    out = _git(str(project), "ls-files", "-z", "--", *specs, timeout=10)
+    if out is not None:
+        return [project / n for n in out.split("\0") if n][:2000]
+    return [project / s for s in specs if "*" not in s]  # git でない dir は、名で書いた file だけ見る
+
+
+def find_olds(project: Path, rows: list[dict] | None = None, deadline: float | None = None) -> list[tuple[dict, str]]:
+    """開いた repo に残る古い形の (行, 当たった file の相対 path)。deadline（time.monotonic）を越えたら TimeoutError（黙って一部だけにしない）。"""
+    found = []
+    for r in rows if rows is not None else olds_table():
+        for f in _tracked(project, r["files"]):
+            if deadline is not None and time.monotonic() > deadline:
+                raise TimeoutError(f"{WATCH_BUDGET} 秒で見終わらず打ち切った（{r['id']} の途中・見た所までの当たり {len(found)} 件）")
+            try:
+                if f.is_file() and f.stat().st_size <= 1_000_000 and r["re"].search(f.read_text(encoding="utf-8", errors="replace")):
+                    found.append((r, str(f.relative_to(project))))
+            except OSError:
+                pass
+    return found
+
+
+def olds_text(found: list[tuple[dict, str]], project: Path) -> str:
+    lines = [f"## この repo（{project.name}）に土台の古い形（写し）が残っている — この仕事で消す\n",
+             "写しは土台が変わっても古いまま残り、誰も止めない。土台を直した同じ仕事で使う側も直す決まり（オーナー決定 2026-11-19）なので、"
+             "この repo の手順（CONTRIBUTING・CLAUDE.md）で 1 枝 1 PR を出して消す。頼みの仕事が別なら、その仕事を止めずに並べて出す:\n"]
+    lines += [f"- {f}: {r['what']} → {r['fix']}\n" for r, f in found]
+    return "".join(lines)
+
+
+def claude_md_text(project: Path) -> str | None:
+    """開いた repo の根の CLAUDE.md が各社固有の上限を越えていれば知らせる文。"""
     try:
-        return FRAME_BEGIN in claude_md.read_text(encoding="utf-8")
+        n = size((project / "CLAUDE.md").read_text(encoding="utf-8"))
     except UNREADABLE:
-        return False
+        return None
+    if n <= LIMITS["各社固有"]:
+        return None
+    return (f"## この repo の CLAUDE.md が常に読まれる量の上限を越えている\n"
+            f"{n} > {LIMITS['各社固有']} バイト（数は土台の plugin core の LIMITS の 1 か所・写さない）。"
+            "その repo に固有の決まりだけを残し、細かい手順はその repo の文書へ移して指す 1 行にする。\n")
 
 
-def outside_frame(text: str) -> str:
-    """写しの枠が在れば枠の外だけを返す（移る間の repo の各社固有を測るため）。"""
-    if FRAME_BEGIN not in text or FRAME_END not in text:
-        return text
-    head, rest = text.split(FRAME_BEGIN, 1)
-    return head + rest.split(FRAME_END, 1)[1]
+def setup_text() -> str | None:
+    """GitHub から土台を入れた窓で、古い形の setup script（入口を通っていない）・入っていない plugin を知らせる文。"""
+    m = (_read_json(_home() / "plugins" / "known_marketplaces.json") or {}).get(MARKET) or {}
+    if (m.get("source") or {}).get("source") != "github" or not m.get("installLocation"):
+        return None  # 手元の dir から入れた試し・CI は使う側の setup script を持たない
+    parts = []
+    if _read_json(_home() / "af-foundation" / "setup.json") is None:
+        parts.append("- 環境の setup script が古い形（土台の入口 scripts/setup_plugins.py を呼んでいない＝plugin の名を写して入れている）。"
+                     "土台が plugin を足しても入らず、入れ損ねの見張りにも入らない。土台の docs/核の届け方.md の形に貼り替える"
+                     "（Javis の環境は get_environment → update_environment。直せない環境は親の窓・連絡板へ頼み、オーナーへ 1 行知らせる）。\n")
+    want = _read_json(Path(m["installLocation"]) / ".claude-plugin" / "marketplace.json") or {}
+    have = set(((_read_json(_home() / "plugins" / "installed_plugins.json") or {}).get("plugins") or {}))
+    lack = [p.get("name") for p in want.get("plugins") or [] if isinstance(p, dict) and f"{p.get('name')}@{MARKET}" not in have]
+    if lack:
+        parts.append(f"- 土台の plugin が入っていない: {' '.join(map(str, lack))}。その plugin の決まりと守りの hook がこの窓で効いていない。"
+                     "最初にオーナーへ知らせ、setup script を土台の docs/核の届け方.md の形に直す。\n")
+    return ("## 土台の入れ方が古い・欠けている\n" + "".join(parts)) if parts else None
 
 
 def injected() -> tuple[Path, ...]:
@@ -195,11 +264,18 @@ def inject() -> int:
     data = _hook_input()
     project = Path(os.environ.get("CLAUDE_PROJECT_DIR") or os.getcwd())
     parts = []
-    if not has_frame(project / "CLAUDE.md"):  # 写しの枠が在る repo は CLAUDE.md が核を持つ＝差し込まない（二重を避ける）
+    try:  # 核はいつも正本を差し込む（使う側の写しの枠が在っても、写しでなく正本が効く）
+        parts.append(inject_text())
+    except UNREADABLE as e:
+        print(f"plugin core: 核.md が読めない（{e}）＝核は差し込まれていない", file=sys.stderr)
+    for name, make in (("古い形", lambda: (lambda f: olds_text(f, project) if f else None)(find_olds(project, deadline=time.monotonic() + WATCH_BUDGET))),
+                       ("CLAUDE.md の量", lambda: claude_md_text(project)), ("入れ方", setup_text)):
         try:
-            parts.append(inject_text())
-        except UNREADABLE as e:
-            print(f"plugin core: 核.md が読めない（{e}）＝核は差し込まれていない", file=sys.stderr)
+            t = make()
+        except Exception as e:  # noqa: BLE001  見張りが壊れても核の差し込みは止めない。壊れた事は名指しする
+            t = f"## 土台の見張り（{name}）が動かなかった\n{type(e).__name__}: {e}。土台の plugin core の不具合として親の窓へ知らせる。\n"
+        if t:
+            parts.append(t)
     session = data.get("session_id")
     state = _read_json(_state_path(session)) if session else None
     if isinstance(state, dict):
@@ -271,10 +347,13 @@ def check(claude: Path | None) -> int:
         bad.append(f"振る舞いの既定（{FURUMAI.name}）が上限を越えた: {f} > {LIMITS['振る舞い']} バイト（癖と逆を求めない物を細目へ移す）")
     if claude is not None:
         try:
-            m = size(outside_frame(claude.read_text(encoding="utf-8")))
+            text = claude.read_text(encoding="utf-8")
         except UNREADABLE as e:
             print(f"✗ {claude} が読めない: {e}")
             return 2
+        m = size(text)
+        if FRAME_BEGIN in text:
+            bad.append(f"{claude} に核の写しの枠が残っている（枠を中身ごと消す・核は plugin core が差し込む）")
         if m > LIMITS["各社固有"]:
             bad.append(f"各社固有（{claude}）が上限を越えた: {m} > {LIMITS['各社固有']} バイト（その repo の文書へ移す）")
     for b in bad:
@@ -325,6 +404,26 @@ def grow(ref: str) -> int:
     return 0
 
 
+def olds(dirs: list[Path]) -> int:
+    try:
+        rows = olds_table()
+    except (OSError, ValueError) as e:
+        print(f"✗ {OLDS.name} が読めない: {e}")
+        return 2
+    bad = 0
+    for d in (x.resolve() for x in dirs):
+        if not d.is_dir():
+            print(f"✗ {d} が無い")
+            return 2
+        found = find_olds(d, rows)
+        for r, f in found:
+            print(f"✗ {d.name}/{f}: {r['id']}（{r['what']}）")
+        if not found:
+            print(f"✅ {d.name}: 古い形 0（見た形: {'・'.join(r['id'] for r in rows)}）")
+        bad += len(found)
+    return 1 if bad else 0
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description="核の差し込みと量の上限の照らし")
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -334,6 +433,8 @@ def main(argv=None) -> int:
     c.add_argument("--claude", type=Path, help="照らす repo の根の CLAUDE.md")
     g = sub.add_parser("grow", help="毎回差し込む物が REF より増えていないかを照らす")
     g.add_argument("--base", required=True, help="比べる元の git の ref（例: main との分かれ目）")
+    o = sub.add_parser("olds", help="使う側の checkout に古い形が残っていないかを照らす")
+    o.add_argument("dirs", type=Path, nargs="+")
     a = ap.parse_args(argv)
     if a.cmd == "inject":
         return inject()
@@ -341,6 +442,8 @@ def main(argv=None) -> int:
         return grow(a.base)
     if a.cmd == "fresh":
         return fresh()
+    if a.cmd == "olds":
+        return olds(a.dirs)
     return check(a.claude)
 
 
