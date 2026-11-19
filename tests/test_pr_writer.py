@@ -108,7 +108,7 @@ def test_main_より前の_commit_の窓は見ない(tmp_path):
 def test_人の枝は照らさない(tmp_path):
     repo, head = repo_with(tmp_path, [A])
     code, out = run(repo, head, body(B), branch="patch-1")
-    assert code == 0 and "照らしていない" in out
+    assert code == 3 and "照らしていない" in out
 
 
 def test_CI_の_job_check_が本文と先端を渡す():
@@ -125,8 +125,11 @@ def test_入口は_PR_で本文が違えば赤(tmp_path):
     repo, head = repo_with(tmp_path, [A, B])
     (repo / "scripts" / "checks").mkdir(parents=True)
     (repo / "window-shape").mkdir()
-    for p in (TOOL, CHECK, ROOT / "window-shape" / "window_shape.py"):   # 入口は窓の形の正本を直に読む
+    for p in (TOOL, CHECK, ROOT / "window-shape" / "window_shape.py", ROOT / "scripts" / "pr_shape.py"):   # 入口は窓の形の正本を直に読む・pr_shape.py の fresh_main が出所の今の main を出す
         (repo / p.relative_to(ROOT)).write_bytes(p.read_bytes())
+    subprocess.run(["git", "init", "-q", "--bare", "-b", "main", str(tmp_path / "出所.git")], check=True)
+    git(repo, "remote", "add", "origin", str(tmp_path / "出所.git"))
+    git(repo, "push", "-q", "origin", "main")
     git(repo, "update-ref", "refs/remotes/origin/main", "main")
     env = dict(os.environ, GITHUB_EVENT_NAME="pull_request", GITHUB_HEAD_REF=BRANCH, PR_HEAD_SHA=head, PR_BODY=body(A))
     p = subprocess.run(["bash", str(repo / "scripts" / "checks" / "pr_writer.sh")], capture_output=True, text=True, env=env)

@@ -193,7 +193,7 @@ def test_pr_text_誤って止まる_repo_は値の表で外せる(env, tmp_path)
     table = tmp_path / "values.json"
     env["SKILL_VALUES"] = str(table)
     table.write_text(json.dumps({"guard": {"pr_cleanup_exempt_repos": ["^fake-owner/fake-private$"],
-                                           "pr_words_exempt_repos": ["^fake-owner/"]}}), encoding="utf-8")
+                                           "pr_words_exempt_repos": ["^fake-owner/.*$"]}}), encoding="utf-8")
     body = "## 何をどう変えたか\n直す窓 %s\n" % STRANGER
     assert deny_reason(env, gh("create_pull_request", title="作り物", head="b", base="main", body=body)) == ""
     assert "[cleanup]" in deny_reason(env, gh("create_pull_request", repo="other", title="作り物", head="b", base="main", body=body))
@@ -208,7 +208,7 @@ def _fake_public_repo(proj, deny_word):
     wf = proj / ".github" / "workflows"
     wf.mkdir(parents=True)
     (wf / "public-guard.yml").write_text(
-        "jobs:\n  public-guard:\n    steps:\n      - uses: fake/agent-foundation-public/public-guard@v0.0.1\n"
+        "jobs:\n  public-guard:\n    steps:\n      - uses: ynishikawa-coder/agent-foundation-public/public-guard@main\n"
         "        with:\n          deny-words-file: data/deny.txt\n", encoding="utf-8")
     (proj / "data").mkdir()
     (proj / "data" / "deny.txt").write_text(deny_word + "\n", encoding="utf-8")
