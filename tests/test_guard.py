@@ -307,6 +307,7 @@ def test_寿命を過ぎた問いも次の問いを積む時には消えない(e
     hook(env, "post", many_questions(1, sid="s2", start=9))        # 別の問いを積む＝台帳を書き直す
     note = hook(env, "start", {"session_id": "s3"})["additionalContext"]
     assert "作り物の置き場を A と B のどちらにしますか" in note and "作り物の問い 9 番" in note
+    assert note.index("台帳から降ろします") < note.index("前の窓で答えのないまま閉じた問い")   # 切られても先に読まれる
 
 
 def many_questions(n, sid="s1", start=1):

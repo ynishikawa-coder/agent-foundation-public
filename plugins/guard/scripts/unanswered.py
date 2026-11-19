@@ -339,7 +339,18 @@ def resurface(data, vals):
     expired = [p for p in every if not _fresh(p)]
     if not items and not expired:
         return ""
+    # 寿命切れの知らせを前に置く（文の後ろが切られても、降ろす問いは読まれる）
     lines = ["<unanswered-question-carryover>"]
+    if expired:
+        lines += ["次の %d 件は最後に出てから %d 時間を過ぎたので、台帳から降ろします（この知らせが最後です）。"
+                  % (len(expired), LEDGER_TTL_HOURS),
+                  "まだ要る問いなら、この応答で AskUserQuestion に出し直してください（出せば台帳に積み直されます）。", ""]
+        for n, it in enumerate(expired, 1):
+            lines += _lines_for(n, it)
+        keys = {p.get("key") for p in expired}
+        if not update_ledger(path, lambda d: drop_expired(d, keys)):
+            lines.append("（台帳を書けず、降ろせませんでした。次の窓でもう一度知らせます）")
+        lines += ["降ろした問いの控え: 台帳 %s の expired_recent" % path, ""]
     if items:
         rounds = (len(items) + ASK_BATCH - 1) // ASK_BATCH
         lines += ["前の窓で答えのないまま閉じた問いが %d 件あります。" % len(items),
@@ -351,17 +362,5 @@ def resurface(data, vals):
         for n, it in enumerate(items, 1):
             lines += _lines_for(n, it)
         lines.append("答えが返れば台帳から自動で降ります。また閉じれば次の窓へ持ち越します。台帳: %s" % path)
-    if expired:
-        if items:
-            lines.append("")
-        lines += ["次の %d 件は最後に出てから %d 時間を過ぎたので、台帳から降ろします（この知らせが最後です）。"
-                  % (len(expired), LEDGER_TTL_HOURS),
-                  "まだ要る問いなら、この応答で AskUserQuestion に出し直してください（出せば台帳に積み直されます）。", ""]
-        for n, it in enumerate(expired, 1):
-            lines += _lines_for(n, it)
-        keys = {p.get("key") for p in expired}
-        if not update_ledger(path, lambda d: drop_expired(d, keys)):
-            lines.append("（台帳を書けず、降ろせませんでした。次の窓でもう一度知らせます）")
-        lines.append("降ろした問いの控え: 台帳 %s の expired_recent" % path)
     lines.append("</unanswered-question-carryover>")
     return "\n".join(lines)

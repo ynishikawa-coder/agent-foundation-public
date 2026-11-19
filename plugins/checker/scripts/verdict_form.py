@@ -162,6 +162,9 @@ def main(argv):
     while i < len(args):
         a = args[i]
         if a in opts:
+            if opts[a] is not None:
+                sys.stderr.write("%s を 2 度書いている（どちらを使うか決められない）\n" % a)
+                return 2
             if i + 1 >= len(args) or args[i + 1].startswith("--"):
                 sys.stderr.write("%s の後に値を書く\n" % a)
                 return 2

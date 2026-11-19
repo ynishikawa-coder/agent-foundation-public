@@ -190,3 +190,4 @@ def test_知らない印と値の無い印は止まる(tmp_path):
     good.write_text(GREEN, encoding="utf-8")
     assert vf.main(["verdict_form.py", str(good), "--writr", "x"]) == 2
     assert vf.main(["verdict_form.py", str(good), "--writer"]) == 2
+    assert vf.main(["verdict_form.py", str(good), "--writer", "a", "--writer", "b"]) == 2
