@@ -13,7 +13,7 @@ description: 情報を組み替え＋コメントできるマインドマップH
 
 ## 所属モード
 
-トリガを受けたら**宣言も確認もなしで単一操作として実行**する（「作りますか？」「これでOK？」を出さない・会社の規律は表の `common.rules.no_confirm`）。作った後は下の 6 の渡し方で渡す。
+トリガを受けたら**宣言も確認もなしで単一操作として実行**する（「作りますか？」「これでOK？」を出さない・途中確認をしない＝核 §4）。作った後は下の 6 の渡し方で渡す。
 
 ## repo ごとの値（config/skill-values.json）
 
@@ -23,7 +23,6 @@ repo ごとに違う値は、repo の根（`git rev-parse --show-toplevel`）の
 |---|---|---|
 | `docs-kit.mindmap.save_dir`（無ければ `common.save_dir`）/ `common.save_dir_avoid` | 作り方 5 の置き場・置かない所 | 窓の scratchpad（git の外・作業中の repo に置かない） |
 | `docs-kit.mindmap.delivery`（無ければ `common.delivery`） | 作り方 6 の渡し方 | `file:///…` の絶対パスを 1 行 |
-| `common.rules` | 確認装置禁止・二重出力禁止の会社の正本 | この SKILL の本文の規則だけで動く |
 | `common.glossary` | 本文の語（オーナー 等）の意味 | 語の一般の意味 |
 
 ## いつ使うか（判断）

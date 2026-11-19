@@ -26,7 +26,7 @@ description: お客さんなど選択肢の画面を使えない相手に判断�
 
 ## 所属モード
 
-トリガを受けたら**宣言も確認もなしで単一操作として実行**する（「作りますか？」「これでOK？」を出さない・会社の規律は表の `common.rules.no_confirm`）。作った後は作り方 7 の渡し方で渡す。
+トリガを受けたら**宣言も確認もなしで単一操作として実行**する（「作りますか？」「これでOK？」を出さない・途中確認をしない＝核 §4）。作った後は作り方 7 の渡し方で渡す。
 
 ## repo ごとの値（config/skill-values.json）
 
@@ -41,7 +41,7 @@ repo の根（`git rev-parse --show-toplevel`）の `config/skill-values.json` �
 | `docs-kit.qa-html.limits` | 長さ・問いの数の上限を上書き | 下の §長さの上限 |
 | `docs-kit.qa-html.prior_check_cmd` | 作り方 0 の「聞く前に引く」を機械にする道具の命令（repo ごとの決定の記録・問いの表を引く物）。下の §前の答えを照らす口 | 無し＝作り方 0 は手で引く（検査は前の答えを見ない・今までどおり） |
 | `docs-kit.qa-html.why` | なぜ聞くかの決まった文を替える（例 `{"once": "この月だけの事を確かめます"}`） | `check.mjs` の `RULES.why` |
-| `common.rules` / `common.glossary` | 確認装置禁止・喋り方・根治・二重出力禁止の正本／本文の語の意味 | この本文の規則だけ・語の一般の意味 |
+| `common.glossary` | 本文の語の意味 | 語の一般の意味 |
 | `docs-kit.qa-html.distribution` | この skill の配り方 | 無し |
 
 ## 前提の 3 段（どこに何を書くか）

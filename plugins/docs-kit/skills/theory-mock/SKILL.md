@@ -15,7 +15,7 @@ description: 要件すり合わせ用の「触れる全画面モック（理論�
 
 ## 所属モード
 
-トリガを受けたら**宣言も確認もなしで単一操作として**作って渡す（「作りますか？」「これでOK？」を出さない・会社の規律は表の `common.rules.no_confirm`）。
+トリガを受けたら**宣言も確認もなしで単一操作として**作って渡す（「作りますか？」「これでOK？」を出さない・途中確認をしない＝核 §4）。
 
 ## repo ごとの値（config/skill-values.json）
 
@@ -25,7 +25,6 @@ repo ごとに違う値は、repo の根（`git rev-parse --show-toplevel`）の
 |---|---|---|
 | `common.save_dir` / `common.save_dir_avoid` | 作り方 7 の置き場・置かない所 | 窓の scratchpad（git の外・PR に載せない・窓と一緒に片付く） |
 | `common.delivery` | 作り方 9 の渡し方 | Artifact で publish（非公開のまま）か `file:///…` の絶対パスを 1 行 |
-| `common.rules` | 確認装置禁止・二重出力禁止の会社の正本 | この SKILL の本文の規則だけで動く |
 | `common.glossary` | 本文の語（オーナー・窓 等）の意味 | 語の一般の意味 |
 
 ## いつ使うか（判断）
