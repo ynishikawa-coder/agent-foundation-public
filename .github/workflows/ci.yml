@@ -19,8 +19,20 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+      # node（qa-html の検査 check.mjs）と playwright（型の JS を実ブラウザで動かす試験）を入れる。
+      # 無いと試験が飛び、check_all が CI で飛んだ試験を赤にする（飛ばしたのに緑に数えない）。
+      # python と node の playwright は同じ版に揃える。両者の版が同じでも求めるブラウザの build が違う事があるので、
+      # ブラウザはそれぞれの playwright で入れる（足りなければ試験が飛び、check_all が赤にする）。
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
       - name: 試験の道具を入れる
-        run: python3 -m pip install --quiet pytest
+        run: |
+          python3 -m pip install --quiet pytest playwright==1.65.1
+          npm install -g --silent playwright@1.65.1
+          echo "NODE_PATH=$(npm root -g)" >> "$GITHUB_ENV"
+          python3 -m playwright install --with-deps chromium
+          node "$(npm root -g)/playwright/cli.js" install chromium
       - name: 検査（入口は check_all の 1 本）
         # PR 本文と先端は外から来る値なので run に直に埋めず env で渡す（scripts/checks/pr_writer.sh が読む）。
         env:
@@ -71,8 +83,11 @@ jobs:
     name: plugin-smoke
     runs-on: ubuntu-latest
     steps:
+      # 入れる commit（PR の枝の先端）と同じ commit を checkout する。期待の文は checkout の正本で作るので、
+      # PR の枝に main を合わせた物を checkout すると、入った copy と差し込む口が食い違う。
       - uses: actions/checkout@v4
         with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
       - uses: actions/setup-python@v5
         with:
