@@ -6,13 +6,14 @@
 今の形: 字の照らしは別の file（test_setup_stale_catalog_source_text.py）の試験 1 本に分け、動きの試験は字を見ない。
 ここでは小箱に試験の file と壊した文書を置いて回し、どの試験が赤になったかで照らす。
 """
-import re
+import json
+import os
 import shutil
 import subprocess
-import sys
 from pathlib import Path
 
 import pytest
+from entry_box import copy_entry
 
 ROOT = Path(__file__).resolve().parent.parent
 TEST = "tests/test_setup_stale_catalog_source.py"
@@ -37,22 +38,25 @@ BROKEN = {
 
 
 def run_box(tmp_path, doc_text):
+    """小箱に入口・試験・文書を写して回し、構造の結果で数える（passed の外は飛ばし・xfail も赤に数える）。"""
+    root = copy_entry(tmp_path / "box")
     for rel in [TEST, TEXT]:
-        (tmp_path / rel).parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(ROOT / rel, tmp_path / rel)
-    (tmp_path / DOC).parent.mkdir(parents=True, exist_ok=True)
-    (tmp_path / DOC).write_text(doc_text, encoding="utf-8")
-    r = subprocess.run([sys.executable, "-m", "pytest", "-q", "-rA", "-p", "no:cacheprovider", "-c", "/dev/null",
-                        f"--rootdir={tmp_path}", f"--confcutdir={tmp_path}", str(tmp_path / TEST), str(tmp_path / TEXT)],
-                       capture_output=True, text=True, cwd=tmp_path, timeout=300)
+        (root / rel).parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(ROOT / rel, root / rel)
+    (root / DOC).parent.mkdir(parents=True, exist_ok=True)
+    (root / DOC).write_text(doc_text, encoding="utf-8")
+    tally = tmp_path / "tally.json"
+    env = {k: v for k, v in os.environ.items() if not k.startswith("GITHUB_")}
+    env["AF_PYTEST_TALLY"] = str(tally)
+    r = subprocess.run(["bash", "scripts/pytest.sh", "-q", "-p", "no:cacheprovider", TEST, TEXT],
+                       capture_output=True, text=True, cwd=root, env=env, timeout=300)
     out = r.stdout + r.stderr
     red = set()
-    ran = 0
-    for kind, path in re.findall(r"^(PASSED|FAILED|ERROR) (\S+?)::", out, re.M):
-        ran += 1
-        if kind != "PASSED":
-            red.add("字" if path.endswith(Path(TEXT).name) else "動き")
-    return ran, red, out
+    results = json.loads(tally.read_text(encoding="utf-8"))["results"]
+    for x in results:
+        if x["outcome"] != "passed":
+            red.add("字" if x["nodeid"].split("::")[0].endswith(Path(TEXT).name) else "動き")
+    return len(results), red, out
 
 
 def test_合格_今の文書では字も動きも緑(tmp_path):

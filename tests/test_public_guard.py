@@ -204,7 +204,7 @@ def test_赤の最後の行は根治の入口を指し緑は指さない(tmp_pat
     red = _cli(_repo(tmp_path), {"GITHUB_ACTIONS": "true"})
     assert red.returncode == 1 and "細目 §3「まず構造を疑う」" in red.stdout.strip().splitlines()[-1], red.stdout
     (tmp_path / "g").mkdir()
-    green = _cli(_repo(tmp_path / "g"), {})
+    green = _cli(_repo(tmp_path / "g"), {"AF_DENY_WORDS": "置かない作り物の語"})
     assert green.returncode == 0 and "まず構造を疑う" not in green.stdout
 
 
@@ -214,8 +214,12 @@ def test_見回りで外れが在れば最後の行が根治の入口を指す(m
     assert "細目 §3「まず構造を疑う」" in capsys.readouterr().out.strip().splitlines()[-1]
 
 
-def test_手元で顧客の語が無ければ飛ばして緑(tmp_path):
+def test_注入_手元で顧客の語が無ければ照合を飛ばし緑に数えない(tmp_path):
+    """前の形は照合の一部を飛ばしても exit 0 で、check_all が緑に数えた。今は exit 3（照らしていない）。"""
     res = _cli(_repo(tmp_path), {})
+    assert res.returncode == 3 and "照らしていない" in res.stdout, res.stdout
+    (tmp_path / "g").mkdir()
+    res = _cli(_repo(tmp_path / "g"), {"AF_DENY_WORDS": "置かない作り物の語"})
     assert res.returncode == 0, res.stdout
 
 

@@ -14,6 +14,7 @@ import subprocess
 from pathlib import Path
 
 import pytest
+from entry_box import copy_entry
 
 ROOT = Path(__file__).resolve().parent.parent
 REAL_CLAUDE_REASON = "claude の命令が無い所では飛ばす（CI の job plugin-smoke が -m real_claude で回す）"
@@ -21,9 +22,8 @@ REAL_CLAUDE_REASON = "claude の命令が無い所では飛ばす（CI の job p
 
 def box(tmp_path, tests=None, checks=None):
     """check_all を写した小箱（試験と検査は作り物）。"""
+    copy_entry(tmp_path)
     (tmp_path / "scripts" / "checks").mkdir(parents=True)
-    for name in ("check_all.sh", "pytest.sh"):
-        shutil.copy2(ROOT / "scripts" / name, tmp_path / "scripts" / name)
     (tmp_path / "tests").mkdir()
     for name, body in (tests or {"test_ok.py": "def test_ok():\n    pass\n"}).items():
         (tmp_path / "tests" / name).write_text(body, encoding="utf-8")
@@ -86,8 +86,11 @@ def test_飛ばした試験を数えて名指す_手元は緑(tmp_path):
 
 
 def test_注入_待つ物が在るのに飛ぶと赤(tmp_path):
-    """前提が満ちた後も飛ばす条件が残る形（marketplace.json が在るのに「まだ無い」）。"""
-    root = box(tmp_path, tests=skip_test("待ち: here.json（作り物）が無い"))
+    """前提が満ちた後も飛ばす条件が残る形（marketplace.json が在るのに「まだ無い」）。待つ物は印 af_wait_path で照らす。"""
+    body = ("import pytest\n\ndef test_s():\n    e = pytest.skip.Exception('作り物')\n"
+            "    e.af_wait_path = 'here.json'\n    raise e\n")
+    root = box(tmp_path, tests={"test_ok.py": "def test_ok():\n    pass\n", "test_skip.py": body})
+    (root / "tests" / "waits.txt").write_text("here.json  作り物\n", encoding="utf-8")
     code, last, _ = run(root)
     assert code == 0, last  # 待つ物が無い間は名指すだけ
     (root / "here.json").write_text("{}", encoding="utf-8")
@@ -120,9 +123,9 @@ def test_注入_印の無い試験が_conftest_と同じ理由の文で飛んで
 
 
 def test_この_repo_の飛ばす理由は_待ち_か_部品の名を書く():
-    """tests/ の skip のうち前提の file を待つ物は「待ち: <path>」で書く（check_all が path の在る無しで照らす）。"""
+    """tests/ の skip のうち前提の file を待つ物は tests/waits.py の wait_for で書く（check_all が印の path を照らす）。"""
     text = (ROOT / "tests" / "test_call_flows.py").read_text(encoding="utf-8")
-    assert 'pytest.skip("待ち: docs/全体の絵.json' in text
+    assert 'wait_for(PICTURE' in text and 'PICTURE = "docs/全体の絵.json"' in text
     assert "がまだ無い" not in (ROOT / "tests" / "test_plugins_list.py").read_text(encoding="utf-8")
 
 

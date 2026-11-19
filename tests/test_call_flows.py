@@ -5,10 +5,11 @@ import sys
 from pathlib import Path
 
 import pytest
+from waits import wait_for
 
 ROOT = Path(__file__).resolve().parent.parent
 TOOL = ROOT / "scripts" / "call_flows.py"
-PICTURE = ROOT / "docs" / "全体の絵.json"
+PICTURE = "docs/全体の絵.json"
 
 
 def git(cwd, *a):
@@ -83,7 +84,6 @@ def test_部品の箱と結べない絵は照らせない(fake, tmp_path, label,
 
 
 def test_この_repo_の流れが合意した全体の絵に全部在る():
-    if not PICTURE.is_file():
-        pytest.skip("待ち: docs/全体の絵.json（合意した全体の絵）が無い。入れば飛ばさず照らす（入ったのに飛べば check_all が赤）")
-    res = run("check", str(PICTURE))
+    picture = wait_for(PICTURE, "合意した全体の絵")
+    res = run("check", str(picture))
     assert res.returncode == 0, res.stdout
