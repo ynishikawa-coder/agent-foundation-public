@@ -24,13 +24,15 @@ trap 'rm -f "$log"' EXIT
 
 echo "== pytest tests/"
 ran=$((ran + 1))
-python3 -m pytest -q -rs tests/ 2>&1 | tee "$log"
+sel=()
+[ "${GITHUB_ACTIONS:-}" = "true" ] && sel=(-m "not real_claude")
+python3 -m pytest -q -rs "${sel[@]}" tests/ 2>&1 | tee "$log"
 pytest_code=${PIPESTATUS[0]}
+deselected=$(grep -oE '[0-9]+ deselected' "$log" | tail -n 1 | grep -oE '^[0-9]+')
 # 飛ばした試験を理由ごとに数え、赤にする飛ばしを名指す（1 行目＝本数、続く行＝赤にする理由）
 skip_report=$(python3 - "$log" <<'PY'
 import os, re, sys
 from pathlib import Path
-REAL_CLAUDE = "claude の命令が無い所では飛ばす"   # tests/conftest.py の印 real_claude の飛ばし
 ci = os.environ.get("GITHUB_ACTIONS") == "true"
 total, bad = 0, []
 for ln in Path(sys.argv[1]).read_text(encoding="utf-8", errors="replace").splitlines():
@@ -43,7 +45,7 @@ for ln in Path(sys.argv[1]).read_text(encoding="utf-8", errors="replace").splitl
     if w:
         if Path(w.group(1)).exists():
             bad.append(f"{where}: 待つ物 {w.group(1)} が在るのに飛んだ（飛ばす条件が残っている）")
-    elif ci and not why.startswith(REAL_CLAUDE):
+    elif ci:
         bad.append(f"{where}: CI で飛んだ（{why}）")
 print(total)
 print("\n".join(bad))
@@ -80,6 +82,7 @@ fi
 note="緑 ${green}/${ran} 本"
 [ ${#unchecked[@]} -gt 0 ] && note="${note}・照らしていない ${#unchecked[@]} 本: ${unchecked[*]}"
 note="${note}・pytest で飛ばした ${skipped:-0} 本"
+[ -n "$deselected" ] && note="${note}・印 real_claude で外した ${deselected} 本（job plugin-smoke が回す）"
 if [ ${#failed[@]} -eq 0 ]; then
   echo "check_all: 緑 (${note}) ${at}"
   exit 0

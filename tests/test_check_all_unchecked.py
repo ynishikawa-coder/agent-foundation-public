@@ -100,13 +100,22 @@ def test_注入_CI_で部品が無くて飛ぶと赤(tmp_path):
     assert code == 1 and "CI で飛んだ（playwright が無い）" in out, out
 
 
-def test_CI_でも印_real_claude_の飛ばしは_plugin_smoke_が回すので通す(tmp_path):
-    conftest = (ROOT / "tests" / "conftest.py").read_text(encoding="utf-8")
-    assert REAL_CLAUDE_REASON in conftest, "conftest の飛ばす理由が変わった（check_all の REAL_CLAUDE と揃える）"
-    assert REAL_CLAUDE_REASON.split("（")[0] in (ROOT / "scripts" / "check_all.sh").read_text(encoding="utf-8")
+def test_CI_では印_real_claude_の試験を印で外し飛ばしに数えない(tmp_path):
+    """job plugin-smoke が回す印 real_claude の試験は、CI の job check では印の選びで外す（飛ばした理由の文で見分けない）。"""
+    marked = "import pytest\npytestmark = pytest.mark.real_claude\n\ndef test_c():\n    pytest.skip('x')\n"
+    root = box(tmp_path, tests={"test_ok.py": "def test_ok():\n    pass\n", "test_c_real_claude.py": marked})
+    shutil.copy2(ROOT / "tests" / "conftest.py", root / "tests" / "conftest.py")
+    code, last, out = run(root, GITHUB_ACTIONS="true")
+    assert code == 0 and "pytest で飛ばした 0 本" in last and "印 real_claude で外した 1 本" in last, out
+
+
+def test_注入_印の無い試験が_conftest_と同じ理由の文で飛んでも_CI_では赤(tmp_path):
+    """前の形は理由の文の頭で印 real_claude の飛ばしを見分けたので、印の無い試験が同じ文で飛ぶと CI で通った。"""
     root = box(tmp_path, tests=skip_test(REAL_CLAUDE_REASON))
-    code, last, _ = run(root, GITHUB_ACTIONS="true")
-    assert code == 0 and "pytest で飛ばした 1 本" in last, last
+    shutil.copy2(ROOT / "tests" / "conftest.py", root / "tests" / "conftest.py")
+    code, last, out = run(root, GITHUB_ACTIONS="true")
+    assert code == 1 and "CI で飛んだ" in out, out
+    assert REAL_CLAUDE_REASON.split("（")[0] not in (ROOT / "scripts" / "check_all.sh").read_text(encoding="utf-8")
 
 
 def test_この_repo_の飛ばす理由は_待ち_か_部品の名を書く():
