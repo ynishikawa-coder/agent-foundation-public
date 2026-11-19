@@ -17,35 +17,69 @@ ENTRY = ROOT / "scripts" / "setup_plugins.py"
 DOC = ROOT / "docs" / "核の届け方.md"
 
 FAKE = r'''#!/usr/bin/env python3
-import json, os, sys
+# 作り物の claude: 打たれた命令を記録し、install/update で入った台帳（installed_plugins.json）に目録の clone の HEAD を書く。
+import json, os, subprocess, sys
+from pathlib import Path
 log = os.environ["FAKE_LOG"]
 with open(log, "a") as f:
     f.write(" ".join(sys.argv[1:]) + "\n")
 broken = set(os.environ.get("FAKE_BROKEN", "").split())
-if sys.argv[1:3] == ["plugin", "list"]:
-    got = [l.split()[2] for l in open(log) if l.startswith("plugin install ")]
-    print(json.dumps([{"id": g, "scope": "user", "enabled": True} for g in got if g.split("@")[0] not in broken]))
+root = os.environ["FAKE_ROOT"]
+table_path = Path(os.environ["HOME"]) / ".claude" / "plugins" / "installed_plugins.json"
+table = json.loads(table_path.read_text()) if table_path.exists() else {"version": 2, "plugins": {}}
+head = lambda: subprocess.run(["git", "-C", root, "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip()
+a = sys.argv[1:]
+if a[:3] == ["plugin", "marketplace", "update"]:
+    if os.environ.get("FAKE_UPDATE_FAIL"):
+        sys.exit(1)
+    subprocess.run(["git", "-C", root, "pull", "-q", "--ff-only"], check=True, capture_output=True)
+elif a[:2] in (["plugin", "install"], ["plugin", "update"]):
+    name = a[2].split("@")[0]
+    if name in broken or (a[1] == "install" and a[2] in table["plugins"]):
+        sys.exit(0 if a[1] == "install" else 1)
+    if a[1] == "update" and name in os.environ.get("FAKE_UPDATE_STUCK", "").split():
+        sys.exit(0)
+    table["plugins"][a[2]] = [{"scope": "user", "gitCommitSha": head()}]
+    table_path.parent.mkdir(parents=True, exist_ok=True)
+    table_path.write_text(json.dumps(table))
+elif a[:2] == ["plugin", "list"]:
+    print(json.dumps([{"id": k, "scope": "user", "enabled": True} for k in table["plugins"]]))
 '''
 
 
+def git(cwd, *args):
+    subprocess.run(["git", "-C", str(cwd), "-c", "user.name=t", "-c", "user.email=t@example.invalid", *args],
+                   check=True, capture_output=True)
+
+
 def foundation(tmp_path, names):
-    """入口と配りの器だけを持つ作り物の目録の checkout。"""
+    """入口と配りの器だけを持つ作り物の目録の出所（upstream）と、その clone（入口が置かれる所）。clone を返す。"""
+    up = tmp_path / "upstream"
+    (up / "scripts").mkdir(parents=True)
+    (up / ".claude-plugin").mkdir()
+    shutil.copy2(ENTRY, up / "scripts" / "setup_plugins.py")
+    write_manifest(up, names)
+    git(tmp_path, "init", "-q", "-b", "main", str(up))
+    git(up, "add", "-A")
+    git(up, "commit", "-qm", "v1")
     root = tmp_path / "market"
-    (root / "scripts").mkdir(parents=True)
-    (root / ".claude-plugin").mkdir()
-    shutil.copy2(ENTRY, root / "scripts" / "setup_plugins.py")
-    (root / ".claude-plugin" / "marketplace.json").write_text(json.dumps(
-        {"name": "agent-foundation", "plugins": [{"name": n, "source": f"./plugins/{n}"} for n in names]}), encoding="utf-8")
+    git(tmp_path, "clone", "-q", str(up), str(root))
     return root
 
 
-def run(tmp_path, root, broken=""):
+def write_manifest(root, names):
+    (root / ".claude-plugin" / "marketplace.json").write_text(json.dumps(
+        {"name": "agent-foundation", "plugins": [{"name": n, "source": f"./plugins/{n}"} for n in names]}), encoding="utf-8")
+
+
+def run(tmp_path, root, broken="", **extra):
     fake = tmp_path / "claude"
     fake.write_text(FAKE, encoding="utf-8")
     fake.chmod(0o755)
     home = tmp_path / "home"
     home.mkdir(exist_ok=True)
-    env = dict(os.environ, HOME=str(home), CLAUDE_BIN=str(fake), FAKE_LOG=str(tmp_path / "log"), FAKE_BROKEN=broken)
+    env = dict(os.environ, HOME=str(home), CLAUDE_BIN=str(fake), FAKE_LOG=str(tmp_path / "log"), FAKE_BROKEN=broken,
+               FAKE_ROOT=str(root), **extra)
     r = subprocess.run([sys.executable, str(root / "scripts" / "setup_plugins.py")], capture_output=True, text=True,
                        env=env, timeout=60)
     log = (tmp_path / "log").read_text(encoding="utf-8") if (tmp_path / "log").exists() else ""

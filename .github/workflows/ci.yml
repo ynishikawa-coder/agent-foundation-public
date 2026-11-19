@@ -91,4 +91,4 @@ jobs:
       - name: 試験の歯（届かない物をわざと入れた写しで赤になるか）
         env:
           AF_REQUIRE_CLAUDE: "1"
-        run: python3 -m pytest -q tests/test_plugin_smoke.py
+        run: python3 -m pytest -q tests/test_plugin_smoke.py tests/test_setup_plugins_real_claude.py

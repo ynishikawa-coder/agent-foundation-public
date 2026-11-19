@@ -194,3 +194,18 @@ def test_読み口は鍵の一覧を_JS_の道具へ渡す():
                        capture_output=True, text=True, check=True)
     got = json.loads(r.stdout)
     assert "later_lead" in got["keys"] and "customer" in got["keys"] and got["any"] is False
+
+
+# ── session-watch（watch-log の reply_exempt） ──
+def test_session_watch_は表から行を消すと_その鍵を読む所で止まる(tmp_path, monkeypatch, fresh):
+    p = _table(tmp_path, {"session-watch": {"watch-log": {"reply_exempt": ["^作り物"]}}})
+    monkeypatch.setenv("SKILL_VALUES", str(p))
+    SW = load(PLUGINS / "session-watch/scripts/session_watch.py", "session_watch_t")
+    assert SW.reply_exempt({}) == (["^作り物"], [])
+    d = _copy_plugins(tmp_path / "plugins")
+    _drop_row(d / "session-watch/skills/watch-log/SKILL.md", "reply_exempt")
+    SW2 = load(d / "session-watch/scripts/session_watch.py", "session_watch_drop")
+    VK = SW2.neighbor("values_keys")
+    assert Path(VK.__file__).resolve().parent == (d / "guard/scripts").resolve()
+    with pytest.raises(VK.G.UnknownKey):
+        SW2.reply_exempt({})

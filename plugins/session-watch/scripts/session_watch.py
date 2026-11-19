@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """会話ログ（transcript の JSONL）だけを読む点検（手で回す点検と、返事の形の崩れだけを AI へ差し戻す Stop の hook）。
 
-拾う物（どれも会話ログの中だけで決まる＝環境の値・外の台帳・get_session の返りを見ない）:
+拾う物（どれも会話ログの中だけで決まる＝外の台帳・get_session の返りを見ない。値の表で外す形だけ読む）:
   title    … 窓の題の目印（`<種類><状態> <作業名>`）が決まりどおりか（題だけで決まる形は title_shape。
              guard の outbound が題を付ける口・窓を立てる口でもこれを直に呼ぶ＝題の形の正本）
   close    … 返事の最後が締めの 2 行（`AI がこの後やること: …`／`あなたがやること: …`）か。あなたがやることが「なし」なら窓を閉じてよいかを、
@@ -15,6 +15,13 @@
   rest     … 締めの `AI がこの後やること` が「なし」でないのに、この窓で残りを動かす手（子窓・送る・見張り・後で起こす・背で走る助手）を一度も打っていないか
   hand     … 手の窓（題 `🙋⏳ 手: <何を>`）の返事に、目的・手順・済んだ目印・済んだ後が揃っているか。
              手の窓でない窓が、あなたがやることに人の手の手順を直に書き、手の窓の URL を書いていないか
+  inner    … 人への返事の本文（コードの囲み・`…`・URL を外した所）に、AI の中の言葉らしい字（番号・窓の id・
+             `直し_0020` の形の識別子・commit の印）が在るか。見分けの正本は plugin guard の ask_shape.inner_terms
+             （選択肢の画面と同じ物を直に呼ぶ）。返し先が別の窓の窓（🤖）は人への文でないので見ない
+  time     … 返事の時刻が日本時間でない（Z・UTC・GMT・+09:00 以外の時差）か、日付つきの時刻に日本時間の印が無いか（核 §6）
+  done     … 1 行目が ✅ の返事に、終わったと言い切らない語（ほぼ・大体・たぶん・はず 等）が終わりの語と同じ文に在るか（核 §7）
+  secret   … 返事に鍵・トークンの形が在るか。形の正本は公開の検査 public-guard/guard.py の secret_labels（直に呼ぶ）
+  neighbor … 上の inner・secret の正本（隣の plugin guard・公開の検査）が見つからず照らせないか
 
 窓の種類＝「オーナーが相手の窓か」（この窓が誰に返すか）。誰が立てたか（親の窓の有無・
 parent_session_id・origin）では決めない。会話ログの最初の頼みの文に書かれた返し先だけで決める:
@@ -26,8 +33,9 @@ parent_session_id・origin）では決めない。会話ログの最初の頼み
                                                  付けていなければ、付けるよう AI に知らせる文を隣に出す。前の返事の
                                                  あなたがやることに人の手の手順を直に書いていれば、手の窓で頼むよう
                                                  知らせる（どちらも止めない）
-  python3 session_watch.py --stop              … Stop の hook。AI が返事を締めようとした時、題の印（今の題で直せる物）・
-                                                 1 行目の札・締めの 2 行が崩れていれば、AI だけを差し戻して書き直させる
+  python3 session_watch.py --stop              … Stop の hook。AI が返事を締めようとした時、STOP_CODES の札（題の印〔今の題で
+                                                 直せる物・会話ログに題が無い時も〕・1 行目の札・締めの 2 行・平文の問い・中の言葉・
+                                                 時刻・完了の言い切り・秘密）が崩れていれば、AI だけを差し戻して書き直させる
                                                  （decision=block。人の操作は止めない。同じターンで STOP_MAX 回まで）
 読めない・壊れた記録は黙って通す。
 """
@@ -35,6 +43,61 @@ import json
 import os
 import re
 import sys
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+PLUGIN_ROOT = os.path.dirname(HERE)
+
+
+# ── 隣の正本（写さず直に呼ぶ）──────────────────────────────────
+#  中の言葉 … plugin guard の scripts/ask_shape.py（inner_terms）・値の表は scripts/guard_common.py
+#  秘密の形 … 公開の検査 public-guard/guard.py（secret_labels。plugin の外＝市場の写しから読む）
+#  探す順: 環境変数 → 同じ repo（plugins/session-watch の隣）→ 入れた plugin の同じ版 → 市場の写し → 入れた plugin の新しい版
+#  どこにも無ければ None（check は neighbor の札を出す＝黙って照らしを抜かない）。
+NEIGHBORS = {
+    "ask_shape": ("AF_ASK_SHAPE", "plugins/guard/scripts/ask_shape.py", "guard", "scripts/ask_shape.py"),
+    "guard_common": ("AF_GUARD_COMMON", "plugins/guard/scripts/guard_common.py", "guard", "scripts/guard_common.py"),
+    "values_keys": ("AF_VALUES_KEYS", "plugins/guard/scripts/values_keys.py", "guard", "scripts/values_keys.py"),
+    "public_guard": ("AF_PUBLIC_GUARD", "public-guard/guard.py", None, None),
+}
+_loaded = {}
+
+
+def neighbor_path(name, env=None):
+    env = os.environ if env is None else env
+    env_name, repo_rel, plugin, rel = NEIGHBORS[name]
+    cands = [env.get(env_name) or ""]
+    up2 = os.path.dirname(os.path.dirname(PLUGIN_ROOT))       # repo: <repo> ／ 入れた形: cache/<市場>
+    cands.append(os.path.join(up2, repo_rel))
+    ver, market = os.path.basename(PLUGIN_ROOT), os.path.basename(up2)
+    if plugin:
+        cands.append(os.path.join(up2, plugin, ver, rel))
+    cands.append(os.path.join(os.path.dirname(os.path.dirname(up2)), "marketplaces", market, repo_rel))
+    if plugin:
+        import glob
+        cands += sorted(glob.glob(os.path.join(up2, plugin, "*", rel)), key=os.path.getmtime, reverse=True)
+    for c in cands:
+        if c and os.path.isfile(c):
+            return c
+    return None
+
+
+def neighbor(name):
+    """隣の正本の module か None。読み込みは 1 回だけ（__pycache__ を作らない）。"""
+    if name not in _loaded:
+        mod = None
+        path = neighbor_path(name)
+        if path:
+            try:
+                import importlib.util
+                sys.dont_write_bytecode = True
+                spec = importlib.util.spec_from_file_location("af_sw_" + name, path)
+                mod = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(mod)
+            except Exception:      # noqa: BLE001  壊れた隣は無い物として扱う（neighbor の札で知らせる）
+                mod = None
+        _loaded[name] = mod
+    return _loaded[name]
+
 
 ASK = "AskUserQuestion"
 SET_TITLE_SUFFIX = "set_session_title"
@@ -331,12 +394,166 @@ def is_plain_question(text):
     return end or card or phrase
 
 
+# ── 返事の本文の言葉（人への文）────────────────────────────────
+INLINE_CODE = re.compile(r"`[^`\n]+`")
+URL = re.compile(r"https?://\S+")
+QUOTED = re.compile(r"「[^」\n]*」|『[^』\n]*』|\"[^\"\n]*\"")
+
+# 時刻（核 §6）: 人に見せる時刻は日本時間。印は「日本時間」「JST」「+09:00」。
+CLOCK = re.compile(r"(?<![\d:])(\d{1,2})[:：](\d{2})(?:[:：]\d{2})?(?:\.\d+)?(?![\d])")
+ZONE = re.compile(r"^\s*(Z(?![A-Za-z])|UTC|GMT|[+-]\d{2}:?\d{2}(?!\d))")
+JST_LINE = re.compile(r"日本時間|JST|\+09:?00")      # 同じ行に印があれば、その行の印の無い時刻は日本時間と読む
+DATE_BEFORE = re.compile(r"(\d{4}[-/年]\d{1,2}[-/月]\d{1,2}日?|(?<![\d/])\d{1,2}/\d{1,2}|\d{1,2}月\d{1,2}日)"
+                         r"\s*(?:[（(][月火水木金土日][)）])?\s*T?\s*$")
+
+# 完了の言い切り（核 §7）: ✅ の返事で、終わりの語と同じ文に言い切らない語。
+HEDGE = re.compile(r"ほぼ|大体|だいたい|たぶん|多分|おそらく|恐らく|はず(?![しすさせれ])|と思(?:う|い|われ)|かもしれ")
+FINISH = re.compile(r"終わ|済ん|済み|完了|直っ|直り|直せ|直した|でき|出来|通っ|通る|通り|緑|動い|動く|効い|効く|揃っ|片付")
+AHEAD = re.compile(r"次の|次回|来週|来月|明日|今後|あとで|後で|予定|見込み")   # 先の事の見込みは完了の言い切りでない
+PAST = re.compile(r"た\s*$|た[、,）)」]|ました|でした|済み|完了")   # 過去の言い切り（見込みの語が在っても数える）
+SENTENCE = re.compile(r"[^。！？!?\n]+")
+
+
+def reply_exempt(data=None):
+    """値の表の session-watch.watch-log.reply_exempt（行に当てる正規表現の並び）。当たる行は inner・time・done で見ない。
+    (通る形の並び, 通らない形の並び)。通らない形（正規表現として読めない）は捨てる＝1 つの誤りで照らしを全部止めない。"""
+    G, VK = neighbor("guard_common"), neighbor("values_keys")
+    if not G or not VK:
+        return [], []        # 読み口が無ければ値の表を読まない（無い隣は neighbor の札で名指す）
+    got = G.table("session-watch", data)
+    got = got.get("watch-log") if isinstance(got, dict) else None
+    # 値の表の読み口（表に無い鍵を読むと G.UnknownKey で止まる＝表とコードのずれを読む所で出す）。
+    pats = VK.section(got, "session-watch", "watch-log").get("reply_exempt")
+    ok, bad = [], []
+    for p in pats or []:
+        if not isinstance(p, str) or not p:
+            continue
+        try:
+            re.compile(p)
+            ok.append(p)
+        except re.error:
+            bad.append(p)
+    return ok, bad
+
+
+def prose(text, exempt=()):
+    """人へ見せる本文: コードの囲み・`…`・URL を外し、外す形に当たる行を除く。"""
+    out = []
+    for ln in strip_code(text).splitlines():
+        if any(re.search(p, ln) for p in exempt):
+            continue
+        out.append(URL.sub(" ", INLINE_CODE.sub(" ", ln)))
+    return "\n".join(out)
+
+
+def time_hits(body):
+    """日本時間でない時刻・日付つきで印の無い時刻の並び [(字, 訳)]。"""
+    hits = []
+    for ln in body.splitlines():
+        for m in CLOCK.finditer(ln):
+            if int(m.group(1)) > 23 or int(m.group(2)) > 59:
+                continue
+            after, before = ln[m.end():m.end() + 24], ln[max(0, m.start() - 24):m.start()]
+            z = ZONE.match(after)
+            if z and not re.match(r"^\s*\+09:?00", after):
+                hits.append((m.group(0) + z.group(1), "日本時間でない"))
+            elif not z and DATE_BEFORE.search(before) and not JST_LINE.search(ln):
+                hits.append(((DATE_BEFORE.search(before).group(1) + " " + m.group(0)).strip(), "日本時間の印が無い"))
+    return hits
+
+
+def hedge_hits(body):
+    """終わりの語と同じ文にある言い切らない語の並び（「」の中の言葉＝引いた言葉は数えない）。"""
+    out = []
+    for sent in SENTENCE.findall(QUOTED.sub(" ", body)):
+        h = HEDGE.search(sent)
+        if h and FINISH.search(sent) and not (AHEAD.search(sent) and not PAST.search(sent)):
+            out.append(sent.strip()[:40])
+    return out
+
+
+def ai_window(log):
+    """返し先が別の窓の窓（🤖）か。最初の頼みの返し先か、最後の題の種類で決める。"""
+    if kind_of(log.first_prompt) == AI:
+        return True
+    last = None
+    for k, v in log.events:
+        if k == "title":
+            last = v
+    return split_title(last)[0] == AI
+
+
+def words(log, closing, data=None):
+    """返事の本文の言葉の札 [(code, 説明)]: inner・time・done・secret・neighbor。"""
+    found = []
+    if not closing.strip():
+        return found
+    # 照らしは札ごとに分けて走らせる: 1 つ（値の表の誤った形・隣の正本の故障）が壊れても、他の札は黙って抜けない。
+    #   壊れた札は neighbor で名指す（AI には直せない＝窓ごとに 1 回だけ差し戻す）。
+    def part(name, fn):
+        try:
+            fn()
+        except Exception as e:      # noqa: BLE001
+            found.append(("neighbor", "%s の照らしが壊れて照らせない（%s: %s）" % (name, type(e).__name__, str(e)[:60])))
+
+    exempt, bad = reply_exempt(data)
+    if bad:
+        found.append(("neighbor", "値の表 session-watch.watch-log.reply_exempt に正規表現として読めない形がある（捨てて照らした）: %s"
+                      % "／".join(b[:30] for b in bad[:3])))
+    body = prose(closing, exempt)
+
+    def secret():
+        PG = neighbor("public_guard")
+        if PG is None or not hasattr(PG, "secret_labels"):
+            found.append(("neighbor", "秘密の形の正本（公開の検査 public-guard/guard.py）が見つからず、返事の鍵を照らせない"))
+            return
+        labels = PG.secret_labels(closing)
+        if labels:
+            found.append(("secret", "返事に秘密の形がある（%s）。値を消し、在り処の名だけを書く（核 §1）" % "・".join(labels)))
+
+    def inner():
+        if ai_window(log):
+            return
+        A, G = neighbor("ask_shape"), neighbor("guard_common")
+        if A is None or not hasattr(A, "inner_terms") or G is None:
+            found.append(("neighbor", "中の言葉の正本（plugin guard の ask_shape・guard_common）が見つからず、返事の言葉を照らせない"))
+            return
+        vals = G.values(data)
+        bad = A.bad_patterns(vals) if hasattr(A, "bad_patterns") else []
+        if bad:
+            found.append(("neighbor", "値の表の %s に正規表現として読めない形がある（捨てて照らした・値の表を直す）"
+                          % "／".join("guard.%s「%s」" % (k, p[:30]) for k, p in bad[:3])))
+        hits = A.inner_terms(body, vals, A.REPLY_KINDS)
+        if hits:
+            shown = "／".join("%s「%s」" % (n, t[:30]) for n, t in hits[:6])
+            found.append(("inner", "人への返事に AI の中の言葉らしい字: %s%s" % (
+                shown, "（ほか %d 件）" % (len(hits) - 6) if len(hits) > 6 else "")))
+
+    def time():
+        th = time_hits(body)
+        if th:
+            found.append(("time", "時刻が日本時間の形でない: %s" % "／".join("「%s」%s" % (t, why) for t, why in th[:4])))
+
+    def done():
+        lines = [ln.strip() for ln in closing.splitlines() if ln.strip()]
+        if lines and re.match(r"^[#>*\s]*✅", lines[0]):
+            hh = hedge_hits(body)
+            if hh:
+                found.append(("done", "✅ の返事に、終わったと言い切らない語がある: %s" % "／".join("「%s」" % x for x in hh[:3])))
+
+    for name, fn in (("secret", secret), ("inner", inner), ("time", time), ("done", done)):
+        part(name, fn)
+    return found
+
+
 # ── 見張り ──────────────────────────────────────────────────
+NO_TITLE = "題の印が会話ログに無い"
 ASK_BEFORE = "問いを出す前に題の状態を"   # 過ぎた事（今の題を直しても消えない）＝差し戻しには使わない
 
 
-def check(log, closing=None):
-    """拾った物を [(code, 説明)] で返す。closing を渡せば、それを締めの返事として見る（Stop の hook）。"""
+def check(log, closing=None, data=None):
+    """拾った物を [(code, 説明)] で返す。closing を渡せば、それを締めの返事として見る（Stop の hook）。
+    data は hook の入力（値の表の在り処＝cwd を読む）。"""
     found = []
     kind = kind_of(log.first_prompt)
     closing = log.closing_text() if closing is None else closing
@@ -358,6 +575,10 @@ def check(log, closing=None):
             elif k == "answer":
                 answered |= set(v)
                 open_ask = not v
+        if title is None and closing.strip():
+            found.append(("title", NO_TITLE + "（親が窓を立てた時に付けた題は会話ログの外で照らせない）。`get_session` を "
+                                   "session_id を省いて読み、今の題を `set_session_title` で `<種類><状態> <作業名>` に付け直す"
+                                   "（同じ題でもよい。会話ログに載れば照らせる）"))
         if title is not None:
             tk, tm, _ = split_title(title)
             found += [("title", m) for m in title_shape(title)]
@@ -419,6 +640,9 @@ def check(log, closing=None):
         last = [x.strip() for x in strip_code(body).splitlines() if x.strip()]
         found.append(("plain", "問いを平文で書いた（選ぶ問いはモーダルで、開いた問いは AI の今の読みを添えて聞くか、AI が決めて進む）: %s" % (last[-1][-60:] if last else "")))
 
+    # 返事の本文の言葉（中の言葉・時刻・完了の言い切り・秘密）
+    found += words(log, closing, data)
+
     # 「分からない」の無いモーダルの問い（細目 §4）
     for k, v in log.events:
         if k == "noidk":
@@ -452,6 +676,10 @@ REMIND = (
     "[session-watch] この窓の題にまだ種類の印（%s／%s）が無い。最初の返事を書く前に、"
     "%s の `set_session_title` で題を `<種類><状態> <作業名>` に付ける（自分の session id は `get_session` を "
     "session_id を省いて読む）。種類: %s。形の細目は skill `session-watch:title-mark`。")
+
+
+REMIND_CHILD = ("[session-watch] 親が付けた題は会話ログに載らず、返事の差し戻し（Stop）が照らせない。最初の返事の前に "
+                "`get_session` を session_id を省いて読み、今の題を `set_session_title` で付け直す（形が合っていれば同じ題でよい）。")
 
 
 HAND_ASK = ("あなたがやることに人の手の手順を直に書いた。人の手は手の窓（題 🙋⏳ 手: <何を>・1 つの頼みに 1 つの窓）"
@@ -505,7 +733,7 @@ def remind_title(log, data):
         return None
     kind = kind_of(log.first_prompt or str(data.get("prompt") or ""))
     if kind == AI:
-        return None    # 別の窓へ返す子窓は、立てた親が create_session の title で題を付ける
+        return REMIND_CHILD   # 親が create_session で付けた題は会話ログに無い＝返事の差し戻しで照らせないので、付け直させる
     which = ("%s（最初の頼みの返し先から）" % kind) if kind else (
         "オーナーと話す窓なら %s・別の窓へ返す窓なら %s" % (HUMAN, AI))
     return REMIND % (HUMAN, AI, REMOTE_PREFIX.rstrip("_"), which)
@@ -531,12 +759,30 @@ def hook_remind(stdin):
 
 
 # ── 差し戻す（Stop の hook・止まるのは AI だけ）────────────────
-STOP_CODES = ("title", "card", "close")   # 返事の形（題の印・1 行目の札・締めの 2 行）。ほかは手で回す点検と知らせるだけ
+STOP_CODES = ("title", "card", "close", "plain", "inner", "time", "done", "secret", "neighbor")
+#   差し戻す札（核 §1・§2・§4・§5・§6・§7 の、AI が読み飛ばすとそのまま人に届く所）。ほか（idk・unanswered・rest・hand）は
+#   手で回す点検と知らせるだけ。neighbor（隣の正本が見つからない）は窓ごとに 1 回だけ差し戻す（AI には直せない＝回さない）。
 STOP_MAX = 2                              # 同じターンで差し戻す回数の上限（越えたら通して届ける＝窓が回り続けない）
-STOP_OFF = "AF_SESSION_WATCH_STOP"        # 0／false で差し戻しを切る（見張りが誤った時の逃げ道）
+STOP_OFF = "AF_SESSION_WATCH_STOP"        # 0／false で差し戻しを切る（見張りが壊れた時の逃げ道・人の手でだけ設定する）
 STOP_HEAD = ("[session-watch] 返事の形が崩れているので、まだ届けていない。下を直して、返事を頭から全部書き直す"
              "（道具を打ったら、その後に書いた本文が届く返事になる）。形の正本は核 §4・§5（細目 §5）・skill "
              "`session-watch:title-mark`。")
+STOP_HOW = {
+    "plain": "選ぶ問いは選択肢の画面で聞く（「分からない」も置く・推奨の印は作り方の分かれ道だけ）。意味・考え・前提を問う開いた問いは"
+             "「AI の今の読み」を添えて書く。調べれば決まる事は AI が決めて進める（細目 §4）。",
+    "inner": "番号・窓の id・`直し_0020` の形の名・commit の印は、それが何かを日常の言葉で言い換える（例: 「#616」→「昨日出した"
+             "置き場の直し」と URL）。コード・path・file 名は数えていない（どうしても要る字は `…` で囲む）。",
+    "time": "時刻は「YYYY-MM-DD HH:MM 日本時間」で書く（UTC の時刻は 9 時間足す）。記録をそのまま見せる時はコードの囲みに入れる（核 §6）。",
+    "done": "確かめた事だけを言い切る。確かめ切れていない所があれば 1 行目を「一部」「止めた」の形にし、何が残るかを書く（核 §7）。"
+            "人の言葉を引くだけなら「」で囲む。",
+    "secret": "鍵・トークンの値を返事から消し、在り処（環境の値の名・設定の場所）だけを書く。出てしまった鍵は人に作り直しを頼む（核 §1）。",
+    "neighbor": "上の行が名指す原因を直す: 値の表の読めない形なら、その形を直す PR を出すか、あなたがやることに書く。隣の正本が"
+                "見つからないなら、土台の plugin guard と市場の写し（公開の検査）を入れ直す（docs/核の届け方.md）。読めない形は捨てて"
+                "照らし続けているので、他の札は効いている。この知らせは窓ごとに 1 回だけ。",
+}
+STOP_FOOT = ("誤って差し戻した時（引いた言葉・記録の写しに当たった等）: 当たる行の形を値の表 config/skill-values.json の "
+             "session-watch.watch-log.reply_exempt（行に当てる正規表現の並び）に、中の言葉の字は guard.ask_term_allow に足す（PR とレビューを"
+             "通す）。見張りが壊れた時だけ環境変数 %s=0 で切る。" % STOP_OFF)
 
 
 def stop_tmp(env):
@@ -573,15 +819,41 @@ def stop(data, env=None):
         return None
     path = data.get("transcript_path") or ""
     log = Log(read_rows(path)) if path and os.path.exists(path) else Log([])
+    if str(env.get("CLAUDE_CODE_REMOTE", "")).lower() == "true":
+        log.cloud = True          # クラウドの窓は題の道具を持つ（会話ログで道具を打つ前でも題を照らす）
     last = data.get("last_assistant_message")
     closing = last if isinstance(last, str) and last.strip() else None
-    found = [(c, m) for c, m in check(log, closing) if c in STOP_CODES and not m.startswith(ASK_BEFORE)]
+    found = [(c, m) for c, m in check(log, closing, data) if c in STOP_CODES and not m.startswith(ASK_BEFORE)]
+    if any(c == "neighbor" for c, _ in found) and _seen(env, data.get("session_id"), "neighbor"):
+        found = [(c, m) for c, m in found if c != "neighbor"]
     if not found:
         return None
     if _count(env, data.get("session_id"), reset=not data.get("stop_hook_active")) > STOP_MAX:
         sys.stderr.write("[session-watch] 差し戻しが %d 回を越えたので通す\n" % STOP_MAX)
         return None
-    return STOP_HEAD + "\n" + "\n".join("- %s: %s" % (c, m) for c, m in found) + "\n" + ROOT_CAUSE
+    out = [STOP_HEAD] + ["- %s: %s" % (c, m) for c, m in found]
+    hows = [c for c in dict.fromkeys(c for c, _ in found) if c in STOP_HOW]
+    if hows:
+        out.append("直し方:")
+        out += ["- [%s] %s" % (c, STOP_HOW[c]) for c in hows]
+    out.append(STOP_FOOT)
+    out.append(ROOT_CAUSE)
+    return "\n".join(out)
+
+
+def _seen(env, sid, what):
+    """この窓で what を既に差し戻したか（初めてなら印を置いて False）。"""
+    d = stop_tmp(env)
+    name = "".join(c for c in str(sid or "nosid") if c.isalnum() or c in "-_")[:120] or "nosid"
+    path = os.path.join(d, "%s.%s" % (name, what))
+    if os.path.exists(path):
+        return True
+    try:
+        os.makedirs(d, exist_ok=True)
+        open(path, "w").close()
+    except OSError:
+        pass
+    return False
 
 
 def hook_stop(stdin):
