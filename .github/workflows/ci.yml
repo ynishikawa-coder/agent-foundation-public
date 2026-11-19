@@ -110,4 +110,4 @@ jobs:
       - name: 本物の claude を要る試験（印 real_claude の試験を全部拾う。file を手で並べない・tests/conftest.py）
         env:
           AF_REQUIRE_CLAUDE: "1"
-        run: python3 -m pytest -q -m real_claude tests/
+        run: bash scripts/pytest.sh -q -m real_claude tests/

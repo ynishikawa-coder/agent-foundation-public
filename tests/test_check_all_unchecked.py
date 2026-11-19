@@ -22,7 +22,8 @@ REAL_CLAUDE_REASON = "claude の命令が無い所では飛ばす（CI の job p
 def box(tmp_path, tests=None, checks=None):
     """check_all を写した小箱（試験と検査は作り物）。"""
     (tmp_path / "scripts" / "checks").mkdir(parents=True)
-    shutil.copy2(ROOT / "scripts" / "check_all.sh", tmp_path / "scripts" / "check_all.sh")
+    for name in ("check_all.sh", "pytest.sh"):
+        shutil.copy2(ROOT / "scripts" / name, tmp_path / "scripts" / name)
     (tmp_path / "tests").mkdir()
     for name, body in (tests or {"test_ok.py": "def test_ok():\n    pass\n"}).items():
         (tmp_path / "tests" / name).write_text(body, encoding="utf-8")

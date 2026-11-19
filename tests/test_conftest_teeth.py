@@ -30,7 +30,7 @@ BROKEN = {
 def tree(tmp_path, conftest_text):
     """照らす検査・試験の dir・CI の定義を写した小箱（conftest だけ差し替える）。"""
     shutil.copytree(ROOT / "tests", tmp_path / "tests", ignore=shutil.ignore_patterns("__pycache__"))
-    for rel in [CHECK, ".github/workflows/ci.yml"]:
+    for rel in [CHECK, "scripts/pytest.sh", ".github/workflows/ci.yml"]:
         (tmp_path / rel).parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(ROOT / rel, tmp_path / rel)
     (tmp_path / "tests" / "conftest.py").write_text(conftest_text, encoding="utf-8")
@@ -41,7 +41,7 @@ def env_without_claude(tmp_path):
     nobin = tmp_path / "nobin"
     nobin.mkdir(exist_ok=True)
     os.symlink(sys.executable, nobin / "python3")
-    for tool in ("bash", "dirname", "grep", "tail"):
+    for tool in ("bash", "dirname", "env", "grep", "tail"):
         if shutil.which(tool):
             os.symlink(shutil.which(tool), nobin / tool)
     env = dict(os.environ, PATH=str(nobin))

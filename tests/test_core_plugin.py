@@ -767,7 +767,8 @@ def test_読めない_CLAUDE_md_でも_inject_は落ちない(tmp_path):
 def test_検査の入口の赤の最後の行は根治の入口を指し緑は指さない(tmp_path):
     """check_all.sh の赤が落ちた本の名だけを返す古い形（赤を 1 つずつ潰させる）に戻すと赤。"""
     (tmp_path / "scripts").mkdir()
-    (tmp_path / "scripts" / "check_all.sh").write_text((ROOT / "scripts" / "check_all.sh").read_text(encoding="utf-8"), encoding="utf-8")
+    for name in ("check_all.sh", "pytest.sh"):
+        (tmp_path / "scripts" / name).write_text((ROOT / "scripts" / name).read_text(encoding="utf-8"), encoding="utf-8")
     (tmp_path / "tests").mkdir()
     test = tmp_path / "tests" / "test_x.py"
     run = lambda: subprocess.run(["bash", str(tmp_path / "scripts" / "check_all.sh")], capture_output=True, text=True)
