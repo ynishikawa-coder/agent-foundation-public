@@ -170,9 +170,15 @@ def in_ci() -> bool:
 
 # ---- 照らす本体（場所と札だけを返す・語は返さない） ---------------------------------
 
+def secret_labels(text: str) -> list[str]:
+    """秘密の形に当たった札の並び（値は返さない）。秘密の形の正本はここ 1 つ。
+    返事の差し戻し（plugin session-watch の Stop の hook）もこれを直に呼ぶ（写さない）。"""
+    return [label for label, pat in SECRET_PATTERNS.items() if re.search(pat, text or "")]
+
+
 def pattern_hits(where: str, text: str) -> list[str]:
     """秘密と個人の情報の形。"""
-    hits = [f"{where}: {label}" for label, pat in SECRET_PATTERNS.items() if re.search(pat, text)]
+    hits = [f"{where}: {label}" for label in secret_labels(text)]
     hits += [f"{where}: {label}" for label, pat in PERSONAL_PATTERNS.items() if re.search(pat, text)]
     if any(not SAFE_EMAIL.search(m) for m in re.findall(EMAIL, text)):
         hits.append(f"{where}: メールアドレス")

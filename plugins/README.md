@@ -22,7 +22,7 @@
 
 - **docs-kit**（A3）: 確認のページ（Artifact・宛先がオーナーでも）と UTC の Artifact 型に、`qa-html` の検査をかける。publish の前は guard の `qa_page` が同じ検査で止める。
 - **dev-flow**（A4）: 要件から brief を作る道具は Javis 固有なので入れない。
-- **session-watch**（A4）: 会話ログを見て、題の目印・平文で書いた問い・答えの無い問いを拾う。クラウドの窓で題に種類の印（🙋／🤖）がまだ無い間は、UserPromptSubmit の hook が付けるよう知らせる。前の返事の「あなたがやること」に人の手の手順を直に書いた時も、手の窓で頼んで URL だけを書くよう同じ hook が知らせる（どちらも止めない）。返事の形（題の印・1 行目の札・締めの 2 行）が崩れたまま締めようとすると、Stop の hook が AI だけを差し戻して書き直させる（人の操作は止めない）。skills の名前は A4 が決めて `中身` を書き替える。
+- **session-watch**（A4）: 会話ログを見て、題の目印・平文で書いた問い・答えの無い問いを拾う。クラウドの窓で題に種類の印（🙋／🤖）がまだ無い間は、UserPromptSubmit の hook が付けるよう知らせる。前の返事の「あなたがやること」に人の手の手順を直に書いた時も、手の窓で頼んで URL だけを書くよう同じ hook が知らせる（どちらも止めない）。返事の形（題の印・1 行目の札・締めの 2 行）や中身（平文の問い・中の言葉・日本時間でない時刻・完了の言い切り・鍵）が崩れたまま締めようとすると、Stop の hook が AI だけを差し戻して書き直させる（人の操作は止めない）。中の言葉は guard の `ask_shape`、鍵の形は公開の検査 `public-guard/guard.py` を直に呼ぶ。skills の名前は A4 が決めて `中身` を書き替える。
 - **checker**（A4）: チェック役。skills の名前は A4 が決めて `中身` を書き替える。
 - **guard**（A5）: 守りの hook 7 つ（離席中の戻せない操作・試験から有料の上流・問いのページを Artifact で出す前の qa-html の検査・選択肢の画面の問いの形・選択肢の画面で 1 つだけ選ばせる問い・文脈の量・未回答の台帳）を 1 本の入口 `scripts/guard.py` で回す。Javis 側（pixel-office の `core/hooks/`）から移した。値は `config/skill-values.json` の `guard`。skill は止められた時の直し方。
 - **core**（A2）: 振る舞いの核 `核.md`・振る舞いの既定 `振る舞い.md`（AI の癖と逆を求める物）・形の細目 `細目.md`。各 repo へは写さず、SessionStart の hook（`scripts/kaku.py inject`）が起動時に核と振る舞いの既定を毎回差し込む。開いた repo の根の `CLAUDE.md` に写しの枠（`AF-CORE:BEGIN`）がまだ在る時は差し込まない（移る間の二重を避ける）。量の上限は `scripts/kaku.py check`。
