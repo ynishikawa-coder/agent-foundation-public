@@ -1,0 +1,88 @@
+"""PreToolUse — 選択肢の画面（AskUserQuestion）で、作業・論点・原因を並べて 1 つだけ選ばせる問いを止め、出し直させる。
+
+なぜ在るか: 相談で出た事は全部やる（オーナー決定 2026-11-19）。「どれを進めますか」と 1 つだけ選ばせると、選ばなかった物を
+捨てる形になる。原因を並べて 1 つ選ばせるのも、全体の絵の上で原因を見立てる AI の役をオーナーへ渡す形になる。
+文の決まりは読み飛ばされるので、問いが出る前に形で止める。止まるのは AI の問いだけ（画面はまだ人に出ていない）。
+
+止める問い（どれも 1 つだけ選ぶ問い＝multiSelect が偽の時だけ）:
+  work   … どれを進める・何から始める・どの論点を先に詰める（作業の手を付ける順や、やる物を選ばせる）
+  first  … 優先する物・先にやる物を選ばせる
+  cause  … 原因・要因をどれか 1 つ選ばせる
+通す問い:
+  - 全部を選べる問い（multiSelect が真）
+  - 選択肢に「全部」「すべて」「両方」「同時」「並行」など、全部やる道が在る問い（やり方を問う問いになる）
+  - 意図・事実・言葉の意味を問う問い（「どちらが正しいか」「どの意味か」「どちらにするか」は語の形で当たらない）
+  - 値の表 guard.ask_pick_one_exempt（問いの文に当てる正規表現の並び）に当たる問い（誤って止まる形を PR とレビューで外す）
+見分けは問いの文の語の形による推し量り（意味は読まない）。言い換えれば抜けられる＝残る穴は PR と SKILL に書く。
+"""
+from __future__ import annotations
+
+import re
+
+ASK_TOOL = "AskUserQuestion"
+
+_WHICH = r"(?:どれ|どちら|どっち|何|なに|どの[^\s、。？?]{0,12}?)"
+_DO = r"(?:進め|進む|やる|やり|着手|手を付け|手をつけ|取り掛か|取りかか|片付け|片づけ|始め|詰め|扱)"
+PATTERNS = (
+    ("work", re.compile(_WHICH + r"\s*(?:を|から)\s*(?:先に|最初に|まず|次に|優先して|今)?\s*" + _DO)),
+    ("first", re.compile(r"優先(?:する|します|したい|させ|すべき|順位|度)|(?:先に|最初に|まず)\s*" + _WHICH + r"|"
+                         + _WHICH + r"\s*(?:を|から)\s*(?:先|最初)")),
+    ("cause", re.compile(r"(?:原因|要因|真因|根っこ)\s*(?:は|として|に)\s*" + _WHICH
+                         + r"|" + _WHICH + r"\s*が\s*(?:一番|最も|主な|本当の)?\s*の?\s*(?:原因|要因|根)"
+                         + r"|どの\s*(?:原因|要因)")),
+)
+WHY = {
+    "work": "やる物・手を付ける順を 1 つ選ばせている",
+    "first": "優先する物・先にやる物を 1 つ選ばせている",
+    "cause": "原因を 1 つ選ばせている",
+}
+# 全部やる道が選択肢に在れば、捨てる問いでなく、やり方を問う問い。
+ALL_WAY = re.compile(r"全部|すべて|全て|両方|いずれも|どれも|同時|並行|並べて")
+
+HOW = (
+    "直し方（どれか 1 つで出し直す）:\n"
+    "1. 相談で出た事は全部やる前提に立ち、聞くならやり方を問う（例: 「全部この窓で順に（推奨）」「それぞれ別の窓で同時に」）。\n"
+    "2. 全部を選べる形にする（multiSelect: true、または「全部（推奨）」の選択肢を置く）。\n"
+    "3. 原因なら、AI が全体の絵の上で原因を見立てて示し、その見立てが合っているかを問う（原因を並べて選ばせない）。\n"
+    "4. 調べれば決まる順なら、問わずに推奨で決めて全部進める。\n"
+    "誤って止めた時（意図・事実・言葉の意味を問う問いだった）: 問いの文を「どちらが正しいか／どの意味か／どちらにするか」の形に"
+    "直して出し直す。同じ形で何度も誤って止まるなら、repo の値の表 guard.ask_pick_one_exempt（問いの文に当てる正規表現）に足す"
+    "（PR とレビューを通す）。止め方の細目は skill `guard:guard-rules`。")
+
+
+def classify(question, vals=None):
+    """1 問を見て、止めるなら理由の札（work／first／cause）、通すなら ""。"""
+    if not isinstance(question, dict) or question.get("multiSelect"):
+        return ""
+    text = re.sub(r"\s+", " ", str(question.get("question") or "")).strip()
+    if not text:
+        return ""
+    for pat in (vals or {}).get("ask_pick_one_exempt") or []:
+        if isinstance(pat, str) and pat and re.search(pat, text):
+            return ""
+    for o in question.get("options") or []:
+        if isinstance(o, dict) and ALL_WAY.search(str(o.get("label") or "")):
+            return ""
+    for code, pat in PATTERNS:
+        if pat.search(text):
+            return code
+    return ""
+
+
+def check(data, vals):
+    """止めるなら理由、通すなら ""。"""
+    if str(data.get("tool_name") or "") != ASK_TOOL:
+        return ""
+    ti = data.get("tool_input")
+    qs = ti.get("questions") if isinstance(ti, dict) else None
+    if not isinstance(qs, list):
+        return ""
+    hit = []
+    for q in qs:
+        code = classify(q, vals)
+        if code:
+            hit.append("- 「%s」— %s" % (str(q.get("question") or "")[:80], WHY[code]))
+    if not hit:
+        return ""
+    return ("[guard] 選択肢の画面で、作業・論点・原因を並べて 1 つだけ選ばせる問いは出さない（相談で出た事は全部やる・"
+            "オーナー決定 2026-11-19）。画面はまだ人に出ていない。\n" + "\n".join(hit) + "\n" + HOW)

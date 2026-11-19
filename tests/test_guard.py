@@ -462,3 +462,66 @@ def test_qa_page_入れた_plugin_の形でも検査を見つける(tmp_path):
     finally:
         if old is not None:
             os.environ["AF_QA_CHECK"] = old
+
+
+# ── pick_one（選択肢の画面で作業・論点・原因を 1 つだけ選ばせる問い）──
+def ask(question, labels=("作り物の A（推奨）", "作り物の B", "分からない"), multi=False, sid="s1"):
+    q = {"question": question, "header": "作り物", "multiSelect": multi,
+         "options": [{"label": l, "description": "作り物"} for l in labels]}
+    return {"tool_name": "AskUserQuestion", "session_id": sid, "tool_input": {"questions": [q]}}
+
+
+@pytest.mark.parametrize("question", [
+    "作り物の論点が 3 つあります。どれを進めますか",
+    "どの論点を先に詰めますか",
+    "何から始めますか",
+    "どれを優先しますか",
+    "まずどちらに取り掛かりますか",
+    "作り物の崩れの原因はどれだと思いますか",
+    "どれが一番の原因に近いですか",
+])
+def test_pick_one_作業や論点や原因を1つだけ選ばせる問いを止める(env, question):
+    out = hook(env, "pre", ask(question))
+    assert out.get("permissionDecision") == "deny"
+    assert "全部" in out["permissionDecisionReason"] and "ask_pick_one_exempt" in out["permissionDecisionReason"]
+
+
+@pytest.mark.parametrize("question", [
+    "作り物の置き場を A と B のどちらにしますか",
+    "この言葉はどちらの意味ですか",
+    "表とコードが食い違っています。どちらが正しいですか",
+    "作り物の PR を main へ入れてよいですか",
+    "作業は済みましたか",
+    "どの会社の話ですか",
+])
+def test_pick_one_意図や事実を問う問いは通す(env, question):
+    assert not denied(env, ask(question))
+
+
+def test_pick_one_全部を選べる問いと全部やる道が在る問いは通す(env):
+    assert not denied(env, ask("どれを進めますか", multi=True))
+    assert not denied(env, ask("作り物の論点をどう進めますか。どれを進めますか",
+                               labels=("全部この窓で順に（推奨）", "それぞれ別の窓で同時に", "分からない")))
+
+
+def test_pick_one_問いが複数でも1つでも当たれば止め当たった問いを名指す(env):
+    p = ask("この言葉はどちらの意味ですか")
+    p["tool_input"]["questions"].append(ask("どれから着手しますか")["tool_input"]["questions"][0])
+    out = hook(env, "pre", p)
+    assert out.get("permissionDecision") == "deny"
+    reason = out["permissionDecisionReason"]
+    assert "どれから着手しますか" in reason and "どちらの意味" not in reason
+
+
+def test_pick_one_誤って止まる形は値の表で外せる(env, tmp_path):
+    vals = tmp_path / "proj" / "config"
+    vals.mkdir(parents=True)
+    (vals / "skill-values.json").write_text(json.dumps({"guard": {"ask_pick_one_exempt": ["^作り物の試しの順"]}},
+                                                       ensure_ascii=False), encoding="utf-8")
+    assert not denied(env, ask("作り物の試しの順として、どれを先に詰めますか"))
+    assert denied(env, ask("どれを先に詰めますか"))
+
+
+def test_pick_one_選択肢の画面でない道具と壊れた入力は見ない(env):
+    assert not denied(env, bash("echo どれを進めますか"))
+    assert not denied(env, {"tool_name": "AskUserQuestion", "tool_input": {"questions": "こわれた"}})
