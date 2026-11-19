@@ -104,6 +104,15 @@ def expected_context(repo: Path, env: dict, cwd: Path, session_id: str) -> str:
         raise ValueError(f"正本の差し込む口が文脈を出さない: {(p.stdout + p.stderr).strip()[-300:]}") from None
 
 
+def same_inject_code(repo: Path, installed_core: Path) -> bool:
+    """入った copy の差し込む口 kaku.py が、正本の checkout の物と一字違わず同じか。"""
+    rel = Path("scripts") / "kaku.py"
+    try:
+        return (repo / "plugins" / "core" / rel).read_bytes() == (installed_core / rel).read_bytes()
+    except OSError:
+        return False
+
+
 def core_problems(ctx: list[str], want: dict, expected: str | None = None) -> list[str]:
     """起動の hook の文脈 ctx に、毎回差し込む物が正本と一字違わず届いたか。外れの名指し（空なら届いた）。
     expected（正本の差し込む口が同じ材料で出した文脈の全体）を渡せば、核の部だけでなく文脈の全体を一字違わず比べる
@@ -113,8 +122,11 @@ def core_problems(ctx: list[str], want: dict, expected: str | None = None) -> li
         return ["核が起動した窓に差し込まれていない（plugin core の SessionStart の hook）"]
     pat = want["inject"]
     if expected is None:
-        if any(pat.match(c) for c in core):
-            return []
+        # 文脈の全体を比べられない時: 核の部が頭から一字違わず、その後ろは何も無いか次の節（`\n## `）で始まる
+        for c in core:
+            m = pat.match(c)
+            if m and (m.end() == len(c) or c.startswith("\n## ", m.end())):
+                return []
     elif any(normalize(c, pat) == normalize(expected, pat) for c in core):
         return []
     # 外れの時だけ、どの file が欠けたかを名指す（決めるのは上の全体の一致）
@@ -298,10 +310,18 @@ def smoke(source: str, repo: Path, expect_sha: str | None) -> list[str]:
                 ctx.append(json.loads(e.get("output") or "{}")["hookSpecificOutput"]["additionalContext"])
             except (ValueError, KeyError, TypeError):
                 pass
-        try:
-            expect = expected_context(repo, env, proj, str(init.get("session_id") or "smoke"))
-        except (OSError, subprocess.SubprocessError, ValueError) as e:
-            return bad + [f"正本の差し込む口を回せない: {e}"]
+        expect = None
+        core_root = Path(rows.get("core", {}).get("installPath") or "/nonexistent")
+        if same_inject_code(repo, core_root):
+            try:
+                expect = expected_context(repo, env, proj, str(init.get("session_id") or "smoke"))
+            except (OSError, subprocess.SubprocessError, ValueError) as e:
+                return bad + [f"正本の差し込む口を回せない: {e}"]
+        else:
+            # CI の checkout（PR の枝に main を合わせた物）と入った copy（PR の枝）で差し込む口が違う＝同じ材料でも文が
+            # 違ってよい。黙って弱めず、全体の比べを飛ばした事を出し、核の部と節の切れ目だけを比べる
+            print("plugin-smoke: 入った copy の kaku.py が正本の checkout と違うので、文脈の全体の比べは飛ばし、"
+                  "核の部の一字違わずと、その後ろが節の切れ目で始まる事だけを見た（main を取り込むと全体を比べる）")
         bad += core_problems(ctx, want, expect)
 
         # 4. 守りの hook: 入った copy の hooks.json に書かれた命令をそのまま回す。

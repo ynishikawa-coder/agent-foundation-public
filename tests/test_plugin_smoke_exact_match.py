@@ -116,3 +116,23 @@ def test_正本の差し込む口を同じ箱と同じ窓の_id_で回す(tmp_pa
 def test_add_の前に値を取る旗が在っても出所を読む():
     assert S.marketplace_adds("claude plugin marketplace add --scope user %s || true" % S.FOUNDATION) == [S.FOUNDATION]
     assert S.marketplace_adds("claude plugin marketplace add -s project '%s'" % S.FOUNDATION) == [S.FOUNDATION]
+
+
+def test_全体を比べられない時も核の部の後ろは節の切れ目でなければ赤(tmp_path):
+    want = S.expected(ROOT)
+    ctx = _real_inject(tmp_path)
+    assert S.core_problems([ctx], want) == []
+    assert S.core_problems([ctx + "\n## 次の節\n本文"], want) == []  # 節の切れ目の後ろは差し込む口の持ち物
+    head = want["inject"].match(ctx).group(0)
+    for added in (head + "\n- 正本に無い原則", head + "\n\n# 追加の原則\n- x", head + "- 続けて足す"):
+        assert S.core_problems([added], want) != []
+
+
+def test_差し込む口が正本と違う_copy_では全体を比べない(tmp_path):
+    core = tmp_path / "core"
+    (core / "scripts").mkdir(parents=True)
+    (core / "scripts" / "kaku.py").write_bytes((ROOT / "plugins/core/scripts/kaku.py").read_bytes())
+    assert S.same_inject_code(ROOT, core)
+    (core / "scripts" / "kaku.py").write_text("# 違う版\n", encoding="utf-8")
+    assert not S.same_inject_code(ROOT, core)
+    assert not S.same_inject_code(ROOT, tmp_path / "無い")
