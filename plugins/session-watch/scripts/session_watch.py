@@ -224,8 +224,8 @@ def is_prompt_text(row):
     G = neighbor("guard_common")
     if G is not None and hasattr(G, "is_prompt_row"):
         return bool(G.is_prompt_row(row))
-    return (row.get("type") == "user" and not row.get("isMeta") and "toolUseResult" not in row
-            and not row.get("isCompactSummary") and bool(text_of(row).strip()))
+    return (isinstance(row, dict) and row.get("type") == "user" and not row.get("isMeta")
+            and "toolUseResult" not in row and not row.get("isCompactSummary") and bool(text_of(row).strip()))
 
 
 def is_cloud_env(env):

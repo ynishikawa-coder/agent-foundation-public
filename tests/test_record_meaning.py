@@ -136,3 +136,25 @@ def test_注入_助手の行が本体の会話ログに混ざっても文脈の�
         {"type": "assistant", "isSidechain": False, "message": {"usage": {"input_tokens": 1000}}},
         {"type": "assistant", "isSidechain": True, "message": {"usage": {"input_tokens": 999_999}}}])
     assert hook(env, "post", post_tool(tpath)) == {}
+
+
+@pytest.mark.parametrize("kind", ["task-notification", "peer"])
+def test_注入_別の窓_知らせから来た頼みでも前の頼みの引いた跡で問いを通さない(env, tmp_path, kind):
+    """頼みの区切りは頼みの行（人の行に限らない）。前の形: 人の行だけで区切り、別の窓・知らせから来た次の頼みでも
+    前の頼みで引いた跡が残って選択肢の画面が通った（レビューで見つかった形）。"""
+    from test_guard_prior_ask import ask_with, lookup_values, owner, use
+    lookup_values(env, tmp_path)
+    nxt = {**owner("次の作り物の頼み", "u2"), "origin": {"kind": kind}}
+    tpath = write_log(tmp_path / "p.jsonl", [owner("作り物の頼み", "u1"), use("作り物の記録を引く道具", {"q": "会議"}), nxt])
+    from test_guard import deny_reason
+    assert deny_reason(env, ask_with(tpath))
+
+
+def test_会話の要約の行は新しい頼みにしない(env, tmp_path):
+    """要約の行（isCompactSummary）は前の頼みの続き。要約の前に引いた跡で、同じ頼みの問いは通る。"""
+    from test_guard_prior_ask import ask_with, lookup_values, owner, use
+    lookup_values(env, tmp_path)
+    summary = {**owner("これまでの要約", "u2"), "isCompactSummary": True}
+    tpath = write_log(tmp_path / "p.jsonl", [owner("作り物の頼み", "u1"), use("作り物の記録を引く道具", {"q": "会議"}), summary])
+    from test_guard import deny_reason
+    assert deny_reason(env, ask_with(tpath)) == ""
