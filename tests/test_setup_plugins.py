@@ -10,6 +10,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 ROOT = Path(__file__).resolve().parent.parent
 ENTRY = ROOT / "scripts" / "setup_plugins.py"
 DOC = ROOT / "docs" / "核の届け方.md"
@@ -99,7 +101,8 @@ def test_使う側に貼る_setup_script_は_plugin_の名を写さない():
     assert "plugin install" not in block and "want=" not in block
 
 
-def test_setup_script_の塊は目録が取れない時も起動を止めず知らせる(tmp_path):
+@pytest.mark.parametrize("flags", ["-c", "-ec"])  # 貼る先の setup script が set -e でも 3 行目の知らせまで届く
+def test_setup_script_の塊は目録が取れない時も起動を止めず知らせる(tmp_path, flags):
     home = tmp_path / "home"
     home.mkdir()
     bin_ = tmp_path / "bin"
@@ -107,6 +110,22 @@ def test_setup_script_の塊は目録が取れない時も起動を止めず知�
     (bin_ / "claude").write_text("#!/bin/sh\nexit 1\n", encoding="utf-8")
     (bin_ / "claude").chmod(0o755)
     env = dict(os.environ, HOME=str(home), PATH=f"{bin_}:{os.environ['PATH']}")
-    r = subprocess.run(["bash", "-c", _block()], capture_output=True, text=True, env=env, timeout=60)
+    r = subprocess.run(["bash", flags, _block()], capture_output=True, text=True, env=env, timeout=60)
     assert r.returncode == 0, r.stderr
     assert "<!-- af-plugin-missing --> 土台の目録が取れず" in (home / ".claude" / "CLAUDE.md").read_text(encoding="utf-8")
+
+
+def test_setup_script_の行の守りを外すと_set_e_の下で知らせに届かない(tmp_path):
+    """注入: 2 行目の `|| true` を外した塊は set -e の下で途中で抜ける（上の試験の -ec がこの穴を拾う証明）。"""
+    block = _block()
+    assert "2>/dev/null || true)" in block
+    home = tmp_path / "home"
+    home.mkdir()
+    bin_ = tmp_path / "bin"
+    bin_.mkdir()
+    (bin_ / "claude").write_text("#!/bin/sh\nexit 1\n", encoding="utf-8")  # 目録が取れない
+    (bin_ / "claude").chmod(0o755)
+    env = dict(os.environ, HOME=str(home), PATH=f"{bin_}:{os.environ['PATH']}")
+    r = subprocess.run(["bash", "-ec", block.replace("2>/dev/null || true)", "2>/dev/null)")],
+                       capture_output=True, text=True, env=env, timeout=60)
+    assert r.returncode != 0 and not (home / ".claude" / "CLAUDE.md").exists()

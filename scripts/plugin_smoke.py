@@ -123,9 +123,9 @@ def smoke(source: str, repo: Path, expect_sha: str | None) -> list[str]:
             if k in os.environ:
                 env[k] = os.environ[k]
 
-        # 1. 使う側の setup script そのもの（docs/核の届け方.md の塊を、目録の repo だけ試す物に替えて回す）。
+        # 1. 使う側の setup script そのもの（docs/核の届け方.md の塊を、目録の repo だけ試す物に替えて、set -e の下で回す）。
         script = setup_block(repo).replace(FOUNDATION, shlex.quote(source))
-        r = sh(["bash", "-c", script], env, timeout=900)
+        r = sh(["bash", "-ec", script], env, timeout=900)  # 貼る先が set -e でも抜けない
         if r.returncode != 0:
             bad.append(f"setup script の塊が非 0 で抜けた（窓が起動しない）: {(r.stdout + r.stderr).strip()[-300:]}")
         note = home / ".claude" / "CLAUDE.md"

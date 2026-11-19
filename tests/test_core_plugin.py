@@ -89,11 +89,24 @@ def test_古い形の一覧の行は形が揃い_例が自分の形に当たる(
     "claude plugin install --scope user core@agent-foundation",
     "claude plugin install -s user guard@agent-foundation || true",
     'for p in core guard; do claude plugin install "$p@agent-foundation"; done',
+    # 名を変数に置く・行を継ぐ（レビューの赤）。入れ方の綴りに頼らず「土台の目録を足すのに入口を呼ばない」形でも当たる
+    'MARKET=agent-foundation\nclaude plugin install "$p@$MARKET"',
+    'AF="agent-foundation"\nfor p in core guard; do claude plugin install "${p}@${AF}"; done',
+    'claude plugin install \\\n  core@agent-foundation --scope user',
+    'claude plugin marketplace add ynishikawa-coder/agent-foundation-public --scope user\nfor p in $want; do claude plugin install "$p@$m"; done',
 ])
 def test_plugin_を入れる行は綴りが違っても古い形に当たる(line):
     """注入: 同じ意味の別の綴り（plugins・i・名の前の option）で偽の「古い形 0」にならない。"""
     row = next(r for r in kaku.olds_table() if r["id"] == "plugin-name-copy")
     assert row["re"].search(line), line
+
+
+def test_入口を呼ぶ_setup_は古い形に当たらない():
+    """入口 scripts/setup_plugins.py を通る形（docs の 3 行）は、目録を足していても古い形ではない。"""
+    row = next(r for r in kaku.olds_table() if r["id"] == "plugin-name-copy")
+    doc = (ROOT / "docs" / "核の届け方.md").read_text(encoding="utf-8")
+    block = re.search(r"<!-- setup-script.*?-->\s*```bash\n(.*?)\n\s*```", doc, re.S).group(1)
+    assert "marketplace add" in block and not row["re"].search(block)
 
 
 def test_古い形の一覧の欄が欠けると読めない(tmp_path):
@@ -118,7 +131,7 @@ def test_plugin_の名を写した_setup_の行が在る_repo_を名指しする
     _git_repo(proj, {"scripts/env/setup.sh": 'for p in core guard; do claude plugin install "$p@agent-foundation"; done\n',
                      "README.md": "ふつう\n"})
     ctx = _ctx(run("inject", project=proj))
-    assert "scripts/env/setup.sh: 土台の plugin の名を写して入れる setup の行" in ctx and "README.md" not in ctx
+    assert "scripts/env/setup.sh: 土台の目録を足して plugin を入れるのに" in ctx and "README.md" not in ctx
     r = run("olds", proj)
     assert r.returncode == 1 and "plugin-name-copy" in r.stdout
     (proj / "scripts/env/setup.sh").write_text("python3 \"$af\" || true\n", encoding="utf-8")

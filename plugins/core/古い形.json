@@ -1,5 +1,5 @@
 {
-  "説明": "使う側に残りうる土台の古い形（写し）の一覧。plugin core の起動の hook が、開いた repo にこれが残っていれば名指しで知らせる。「壊れる（1 段目）」の PR が行を足し、使う側が移ったのを `kaku.py olds <各 checkout>` で確かめた「壊れる（2 段目）」の PR が行を消す（CONTRIBUTING.md §8）。files は git の pathspec、pattern は Python の正規表現、example は pattern に当たる作り物の 1 行。files に無い拡張子の file（.py・.json 等）と、repo の外の環境の setup script は olds では見えない（環境の setup script は起動の hook が入口の印で見る）。",
+  "説明": "使う側に残りうる土台の古い形（写し）の一覧。plugin core の起動の hook が、開いた repo にこれが残っていれば名指しで知らせる。「壊れる（1 段目）」の PR が行を足し、使う側が移ったのを `kaku.py olds <各 checkout>` で確かめた「壊れる（2 段目）」の PR が行を消す（CONTRIBUTING.md §8）。files は git の pathspec（試験と変更の記録は経緯や作り物として古い名を持つので :(exclude) で外す）、pattern は Python の正規表現、example は pattern に当たる作り物の 1 行。files に無い拡張子の file（.py・.json 等）と、repo の外の環境の setup script は olds では見えない（環境の setup script は起動の hook が入口の印で見る）。",
   "olds": [
     {
       "id": "af-core-frame",
@@ -13,14 +13,20 @@
     },
     {
       "id": "plugin-name-copy",
-      "what": "土台の plugin の名を写して入れる setup の行（土台が plugin を足しても入らない・入れ損ねの見張りにも入らない）",
+      "what": "土台の目録を足して plugin を入れるのに、土台の入口 scripts/setup_plugins.py を呼ばない setup（plugin の名を写して入れる・土台が plugin を足しても入らない・入れ損ねの見張りにも入らない）",
       "files": [
         "*.sh",
         "*.md",
         "*.yml",
-        "*.yaml"
+        "*.yaml",
+        "*.py",
+        ":(exclude)tests/**",
+        ":(exclude)**/tests/**",
+        ":(exclude)**/test_*.py",
+        ":(exclude)CHANGELOG.md",
+        ":(exclude)**/CHANGELOG.md"
       ],
-      "pattern": "plugins?\\s+(?:install|i)\\b[^\\n]*@agent-foundation",
+      "pattern": "(?sm)\\A(?!.*setup_plugins\\.py)(?:.*?marketplace\\s+add\\b[^\\n]*agent-foundation|.*?plugins?\\s+(?:install|i)\\b(?:[^\\n]|\\\\\\n)*?@[^\\n]*agent-foundation|.*?^[ \\t]*(?:export[ \\t]+)?\\w+=[\"']?agent-foundation[\"']?[ \\t]*$)",
       "fix": "土台の docs/核の届け方.md の setup script の形（目録を足して scripts/setup_plugins.py を呼ぶ）に替える",
       "example": "claude plugin install core@agent-foundation --scope user || true"
     },
@@ -28,7 +34,9 @@
       "id": "atonobin-tag",
       "what": "行き先の無い受け皿の札「後の便」（止めない気づきの札 [後の便｜…]・〔後の便に回した事〕など。土台は台帳へに替えた）",
       "files": [
-        "*.md"
+        "*.md",
+        ":(exclude)CHANGELOG.md",
+        ":(exclude)**/CHANGELOG.md"
       ],
       "pattern": "[\\[［〔]後の便",
       "fix": "札は [台帳へ｜…] にし、残りは各社の原因の台帳の行にする（土台の 細目.md §3「残りの受け皿は原因の台帳 1 つ」）。札を数える道具が在れば、台帳へ も読む形にする",
@@ -38,7 +46,9 @@
       "id": "tasu-mado-heading",
       "what": "PR 本文の欄「他の窓へ回す」（担当の外の残りを名だけの受け皿に置く。土台は「残り（原因の台帳の行）」に替えた）",
       "files": [
-        "*.md"
+        "*.md",
+        ":(exclude)CHANGELOG.md",
+        ":(exclude)**/CHANGELOG.md"
       ],
       "pattern": "(?m)^#+\\s*他の窓へ回す|「他の窓へ回す」",
       "fix": "欄を「## 残り（原因の台帳の行）」にし、残りは原因の台帳に行を入れてから行の題と行き先だけを写す（土台の .github/pull_request_template.md の形）",
