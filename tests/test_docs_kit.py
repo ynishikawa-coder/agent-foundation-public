@@ -772,6 +772,43 @@ def test_値の中の偽の属性で印の判定をすり抜けない(tmp_path, 
     assert len(red) == 1 and red[0].startswith("属性「title」の値の中に「名=」"), red   # 偽の値を読ませる書き方は入口で赤＝印は通らない
 
 
+# ブラウザと検査で「どこが生きた中身か」の読みが分かれる書き方は入口で赤（印を検査から隠して send のページに出させない）
+REC_HIDE = [
+    ("textarea の中のコメントの始め", lambda r: _mark(0)(r).replace(REC, '<textarea hidden><!--</textarea>' + REC + '<textarea hidden>--></textarea>', 1),
+     "<textarea> の中に < を書かない"),
+    ("<? で始めた崩れたコメント", lambda r: _mark(0)(r).replace(REC, '<?x <!-- ?>' + REC + '<!-- -->', 1), "検査が読めない < の書き方"),
+    ("<! で始めた崩れたコメント", lambda r: _mark(0)(r).replace(REC, '<!x <!-- >' + REC + '<!-- -->', 1), "検査が読めない < の書き方"),
+    ("</ と空白の崩れたタグ", lambda r: _mark(0)(r).replace(REC, '</ x <!-- >' + REC + '<!-- -->', 1), "検査が読めない < の書き方"),
+]
+
+
+@needs_node
+@pytest.mark.parametrize("name, mutate, expect", REC_HIDE, ids=[m[0] for m in REC_HIDE])
+def test_印を検査から隠す書き方は赤(tmp_path, name, mutate, expect):
+    red = _rec_page(tmp_path, "send", mutate)
+    assert red and red[0].startswith(expect), (name, red)
+
+
+@needs_node
+def test_title_の中の偽の宛先と_doctype_の無いページは赤(tmp_path):
+    html = filled_template("send")
+    page = tmp_path / "確認.html"
+    page.write_text(re.sub(r"<title>", '<title><body data-dest="copy">', html, count=1), encoding="utf-8")
+    red = run_check(page)["red"]
+    assert any(r.startswith("<title> の中に < を書かない") for r in red), red
+    page.write_text(html.replace("<!doctype html>", "", 1), encoding="utf-8")
+    red = run_check(page)["red"]
+    assert len(red) == 1 and red[0].startswith("先頭に <!doctype html> が要る"), red
+
+
+@needs_node
+def test_値の中の日本語の名と等号は緑(tmp_path):
+    """値の中の「名=」の赤は、検査が読む属性の名（半角）の形だけ。「単価=100」のような字は赤にしない。"""
+    page = tmp_path / "確認.html"
+    page.write_text(filled_template().replace('data-where="2 枚目・送料の行"', 'data-where="2 枚目・送料 単価=100 の行"', 1), encoding="utf-8")
+    assert run_check(page)["red"] == []
+
+
 @needs_node
 def test_事実を聞く問いの推奨の印は赤(tmp_path):
     """オーナー宛てでも、事実を聞く問い（ここは q1＝choose）には印を付けない。見込みは .estimate の別枠。"""

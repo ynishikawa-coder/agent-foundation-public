@@ -320,8 +320,29 @@ export const ALLOW = {
   href: "^(?:https://|mailto:|tel:|#)[^\\s<>\"'&]*$",
   img_src: "^data:image/(?:png|jpeg|gif|webp);base64,[A-Za-z0-9+/=]+$",
 };
-function allowlistReds(outside) {
+// HTML の空白（ブラウザが区切りに使う字だけ・NBSP などは含まない）
+const WS = "[ \\t\\n\\f\\r]";
+// 型の外の字の並びを、検査が読み切れる書き方だけにする（読みの道筋を 1 つ: 検査はページを正規表現で読むので、
+//   ブラウザと読みが分かれる書き方を入口で止める）。通すのは: 先頭の <!doctype html>・ふつうのコメント <!-- … -->・
+//   決まった形の開きタグ（属性は空白で区切り値は引用符で囲む）・閉じタグ </名>。textarea・title の中に < を書かない。
+function tokenReds(outside) {
   const red = [];
+  if (!/^\uFEFF?[ \t\n\f\r]*<!doctype html>/i.test(outside)) red.push("先頭に <!doctype html> が要る（無いとブラウザが古い読み方になり、class の大小を区別しない）");
+  for (const m of outside.matchAll(/<(textarea|title)\b[^>]*>([\s\S]*?)<\/\1/gi))
+    if (m[2].includes("<")) red.push(`<${m[1].toLowerCase()}> の中に < を書かない（ブラウザは字として読む）: ${m[2].slice(0, 40)}`);
+  const open = new RegExp(`^<[A-Za-z][A-Za-z0-9-]*(?:${WS}+[^ \\t\\n\\f\\r"'=<>/]+(?:${WS}*=${WS}*(?:"[^"]*"|'[^']*'))?)*${WS}*/?>`);
+  const rest = outside.replace(/^\uFEFF?[ \t\n\f\r]*<!doctype html>/i, "").replace(/<!--(?!>|->)[\s\S]*?-->/g, (c) => " ".repeat(c.length));
+  for (const m of rest.matchAll(/</g)) {
+    const at = rest.slice(m.index);
+    // 開きタグ（崩れた区切りは下の allowlistReds の strict が見る）・閉じタグ・崩れたコメント（別の赤が見る）は通す
+    if (open.test(at) || /^<[A-Za-z][A-Za-z0-9-]*(?:"[^"]*"|'[^']*'|[^'">])*>/.test(at) || /^<\/[A-Za-z][A-Za-z0-9-]*[ \t\n\f\r]*>/.test(at) || /^<!--(?:>|->)/.test(at)) continue;
+    red.push(`検査が読めない < の書き方（<? <! </ の崩れ・閉じないコメント・崩れたタグ）: ${at.slice(0, 40)}`);
+  }
+  return red;
+}
+
+function allowlistReds(outside) {
+  const red = tokenReds(outside);
   const els = new Set(ALLOW.elements);
   const ats = new Set(ALLOW.attributes);
   for (const m of outside.matchAll(/<([A-Za-z][A-Za-z0-9-]*)((?:"[^"]*"|'[^']*'|[^'">])*)>/g)) {
@@ -332,7 +353,7 @@ function allowlistReds(outside) {
       continue;
     }
     const before = red.length;
-    const strict = /^<[A-Za-z][A-Za-z0-9-]*(?:\s+[^\s"'=<>\/]+(?:\s*=\s*(?:"[^"]*"|'[^']*'))?)*\s*\/?>$/.test(m[0]);
+    const strict = new RegExp(`^<[A-Za-z][A-Za-z0-9-]*(?:${WS}+[^ \\t\\n\\f\\r"'=<>/]+(?:${WS}*=${WS}*(?:"[^"]*"|'[^']*'))?)*${WS}*/?>$`).test(m[0]);
     // 検査の読み（attr・class）とブラウザの読みを 1 つにそろえる形だけを通す: 属性は空白で区切り、値は引用符で囲む
     //   （<small/class="rec">・class=rec のような書き方は、ブラウザは読むが検査は読めない＝すり抜けるので赤）
     const attrs = {};
@@ -342,7 +363,7 @@ function allowlistReds(outside) {
       // 値の中に別の属性に見える字（title=" class='x'" の類）や、検査が戻せない文字参照（&#114; &Tab; の類）は赤
       //   ＝検査の読み（attr・class）がブラウザと同じ値を読むように、読みが分かれる書き方を入口で止める
       if (a[2] != null && /^["']/.test(a[2])) {
-        if (/\s[^\s"'=<>\/]+\s*=/.test(val)) red.push(`属性「${name}」の値の中に「名=」の形を書かない（検査とブラウザで読む属性が分かれる）: ${show}`);
+        if (/\s[A-Za-z_:][-A-Za-z0-9_:.]*\s*=/.test(val)) red.push(`属性「${name}」の値の中に「名=」の形を書かない（検査とブラウザで読む属性が分かれる）: ${show}`);
         if (/&(?!(?:nbsp|lt|gt|quot|amp|#39);)(?:#|[A-Za-z][A-Za-z0-9]*;)/.test(val)) red.push(`属性「${name}」の値に文字参照（&#…; など）を書かない（字のまま書く）: ${show}`);
       }
       if (name in attrs) red.push(`同じ属性「${name}」が 2 回ある（ブラウザは前の値を使う）: ${show}`);
