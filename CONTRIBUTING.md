@@ -68,12 +68,12 @@
 - **新しい試験は守る約束の名の新しい file に置く**（元から在る `tests/test_*.py` の試験を増やさない）。並ぶ PR が同じ file の末尾へ足すと 1 本入るたびに残りが全部衝突するので、足す所を PR ごとに分ける。直す・消す・parametrize の行を足すのはよい。AI の窓の枝（`claude/`）の PR の差分で `scripts/pr_shape.py` が照らす（CI の `check`・人の枝は止めない）。
 - まだ無い物（他の窓が先に置く物）に頼る試験は、無い間は `pytest.skip` で飛ばし、理由を書く。消さない・赤のまま置かない。
 - 赤は試験を飛ばす・消すで消さず、細目 §3「まず構造を疑う」で原因から直す。
-- 手元で走らせる: `python3 -m pytest -q tests/`
+- 手元で走らせる: `bash scripts/pytest.sh -q tests/`（pytest の設定の file・環境変数・tests の外の conftest・plugin を読まない入口。pytest を直に呼ばない）
 
 ## 6. 検査の入口（CI）
 
 - CI は `.github/workflows/ci.yml`。`main` への push と、すべての PR で走る。
-- CI の job は `check`（入口は `bash scripts/check_all.sh` の 1 本）と `public-guard`（公開の検査）と `plugin-smoke`（PR の枝を使う側と同じ入れ方で入れて窓を起動し、核の差し込み・守りの hook・skill の読み込みを見る。`scripts/plugin_smoke.py` と、本物の claude を要る試験＝印 `real_claude` の付いた試験を `pytest -m real_claude tests/` で全部）と、止めない知らせの `overlap`（開いている他の PR が同じ file の同じ行の辺りを書き換えていれば名指す・`scripts/pr_overlap.py`）。`check_all.sh` は中で pytest（`tests/`）と、`scripts/checks/*.sh` があればそれを順に走らせる（claude の命令が無い所では印 `real_claude` の試験を飛ばす。飛ばす条件は `tests/conftest.py` の 1 か所で、試験の file に書かない。その条件は `scripts/checks/conftest_teeth.sh` が conftest を読まない pytest で照らす）。
+- CI の job は `check`（入口は `bash scripts/check_all.sh` の 1 本）と `public-guard`（公開の検査）と `plugin-smoke`（PR の枝を使う側と同じ入れ方で入れて窓を起動し、核の差し込み・守りの hook・skill の読み込みを見る。`scripts/plugin_smoke.py` と、本物の claude を要る試験＝印 `real_claude` の付いた試験を試験の入口 `bash scripts/pytest.sh -m real_claude tests/` で全部）と、止めない知らせの `overlap`（開いている他の PR が同じ file の同じ行の辺りを書き換えていれば名指す・`scripts/pr_overlap.py`）。`check_all.sh` は中で pytest（`tests/`）と、`scripts/checks/*.sh` があればそれを順に走らせる（claude の命令が無い所では印 `real_claude` の試験を飛ばす。飛ばす条件は `tests/conftest.py` の 1 か所で、試験の file に書かない。その条件は `scripts/checks/conftest_teeth.sh` が conftest を読まない pytest で照らす）。
 - 検査を足す時は `scripts/checks/<名前>.sh` を足すか、`tests/` に試験を足す。`ci.yml` と `check_all.sh` は書き換えなくてよい。
 - `check_all.sh` の最後の行が `check_all: 緑` なら通り、`check_all: 赤 …` なら止まり。止まったら赤の行を 1 つずつ潰さず、細目 §3「まず構造を疑う」で原因から直す。
 

@@ -32,7 +32,7 @@ def smoke_pytest_lines(yml):
 
 def ci_problems(yml):
     lines = smoke_pytest_lines(yml)
-    if lines != ["run: python3 -m pytest -q -m real_claude tests/"]:
+    if lines != ["run: bash scripts/pytest.sh -q -m real_claude tests/"]:
         return [f"plugin-smoke の pytest の行が印で拾う形でない: {lines}"]
     return []
 

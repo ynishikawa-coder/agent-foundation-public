@@ -26,7 +26,7 @@ echo "== pytest tests/"
 ran=$((ran + 1))
 sel=()
 [ "${GITHUB_ACTIONS:-}" = "true" ] && sel=(-m "not real_claude")
-python3 -m pytest -q -rs "${sel[@]}" tests/ 2>&1 | tee "$log"
+bash scripts/pytest.sh -q -rs "${sel[@]}" tests/ 2>&1 | tee "$log"
 pytest_code=${PIPESTATUS[0]}
 deselected=$(grep -oE '[0-9]+ deselected' "$log" | tail -n 1 | grep -oE '^[0-9]+')
 # 飛ばした試験を理由ごとに数え、赤にする飛ばしを名指す（1 行目＝本数、続く行＝赤にする理由）
