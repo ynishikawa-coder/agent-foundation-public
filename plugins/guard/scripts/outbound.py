@@ -14,7 +14,8 @@
             中身の語の見分けは ask_shape の話題の語（_words）を直に呼ぶ。
   title   … set_session_title と create_session の title が題の形（`<種類><状態> <作業名>`）でない。手の窓の題
             （`🙋⏳ 手: <何を>`）で窓を立てるのに、頼みの文に 目的・手順・済んだ目印・済んだ後 が揃っていない。
-            形の正本は session-watch の session_watch.py（title_shape・HAND_PARTS）。見つからない時は題を照らさない。
+            形の正本は session-watch の session_watch.py（title_shape・HAND_PARTS）。見つからない・古い版・壊れた時は題を照らさず
+            通し（題の形は窓の一覧の見え方の話で外へ漏れる物ではない＝止める範囲を広げない）、出した後に PostToolUse の notice が知らせる。
 誤って止めた時: 値の表 config/skill-values.json の "guard" の outbound_secret_allow（当たった字に当てる正規表現・
 作り物の見本だけ）・number_request_exempt（文に当てる正規表現）で外す。値の表は PR とレビューを通る＝窓の一存では外れない。
 """
@@ -26,7 +27,7 @@ import re
 import ask_shape
 import guard_common as G
 
-HOOKS = {"pre": "check"}
+HOOKS = {"pre": "check", "post": "notice"}
 
 SEND_TOOLS = ("SendMessage",)
 SEND_SUFFIX = "__send_message"
@@ -208,16 +209,40 @@ def title_findings(data, sw):
     return out
 
 
+def title_source():
+    """(題の形の正本の module, "") か (None, 読めない訳)。"""
+    try:
+        sw = _session_watch()
+    except Exception as e:      # noqa: BLE001
+        return None, "題の形の正本（session-watch の session_watch.py）が読めない（%s）" % type(e).__name__
+    if sw is None:
+        return None, "題の形の正本（session-watch の session_watch.py）が見つからないか、題の形の見分けの無い古い版"
+    return sw, ""
+
+
+def notice(data, vals):
+    """PostToolUse: 題の形の正本が読めず、窓の題を照らさずに通した時だけ知らせる（止めない）。"""
+    name = str(data.get("tool_name") or "")
+    if not (name.endswith(TITLE_SUFFIX) or name.endswith(CREATE_SUFFIX)):
+        return ""
+    ti = data.get("tool_input")
+    if not isinstance(ti, dict) or not isinstance(ti.get("title"), str) or not ti["title"].strip():
+        return ""
+    sw, why = title_source()
+    if sw is not None:
+        return ""
+    return ("[guard] 窓の題（と手の窓の頼みの 4 欄）を照らさずに通した（止めていない）: %s。plugin session-watch を guard と"
+            "同じ版で入れる（または AF_SESSION_WATCH に path）。題は skill `session-watch:title-mark` の形と照らし、崩れていれば"
+            "付け直す。" % why)
+
+
 def check_title(data, vals):
     name = str(data.get("tool_name") or "")
     if not (name.endswith(TITLE_SUFFIX) or name.endswith(CREATE_SUFFIX)):
         return ""
-    try:
-        sw = _session_watch()
-    except Exception:           # noqa: BLE001
-        sw = None
+    sw, _why = title_source()
     if sw is None:
-        return ""                # 題の形は窓の一覧の見え方の話＝照らせない時は通す（鍵と違い外へ漏れる物ではない）
+        return ""                # 題の形は窓の一覧の見え方の話＝照らせない時は通す（鍵と違い外へ漏れる物ではない）。notice が知らせる
     found = title_findings(data, sw)
     if not found:
         return ""

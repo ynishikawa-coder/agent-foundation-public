@@ -239,7 +239,7 @@ def template_parts(path):
     heads = [(no, name.split("（")[0].strip()) for no, name in TEMPLATE_HEAD.findall(text)]
     if not heads:
         raise ValueError("整地の雛形に `## N. ` の見出しが無い: %s" % path)
-    holders = sorted({m.group(0)[:14] for m in PLACEHOLDER.finditer(COMMENT.sub("", text))})
+    holders = sorted({m.group(0)[:14] for m in PLACEHOLDER.finditer(strip_notes(text))})
     return heads, holders
 
 
@@ -254,17 +254,24 @@ def cleanup_parts(data):
         return None, "整地の雛形が読めない: %s" % e
 
 
-def cleanup_checked(body, repo, vals):
-    """この本文に整地の欄の照らしが当たるか（外す repo・整地: 不要 の 1 行は当たらない）。"""
+def strip_notes(body):
+    """注記（<!-- -->）とコードの囲みの中を消した文。消すのはここ 1 か所（整地の欄も言葉の照らしもここを読む）。"""
+    return FENCE.sub(" ", COMMENT.sub(" ", body))
+
+
+def cleanup_text(body, repo, vals):
+    """整地の欄を照らす本文（注記〔雛形の説明〕とコードの囲みの中を消した物）か ""（外す repo・`整地: 不要` の 1 行＝当たらない）。
+    消すのはここ 1 か所（pre の check_cleanup と post の notice が同じ物を読む）。"""
     if repo and _listed(vals.get("pr_cleanup_exempt_repos"), repo):
-        return False
-    return not NOT_NEEDED.search(FENCE.sub(" ", COMMENT.sub(" ", body)))
+        return ""
+    text = strip_notes(body)
+    return "" if NOT_NEEDED.search(text) else text
 
 
 def check_cleanup(body, repo, data, vals):
-    if not cleanup_checked(body, repo, vals):
+    body = cleanup_text(body, repo, vals)
+    if not body:
         return []
-    body = FENCE.sub(" ", COMMENT.sub(" ", body))      # 注記（雛形の説明）とコードの囲みの中は数えない
     parts, _why = cleanup_parts(data)
     if not parts:
         return []        # 雛形が無い・読めない時は止めない（PR 本文まで止めない）。出した後に notice が知らせる
@@ -283,7 +290,7 @@ def check_cleanup(body, repo, data, vals):
 # ── words（PR の題・本文の言葉）──
 def visible_prose(body):
     """数えない所（本文の頭の塊の窓の id の欄・コード・URL・注記）を除いた文。"""
-    body = FENCE.sub(" ", COMMENT.sub(" ", body))
+    body = strip_notes(body)
     lines, top = [], True
     for ln in body.splitlines():
         if not ln.strip():
@@ -449,7 +456,7 @@ def notice(data, vals):
         return ("[guard] 出したコメントがレビューの判定かどうか見分けられず、判定の形を照らさずに通した（止めていない）: %s。"
                 "plugin checker を guard と同じ版で入れる（または AF_VERDICT_FORM に path）。このコメントが判定なら、"
                 "checker の verdict_form.py で形を照らし、崩れていれば出し直す。" % why)
-    if kind == "pr" and cleanup_checked(body, _repo_name(ti), vals):
+    if kind == "pr" and cleanup_text(body, _repo_name(ti), vals):
         parts, why = cleanup_parts(data)
         if parts:
             return ""
