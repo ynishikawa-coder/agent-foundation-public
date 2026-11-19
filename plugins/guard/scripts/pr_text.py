@@ -14,7 +14,7 @@ AI が自分で回すか、出した後に CI やレビューが拾うだけだ�
   commit … merge_pull_request（commit_title・commit_message）・push_files・create_or_update_file・delete_file（message）
            ＝MCP から出す commit の説明。公開の検査だけを当てる
 照らす物（見分けは正本を直に読む・呼ぶ。ここに決まりを写さない）:
-  verdict … コメントがレビューの判定（頭の行が `レビューした窓:` か、頭 5 行に `判定: green|red`）なら、checker の
+  verdict … コメントがレビューの判定（1 行目が `レビューした窓` で始まるか、`## verdict` の節が在る）なら、checker の
             `scripts/verdict_form.py` をそのまま呼ぶ。赤なら止める。道具が見つからない・壊れた時も止める
   cleanup … PR の本文（本文を渡す時だけ）に、dev-flow の preimpl-cleanup の `整地受領証.template.md` の 4 つの見出し
             （`## 1.`〜`## 4.`。見出しの名は雛形から読む）が全部在り、雛形の `〔…〕` が残っていない事。整地の要らない PR
@@ -51,7 +51,7 @@ COMMIT_FIELDS = (("commit_title", "commit の題"), ("commit_message", "commit �
 VERDICT_FORM = ("checker", os.path.join("scripts", "verdict_form.py"), "AF_VERDICT_FORM")
 CLEANUP_TEMPLATE = ("dev-flow", os.path.join("skills", "preimpl-cleanup", "整地受領証.template.md"), "AF_CLEANUP_TEMPLATE")
 
-LOOKS_VERDICT = re.compile(r"判定\s*[:：]\s*(?:green|red)\b")
+VERDICT_HEAD = re.compile(r"^\s*##\s*verdict\s*$", re.M)   # 判定の形の節の見出し（review-pr の形の印）
 NOT_NEEDED = re.compile(r"^\s*(?:[-*]\s*)?\**整地\**\s*[:：]\s*(?:不要|要らない)\s*[（(]\s*(?![<＜〔])\S[^)）]*[)）]", re.M)
 TEMPLATE_HEAD = re.compile(r"^## (\d+)\. (.+?)\s*$", re.M)
 PLACEHOLDER = re.compile(r"〔[^〕\n]{4,}〕")
@@ -95,8 +95,10 @@ def _run(cmd, cwd=None):
 
 # ── verdict（レビューの判定の形）──
 def looks_verdict(body):
+    """判定のコメントか。判定の形そのものの印（1 行目の `レビューした窓` か `## verdict` の節）だけで見分ける。
+    文中に「判定: green」と書いた普通のコメントは判定と見なさない（形の印が無ければ形の検査の外）。"""
     lines = [ln.strip() for ln in body.splitlines() if ln.strip()]
-    return bool(lines) and (lines[0].startswith("レビューした窓") or any(LOOKS_VERDICT.search(ln) for ln in lines[:5]))
+    return bool(lines) and (lines[0].startswith("レビューした窓") or bool(VERDICT_HEAD.search(body)))
 
 
 def check_verdict(body, data):
@@ -209,8 +211,7 @@ def public_target(repo, data, vals):
                 continue
             if USES_GUARD.search(raw):
                 m = DENY_FILE.search(raw)
-                words = os.path.join(top, m.group(1)) if m else ""
-                return True, top, (words if words and os.path.isfile(words) else "")
+                return True, top, (os.path.join(top, m.group(1)) if m else "")
     if repo and _matches(vals.get("public_repos_extra"), repo):
         return True, top, ""
     return False, top, ""
@@ -237,6 +238,9 @@ def check_public(texts, repo, data, vals):
     is_public, top, words = public_target(repo, data, vals)
     if not is_public:
         return []
+    if words and not os.path.isfile(words):
+        return ["公開の repo の workflow が名指す置かない語の表 %s が無く、照らせない（CI も同じ時に止まる）。表を置くか"
+                "workflow を直す" % os.path.relpath(words, top or None)]
     tool = find_public_guard(top)
     if not tool:
         return ["公開の repo だが、公開の検査（土台の public-guard/guard.py）が見つからず照らせない。土台の marketplace を"

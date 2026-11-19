@@ -675,6 +675,9 @@ PR_BAD = [
     ("名乗りが session id でない", gh("add_issue_comment", issue_number=1,
                                     body=verdict_comment(line1="レビューした窓: %s の中の助手 判定: green" % REVIEWER)),
      "[verdict]", "1 行目"),
+    ("1 行目の名乗りが無く節だけ在る判定", gh("add_issue_comment", issue_number=1,
+                                          body="判定: green\n\n## verdict\ngreen\n\n## 所見\n- [後の便｜実装] 作り物\n"),
+     "[verdict]", "1 行目"),
     ("整地の欄が無い", gh("create_pull_request", title="作り物", head="b", base="main",
                          body="親窓: x\n\n## 何をどう変えたか\n作り物。\n"), "[cleanup]", "1. 問題"),
     ("整地の見出しが古い名", gh("create_pull_request", title="作り物", head="b", base="main",
@@ -706,6 +709,8 @@ PR_GOOD = [
     ("形の合う判定", gh("add_issue_comment", issue_number=1, body=verdict_comment())),
     ("止めるの在る red", gh("add_issue_comment", issue_number=1, body=verdict_comment(judged="red", stop=True))),
     ("判定でない普通のコメント", gh("add_issue_comment", issue_number=1, body="作り物の確かめを足しました。判定は後で別の窓が付けます。")),
+    ("文中に判定の語を含む普通のコメント", gh("add_issue_comment", issue_number=1, body="前回の判定: green を受けて main へ入れます。")),
+    ("2 行目に判定の語を含む返事", gh("add_issue_comment", issue_number=1, body="直しました。\n判定: red の理由は直りました。\n見直しを頼みます。")),
     ("整地の 4 欄の揃った本文", gh("create_pull_request", title="作り物", head="b", base="main", body=cleanup_body())),
     ("見出しが ### でも", gh("create_pull_request", title="作り物", head="b", base="main",
                            body=cleanup_body().replace("\n## 1.", "\n### 1.").replace("\n## 4.", "\n### 4."))),
@@ -808,6 +813,10 @@ def test_pr_text_公開の_repo_で検査が見つからない時も止める(en
     env["AF_PUBLIC_GUARD"] = str(tmp_path / "無い.py")
     why = deny_reason(env, gh("add_issue_comment", issue_number=1, body="作り物の確かめ", repo="fake-public"))
     assert "[public]" in why and "見つからず" in why
+    del env["AF_PUBLIC_GUARD"]
+    (Path(env["CLAUDE_PROJECT_DIR"]) / "data" / "deny.txt").unlink()
+    why = deny_reason(env, gh("add_issue_comment", issue_number=1, body="作り物の確かめ", repo="fake-public"))
+    assert "[public]" in why and "置かない語の表" in why and "無く" in why
 
 
 def test_pr_text_手元に取り出しの無い公開の_repo_は値の表で足せる(env, tmp_path):
