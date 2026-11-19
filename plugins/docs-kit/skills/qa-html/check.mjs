@@ -220,7 +220,7 @@ export function loadValues({ explicit = null, starts = [] } = {}) {
   for (const s of starts.filter(Boolean)) argv.push("--start", s);
   const r = spawnSync("python3", argv, { encoding: "utf8" });
   if (r.error) return { path: explicit, company: {}, error: `値の表を読む口（python3 ${VALUES_PY}）が走らない: ${r.error.message}` };
-  if (r.status !== 0) return { path: explicit, company: {}, error: String(r.stderr ?? "").trim() || `値の表を読む口が ${r.status} で終わった` };
+  if (r.status !== 0) return { path: explicit, company: strictCompany({}), error: String(r.stderr ?? "").trim() || `値の表を読む口が ${r.status} で終わった` };
   const got = JSON.parse(r.stdout);
   const company = got.values ?? {};
   // limits・why の中の鍵は、この検査の表（RULES）が正本＝ここで照らす
@@ -232,8 +232,48 @@ export function loadValues({ explicit = null, starts = [] } = {}) {
       else if (typeof v !== typeof RULES[k][kk]) bad.push(`docs-kit.qa-html.${k}.${kk} の型が違う（${typeof RULES[k][kk]} で書く）`);
     }
   }
-  if (bad.length) return { path: got.path, company: {}, error: `値の表 ${got.path} に直す所がある:\n${bad.map((b) => `  - ${b}`).join("\n")}` };
-  return { path: got.path, company };
+  if (bad.length) return { path: got.path, company: strictCompany({}), error: `値の表 ${got.path} に直す所がある:\n${bad.map((b) => `  - ${b}`).join("\n")}` };
+  return { path: got.path, company: strictCompany(company) };
+}
+
+// 値の表の読み口: この枠（docs-kit.qa-html）で読んでよい鍵を、値の表の 1 本の口（plugin の lib/skill_values.py keys）から取る（写さない）。
+// 読めない時は止める（読み口を通さずに値の表を読まない）。
+let FRAME_KEYS = null;
+function frameKeys() {
+  if (FRAME_KEYS) return FRAME_KEYS;
+  const r = spawnSync(process.env.PYTHON || "python3", [VALUES_PY, "keys", "docs-kit", "qa-html"], { encoding: "utf8" });
+  if (r.status !== 0) throw new Error(`値の表の読み口（${VALUES_PY} keys）が鍵を返さない: ${r.stderr || r.error}`);
+  const got = JSON.parse(r.stdout);
+  FRAME_KEYS = { keys: new Set(got.keys), any: got.any };
+  return FRAME_KEYS;
+}
+
+// 値の表の docs-kit.qa-html を、鍵の一覧（土台の skill-values/schema.json）に載った鍵だけを読ませる形にする。
+// 表に無い鍵を読むと実行の時に止まる（書き方の字の形で照らさない）。Symbol と Object の元の名（toString 等）は通す。
+// 写す口（展開・Object.assign・Object.keys・JSON）も止まる。
+export function strictCompany(data) {
+  const { keys, any } = frameKeys();
+  return new Proxy(data && typeof data === "object" && !Array.isArray(data) ? data : {}, {
+    get(t, k, r) {
+      if (typeof k === "string" && !any && !keys.has(k) && !(k in Object.prototype)) {
+        throw new Error(`値の表の docs-kit.qa-html に無い鍵 ${k} を読んだ（読む鍵は土台の skill-values/schema.json と SKILL.md の「repo ごとの値」の表に行を足してから読む）`);
+      }
+      return Reflect.get(t, k, r);
+    },
+    has(t, k) {
+      if (typeof k === "string" && !any && !keys.has(k)) throw new Error(`値の表の docs-kit.qa-html に無い鍵 ${k} を読んだ`);
+      return Reflect.has(t, k);
+    },
+    // 回させない・写させない（{...c}・Object.assign・Object.keys・JSON.stringify・for in は止まる）＝普通の object に写して
+    // 照らしの外で読む道が無い。
+    ownKeys() {
+      throw new Error("値の表の docs-kit.qa-html の読み口は回さない・写さない（鍵を名指して読む）");
+    },
+    getOwnPropertyDescriptor(t, k) {
+      if (typeof k === "string" && !any && !keys.has(k)) throw new Error(`値の表の docs-kit.qa-html に無い鍵 ${k} を読んだ`);
+      return Reflect.getOwnPropertyDescriptor(t, k);
+    },
+  });
 }
 
 const mask = (s) => s.replace(/<!--[\s\S]*?(-->|$)/g, (m) => " ".repeat(m.length));

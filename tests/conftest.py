@@ -1,5 +1,9 @@
-"""本物の claude の命令を要る試験の印と、無い所での扱いの 1 か所。
+"""試験の全体の決まり。
 
+GUARD_STRICT_KEYS: 守りの見張りが値の表に無い鍵を読むと、guard.py を exit 3 にする（窓の中では exit 0 のまま文を stderr に残す）。
+試験が hook を回すたびに「読んだ鍵が表に載っているか」を照らす＝表とコードのずれを、試験が通る道の全部で赤にする。
+
+本物の claude の命令を要る試験の印と、無い所での扱いの 1 か所。
 本物の claude を要る試験は module に `pytestmark = pytest.mark.real_claude` を付けるだけにする（file ごとに飛ばす条件を書かない）。
 - CI の job `plugin-smoke` は `pytest -m real_claude tests/` でこの印の試験を全部拾って回す（file を手で並べない）。
 - claude の命令が無い所（手元・job `check`）では印の試験だけを飛ばす。AF_REQUIRE_CLAUDE=1 の時は飛ばさず赤にする。
@@ -9,6 +13,8 @@ import os
 import shutil
 
 import pytest
+
+os.environ.setdefault("GUARD_STRICT_KEYS", "1")
 
 
 def pytest_configure(config):

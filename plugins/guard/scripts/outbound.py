@@ -147,7 +147,7 @@ def check_secret(data, vals):
 def number_only(text, vals):
     """番号だけで中身の名の無い文の並び。"""
     exempt = [p for p in (vals.get("number_request_exempt") or []) if isinstance(p, str) and p]
-    v2 = dict(vals)
+    v2 = vals.copy()   # 読み口（Strict）のまま足す
     v2["ask_topic_stopwords_extra"] = list(vals.get("ask_topic_stopwords_extra") or []) + sorted(REQUEST_WORDS)
     v2["ask_inner_terms_extra"] = []
     out = []

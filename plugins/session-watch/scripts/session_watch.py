@@ -57,6 +57,7 @@ PLUGIN_ROOT = os.path.dirname(HERE)
 NEIGHBORS = {
     "ask_shape": ("AF_ASK_SHAPE", "plugins/guard/scripts/ask_shape.py", "guard", "scripts/ask_shape.py"),
     "guard_common": ("AF_GUARD_COMMON", "plugins/guard/scripts/guard_common.py", "guard", "scripts/guard_common.py"),
+    "values_keys": ("AF_VALUES_KEYS", "plugins/guard/scripts/values_keys.py", "guard", "scripts/values_keys.py"),
     "public_guard": ("AF_PUBLIC_GUARD", "public-guard/guard.py", None, None),
 }
 _loaded = {}
@@ -437,10 +438,13 @@ SENTENCE = re.compile(r"[^。！？!?\n]+")
 def reply_exempt(data=None):
     """値の表の session-watch.watch-log.reply_exempt（行に当てる正規表現の並び）。当たる行は inner・time・done で見ない。
     (通る形の並び, 通らない形の並び)。通らない形（正規表現として読めない）は捨てる＝1 つの誤りで照らしを全部止めない。"""
-    G = neighbor("guard_common")
-    got = G.table("session-watch", data) if G else {}
+    G, VK = neighbor("guard_common"), neighbor("values_keys")
+    if not G or not VK:
+        return [], []        # 読み口が無ければ値の表を読まない（無い隣は neighbor の札で名指す）
+    got = G.table("session-watch", data)
     got = got.get("watch-log") if isinstance(got, dict) else None
-    pats = got.get("reply_exempt") if isinstance(got, dict) else None
+    # 値の表の読み口（表に無い鍵を読むと G.UnknownKey で止まる＝表とコードのずれを読む所で出す）。
+    pats = VK.section(got, "session-watch", "watch-log").get("reply_exempt")
     ok, bad = [], []
     for p in pats or []:
         if not isinstance(p, str) or not p:

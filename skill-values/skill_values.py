@@ -26,6 +26,10 @@
   python3 skill_values.py section <plugin> [<skill>] [--values P] [--start D ...]
                                                                        # {"path": …, "values": …} を出す（問題があれば exit 2）
   python3 skill_values.py get <plugin> [<skill>] <鍵>                  # 値を 1 つ（無い・空なら空行。問題があれば exit 2）
+  python3 skill_values.py keys <plugin> [<skill> [<鍵> ...]]           # その枠で道具が読んでよい鍵を JSON で出す（JS の読み口が使う）
+
+読む側の照らし（道具のコードと鍵の一覧のずれ）: 道具が鍵の一覧に無い鍵を読むと UnknownKey で止まる。
+  get は引く前に require で照らす。欄をまとめて読む道具は、読んだ欄を guard の values_keys.section（G.Strict）で包む。
 """
 from __future__ import annotations
 
@@ -47,6 +51,11 @@ class ValuesError(Exception):
         self.path = path
         self.problems = list(problems)
         super().__init__(format_problems(path, self.problems))
+
+
+class UnknownKey(Exception):
+    """道具が鍵の一覧（schema.json）に無い鍵を読んだ（土台の不具合）。KeyError にしない＝`except KeyError` の既定の道で
+    黙って飲まれない。値の表の中身の問題（ValuesError）とは別＝表の中身に依らず、読む所で止まる。"""
 
 
 def format_problems(path, problems):
@@ -90,6 +99,45 @@ def keys_of(plugin, skill=None):
 def defaults(plugin, skill=None):
     """schema に既定が書いてある鍵の既定 {鍵: 値}。"""
     return {k: s["default"] for k, s in (keys_of(plugin, skill) or {}).items() if "default" in s}
+
+
+def frame_keys(frame):
+    """枠（(plugin,) か (plugin, skill) か、その下の dict の鍵の path）の中で道具が読んでよい鍵の名の集まりと、
+    中の名を repo が決める枠（中の鍵を持たない dict・any）か。知らない枠は (空, False)。"""
+    frame = tuple(frame)
+    secs = schema()["sections"]
+    if not frame:
+        return set(secs), False
+    sec = secs.get(frame[0])
+    if sec is None:
+        return set(), False
+    if "keys" in sec:
+        cur, rest = {k: _spec(v) for k, v in sec["keys"].items()}, frame[1:]
+    else:
+        skills = sec.get("skills") or {}
+        if len(frame) == 1:
+            return set(skills), False
+        sk = skills.get(frame[1])
+        if sk is None:
+            return set(), False
+        cur, rest = {k: _spec(v) for k, v in (sk.get("keys") or {}).items()}, frame[2:]
+    for part in rest:
+        spec = cur.get(part)
+        if spec is None:
+            return set(), False
+        if "keys" not in spec:
+            return set(), True                     # 中の鍵を持たない値（dict・any・並び）の中の名は repo の物
+        cur = {k: _spec(v) for k, v in spec["keys"].items()}
+    return set(cur), False
+
+
+def require(path):
+    """鍵の path（tuple）が鍵の一覧に載った鍵（かその下）でなければ UnknownKey。"""
+    path = tuple(p for p in path if p is not None)
+    names, any_key = frame_keys(path[:-1])
+    if not path or not (any_key or path[-1] in names):
+        raise UnknownKey("値の表に無い鍵 %s を読んだ（読む鍵は土台の skill-values/schema.json と SKILL.md の"
+                         "「repo ごとの値」の表に行を足してから読む）" % ".".join(path))
 
 
 # ── 探し方 ──
@@ -275,7 +323,8 @@ def empty(v):
 
 
 def get(plugin, skill, key, default=None, **kw):
-    """1 つの値。鍵が無い・空なら default。問題があれば ValuesError。"""
+    """1 つの値。鍵が無い・空なら default。問題があれば ValuesError。鍵の一覧に無い鍵を引くと UnknownKey（表の中身に依らない）。"""
+    require((plugin, skill, key))
     v = section(plugin, skill, **kw).get(key)
     return default if empty(v) else v
 
@@ -295,6 +344,13 @@ def _opts(argv):
 
 
 def main(argv):
+    if argv and argv[0] == "keys":
+        if len(argv) < 2:
+            sys.stderr.write("使い方: skill_values.py keys <plugin> [<skill> [<鍵> ...]]\n")
+            return 2
+        names, any_key = frame_keys(tuple(argv[1:]))
+        print(json.dumps({"frame": argv[1:], "keys": sorted(names), "any": any_key}, ensure_ascii=False))
+        return 0
     if not argv or argv[0] not in ("check", "section", "get"):
         sys.stderr.write(__doc__.split("使い方:")[1])
         return 2

@@ -296,4 +296,6 @@ def test_guard_は問題の鍵だけ既定で動き守りを止めない(tmp_pat
         sys.path.remove(str(GUARD.parent))
     assert v["context_limit"] == SCHEMA["sections"]["guard"]["keys"]["context_limit"]["default"]
     assert v["ask_question_max_chars"] == 30
-    assert "nazo" not in v
+    assert "nazo" not in v._data                              # 問題の鍵は表から読み込まない
+    with pytest.raises(G.UnknownKey):                          # 道具が鍵の一覧に無い鍵を読むと止まる（PR #76 の読み口）
+        "nazo" in v

@@ -77,14 +77,77 @@ def project_dir(payload=None):
     return d
 
 
+UnknownKey = SV.UnknownKey   # 道具が鍵の一覧に無い鍵を読んだ（土台の不具合）。正本は値の表の 1 本の口
+
+
+class Strict:
+    """値の表の 1 つの枠の読み口（土台の道具が値の表を読む時は全部これを通す）。
+    表に載った鍵（allowed）だけを読ませ、表に無い鍵を読むと UnknownKey で止まる＝表とコードがずれると、読んだ所で
+    実行の時に止まる（書き方の字の形を並べて照らさない）。any_key は `.*` の枠（中の名を repo が決める所）。
+    載った鍵の値（中の dict など）はそのまま返す（値の中の名は repo の物）。
+    dict の子にしない・回させない（keys・items・for・dict(…)・{**…}・json に渡すと止まる）＝普通の dict に写して
+    照らしの外で読む道が無い。写す時は copy()（読み口のまま）。"""
+
+    __slots__ = ("_data", "frame", "allowed", "any_key")
+
+    def __init__(self, data, frame, allowed, any_key=False):
+        self._data = dict(data or {})
+        self.frame = tuple(frame)
+        self.allowed = frozenset(allowed)
+        self.any_key = bool(any_key)
+
+    def _ok(self, key):
+        if self.any_key or key in self.allowed:
+            return
+        raise UnknownKey("値の表の %s に無い鍵 %r を読んだ（読む鍵は土台の skill-values/schema.json と SKILL.md の"
+                         "「repo ごとの値」の表に行を足してから読む）" % (".".join(self.frame), key))
+
+    def __getitem__(self, key):
+        self._ok(key)
+        return self._data[key]
+
+    def get(self, key, default=None):
+        self._ok(key)
+        return self._data.get(key, default)
+
+    def __contains__(self, key):
+        self._ok(key)
+        return key in self._data
+
+    def __setitem__(self, key, value):
+        self._ok(key)
+        self._data[key] = value
+
+    def copy(self):
+        return Strict(self._data, self.frame, self.allowed, self.any_key)
+
+    def _no_walk(self, *_a, **_k):
+        raise UnknownKey("値の表の %s の読み口は回さない・写さない（鍵を名指して get で読む。写すなら copy()）"
+                         % ".".join(self.frame))
+
+    __iter__ = keys = items = values = __len__ = _no_walk
+
+    def __bool__(self):
+        return True
+
+    def __repr__(self):
+        return "Strict(%s)" % ".".join(self.frame)
+
+
+def strict_defaults():
+    """既定だけの guard の読み口（鍵の一覧は値の表の 1 本の口の schema.json の "guard"）。"""
+    return Strict(DEFAULTS, ("guard",), SV.keys_of("guard") or DEFAULTS)
+
+
 def _starts(payload):
     root = project_dir(payload)
     return [root] if root else []
 
 
 def values(payload=None):
-    """値の表の "guard" を既定に重ねて返す。読めない・問題のある鍵は既定のまま（名指しは values_problems）。"""
-    out = dict(DEFAULTS)
+    """値の表の "guard" を既定に重ねて返す（Strict＝鍵の一覧に無い鍵を読むと止まる）。
+    読めない・問題のある鍵は既定のまま（名指しは values_problems）。"""
+    out = strict_defaults()
     try:
         got, _ = SV.section("guard", strict=False, starts=_starts(payload))
     except Exception:  # noqa: BLE001  見張りの故障で窓を止めない
@@ -96,7 +159,8 @@ def values(payload=None):
 
 
 def table(section, payload=None):
-    """値の表の 1 つの節を dict で返す（無い・読めない時は {}）。探し方は値の表の 1 本の口（lib/skill_values.py）。他の plugin の口も使う。"""
+    """値の表の 1 つの節を dict で返す（無い・読めない時は {}）。探し方は値の表の 1 本の口（lib/skill_values.py）。
+    他の plugin の口は、これを values_keys.section で読み口（表に無い鍵を拒む）にして読む。"""
     try:
         tbl, _ = SV.load(SV.find(starts=_starts(payload)))
     except Exception:  # noqa: BLE001  見張りの故障で窓を止めない

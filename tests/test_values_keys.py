@@ -1,6 +1,9 @@
 """値の表（使う側の repo の config/skill-values.json）に土台が読まない鍵を、守り values_keys が名指し・止めるかを見る。
 
-知っている鍵の正本は値の表の 1 本の口（skill-values/ の skill_values.py と schema.json）。道具のコードが読む鍵とのずれも照らす。入力は全部作り物。
+知っている鍵の正本は値の表の 1 本の口（skill-values/ の skill_values.py と schema.json）。入力は全部作り物。
+表と道具のコードが読む鍵のずれは、字の形の網で照らさず、読む時の読み口（tests/test_values_reader.py）が照らす
+（表に無い鍵を読み始める・表から鍵の行を消す、のどちらも本物の読み口が UnknownKey で止める注入の試験がそこに在る）。値の表への AI の書き込みを
+どの道具・書き方でも道具の後に照らすのは tests/test_values_table_after_tool.py。
 """
 import json
 import os
@@ -164,76 +167,3 @@ def test_values_keys_手で回す口は知らない鍵で_exit_1(tmp_path):
     assert r.returncode == 1 and "cleanup_followup" in r.stdout
     t.write_text(json.dumps(今の表, ensure_ascii=False), encoding="utf-8")
     assert subprocess.run([sys.executable, str(PLUGIN / "scripts" / "values_keys.py"), str(t)]).returncode == 0
-
-
-# 道具のコードが読む鍵。表と読む側がずれると、読まれている鍵を知らない鍵と言い、値の表への書き込みを全部止める（PR #59 のレビュー）。
-# 値の表を読む file は全部ここに載せる（載っていない file が値の表を読むと赤＝知らない読み口は既定で止める）。
-# 鍵を読む形は字の形で並べた網で、並べない形（別名・分割代入・鍵の名を組み立てる形）は通る。表とコードがずれた時の本当の止めは values_keys 自身
-# （コードが読む鍵を表が持たなければ、その鍵を書いた値の表への AI の書き込みが止まり、止めた文が土台の表に行を足す道を示す）。
-_読む口 = {   # path: その file が読む値の表の枠
-    "plugins/docs-kit/skills/qa-html/check.mjs": ("docs-kit", "qa-html"),
-    "plugins/dev-flow/skills/codex/codex_pack.py": ("dev-flow", "codex"),
-    "plugins/dev-flow/skills/spec-doc/seal.py": ("dev-flow", "spec-doc"),
-    "plugins/docs-kit/skills/make-deck/scripts/finish_deck.py": ("docs-kit", "make-deck"),
-    "plugins/docs-kit/skills/make-deck/scripts/render_prompt.py": ("docs-kit", "make-deck"),
-    "plugins/session-watch/scripts/session_watch.py": ("session-watch", "watch-log"),
-    **{f"plugins/guard/scripts/{p.name}": ("guard",) for p in (ROOT / "plugins/guard/scripts").glob("*.py")},
-}
-_読まない口 = {   # 値の表に触れるが鍵を読まない file: 理由
-    **{f"plugins/{p}/lib/skill_values.py": "読む口の本体（土台の skill-values/ への symlink・鍵は呼ぶ側が渡す）"
-       for p in ("dev-flow", "docs-kit", "guard")},
-}
-_値の表に触れる = re.compile(r"skill-values|skill_values|SKILL_VALUES|guard_common|\bvals\b")
-_鍵を読む形 = [
-    re.compile(r"\b(?:values|vals|company)\s*(?:\.get\(\s*|\[\s*)[\"']([A-Za-z_]+)[\"']"),
-    re.compile(r"\bcompany\??\.([A-Za-z_]+)"),
-    re.compile(r"skill_values\.get\((?:\*mk|\"docs-kit\", \"make-deck\"),\s*\"([A-Za-z_]+)\""),
-]
-
-
-def _コードが読む鍵(rel, text):
-    return {k for pat in _鍵を読む形 for k in pat.findall(text)}
-
-
-def test_values_keys_値の表を読む_file_は全部読む口に載る():
-    out = subprocess.run(["git", "ls-files", "plugins"], cwd=ROOT, capture_output=True, text=True, check=True).stdout.split()
-    touch = [r for r in out if r.endswith((".py", ".mjs", ".js", ".sh")) and _値の表に触れる.search((ROOT / r).read_text(encoding="utf-8"))]
-    assert "plugins/dev-flow/skills/spec-doc/seal.py" in touch, "拾い方が壊れた"
-    unknown = [r for r in touch if r not in _読む口 and r not in _読まない口]
-    assert not unknown, f"値の表を読むのに読む口に載っていない file（載せて鍵を照らす）: {unknown}"
-    assert not [r for r in [*_読む口, *_読まない口] if not (ROOT / r).is_file()], "読む口の表に古い行"
-
-
-def test_values_keys_道具のコードが読む鍵は全部_SKILL_の表に在る():
-    """check.mjs の company.later_lead のように、表に載せずにコードだけが読む鍵があると赤。"""
-    missing = []
-    for rel, head in _読む口.items():
-        for k in sorted(_コードが読む鍵(rel, (ROOT / rel).read_text(encoding="utf-8"))):
-            table = {head[0]: {k: 1}} if len(head) == 1 else {head[0]: {head[1]: {k: 1}}}
-            if [p for p in VK.unknown(table) if "知らない鍵" in p or "畳んだ鍵" in p]:
-                missing.append(f"{rel}: {k}")
-    assert not missing, missing
-
-
-@pytest.mark.parametrize("rel, code", [
-    ("plugins/dev-flow/skills/spec-doc/seal.py", 'x = values.get("zz_new_key")'),
-    ("plugins/guard/scripts/context_size.py", 'x = vals.get("zz_ctx")'),
-    ("plugins/docs-kit/skills/qa-html/check.mjs", 'const x = company["zz_lead"];'),
-    ("plugins/docs-kit/skills/qa-html/check.mjs", "const x = company?.zz_lead;"),
-])
-def test_values_keys_表に無い鍵をコードが読み始めると赤(rel, code):
-    """注入の試験: 読む口のどの形で表に無い鍵を読み足しても名指す。"""
-    text = (ROOT / rel).read_text(encoding="utf-8") + "\n" + code + "\n"
-    head = _読む口[rel]
-    got = [k for k in _コードが読む鍵(rel, text) if k.startswith("zz_")]
-    assert got and VK.unknown({head[0]: {got[0]: 1}} if len(head) == 1 else {head[0]: {head[1]: {got[0]: 1}}})
-
-
-def test_values_keys_表から鍵の行を消すと読む口の試験が赤(monkeypatch):
-    """注入の試験: 鍵の一覧（schema.json）から qa-html の later_lead を消すと、上の試験が名指す。"""
-    import copy
-    sch = copy.deepcopy(VK.SV.schema())
-    sch["sections"]["docs-kit"]["skills"]["qa-html"]["keys"].pop("later_lead")
-    monkeypatch.setattr(VK.SV, "_SCHEMA", sch)
-    with pytest.raises(AssertionError, match="later_lead"):
-        test_values_keys_道具のコードが読む鍵は全部_SKILL_の表に在る()
