@@ -732,8 +732,17 @@ REC_HTML_RED = [
      lambda r: r.replace("<b>分からない・確かめてから答える</b>", "<b>分からない・確かめてから答える</b>" + REC, 1),
      "問い q3: 選択肢「分からない・確かめてから答える」の推奨の印: 「分からない」には付けない"),
     ("お客さん宛て（send）に印", "send", _mark(0), "問い q3: 推奨の印（small.rec）はオーナー宛て（copy・artifact）のページだけ"),
+    # 検査とブラウザで読みが分かれる書き方は入口で赤（印がすり抜けない）
     ("引用符の無い印を send に", "send", lambda r: _mark(0)(r).replace('<small class="rec">', "<small class=rec>", 1),
-     "属性「class」の値を引用符"),
+     "属性は空白で区切り、値は引用符"),
+    ("/ で区切った印を send に", "send", lambda r: _mark(0)(r).replace('<small class="rec">', '<small/class="rec">', 1),
+     "属性は空白で区切り、値は引用符"),
+    ("文字参照の印を send に", "send", lambda r: _mark(0)(r).replace('<small class="rec">', '<small class="&#114;ec">', 1),
+     "属性「class」の値に文字参照"),
+    ("タブの文字参照の印を send に", "send", lambda r: _mark(0)(r).replace('<small class="rec">', '<small class="x&#9;rec">', 1),
+     "属性「class」の値に文字参照"),
+    ("値の中の偽の class", "send", lambda r: _mark(0)(r).replace('<small class="rec">', """<small title=" class='x'" class="rec">""", 1),
+     "属性「title」の値の中に「名=」"),
     ("理由が空", "copy", lambda r: _mark(0)(r).replace(REC, '<small class="rec"></small>', 1), "問い q3: 選択肢「借りた日から 7 日」の推奨の印に理由が無い"),
 ]
 
@@ -743,6 +752,24 @@ REC_HTML_RED = [
 def test_推奨の印の付け方が崩れると赤(tmp_path, name, dest, mutate, expect):
     red = _rec_page(tmp_path, dest, mutate)
     assert len(red) == 1 and red[0].startswith(expect), (name, red)
+
+
+@needs_node
+@pytest.mark.parametrize("dest, mutate", [
+    # 値の中に偽の data-kind（検査が judge と読み、事実を聞く問いの印を通す形）
+    ("copy", lambda r: _mark(0)(r).replace('data-kind="judge"', 'title=" data-kind=\'judge\'" data-kind="choose"', 1)),
+    # body の値の中に偽の data-dest（検査が copy と読み、send のページの印を通す形）
+    ("send", lambda r: _mark(0)(r)),
+], ids=["偽の data-kind", "偽の data-dest"])
+def test_値の中の偽の属性で印の判定をすり抜けない(tmp_path, dest, mutate):
+    html = filled_template(dest)
+    if dest == "send":
+        html = html.replace('data-dest="send"', 'title=" data-dest=\'copy\'" data-dest="send"', 1)
+    head, rest = html.split('data-qkey="q3"', 1)
+    page = tmp_path / "確認.html"
+    page.write_text(head + 'data-qkey="q3"' + mutate(rest), encoding="utf-8")
+    red = run_check(page)["red"]
+    assert len(red) == 1 and red[0].startswith("属性「title」の値の中に「名=」"), red   # 偽の値を読ませる書き方は入口で赤＝印は通らない
 
 
 @needs_node

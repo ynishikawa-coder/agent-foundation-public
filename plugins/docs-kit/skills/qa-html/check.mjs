@@ -332,12 +332,19 @@ function allowlistReds(outside) {
       continue;
     }
     const before = red.length;
+    const strict = /^<[A-Za-z][A-Za-z0-9-]*(?:\s+[^\s"'=<>\/]+(?:\s*=\s*(?:"[^"]*"|'[^']*'))?)*\s*\/?>$/.test(m[0]);
+    // 検査の読み（attr・class）とブラウザの読みを 1 つにそろえる形だけを通す: 属性は空白で区切り、値は引用符で囲む
+    //   （<small/class="rec">・class=rec のような書き方は、ブラウザは読むが検査は読めない＝すり抜けるので赤）
     const attrs = {};
     for (const a of m[2].matchAll(/([^\s"'=/>]+)(?:\s*=\s*("[^"]*"|'[^']*'|[^\s>]+))?/g)) {
       const name = a[1].toLowerCase();
       const val = a[2] == null ? "" : a[2].replace(/^["']|["']$/g, "");
-      // 引用符の無い値は赤＝検査の中の読み（class・data-*）は引用符で囲んだ値だけを読む。読み方を 1 つにそろえ、すり抜けを入れない
-      if (a[2] != null && !/^["']/.test(a[2])) red.push(`属性「${name}」の値を引用符（"…"）で囲む（囲まない値は検査が読めない）: ${show}`);
+      // 値の中に別の属性に見える字（title=" class='x'" の類）や、検査が戻せない文字参照（&#114; &Tab; の類）は赤
+      //   ＝検査の読み（attr・class）がブラウザと同じ値を読むように、読みが分かれる書き方を入口で止める
+      if (a[2] != null && /^["']/.test(a[2])) {
+        if (/\s[^\s"'=<>\/]+\s*=/.test(val)) red.push(`属性「${name}」の値の中に「名=」の形を書かない（検査とブラウザで読む属性が分かれる）: ${show}`);
+        if (/&(?!(?:nbsp|lt|gt|quot|amp|#39);)(?:#|[A-Za-z][A-Za-z0-9]*;)/.test(val)) red.push(`属性「${name}」の値に文字参照（&#…; など）を書かない（字のまま書く）: ${show}`);
+      }
       if (name in attrs) red.push(`同じ属性「${name}」が 2 回ある（ブラウザは前の値を使う）: ${show}`);
       else attrs[name] = val;
       if (!ats.has(name) && !ALLOW.attribute_prefixes.some((p) => name.startsWith(p))) red.push(`型の外に許していない属性「${name}」: ${show}`);
@@ -347,6 +354,7 @@ function allowlistReds(outside) {
     if (tag === "input" && !ALLOW.input_types.includes((attrs.type ?? "text").toLowerCase())) red.push(`許していない入力の欄 type="${attrs.type}": ${show}`);
     if ("href" in attrs && !new RegExp(ALLOW.href, "i").test(attrs.href)) red.push(`許していない URL（https・mailto・tel・# だけ）: ${show}`);
     if ("src" in attrs && (tag !== "img" || !new RegExp(ALLOW.img_src).test(attrs.src))) red.push(`外のリソース・許していない src（写真は img の data:image/ だけ）: ${show}`);
+    if (!strict && red.length === before) red.push(`属性は空白で区切り、値は引用符（"…"）で囲む（検査が読めない書き方）: ${show}`);
   }
   return red;
 }
