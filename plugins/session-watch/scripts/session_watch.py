@@ -73,6 +73,7 @@ READING = re.compile(r"AI の(今の)?読み")
 # 選択肢モーダルのどの問いにも置く選択肢（細目 §4）。
 IDK = "分からない"
 CARD_LINE = re.compile(r"^[#>*\s]*(✅|❓|⏳|🛑)")
+DONE_LINE = re.compile(r"^[#>*\s]*✅(?!\s*終わった\s*[（(]\s*一部)")   # 終わった（「✅終わった（一部）」は除く・核 §7）
 # 一言で済む返事（細目 §5）の行数の上限。札で始めた返事・問いを出したターンは長さに関わらず札と締めを見る。
 SHORT_LINES = 3
 
@@ -347,8 +348,14 @@ def check(log, closing=None):
                 found.append(("title", "%s の窓に %s は付けない（閉じるかはオーナーが決める）" % (HUMAN, DONE)))
             if tm == ASKING and not open_ask and answered:
                 found.append(("title", "答えが返ったのに題に %s が残っている" % ASKING))
-            if (kind or tk) == AI and close and close.startswith("AI がこの後やること: なし") and tm != DONE:
-                found.append(("title", "%s の窓が AI がこの後やることなしで締めるのに、題の状態が %s でない" % (AI, DONE)))
+            # ✅ は「終わった」（核 §7）の印。AI の手が尽きた（AI がこの後やること: なし）とは結ばない。
+            first = next((ln.strip() for ln in closing.splitlines() if ln.strip()), "")
+            if (kind or tk) == AI and CARD_LINE.match(first):
+                done = bool(DONE_LINE.match(first))
+                if done and tm != DONE:
+                    found.append(("title", "%s の窓が %s終わった で報告するのに、題の状態が %s でない" % (AI, DONE, DONE)))
+                elif not done and tm == DONE:
+                    found.append(("title", "%s の窓が 終わった でない札（止まった・一部・待ち・問い）で締めるのに、題が %s" % (AI, DONE)))
             if tm == WAITING and HAND_TITLE.match(split_title(title)[2]) and closing.strip():
                 lack = [p for p in HAND_PARTS if p not in closing]
                 if lack:
