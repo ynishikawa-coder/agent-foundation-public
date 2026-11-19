@@ -1,42 +1,6 @@
 # 核・振る舞いの既定・細目の文のうち、消しても試験が赤にならない文（tests/test_rule_holes.py が照らす）。
 # 行の形: <path><TAB><文>。新しい文はここへ足さず、文を照らす試験を足す。試験で守られた文・無くなった文は消す。
 # この表の残りは原因の台帳の行（核と細目の文の試験の穴）が持つ。
-plugins/core/振る舞い.md	# 振る舞いの既定（agent-foundation）
-plugins/core/振る舞い.md	AI のもともとの癖と逆を求める既定だけを置く（形の細目は細目.md）。
-plugins/core/振る舞い.md	Chrome で打てない手だけ人の手順にする。
-plugins/core/振る舞い.md	ずれたら見込みを書き直して伝える。
-plugins/core/振る舞い.md	核と一緒に毎回差し込む。
-plugins/core/核.md	# 振る舞いの核（agent-foundation）
-plugins/core/核.md	## 1. 安全
-plugins/core/核.md	## 6. 時刻は日本時間
-plugins/core/核.md	## 8. 記録
-plugins/core/核.md	- 1 行目は 4 札のどれか: `✅終わった`／`❓答えて`／`⏳待ち`／`🛑止まった`。
-plugins/core/核.md	- AI がこの後やることは締める前に自分で動かす。
-plugins/core/核.md	- AI が立てた 🤖 の窓は終わったら AI が閉じる。
-plugins/core/核.md	- オーナーにしか決められない事（外すとやり直す分かれ道・オーナーだけの情報・言葉の解釈・戻せない操作／秘密／お金／社外への送信）だけ聞く。
-plugins/core/核.md	- 人に見せる時刻は `YYYY-MM-DD HH:MM 日本時間`、外へ渡す時刻はタイムゾーン付き。
-plugins/core/核.md	- 人への文は初めて読む人がそれだけで分かる言葉で書く。
-plugins/core/核.md	- 問いは前提から聞く。
-plugins/core/核.md	- 最後の 2 行は `AI がこの後やること:` と `あなたがやること:`。
-plugins/core/核.md	- 終わったかの判定は書いた窓と別の目がする。
-plugins/core/核.md	- 結論を先に。
-plugins/core/核.md	- 規律は畳む・直す・言い換え・止めずに知らせる物なら AI が入れ、新しく「止める」物と核の原則の変更はオーナーの同意を取る。
-plugins/core/核.md	- 記録は各社の決まった置き場へ。
-plugins/core/核.md	- 返事も実況も日本語で書く。
-plugins/core/核.md	- 途中確認せず、範囲が明確な頼みは一気にやる。
-plugins/core/核.md	1. 戻せない操作の前に人に聞く — 強制 push・DB の削除・人の手が入った物や git に無い一点物の削除。
-plugins/core/核.md	2 つの AI の窓が常に読む原則。
-plugins/core/核.md	2. 秘密を出さない — 鍵・トークン・パスワード・接続文字列・認証情報を出力・コード・試験・文書・PR 本文・ログのどこにも書かない。
-plugins/core/核.md	3. `permissions.deny` と自動の許可の判定を尊重し回避しない。
-plugins/core/核.md	4. 公開の repo は誰に見られてもよく保つ — 土台の公開の検査を main で必須にする。
-plugins/core/核.md	AI が作った物・git で戻せる物の片付けは聞かない。
-plugins/core/核.md	git には動く時に読む物だけ。
-plugins/core/核.md	repo 固有の決まりはその repo の `CLAUDE.md` へ。
-plugins/core/核.md	人にしか確かめられない所は見る所を 1 つ示して渡す。
-plugins/core/核.md	古い道は畳む（安全の守りは残す）。
-plugins/core/核.md	止められたら打ち方を直すか、外せる人に聞く。
-plugins/core/核.md	物は本当の名で呼ぶ。
-plugins/core/核.md	調べれば分かる事・安く直せる事は AI が決めて進める。
 plugins/core/細目.md	# 核の細目（agent-foundation）
 plugins/core/細目.md	## 1. 安全
 plugins/core/細目.md	## 2. 日本語

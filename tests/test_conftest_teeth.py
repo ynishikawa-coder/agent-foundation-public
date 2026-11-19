@@ -11,7 +11,7 @@ import sys
 from pathlib import Path
 
 import pytest
-from entry_box import copy_entry
+from entry_box import box_env, copy_entry
 
 ROOT = Path(__file__).resolve().parent.parent
 CHECK = "scripts/checks/conftest_teeth.sh"
@@ -46,9 +46,7 @@ def env_without_claude(tmp_path):
     for tool in ("bash", "dirname", "env", "grep", "tail", "mktemp", "rm", "sed"):
         if shutil.which(tool):
             os.symlink(shutil.which(tool), nobin / tool)
-    env = dict(os.environ, PATH=str(nobin))
-    env.pop("AF_REQUIRE_CLAUDE", None)
-    return env
+    return box_env(PATH=str(nobin))
 
 
 def run_check(root, env):

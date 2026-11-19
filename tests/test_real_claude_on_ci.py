@@ -5,6 +5,9 @@
 - 飛ばす条件は tests/conftest.py の 1 か所（印 real_claude の試験だけ）。試験の file は印を付けるだけ。
 - plugin-smoke は `bash scripts/pytest.sh -m real_claude tests/` で印の試験を全部拾う。
 - 印を付け忘れた試験は飛ばされず、claude の無い job check で赤になる。
+- 試験の file が自分で claude の有る無しを見て飛ばす形は、正規表現（OWN_SKIP）で拾っていたが狭かった（which(...) is None の
+  if・from shutil import which・try/except を拾わない）。字で探すのを畳み、結果で照らす: 印の無い試験の飛ばしは job check で
+  赤（check_all）、印の試験の飛ばし・xfail は job plugin-smoke の --af-judge=real-claude で赤（tests/test_plugin_smoke_judge.py）。
 """
 import json
 import os
@@ -14,19 +17,11 @@ import subprocess
 import sys
 from pathlib import Path
 
-from entry_box import copy_entry
+from entry_box import box_env, copy_entry
 
 ROOT = Path(__file__).resolve().parent.parent
 CONFTEST = ROOT / "tests" / "conftest.py"
 CI = ROOT / ".github" / "workflows" / "ci.yml"
-OWN_SKIP = re.compile(r"""(?:\bnot\s+shutil\.which|skipif\([^)]*which)\(\s*["']claude["']""")
-
-
-def own_skips(files):
-    """conftest の外で claude の有る無しを見て飛ばす file（並べ忘れると黙って飛ぶ道）を返す。"""
-    return [name for name, text in files if name != "conftest.py" and OWN_SKIP.search(text)]
-
-
 def smoke_pytest_lines(yml):
     """job plugin-smoke の中の pytest の行を返す。"""
     m = re.search(r"(?ms)^  plugin-smoke:\n(.*?)(?=^  \S|\Z)", yml)
@@ -36,7 +31,7 @@ def smoke_pytest_lines(yml):
 
 def ci_problems(yml):
     lines = smoke_pytest_lines(yml)
-    if lines != ["run: bash scripts/pytest.sh -q -m real_claude tests/"]:
+    if lines != ["run: bash scripts/pytest.sh -q -m real_claude --af-judge=real-claude tests/"]:
         return [f"plugin-smoke の pytest の行が印で拾う形でない: {lines}"]
     return []
 
@@ -45,22 +40,13 @@ def _tests():
     return [(p.name, p.read_text(encoding="utf-8")) for p in sorted((ROOT / "tests").rglob("*.py"))]
 
 
-def test_試験の_file_は自分で_claude_の有る無しを見て飛ばさない():
-    assert own_skips(_tests()) == []
-
-
-def test_自分で飛ばす_file_を入れると拾う():
-    bad = "if not shutil.which('" + "claude'):\n    pytest.skip('x', allow_module_level=True)\n"
-    assert own_skips([("test_x_real_claude.py", bad)]) == ["test_x_real_claude.py"]
-
-
 def test_plugin_smoke_は印で全部拾う():
     assert ci_problems(CI.read_text(encoding="utf-8")) == []
 
 
 def test_file_を手で並べる行を入れると拾う():
     yml = CI.read_text(encoding="utf-8").replace(
-        "-m real_claude tests/", "tests/test_plugin_smoke.py tests/test_setup_plugins_real_claude.py")
+        "-m real_claude --af-judge=real-claude tests/", "tests/test_plugin_smoke.py tests/test_setup_plugins_real_claude.py")
     assert ci_problems(yml)
 
 
@@ -80,8 +66,7 @@ def _run_box(tmp_path, body, require):
     os.symlink(sys.executable, nobin / "python3")
     for tool in ("bash", "dirname", "env"):
         os.symlink(shutil.which(tool), nobin / tool)
-    env = dict(os.environ, PATH=str(nobin), AF_PYTEST_TALLY=str(tmp_path / "tally.json"))
-    env.pop("AF_REQUIRE_CLAUDE", None)
+    env = box_env(PATH=str(nobin), AF_PYTEST_TALLY=str(tmp_path / "tally.json"))
     if require:
         env["AF_REQUIRE_CLAUDE"] = "1"
     r = subprocess.run(["bash", "scripts/pytest.sh", "-q", "-p", "no:cacheprovider", "tests/"],

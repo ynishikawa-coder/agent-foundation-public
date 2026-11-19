@@ -33,4 +33,4 @@ def test_重なっても止めず_材料が無くても止めない(tmp_path):
     assert res.returncode == 0 and "#7 も plugins/core/細目.md" in res.stdout
     res = subprocess.run([sys.executable, "-B", str(TOOL)], capture_output=True, text=True,
                          env={"PATH": "/usr/bin:/bin"})
-    assert res.returncode == 0 and "見ていない" in res.stdout
+    assert res.returncode == 3 and "見ていない" in res.stdout  # 材料が無い時は緑の 0 でなく「見ていない」の 3

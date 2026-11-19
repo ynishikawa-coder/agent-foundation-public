@@ -10,11 +10,11 @@ ROOT = Path(__file__).resolve().parent.parent
 
 def rows():
     text = (ROOT / "tests" / "waits.txt").read_text(encoding="utf-8")
-    return [ln.split()[0] for ln in text.splitlines() if ln.strip() and not ln.startswith("#")]
+    return [ln.split()[:2] for ln in text.splitlines() if ln.strip() and not ln.startswith("#")]
 
 
-def test_表の物はまだ無く_どれかの試験が待っている():
-    users = "\n".join(p.read_text(encoding="utf-8") for p in (ROOT / "tests").glob("test_*.py"))
-    for rel in rows():
+def test_表の物はまだ無く_表の試験が待っている():
+    for rel, waiter in rows():
         assert not (ROOT / rel).exists(), f"{rel} はもう在る。表から外し、試験の wait_for を畳む"
-        assert f'"{rel}"' in users and "wait_for(" in users, f"{rel} を待つ試験が無い。表から外す"
+        user = (ROOT / waiter).read_text(encoding="utf-8")
+        assert f'"{rel}"' in user and "wait_for(" in user, f"{rel} を待つ試験が表の {waiter} に無い。表を直す"

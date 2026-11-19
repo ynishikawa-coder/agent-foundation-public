@@ -15,6 +15,7 @@ from pathlib import Path
 import pytest
 
 from test_core_plugin import PLUGIN, Foundation, _commit, _git, catalog_commit, kaku, run
+from entry_box import box_env
 
 ROOT = Path(__file__).resolve().parent.parent
 OLD = 'for p in core guard; do claude plugin install "$p@agent-foundation"; done\n'
@@ -214,13 +215,14 @@ def _entry(work, name):
     import shutil
     sh = work / "scripts" / "checks" / name
     shutil.copy(ROOT / "scripts" / "checks" / name, sh)
+    shutil.copy(ROOT / "scripts" / "af_unchecked.sh", work / "scripts" / "af_unchecked.sh")
     stubbed = False
     for rel in set(re.findall(r"python3 (\S+\.py)", sh.read_text(encoding="utf-8"))) - {"scripts/pr_shape.py"}:
         (work / rel).parent.mkdir(parents=True, exist_ok=True)
         (work / rel).write_text("import sys\nprint('本体に来た', *sys.argv[1:])\n", encoding="utf-8")
         stubbed = True
-    env = dict(__import__("os").environ, GITHUB_EVENT_NAME="pull_request", GITHUB_HEAD_REF="claude/20261119-eda",
-               PR_BODY="", PR_HEAD_SHA=_git(work, "rev-parse", "HEAD"))  # CI は event の head.sha を渡す
+    env = box_env(GITHUB_EVENT_NAME="pull_request", GITHUB_HEAD_REF="claude/20261119-eda",
+                  PR_BODY="", PR_HEAD_SHA=_git(work, "rev-parse", "HEAD"))  # CI は event の head.sha を渡す
     return stubbed, subprocess.run(["bash", str(sh)], cwd=work, capture_output=True, text=True, env=env)
 
 

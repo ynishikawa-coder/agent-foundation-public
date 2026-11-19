@@ -18,13 +18,13 @@ import subprocess
 from pathlib import Path
 
 import pytest
-from entry_box import copy_entry
+from entry_box import box_env, copy_entry
 
 ROOT = Path(__file__).resolve().parent.parent
 OK = "def test_ok():\n    pass\n"
 
 
-def box(tmp_path, tests, conftest=None, waits="docs/待つ作り物.json  作り物\n"):
+def box(tmp_path, tests, conftest=None, waits="docs/待つ作り物.json  tests/test_w.py  作り物\n"):
     root = copy_entry(tmp_path / "box")
     (root / "tests").mkdir()
     shutil.copy2(ROOT / "tests" / "waits.py", root / "tests" / "waits.py")
@@ -38,10 +38,7 @@ def box(tmp_path, tests, conftest=None, waits="docs/待つ作り物.json  作り
 
 
 def run(root, ci=False, **env):
-    e = {k: v for k, v in os.environ.items() if not k.startswith("GITHUB_") and k != "AF_PYTEST_TALLY"}
-    if ci:
-        e["GITHUB_ACTIONS"] = "true"
-    e.update(env)
+    e = box_env(ci=ci, **env)
     r = subprocess.run(["bash", "scripts/check_all.sh"], cwd=root, capture_output=True, text=True, env=e, timeout=300)
     return r.returncode, r.stdout.strip().splitlines()[-1], r.stdout + r.stderr
 
@@ -74,7 +71,7 @@ def test_注入_待つ物が在るのに待ちの印で飛ぶと赤(tmp_path):
     """飛ばす条件が path と結ばれない形（印だけ付けて、在っても飛ぶ）。"""
     body = ("import pytest\n\ndef test_s():\n    e = pytest.skip.Exception('x')\n"
             "    e.af_wait_path = 'docs/待つ作り物.json'\n    raise e\n")
-    root = box(tmp_path, {"test_s.py": body})
+    root = box(tmp_path, {"test_w.py": body})
     (root / "docs").mkdir()
     (root / "docs" / "待つ作り物.json").write_text("{}", encoding="utf-8")
     code, last, out = run(root)
