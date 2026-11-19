@@ -37,7 +37,7 @@ INNER = (
                           r"(?![A-Za-z0-9])", re.I)),
     ("path", re.compile(r"(?:^|(?<=[\s(（「]))(?:~|\.{1,2})?/[A-Za-z0-9_.\-]+(?:/[A-Za-z0-9_.\-]*)*"
                        r"|(?<![A-Za-z0-9_.\-])(?=[A-Za-z0-9_.\-/]*[A-Za-z])[A-Za-z0-9_.\-]+(?:/[A-Za-z0-9_.\-]+){2,}")),
-    ("識別子", re.compile(r"(?<![A-Za-z0-9])[a-z][a-z0-9]*(?:_[a-z0-9]+)+(?![A-Za-z0-9])")),  # snake_case
+    ("英字の識別子", re.compile(r"(?<![A-Za-z0-9])[a-z][a-z0-9]*(?:_[a-z0-9]+)+(?![A-Za-z0-9])")),  # snake_case
     ("識別子", re.compile(r"[ぁ-んァ-ヶ一-龠ー]+_\d+")),                                         # 直し_0020
     ("窓の id", re.compile(r"session_[A-Za-z0-9]+")),
     ("commit の印", re.compile(r"(?<![A-Za-z0-9])(?=[0-9a-f]*\d)(?=[0-9a-f]*[a-f])[0-9a-f]{7,40}(?![A-Za-z0-9])")),
@@ -84,15 +84,44 @@ def _text(v):
     return re.sub(r"\s+", " ", str(v or "")).strip()
 
 
+# 返事の本文（人への文）で数える物。核 §2「コード・パス・固有名は英語でよい」に背かないよう、file 名・path・版・
+# 英字の識別子・`…` の字は数えない（返事ではコードの囲みと `…` を外してから当てる）。選択肢の画面は全部を数える。
+REPLY_KINDS = ("番号", "窓の id", "識別子", "commit の印", "中の言葉")
+
+
+def inner_terms(text, vals, kinds=None):
+    """AI の中の言葉らしい字の一覧 [(名, 字)]。中の言葉の見分けの正本（選択肢の画面と返事の本文が共に呼ぶ）。
+    kinds を渡せばその名だけ数える。URL は数えない。ask_term_allow に当たる字は数えない。"""
+    return [(n, t) for n, t in _inner_hits(text, vals) if kinds is None or n in kinds]
+
+
+def _patterns(vals, key):
+    """値の表の正規表現の並びを (読める形, 読めない形) に分ける。読めない形は捨てる＝1 本の誤りで照らし全体を止めない。"""
+    ok, bad = [], []
+    for p in vals.get(key) or []:
+        if not isinstance(p, str) or not p:
+            continue
+        try:
+            ok.append(re.compile(p))
+        except re.error:
+            bad.append(p)
+    return ok, bad
+
+
+def bad_patterns(vals):
+    """中の言葉の見分けが読む値の表（ask_term_allow・ask_inner_terms_extra）の、正規表現として読めない形 [(鍵, 形)]。"""
+    return [(k, p) for k in ("ask_term_allow", "ask_inner_terms_extra") for p in _patterns(vals, k)[1]]
+
+
 def _inner_hits(text, vals):
-    allow = [p for p in (vals.get("ask_term_allow") or []) if isinstance(p, str) and p]
-    extra = [("中の言葉", p) for p in (vals.get("ask_inner_terms_extra") or []) if isinstance(p, str) and p]
+    allow = _patterns(vals, "ask_term_allow")[0]
+    extra = [("中の言葉", p) for p in _patterns(vals, "ask_inner_terms_extra")[0]]
     body = _URL.sub(" ", text)
     hits = []
     for name, pat in INNER + tuple(extra):
         for m in re.finditer(pat, body):
             tok = m.group(0).strip()
-            if not tok or any(re.search(a, tok) for a in allow):
+            if not tok or any(a.search(tok) for a in allow):
                 continue
             if (name, tok) not in hits:
                 hits.append((name, tok))
