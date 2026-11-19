@@ -116,6 +116,9 @@ def dump_dom(cmd: list[str]) -> tuple[str | None, str]:
     Chrome は自分の session（process group）で起こし、`</html>` を読んだ時・Chrome が終わった時・時間切れの時に
     group ごと止める。Chrome が終わっても、子（crashpad・zygote）が stdout を握ったまま残ると読み手の EOF が来ず、
     時間切れまで待っていた（sandbox が立たずに落ちた時に CI で 50 秒を越えた訳）。終わった Chrome は待たない。
+    落ちた訳は、出力の終わり（EOF）と Chrome の終わり（wait の exit の番号）の両方が揃ってから決める。ある一瞬に
+    poll() で終わりを覗いて分けると、EOF が先に来た時に exit の番号が消え、落ちた Chrome を時間切れと取り違えた
+    （2026-11-19 のレビュー: 負荷の下で 200 回に 4 回）。
     訳には Chrome の stderr の末尾を入れる（黙って捨てると、別の機械で回せない訳が誰にも見えない）。"""
     limit = _deadline_left()
     t0 = time.monotonic()
@@ -123,26 +126,33 @@ def dump_dom(cmd: list[str]) -> tuple[str | None, str]:
         proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=err, text=True, start_new_session=True,
                                 env=dict(os.environ, TMPDIR=short_tmp()))
         buf: list[str] = []
-        done = threading.Event()
+        eof, exited, wake = threading.Event(), threading.Event(), threading.Event()
 
         def reader() -> None:
             assert proc.stdout is not None
-            for line in proc.stdout:
-                buf.append(line)
-                if "</html>" in line:
-                    break
-            done.set()
+            try:
+                for line in proc.stdout:
+                    buf.append(line)
+                    if "</html>" in line:
+                        break
+            finally:
+                eof.set()
+                wake.set()
 
-        threading.Thread(target=reader, daemon=True).start()
-        ended = False
-        while not done.wait(0.1):
-            if proc.poll() is not None:
-                ended = True
-                done.wait(1.0)            # 終わった Chrome の残りの出力だけ読む（握ったままの子は待たない）
-                break
-            if time.monotonic() - t0 >= limit:
-                break
-        code = proc.poll()
+        def waiter() -> None:
+            proc.wait()
+            exited.set()
+            wake.set()
+
+        rt = threading.Thread(target=reader, daemon=True)
+        rt.start()
+        threading.Thread(target=waiter, daemon=True).start()
+        wake.wait(max(0.0, limit - (time.monotonic() - t0)))
+        if exited.is_set():
+            rt.join(1.0)                  # 終わった Chrome の残りの出力だけ読む（握ったままの子は待たない）
+        elif eof.is_set() and "</html>" not in "".join(buf):
+            exited.wait(max(0.0, limit - (time.monotonic() - t0)))    # 出力を閉じた Chrome の終わりを待つ
+        code = proc.returncode if exited.is_set() else None
         try:
             os.killpg(proc.pid, signal.SIGKILL)
         except OSError:
@@ -156,7 +166,7 @@ def dump_dom(cmd: list[str]) -> tuple[str | None, str]:
         lines = [ln.strip() for ln in err.read().splitlines() if ln.strip()]
         loud = [ln for ln in lines if "FATAL" in ln]   # 落ちた訳の行を先に
         tail = " / ".join(loud[:4] or lines[-4:])[:600]
-    why = (f"Chrome が DOM を返さずに終わった（exit {code}・{took:.1f} 秒）" if ended or code is not None
+    why = (f"Chrome が DOM を返さずに終わった（exit {code}・{took:.1f} 秒）" if code is not None
            else f"Chrome が {limit:.0f} 秒で DOM を返さない（{took:.1f} 秒待った）")
     return None, f"{why}＝検査できない（{cmd[0]}）" + (f" stderr: {tail}" if tail else "")
 

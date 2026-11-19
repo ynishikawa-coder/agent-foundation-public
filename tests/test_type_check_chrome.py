@@ -5,6 +5,8 @@ Chrome は使わず dump_dom を作り物にする。"""
 import importlib.util
 from pathlib import Path
 
+import pytest
+
 
 PS_PATH = Path(__file__).resolve().parent.parent / "plugins" / "docs-kit" / "scripts" / "page_selftest.py"
 
@@ -105,3 +107,19 @@ def test_型の検査は呼ぶ側の締めの前に訳と時間を出して終�
     t0 = time.monotonic()
     dom, why = m.dump_dom([str(sh)])
     assert dom is None and time.monotonic() - t0 < 8 and "秒で DOM を返さない" in why and "待った" in why
+
+
+@pytest.mark.parametrize("gap", ["0.4", "0"], ids=["出力を閉じてから終わる", "出力を閉じるのと同時に終わる"])
+def test_型の検査は出力の終わりと_Chrome_の終わりが揃ってから落ちた訳を決める(monkeypatch, tmp_path, gap):
+    """注入: Chrome が stdout を閉じてから（か、閉じるのと同時に）落ちる形。前は EOF が先に来ると、その一瞬の poll() に
+    終わりが見えず exit の番号が消え、落ちた Chrome を「時間切れ」と取り違えた（負荷の下で 200 回に 4 回）。
+    今は出力の終わりと Chrome の終わりの両方が揃ってから決めるので、何度回しても同じ訳。"""
+    m = _load(PS_PATH, "page_selftest")
+    monkeypatch.setattr(m, "TIMEOUT_SEC", 20)
+    sh = tmp_path / "fake-chrome.sh"
+    sh.write_text("#!/bin/sh\nexec >&-\necho '[1:1:FATAL:作り物.cc:1] 作り物の落ち方' >&2\nsleep %s\nexit 3\n" % gap,
+                  encoding="utf-8")
+    sh.chmod(0o755)
+    for _ in range(20):
+        dom, why = m.dump_dom([str(sh)])
+        assert dom is None and "exit 3" in why and "作り物の落ち方" in why, why
