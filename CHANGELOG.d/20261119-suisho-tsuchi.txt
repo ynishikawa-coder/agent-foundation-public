@@ -1,0 +1,1 @@
+- 足した: guard の `ask_shape` に知らせ（PostToolUse・止めない）を足した。推奨の印が付いた選択肢の画面の問いの文が、済んだかの確認か意図・考えを聞く形に見えたら、画面の後に AI へ知らせる（印は作り方の分かれ道の問いだけ）。形は値の表 `guard.ask_rec_notice_kinds` で替え、`guard.ask_rec_notice_exempt` で外す。
