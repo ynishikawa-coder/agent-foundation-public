@@ -7,7 +7,7 @@
   THRESHOLD 以上の組を写しとみなす。そのままの写しは 1.0、語順や語尾を変えた言い換えは 0.6〜0.8 ほど、
   関係の無い文は 0.1 ほど。MIN_CHARS より短い文は照らさない（短い決まり文句の取り違えを避ける）。
 土台の文: 同じ plugin の 核.md・振る舞い.md・細目.md と、並ぶ plugin の skills/*/SKILL.md
-  （repo の形 plugins/<名>/ と、入れた写しの形 cache/<市場>/<名>/<版>/ のどちらでも探す）。--foundation で dir を渡せば
+  （repo の形 plugins/<名>/ は並ぶ plugin、入れた写しの形 cache/<市場>/<名>/<版>/ は入った版の dir だけ＝plugin_dirs）。--foundation で dir を渡せば
   その下の .md を全部使う。土台の文が 1 つも読めない時は照らさずに止める（黙って緑にしない）。
 
   python3 copies.py <照らす file>... [--foundation DIR] [--threshold 0.5]
@@ -47,11 +47,26 @@ def grams(s: str) -> Counter:
     return Counter(s[i:i + 2] for i in range(len(s) - 1))
 
 
+def plugin_dirs() -> list[Path]:
+    """土台の文を読む plugin の dir（入った版だけ）。
+    repo の形（plugins/<名>/）: 並ぶ plugin の dir。入れた形（cache/<市場>/<名>/<版>/）: 入った台帳の、土台の目録の
+    plugin ごとに今読まれる行（kaku.current_row）の installPath だけ。cache に残る前の版の dir は読まない
+    （もう土台に無い言い回しの写しまで赤にしない）。台帳が読めなければ core と同じ版の dir だけ。"""
+    if (PLUGIN.parent.parent / ".claude-plugin").is_dir():
+        return sorted(d for d in PLUGIN.parent.iterdir() if d.is_dir())
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    import kaku
+    dirs = [Path(str(r["installPath"])) for r in (kaku.current_row(rows) for rows in kaku.user_rows().values()) if r]
+    if dirs:
+        return sorted(set(dirs) | {PLUGIN})
+    return sorted(d / PLUGIN.name for d in PLUGIN.parent.parent.iterdir() if (d / PLUGIN.name).is_dir())
+
+
 def foundation_files(base: Path | None) -> list[Path]:
     if base is not None:
         return sorted(p for p in base.rglob("*.md") if p.is_file())
     own = [PLUGIN / n for n in ("核.md", "振る舞い.md", "細目.md")]
-    skills = set(PLUGIN.parent.glob("*/skills/*/SKILL.md")) | set(PLUGIN.parent.parent.glob("*/*/skills/*/SKILL.md"))
+    skills = {p for d in plugin_dirs() for p in d.glob("skills/*/SKILL.md")}
     return [p for p in own if p.is_file()] + sorted(skills)
 
 

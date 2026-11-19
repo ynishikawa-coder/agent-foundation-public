@@ -197,6 +197,16 @@ def test_CLAUDE_md_が上限を越えた_repo_は起動の時に名指しする(
     assert "量の上限を越えている" not in _ctx(run("inject", project=tmp_path))
 
 
+def catalog_commit(loc):
+    """作り物の目録の clone を git にして今の中身を 1 commit にし、その commit（入った版）を返す。"""
+    g = lambda *a: subprocess.run(["git", "-C", str(loc), "-c", "user.name=t", "-c", "user.email=t@example.invalid", *a],
+                                  check=True, capture_output=True, text=True).stdout.strip()
+    g("init", "-q")
+    g("add", "-A")
+    g("commit", "-qm", "名簿")
+    return g("rev-parse", "HEAD")
+
+
 def _installed_home(tmp_path, names, have, entry):
     """GitHub から目録を足した窓の home（目録の clone・入った plugin の台帳・入口の印）を作る。"""
     home = tmp_path / "home"
@@ -206,7 +216,7 @@ def _installed_home(tmp_path, names, have, entry):
         {"name": "agent-foundation", "plugins": [{"name": n} for n in names]}), encoding="utf-8")
     (home / ".claude" / "plugins" / "known_marketplaces.json").write_text(json.dumps({"agent-foundation": {
         "source": {"source": "github", "repo": kaku.UPSTREAM}, "installLocation": str(loc)}}), encoding="utf-8")
-    sha = "a" * 40
+    sha = catalog_commit(loc)  # 名簿は入った版（commit）の物を読む＝目録の clone は git
     (home / ".claude" / "plugins" / "installed_plugins.json").write_text(json.dumps(
         {"version": 2, "plugins": {f"{n}@agent-foundation": [{"scope": "user", "installPath": str(PLUGIN), "gitCommitSha": sha,
                                                               "lastUpdated": "2026-11-19T11:57:05.000Z"}] for n in have}}),

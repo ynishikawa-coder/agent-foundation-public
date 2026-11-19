@@ -34,6 +34,9 @@ ROOT = Path(__file__).resolve().parent.parent
 MANIFEST = ROOT / ".claude-plugin" / "marketplace.json"
 MARK = "<!-- af-plugin-missing -->"
 REEXEC = "AF_SETUP_REEXEC"  # 取り直した新しい入口へ移った印（2 度は移らない）
+FROM_CLONE = "AF_SETUP_FROM_CLONE"  # 目録の clone の入口へ移った印（2 度は移らない）
+sys.path.insert(0, str(ROOT / "plugins" / "core" / "scripts"))
+import kaku  # noqa: E402  目録の枝・出所の先端の聞き方の正本（起動の hook と同じ物を読む・写さない）
 STATE = "setup.json"  # plugin core の kaku.py が読む印の file 名（~/.claude/af-foundation/ の下）
 ROOT_CAUSE = "直し: 入らない plugin を 1 つずつ入れ直すだけで済ませず、入らない形になった原因を細目 §3「まず構造を疑う」で探して直す"
 
@@ -73,8 +76,26 @@ def listed() -> dict[str, str | None]:
     return {x.get("id"): x.get("installPath") for x in rows if isinstance(x, dict) and x.get("scope") == "user" and x.get("enabled")}
 
 
-def catalog_head() -> str | None:
-    """目録の clone の HEAD（名簿の版）。分からなければ None（揃ったと見なさない）。"""
+def catalog_entry(market: str) -> dict:
+    """目録の登録（known_marketplaces.json の行）。無ければ {}。"""
+    try:
+        rows = json.loads((home() / "plugins" / "known_marketplaces.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    m = rows.get(market) if isinstance(rows, dict) else None
+    return m if isinstance(m, dict) else {}
+
+
+def root_is_clone(market: str) -> bool:
+    """この入口の在り処（ROOT）が目録の clone（installLocation）と同じ dir か。違えば名簿の版も出所も ROOT から読まない。"""
+    return _same_dir(catalog_entry(market).get("installLocation"), ROOT)
+
+
+def catalog_head(market: str | None = None) -> str | None:
+    """目録の clone の HEAD（名簿の版）。分からなければ None（揃ったと見なさない）。
+    入口が目録の clone の外（開発の checkout など）で回った時は None（作業の枝の HEAD を名簿の版と取らない）。"""
+    if market is not None and not root_is_clone(market):
+        return None
     try:
         r = subprocess.run(["git", "-C", str(ROOT), "rev-parse", "HEAD"], capture_output=True, text=True, timeout=60)
     except (OSError, subprocess.SubprocessError):
@@ -110,16 +131,14 @@ def installed_shas(market: str, where: dict[str, str | None]) -> dict[str, str |
     return out
 
 
-def main_tip() -> str | None:
-    """目録の出所（origin）の main の先端を、出所へ直に聞く（取り直した clone の HEAD でなく出所の今の main）。
-    読めなければ None（起動の hook は「分からない」と名指す）。"""
-    try:
-        r = subprocess.run(["git", "-C", str(ROOT), "ls-remote", "--quiet", "origin", "refs/heads/main"],
-                           capture_output=True, text=True, timeout=60)
-    except (OSError, subprocess.SubprocessError):
+def main_tip(market: str | None = None) -> str | None:
+    """目録が追う枝（source の ref＝`marketplace add <repo>#<枝>`。無ければ main）の先端を、目録の clone の出所へ直に聞く
+    （取り直した clone の HEAD でなく出所の今の先端）。正本は kaku.source_ref・source_tip（起動の hook と同じ比べ方）。
+    読めない・入口が目録の clone の外で回った時は None（起動の hook は「分からない」と名指す）。"""
+    if market is not None and not root_is_clone(market):
         return None
-    sha = r.stdout.split()[0] if r.returncode == 0 and r.stdout.split() else ""
-    return sha if len(sha) in (40, 64) else None
+    entry = catalog_entry(market) if market is not None else {}
+    return kaku.source_tip(str(ROOT), kaku.source_ref(entry))
 
 
 def notice(text: str | None) -> None:
@@ -166,14 +185,20 @@ def refresh(market: str) -> bool:
 def main() -> int:
     try:
         market, _ = catalog()
+        clone = Path(str(catalog_entry(market).get("installLocation") or ""))
+        if not root_is_clone(market) and os.environ.get(FROM_CLONE) != "1" and (clone / "scripts" / "setup_plugins.py").is_file():
+            # 入口が目録の clone の外で回った（開発の checkout から呼んだ等）: 名簿も版も clone の物なので clone の入口へ移る
+            sys.stdout.flush()
+            os.execve(sys.executable, [sys.executable, str(clone / "scripts" / "setup_plugins.py")],
+                      dict(os.environ, **{FROM_CLONE: "1"}))
         fresh = refresh(market)
         # setup の時の main の先端は、入れる物を決める取り直しの直後に読む（入れ終わった後に読むと、その間の
         # push で記録が入れた物より新しくなり、正しい setup を「古い物を入れた」と取り違える）。取り直しと読む間に
         # push が入って食い違えば、1 度だけ取り直して揃える。
-        at_setup = main_tip()
-        if fresh and at_setup and at_setup != catalog_head():
+        at_setup = main_tip(market)
+        if fresh and at_setup and at_setup != catalog_head(market):
             fresh = refresh(market)
-            at_setup = main_tip()
+            at_setup = main_tip(market)
         market, names = catalog()  # 取り直した名簿を読み直す
     except ValueError as e:
         notice(f"土台の plugin を入れられなかった: {e}。核と守りの hook がこの窓で効いていない。最初にオーナーへ知らせる。")
@@ -184,7 +209,7 @@ def main() -> int:
         claude("plugin", "update", f"{n}@{market}")  # 前の setup で入った古い物を名簿の版へ追いつかせる
     where = listed()
     lack = [n for n in names if f"{n}@{market}" not in where]
-    tip, shas = catalog_head(), installed_shas(market, where)
+    tip, shas = catalog_head(market), installed_shas(market, where)
     stale = [n for n in names if n not in lack and (not tip or shas.get(n) != tip)]
     unknown = [n for n in stale if shas.get(n) is None]
     bad = []

@@ -17,7 +17,14 @@ failed=()
 unchecked=()
 green=0
 ran=0
-at="@$(git rev-parse --short=12 HEAD 2>/dev/null || echo 不明)"
+# 回した先端は PR の先端（CI の PR では event の head.sha＝scripts/pr_shape.py の pr_head）。CI の PR の HEAD は main と
+# 合わせた merge の commit なので、その時はそれも添える（PR の先端と照らす人に食い違って見せない）。
+here=$(git rev-parse --short=12 HEAD 2>/dev/null || echo 不明)
+if [ "${GITHUB_EVENT_NAME:-}" = "pull_request" ] && head=$(python3 scripts/pr_shape.py --print-head 2>/dev/null); then
+  at="@${head:0:12}（PR の先端・回したのは main と合わせた ${here}）"
+else
+  at="@${here}"
+fi
 [ -n "$(git status --porcelain 2>/dev/null)" ] && at="${at}+未 commit"
 log=$(mktemp)
 trap 'rm -f "$log"' EXIT

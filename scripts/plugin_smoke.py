@@ -149,14 +149,16 @@ def _first_diff(want: str, got: str) -> str:
 
 
 def installed_rows(table: dict) -> dict[str, dict]:
-    """入った台帳 installed_plugins.json の、土台の目録（MARKET）から入った plugin だけ {名: 行}。
-    名だけで束ねると、同じ名の plugin を別の目録から入れた行と取り違える。"""
-    rows = {}
-    for key, v in (table.get("plugins") or {}).items():
-        name, at, market = str(key).rpartition("@")
-        if at and market == MARKET and v:
-            rows[name] = v[0]
-    return rows
+    """入った台帳 installed_plugins.json の、土台の目録（MARKET）から入った plugin だけ {名: 今読まれる行}。
+    名だけで束ねると、同じ名の plugin を別の目録から入れた行と取り違える。行の選び方（user scope と書かれた行のうち
+    dir が在る最後に入れた行）は起動の hook と同じ正本 kaku.user_rows・current_row を読む（最初の行を取らない）。"""
+    k = _kaku(ROOT)
+    out = {}
+    for name, rows in k.user_rows(table, MARKET).items():
+        row = k.current_row(rows)
+        if row is not None:
+            out[name] = row
+    return out
 
 
 DOC = "docs/核の届け方.md"

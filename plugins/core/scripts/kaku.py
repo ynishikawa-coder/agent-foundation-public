@@ -280,6 +280,25 @@ def claude_md_text(project: Path) -> str | None:
 LOCAL_SOURCES = ("directory", "file")  # 手元の dir・file から入れた試し・CI（使う側の setup script を持たず main と比べない）
 
 
+def source_ref(m: dict) -> str:
+    """目録が追う出所の枝（known_marketplaces の source の ref＝`marketplace add <repo>#<枝>`。無ければ main）。
+    枝で入れた窓（plugin-smoke の試し）は、その枝の先端と比べる（いつも main と比べて「setup が古い物を入れた」と取り違えない）。"""
+    src = m.get("source") if isinstance(m.get("source"), dict) else {}
+    ref = str(src.get("ref") or "").strip()
+    return ref or "main"
+
+
+def source_tip(loc: str, ref: str) -> str | None:
+    """出所（origin）の枝 ref の今の先端を出所へ直に聞く（共用の FETCH_HEAD や手元の ref を読まない）。
+    枝が無い（版の tag で止めた目録など）時は出所の main と比べる（止めた版を「古くない」と見ない）。聞けなければ None。"""
+    for name in dict.fromkeys((ref, "main")):
+        out = _git(loc, "ls-remote", "--quiet", "origin", f"refs/heads/{name}") or ""
+        sha = out.split()[0] if out.split() else ""
+        if re.fullmatch(r"[0-9a-f]{40}|[0-9a-f]{64}", sha):
+            return sha
+    return None
+
+
 def catalog_source() -> tuple[dict, str | None]:
     """目録 agent-foundation の登録（known_marketplaces.json の行）と、土台の出所でない時の名指し。
     ({}, None)＝目録が無い・手元から入れた（照らさない）/ (行, None)＝土台の repo の GitHub から入った /
@@ -305,15 +324,35 @@ def _when(text) -> float | None:
         return None
 
 
-def _foundation_rows() -> dict[str, dict]:
-    """{plugin の名: 入った台帳の user scope の行}（土台の目録の物だけ）。"""
-    table = (_read_json(_home() / "plugins" / "installed_plugins.json") or {}).get("plugins") or {}
+def user_rows(table: dict | None = None, market: str = MARKET) -> dict[str, list[dict]]:
+    """{plugin の名: 入った台帳の user scope の行の並び}（目録 market の物だけ）。scope の欄が user と書かれた行だけを
+    数える（欄の無い行を user と見ない）。台帳を読む所（新しさ・入れ方・写しの見張り・plugin-smoke）はこの 1 つを通す。"""
+    if table is None:
+        table = _read_json(_home() / "plugins" / "installed_plugins.json") or {}
+    plugins = table.get("plugins") if isinstance(table, dict) else None
     out = {}
-    for key, rows in table.items() if isinstance(table, dict) else []:
-        name, _, market = str(key).partition("@")
-        user = [r for r in rows if isinstance(r, dict) and r.get("scope", "user") == "user"] if isinstance(rows, list) else []
-        if market == MARKET and user:
-            out[name] = user[0]
+    for key, rows in plugins.items() if isinstance(plugins, dict) else []:
+        name, at, m = str(key).rpartition("@")
+        user = [r for r in rows if isinstance(r, dict) and r.get("scope") == "user"] if isinstance(rows, list) else []
+        if at and m == market and user:
+            out[name] = user
+    return out
+
+
+def current_row(rows: list[dict]) -> dict | None:
+    """user scope の行が複数の時に、今読まれる 1 つ: dir が在る行のうち最後に入れた（lastUpdated の新しい）行。
+    最初の行・dir の無い行（消えた前の版）を取らない。在る行が無ければ None（＝分からない）。"""
+    live = [r for r in rows if r.get("installPath") and Path(str(r["installPath"])).is_dir()]
+    return max(live, key=lambda r: _when(r.get("lastUpdated")) or 0.0, default=None)
+
+
+def _foundation_rows() -> dict[str, dict]:
+    """{plugin の名: 入った台帳の今読まれる user scope の行}（土台の目録の物だけ・current_row で 1 つに決めた物）。"""
+    out = {}
+    for name, rows in user_rows().items():
+        row = current_row(rows)
+        if row is not None:
+            out[name] = row
     return out
 
 
@@ -330,7 +369,8 @@ def setup_record() -> tuple[dict | None, str | None]:
         return None, (f"入口の記録の名簿の版 {str(state.get('catalog_sha'))[:12]} が入った土台 {str(have)[:12]} と違う"
                       "（前の setup の記録が残っている）")
     at = _when(state.get("at"))
-    later = [t for t in (_when(r.get("lastUpdated")) for r in _foundation_rows().values()) if t is not None]
+    # 入れ直した時は user scope の全部の行で見る（古い行の lastUpdated で、記録の後の入れ直しを見逃さない）
+    later = [t for rows in user_rows().values() for t in (_when(r.get("lastUpdated")) for r in rows) if t is not None]
     if at is None or (later and max(later) > at + 2):
         return None, "入口の記録の時が土台の plugin を入れ直した時より前（記録の後に入口を通らずに入れ直した）"
     return state, None
@@ -359,10 +399,14 @@ def setup_text() -> str | None:
         parts.append(f"- 環境の setup script が古い形（今の土台を入れた setup が土台の入口 scripts/setup_plugins.py を通っていない: {why}）。"
                      "土台が plugin を足しても入らず、入れ損ねの見張りにも入らない。土台の docs/核の届け方.md の形に貼り替える"
                      "（Javis の環境は get_environment → update_environment。直せない環境は親の窓・連絡板へ頼み、オーナーへ 1 行知らせる）。\n")
-    want = _read_json(Path(m["installLocation"]) / ".claude-plugin" / "marketplace.json") or {}
+    # 名簿は setup が入れた版（入った core の commit）の物を読む（目録の clone の今の作業の木は setup の後に進みうる）
+    want = catalog_at(m["installLocation"], installed_sha())
     have, on = set(_foundation_rows()), _enabled()
-    lack = [p.get("name") for p in want.get("plugins") or []
+    lack = [p.get("name") for p in (want or {}).get("plugins") or []
             if isinstance(p, dict) and (p.get("name") not in have or f"{p.get('name')}@{MARKET}" not in on)]
+    if want is None:
+        parts.append("- 入った版の土台の名簿（.claude-plugin/marketplace.json）が目録の clone から読めず、入っていない plugin を照らしていない。"
+                     "最初にオーナーへ知らせ、setup script を土台の docs/核の届け方.md の形に直す。\n")
     if lack:
         parts.append(f"- 土台の plugin が user scope で入って enabled になっていない: {' '.join(map(str, lack))}。その plugin の決まりと守りの hook がこの窓で効いていない。"
                      "最初にオーナーへ知らせ、setup script を土台の docs/核の届け方.md の形に直す。\n")
@@ -371,6 +415,18 @@ def setup_text() -> str | None:
         parts.append(f"- 土台の目録を先端へ取り直せず、または名簿の版に揃わずに入った（揃わない plugin: {' '.join(map(str, state.get('stale') or [])) or 'なし'}）。"
                      "古い決まりと守りの hook で動いている。最初にオーナーへ知らせ、setup script を土台の docs/核の届け方.md の形に直す。\n")
     return ("## 土台の入れ方が古い・欠けている\n" + "".join(parts)) if parts else None
+
+
+def catalog_at(loc: str, sha: str | None) -> dict | None:
+    """目録の clone の、commit sha の時の名簿（.claude-plugin/marketplace.json）。読めなければ None。"""
+    if not sha:
+        return None
+    text = _git(loc, "show", f"{sha}:.claude-plugin/marketplace.json")
+    try:
+        data = json.loads(text) if text else None
+    except ValueError:
+        return None
+    return data if isinstance(data, dict) else None
 
 
 def injected() -> tuple[Path, ...]:
@@ -433,30 +489,51 @@ def installed_sha() -> str | None:
     return None
 
 
+def _carrier_names(names: str) -> set[str]:
+    return {n.split("/")[1] if n.startswith("plugins/") and n.count("/") >= 2 else n.split("/")[0]
+            for n in names.splitlines() if n}
+
+
 def freshness() -> dict | None:
-    """{installed, main, plugins}（plugins が空でなければ古い）。比べられない時は None。
+    """{installed, main, ref, shas, plugins}（plugins が空でなければ古い）。比べられない時は None。
 
     GitHub から入れた時だけ見る（手元の dir から入れた試し・CI は main の先端と比べる物が無い）。
-    main の先端は、入れた時の marketplace の clone へ main だけを取って来て比べる（鍵は要らない・public）。"""
+    先端は、目録が追う枝（source_ref・ふつうは main）の今の先端を出所へ直に聞き（共用の FETCH_HEAD を読まない）、
+    その commit を入れた時の marketplace の clone へ取って来て比べる（鍵は要らない・public）。
+    古さは plugin ごとに、その plugin の入った版と先端を比べる（core の版 1 つで全部の plugin の古さを決めない
+    ＝core だけ先端に揃い guard の入れ直しが失敗した窓を「古くない」と見ない）。core の版からは
+    plugins/・.claude-plugin/ の全部を見る（足された・消えた plugin も拾う）。"""
     m, _ = catalog_source()  # 土台の repo の GitHub から入った時だけ（fork の main を正と見ない）
     loc = m.get("installLocation")
     if not loc:
         return None
     have = installed_sha()
-    if not have or _git(loc, "fetch", "--quiet", "--depth=1", "origin", "main") is None:
-        return None
-    tip = _git(loc, "rev-parse", "FETCH_HEAD")
+    ref = source_ref(m)
+    tip = source_tip(loc, ref) if have else None
     if not tip:
         return None
-    if tip == have:
-        return {"installed": have, "main": tip, "plugins": []}
-    names = _git(loc, "diff", "--name-only", have, tip, "--", *CARRIERS)
-    if names is None:      # 入った commit が clone に無い＝比べられないが先端とは違う。古いと見る（既定で知らせる側）
-        plugins = ["（どれか分からない）"]
-    else:
-        plugins = sorted({n.split("/")[1] if n.startswith("plugins/") and n.count("/") >= 2 else n.split("/")[0]
-                          for n in names.splitlines() if n})
-    return {"installed": have, "main": tip, "plugins": plugins}
+    if _git(loc, "cat-file", "-e", f"{tip}^{{commit}}") is None:
+        _git(loc, "fetch", "--quiet", "--depth=1", "origin", tip)
+        if _git(loc, "cat-file", "-e", f"{tip}^{{commit}}") is None:
+            return None
+    shas = {name: str(row.get("gitCommitSha") or "") or None for name, row in _foundation_rows().items()}
+    shas["core"] = have  # core は今動いている dir の行（installed_sha）の版
+    plugins: set[str] = set()
+    for name, sha in sorted(shas.items()):
+        if sha == tip:
+            continue
+        if not sha:
+            plugins.add(name)  # 版が分からない plugin は古い側に数える（既定で知らせる側）
+            continue
+        paths = CARRIERS if name == "core" else (f"plugins/{name}", ".claude-plugin")
+        names = _git(loc, "diff", "--name-only", sha, tip, "--", *paths)
+        if names is None:  # 入った commit が clone に無い＝比べられないが先端とは違う。古いと見る（既定で知らせる側）
+            plugins.add("（どれか分からない）" if name == "core" else name)
+        elif name == "core":
+            plugins |= _carrier_names(names)
+        elif names:
+            plugins.add(name)
+    return {"installed": have, "main": tip, "ref": ref, "shas": shas, "plugins": sorted(plugins)}
 
 
 def _state_path(session: str) -> Path:
@@ -482,7 +559,8 @@ def _hook_input() -> dict:
 
 
 def _short(f: dict) -> str:
-    return f"入った土台 {f['installed'][:12]}・main の先端 {f['main'][:12]}・変わった plugin: {'・'.join(f['plugins'])}"
+    ref = f.get("ref") or "main"
+    return f"入った土台 {f['installed'][:12]}・{ref} の先端 {f['main'][:12]}・変わった plugin: {'・'.join(f['plugins'])}"
 
 
 def start_cause(f: dict | None) -> str | None:
@@ -496,14 +574,16 @@ def start_cause(f: dict | None) -> str | None:
     rec = (setup_record()[0] or {}).get("main_at_setup")  # 今回の setup の記録だけを読む（前の記録の残りを読まない）
     if not isinstance(rec, str) or not re.fullmatch(r"[0-9a-f]{40}|[0-9a-f]{64}", rec):
         return "unknown"
-    return "after" if rec == f["installed"] else "setup"
+    # 全部の plugin が setup の時の先端で入っていれば、その後に先端が進んだだけ（1 つでも違えば setup が古い物を入れた）
+    shas = f.get("shas") or {"core": f["installed"]}
+    return "after" if all(sha == rec for sha in shas.values()) else "setup"
 
 
 def stale_at_start_text(f: dict) -> str:
     rec = (setup_record()[0] or {}).get("main_at_setup") or ""
     return ("## 土台が古いまま立った窓 — setup script を直してから引き継いで閉じる\n"
             f"この窓は main の先端より古い土台で立った（{_short(f)}）。setup の時の main の先端は {rec[:12]} で、setup はそれと違う物を入れた。"
-            "setup script が版（tag）を指している・目録を取り直さない古い形（1 行目に marketplace update が無い）・入れ損ねている"
+            "setup script が版（tag）を指している・目録を取り直さない古い形（marketplace update の行が無い）・入れ損ねている"
             "ので、直さずに立て直しても同じ物が入る。この返事では頼みに手を付けず次をする（人の作業は新しい窓で止まらず続く・🙋 の窓も同じ）:\n"
             "1. 環境の setup script を土台の docs/核の届け方.md の形（main の先端を入れる）に直す: "
             "claude-code-remote の get_environment → update_environment（直せる環境の時）。\n"

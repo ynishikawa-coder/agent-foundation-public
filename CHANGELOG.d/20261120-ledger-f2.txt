@@ -1,0 +1,8 @@
+- 直した: 土台の新しさの判定を plugin ごとの入った版で見る（core の版 1 つで全部の plugin を決めない）。先端は目録が追う枝（`marketplace add <repo>#<枝>` の枝・無ければ main）を出所へ直に聞き、共用の FETCH_HEAD を読まない。起動の時の古さの訳も全部の plugin が setup の時の先端で入ったかで分ける。
+- 直した: 入った台帳（installed_plugins.json）は scope が user と書かれた行だけを、複数ある時は dir が在る最後に入れた行を読む（plugin core の `kaku.user_rows`・`current_row` の 1 か所。入れ方の見張り・写しの見張り・plugin-smoke が同じ物を読む）。入れ直しの時は全部の行の lastUpdated で見る。
+- 直した: 入っていない plugin を、目録の clone の今の作業の木でなく setup が入れた版の名簿で照らす。写しの見張り（`copies.py`）は cache に残る前の版の SKILL を正本と見ない。guard が読む土台の file（public-guard/guard.py など）は入った guard と同じ版の物だけ（clone が進んでいればその版の中身を歴史から取り出す）。
+- 直した: 入口 `scripts/setup_plugins.py` は目録の clone の外（開発の checkout）で回ると clone の入口へ移り、名簿の版と setup の時の先端を clone と目録の枝から読む。
+- 直した: CI の PR の先端は event の head.sha（`scripts/pr_shape.py --print-head`）。書いた窓の照らしは先端が分からなければ HEAD で代えず照らさない。check_all の結果の行は PR の先端を出し、main と合わせた merge の commit も添える。
+- 直した: 書いた窓の組（checker の `pr_writer.py`）は `--base` を省くと出所の今の main と比べる（review-pr の手順は手元の origin/main を渡さない）。qa-html の在り処は `claude plugin list --json` の今読まれる行の installPath。
+- 直した: 公開の検査の PR の範囲は event の時の base.sha でなく base の枝の今の先端から（聞けなければ base.sha から照らしてそう知らせる）。手元の範囲の元を取っても手元の origin/main を書き換えない（取って来る先は refs/af/fresh/）。出所に出られない時は手元の origin/main から広い側で照らしてそう名指す（止めない）。
+- 直した: PR の重なりの知らせは各 PR の行番号を base の枝の今の先端の物差しへ写してから比べ、同じ base の枝の PR だけを見る。main を取り込む手順は取り直してすぐ取り込む（`git fetch origin main && git merge origin/main`・断片へ移す時は `git checkout MERGE_HEAD -- CHANGELOG.md`）。

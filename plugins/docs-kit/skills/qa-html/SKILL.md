@@ -283,7 +283,7 @@ repo の根（`git rev-parse --show-toplevel`）の `config/skill-values.json` �
   - 検査 … `node <この dir>/check.mjs <file>`（`customer.check_cmd` もこれを呼んで足す・import してもよい）。repo に `check.mjs` の写しを置かない
   - 答えの形 … `node <この dir>/check.mjs --answer <file|->`
 - **この dir の見つけ方**（別の版の dir を拾わない＝型と検査の版を食い違わせない）:
-  - 窓の中: Claude Code の台帳 `~/.claude/plugins/installed_plugins.json` の `docs-kit@<市場>` の `installPath`（今入っている 1 つ）。plugin の cache の中の「新しい物」を探して拾わない。見つからなければ止まって、docs-kit を入れるよう名指しする
+  - 窓の中: `claude plugin list --json` の `docs-kit@<市場>` で scope が user・enabled の行の `installPath`（Claude Code が今読む 1 つ）。台帳 installed_plugins.json を直に読まない（行が複数ある時に、どの行かが決まらない）。plugin の cache の中の「新しい物」を探して拾わない。見つからなければ止まって、docs-kit を入れるよう名指しする
   - 同じ土台の plugin の中（guard の `qa_page`）: guard と同じ commit の docs-kit だけ（repo の形なら隣、入れた形なら同じ版の dir）
   - CI: 土台の公開の repo の main の先端を取り（`git clone --depth 1 https://github.com/ynishikawa-coder/agent-foundation-public`）、その `plugins/docs-kit/skills/qa-html`。版の印で止めない
 - 写しを消せない所（業務の都合で置いた物）は、その repo の試験がこの dir の物と突き合わせ、食い違えば赤にする。

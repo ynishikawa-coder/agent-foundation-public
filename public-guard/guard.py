@@ -20,10 +20,11 @@
         python3 guard.py --text <場所の名>=<file> [--text …] [--deny-words-file F]
   --text は、GitHub へ出す前の文（PR の題・本文・コメント）だけを同じ表で照らす（中身・歴史は見ない）。
   守りの hook（plugin guard の pr_text）が出す前に呼ぶ。手元で顧客の語が無い時は顧客の語だけ飛ばす（CI でも止めない）。
-  --range の既定: CI では event（PR は base..head・push は before..after）、手元では <出所の今の main>..HEAD。
-  出所の今の main は scripts/pr_shape.py の fresh_main（出所へ先端を聞き、手元の origin/main が違えば取り直す）。
-  fetch していない手元の origin/main は古いことがあり、main で入った commit を枝の物として照らすので比べる元にしない。
-  聞けない・揃わない時は照らさずに止める（exit 2）。
+  --range の既定: CI では event（PR は <base の枝の今の先端>..head・push は before..after）、手元では <出所の今の main>..HEAD。
+  出所の今の枝の先端は scripts/pr_shape.py の fresh_main（出所へ先端を聞き、手元に無ければ取って来る・手元の origin/main は
+  動かさない）。PR の event の base.sha は event の時の先端で、枝が後の main を取り込むと main の commit まで照らすので元にしない。
+  出所に出られない時は、PR は event の base.sha・手元は手元の origin/main から照らしてそう名指す（古い元は範囲を広くする
+  だけ＝見落としは出ない）。手元の origin/main も無ければ照らさずに止める（exit 2）。
   ALL は全ての commit（公開の前に歴史ごと照らす時）。
 exit: 0=当たり 0 / 1=当たりあり・CI に顧客の語が無い / 2=使い方・束の形が違う・比べる元の main が取れない
 """
@@ -261,12 +262,39 @@ class Guard:
             return [rev_range]
         pr = event.get("pull_request") or {}
         if pr:
-            return [f"{pr['base']['sha']}..{pr['head']['sha']}"]
+            return [f"{self.base_tip(pr)}..{pr['head']['sha']}"]
         if event.get("after"):
             before, after = event.get("before") or "", event["after"]
             # 新しい枝（before が 0 の並び）は先端の 1 つだけを見る
             return ["-1", after] if (not before or set(before) == {"0"}) else [f"{before}..{after}"]
-        return [f"{fresh_main(self.repo)}..HEAD"]
+        return [f"{self.local_base()}..HEAD"]
+
+    def base_tip(self, pr: dict) -> str:
+        """PR の範囲の元＝base の枝の今の先端（出所へ聞く）。event の base.sha は event の時の先端で、枝が後の main を
+        取り込むと main の commit まで PR の物として照らす。聞けなければ base.sha（範囲は広い側＝見落としは出ない）と名指す。"""
+        base = pr.get("base") or {}
+        try:
+            return fresh_main(self.repo, str(base.get("ref") or "main"))
+        except NoBase as e:
+            print(f"public-guard: 知らせ — base の枝の今の先端を聞けず、event の base.sha {str(base.get('sha'))[:12]} から照らす"
+                  f"（範囲は広い側＝見落としは出ない）: {e}", file=sys.stderr)
+            return str(base["sha"])
+
+    def local_base(self) -> str:
+        """手元の範囲の元＝出所の今の main（fresh_main・手元の origin/main は動かさない）。出所に出られなければ手元の
+        origin/main から照らし、そう名指す（古い元は範囲を広くするだけ＝見落としは出ない。main で入った物で赤になりうる）。
+        手元の origin/main も無ければ照らせない（NoBase）。"""
+        try:
+            return fresh_main(self.repo)
+        except NoBase as e:
+            r = subprocess.run(["git", "rev-parse", "--verify", "-q", "refs/remotes/origin/main^{commit}"], cwd=self.repo,
+                               capture_output=True, text=True)
+            local = r.stdout.strip() if r.returncode == 0 else ""
+            if not local:
+                raise
+            print(f"public-guard: 知らせ — 出所に出られず、手元の origin/main {local[:12]} から照らした（範囲は広い側＝見落としは出ない。"
+                  f"main で入った物で赤になりうる）: {e}")
+            return local
 
     def check_history(self, revs: list[str]) -> list[str]:
         """各 commit で足された行（ファイルの名と行）。merge の commit も各親との差で見る（-m）。
@@ -315,11 +343,11 @@ class Guard:
 
 
 class NoBase(Exception):
-    """手元の既定の範囲の元（出所の今の main）が取れない。古いかもしれない手元の origin/main で黙って比べない。"""
+    """範囲の元（出所の今の枝の先端）が取れない。呼ぶ側は広い側の元へ名指して倒すか、それも無ければ照らさずに止める。"""
 
 
-def fresh_main(repo: Path) -> str:
-    """出所の今の main の commit。正本は scripts/pr_shape.py の fresh_main（同じ checkout の物を直に読む・写さない）。"""
+def fresh_main(repo: Path, ref: str = "main") -> str:
+    """出所の今の枝 ref（既定 main）の commit。正本は scripts/pr_shape.py の fresh_main（同じ checkout の物を直に読む・写さない）。"""
     src = Path(__file__).resolve().parent.parent / "scripts" / "pr_shape.py"
     if not src.is_file():
         raise NoBase(f"比べる元を決める道具 {src} が無い（土台の checkout 一式から回す）")
@@ -328,7 +356,7 @@ def fresh_main(repo: Path) -> str:
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     try:
-        return mod.fresh_main(repo)
+        return mod.fresh_main(repo, ref)
     except OSError as e:
         raise NoBase(str(e)) from None
 
