@@ -63,7 +63,7 @@ def measure(tpath):
 
 
 def unattended(tpath, vals):
-    return G.unattended_by_env(vals) or G.is_child_prompt(G.first_owner_text(tpath))
+    return G.unattended_by_env(vals) or G.is_child_log(tpath)
 
 
 def _mark(session_id):

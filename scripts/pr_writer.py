@@ -10,6 +10,9 @@
 
 先端の窓: 先端から first-parent で遡り（main を取り込む merge 等、`Claude-Session:` の無い commit は飛ばす）、
 比べる元との分かれ目より後で最初に `Claude-Session:` を持つ commit の窓。
+書いた窓の組: PR の commit（比べる元に無い commit 全部。merge の向こうの commit も含む）の `Claude-Session:` の窓の全部。
+途中の commit を別の窓が書いても書いた側に入る（先端の 1 窓だけを書いた窓と見ない）。`--writers` で組を `,` で並べて出す
+（判定の形の道具 verdict_form.py の `--writer` に渡す材料）。
 照らすのは AI の窓の枝（claude/ で始まる枝）だけ。人の枝・main への push・本文が無い（手元）時は照らさず、
 照らしていない事をそのまま出す（緑と言わない）。
 exit: 0=緑（または照らしていない）/ 1=赤 / 2=照らせない。
@@ -45,6 +48,16 @@ def tip_session(root: Path, head: str, base: str) -> tuple[str, str]:
     return "", ""
 
 
+def writer_sessions(root: Path, head: str, base: str) -> list[str]:
+    """PR の commit（base に無い commit 全部）の `Claude-Session:` の窓の組（出た順・重ねない）。"""
+    out: list[str] = []
+    for sha in git(root, "rev-list", head, "--not", base).split():
+        for sid in SESSION.findall(git(root, "log", "-1", "--format=%B", sha)):
+            if sid not in out:
+                out.append(sid)
+    return out
+
+
 def check(root: Path, head: str, base: str, body: str) -> list[str]:
     tip, sha = tip_session(root, head, base)
     if not tip:
@@ -62,12 +75,24 @@ def check(root: Path, head: str, base: str, body: str) -> list[str]:
 
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    ap.add_argument("--branch", required=True)
+    ap.add_argument("--writers", action="store_true", help="書いた窓の組を `,` で並べて出すだけ（照らさない）")
+    ap.add_argument("--branch", default="")
     ap.add_argument("--head", required=True)
     ap.add_argument("--base", required=True)
     ap.add_argument("--body-file", type=Path)
     ap.add_argument("--repo", type=Path, default=ROOT)
     a = ap.parse_args(argv)
+    if a.writers:
+        try:
+            ws = writer_sessions(a.repo, a.head, a.base)
+        except OSError as e:
+            print(f"pr_writer: 照らせない — {e}")
+            return 2
+        if not ws:
+            print("pr_writer: PR の commit に `Claude-Session:` の行が無く、書いた窓が決まらない", file=sys.stderr)
+            return 2
+        print(",".join(ws))
+        return 0
     if not a.branch.startswith("claude/"):
         print(f"pr_writer: 照らしていない（{a.branch or '枝の名なし'} は AI の窓の枝 claude/… でない）")
         return 0
