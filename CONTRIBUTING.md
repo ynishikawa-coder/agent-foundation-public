@@ -81,4 +81,4 @@
 
 ## 8. 版
 
-- 版の印は main に入るたびに Actions が自動で打つ（`docs/版の出し方.md`）。版を出す PR は無い。使う側に関係する変更は `CHANGELOG.md` の先頭の「合流ごと」に、PR ごとに 1 行足す。
+- 版の印は main に入るたびに Actions が自動で打つ（`docs/版の出し方.md`）。版を出す PR は無い。使う側に関係する変更は、PR ごとに自分の file を `CHANGELOG.d/<日付>-<話題>.txt` に 1 つ足す（`CHANGELOG.md` へは足さない・書き方は `CHANGELOG.d/README.md`）。
