@@ -1,0 +1,3 @@
+# 待つ物の表: 試験が tests/waits.py の wait_for で待ってよい path（repo の根から）。1 行 1 つ、空白の後は何を待つか。
+# ここに無い path を待つ飛ばしは check_all が赤にする（CI でも手元でも）。待つ物が入ったら行を消す（tests/test_waits.py が照らす）。
+docs/全体の絵.json  合意した全体の絵（scripts/call_flows.py が照らす）

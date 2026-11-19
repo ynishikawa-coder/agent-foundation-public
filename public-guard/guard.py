@@ -25,7 +25,8 @@
   fetch していない手元の origin/main は古いことがあり、main で入った commit を枝の物として照らすので比べる元にしない。
   聞けない・揃わない時は照らさずに止める（exit 2）。
   ALL は全ての commit（公開の前に歴史ごと照らす時）。
-exit: 0=当たり 0 / 1=当たりあり・CI に顧客の語が無い / 2=使い方・束の形が違う・比べる元の main が取れない
+exit: 0=当たり 0 / 1=当たりあり・CI に顧客の語が無い / 2=使い方・束の形が違う・比べる元の main が取れない /
+      3=照らしていない（手元で顧客の語が無く、その照合を飛ばした。ほかの当たりは 0。--text の口は 0 のまま）
 """
 from __future__ import annotations
 
@@ -457,6 +458,9 @@ def main(argv=None) -> int:
     if hits:
         print("✗ 公開の repo に置かない物:\n  " + "\n  ".join(hits))
         return 1
+    if customer_source_missing():   # 手元（CI では上で赤）。照合の一部を飛ばしたので緑と言わない
+        print("公開の検査: 照らしていない（顧客の語の照合を飛ばした。ほかの照らしは当たり 0）")
+        return 3
     print("✅ 公開の検査: 置かない物 0（中身・歴史・外側）")
     return 0
 

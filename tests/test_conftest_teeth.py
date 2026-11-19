@@ -11,6 +11,7 @@ import sys
 from pathlib import Path
 
 import pytest
+from entry_box import copy_entry
 
 ROOT = Path(__file__).resolve().parent.parent
 CHECK = "scripts/checks/conftest_teeth.sh"
@@ -30,7 +31,8 @@ BROKEN = {
 def tree(tmp_path, conftest_text):
     """照らす検査・試験の dir・CI の定義を写した小箱（conftest だけ差し替える）。"""
     shutil.copytree(ROOT / "tests", tmp_path / "tests", ignore=shutil.ignore_patterns("__pycache__"))
-    for rel in [CHECK, "scripts/pytest.sh", ".github/workflows/ci.yml"]:
+    copy_entry(tmp_path)
+    for rel in [CHECK, ".github/workflows/ci.yml"]:
         (tmp_path / rel).parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(ROOT / rel, tmp_path / rel)
     (tmp_path / "tests" / "conftest.py").write_text(conftest_text, encoding="utf-8")
@@ -41,7 +43,7 @@ def env_without_claude(tmp_path):
     nobin = tmp_path / "nobin"
     nobin.mkdir(exist_ok=True)
     os.symlink(sys.executable, nobin / "python3")
-    for tool in ("bash", "dirname", "env", "grep", "tail"):
+    for tool in ("bash", "dirname", "env", "grep", "tail", "mktemp", "rm", "sed"):
         if shutil.which(tool):
             os.symlink(shutil.which(tool), nobin / tool)
     env = dict(os.environ, PATH=str(nobin))
@@ -68,7 +70,7 @@ def test_注入_飛ばす条件を壊すと赤(tmp_path, name):
     root = tree(tmp_path / "box", broken)
     env = env_without_claude(tmp_path)
     # 穴の再現: conftest の下の pytest だけでは照らす試験ごと飛ばされ、緑（または全部飛ばし）になる
-    r = subprocess.run([sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider", "tests/test_real_claude_on_ci.py"],
+    r = subprocess.run(["bash", "scripts/pytest.sh", "-q", "-p", "no:cacheprovider", "tests/test_real_claude_on_ci.py"],
                        capture_output=True, text=True, env=env, cwd=root, timeout=300)
     hole = r.returncode == 0
     code, out = run_check(root, env)

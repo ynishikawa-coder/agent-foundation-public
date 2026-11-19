@@ -1,7 +1,7 @@
 """本物の claude の命令を要る試験の印と、無い所での扱いの 1 か所。
 
 本物の claude を要る試験は module に `pytestmark = pytest.mark.real_claude` を付けるだけにする（file ごとに飛ばす条件を書かない）。
-- CI の job `plugin-smoke` は `pytest -m real_claude tests/` でこの印の試験を全部拾って回す（file を手で並べない）。
+- CI の job `plugin-smoke` は `bash scripts/pytest.sh -m real_claude tests/` でこの印の試験を全部拾って回す（file を手で並べない）。
 - claude の命令が無い所（手元・job `check`）では印の試験だけを飛ばす。AF_REQUIRE_CLAUDE=1 の時は飛ばさず赤にする。
 - 印の無い試験が claude を要ると、claude の無い job `check` で赤になる（黙って飛ばされる道が無い）。
 """
