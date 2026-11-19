@@ -57,7 +57,16 @@ def test_壊れた見張りはこの試験が拒む(tmp_path):
 
 
 # ── page_check ──
-CHROME = any(Path(p).exists() for p in ("/opt/pw-browsers",)) or shutil.which("chromium") or shutil.which("google-chrome")
+def _find_chrome():
+    """型の検査と同じ探し方（検査の find_chrome を直に呼ぶ＝試験の側で Chrome の在り処を写さない）。"""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("_bp_chrome", SKILLS / "blueprint" / "scripts" / "check_blueprint.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod.find_chrome()
+
+
+CHROME = _find_chrome()
 needs_chrome = pytest.mark.skipif(not CHROME, reason="Chrome が無い（型の検査は headless の Chrome で動く）")
 
 
@@ -84,7 +93,8 @@ def page(tmp_path, kind, edit=None, name="p.html"):
 @needs_chrome
 @pytest.mark.parametrize("kind", ["blueprint", "theory-mock"])
 def test_page_check_型どおりのページは通す(env, tmp_path, kind):
-    assert not denied(env, publish(page(tmp_path, kind)))
+    out = hook(env, "pre", publish(page(tmp_path, kind)))
+    assert out.get("permissionDecision") != "deny", out.get("permissionDecisionReason")   # 止めた訳を出す
 
 
 @needs_chrome

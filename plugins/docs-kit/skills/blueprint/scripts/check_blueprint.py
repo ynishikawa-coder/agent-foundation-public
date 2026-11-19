@@ -76,27 +76,36 @@ class ChromeMissing(Exception):
     """Chrome が無い・起動できない・DOM を返さない＝検査できない（exit 2）。"""
 
 
-def dump_dom(cmd: list[str]) -> str | None:
+def dump_dom(cmd: list[str]) -> tuple[str | None, str]:
     """Chrome の --dump-dom を読む。DOM を吐いた後も Chrome が居座ることがある
-    ため、`</html>` まで読んだら Chrome を止める。時間切れは None。"""
-    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
-    buf: list[str] = []
-    done = threading.Event()
+    ため、`</html>` まで読んだら Chrome を止める。返すのは (DOM か None, DOM が無い訳)。
+    訳には Chrome の stderr の末尾を入れる（黙って捨てると、別の機械で回せない訳が誰にも見えない）。"""
+    with tempfile.TemporaryFile(mode="w+", encoding="utf-8", errors="replace") as err:
+        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=err, text=True)
+        buf: list[str] = []
+        done = threading.Event()
 
-    def reader() -> None:
-        assert proc.stdout is not None
-        for line in proc.stdout:
-            buf.append(line)
-            if "</html>" in line:
-                break
-        done.set()
+        def reader() -> None:
+            assert proc.stdout is not None
+            for line in proc.stdout:
+                buf.append(line)
+                if "</html>" in line:
+                    break
+            done.set()
 
-    threading.Thread(target=reader, daemon=True).start()
-    ok = done.wait(TIMEOUT_SEC)
-    proc.kill()
-    proc.wait()
-    out = "".join(buf)
-    return out if ok and "</html>" in out else None
+        threading.Thread(target=reader, daemon=True).start()
+        ok = done.wait(TIMEOUT_SEC)
+        code = proc.poll()
+        proc.kill()
+        proc.wait()
+        out = "".join(buf)
+        if ok and "</html>" in out:
+            return out, ""
+        err.seek(0)
+        tail = " / ".join(ln.strip() for ln in err.read().splitlines() if ln.strip())[-600:]
+    why = (f"Chrome が {TIMEOUT_SEC} 秒で DOM を返さない" if not ok
+           else f"Chrome が DOM を返さずに終わった（exit {code}）")
+    return None, f"{why}＝検査できない（{cmd[0]}）" + (f" stderr: {tail}" if tail else "")
 
 
 def open_dom(target: Path, query: str) -> str:
@@ -107,11 +116,11 @@ def open_dom(target: Path, query: str) -> str:
     with tempfile.TemporaryDirectory(prefix="blueprint-chrome-") as prof:
         cmd = chrome_cmd(chrome, prof, url)
         try:
-            dom = dump_dom(cmd)
+            dom, why = dump_dom(cmd)
         except OSError as e:
             raise ChromeMissing(f"Chrome を起動できない: {e}") from e
     if dom is None:
-        raise ChromeMissing(f"Chrome が {TIMEOUT_SEC} 秒で DOM を返さない＝検査できない")
+        raise ChromeMissing(why)
     return dom
 
 

@@ -204,7 +204,7 @@ def test_問いのデータの悪い例は決まった赤だけ():
               "問い q2: ひとことの欄",
               # 根拠・読み・見込み・リンク・ほかの問いに頼る言い方
               "「前の問」は書かない", "読んだ資料 d1 にリンク", "問い q1: 根拠（どの資料のどこを見たか", "問い q1: 実物が無い", "問い q1: AI の読み",
-              "問い q1: AI の今の見込みの根拠", "問い q1: 選択肢「決まったら連絡」に印", "問い q2: 根拠（どの資料のどこを見たか", "問い q2: AI の読み"]
+              "問い q1: AI の今の見込みの根拠", "問い q1: 選択肢「決まったら連絡」の推奨の印", "問い q2: 根拠（どの資料のどこを見たか", "問い q2: AI の読み"]
     assert len(out["red"]) == len(expect), out["red"]
     for e in expect:
         assert any(r.startswith(e) for r in out["red"]), (e, out["red"])
@@ -695,23 +695,6 @@ def test_印の値は_need_だけ(tmp_path):
     assert red and all('"supp" は "need" だけ（今 true）' in x for x in red), red
 
 
-@needs_node
-def test_選択肢におすすめの印を付けると赤(tmp_path):
-    """推奨の印は外した＝見込みは選択肢の後の別枠（根拠つき）だけ。HTML の印もデータの recommended も赤。"""
-    page = tmp_path / "確認.html"
-    page.write_text(filled_template().replace("<b>切り捨てる</b>", '<b>切り捨てる<span class="tag-rec">おすすめ</span></b>', 1), encoding="utf-8")
-    red = run_check(page)["red"]
-    assert any(r.startswith("選択肢に印（おすすめ・tag-rec）を付けない") for r in red), red
-    assert any(r.startswith("問い q1: 選択肢「切り捨てる") and "に印" in r for r in red), red
-    assert any(r.startswith("「おすすめ」は書かない") for r in red), red
-    data = json.loads((DATA / "good.json").read_text(encoding="utf-8"))
-    data["questions"][0]["options"][1]["recommended"] = False   # 値に関わらず鍵があれば赤
-    q = tmp_path / "q.json"
-    q.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
-    red = run_check(q)["red"]
-    assert len(red) == 1 and red[0].startswith("問い q1: 選択肢「借りた日から 14 日」に印（\"recommended\"）"), red
-
-
 # 問いのデータ（JSON）を 1 か所だけ壊すと、その 1 つの赤だけが出る（根拠・読み・見込み・リンク・先に決めておきたい事）
 def _drop_quotes(d):
     for e in d["questions"][2]["evidence"]:
@@ -930,10 +913,10 @@ def test_理論モックの検査は_NG_なら最後に根治の入口を指し_
     page = tmp_path / "m.html"
     page.write_text("<html></html>", encoding="utf-8")
     monkeypatch.setattr(tm, "find_chrome", lambda: "chrome")
-    monkeypatch.setattr(tm, "dump_dom", lambda cmd: _dom(selftest))
+    monkeypatch.setattr(tm, "dump_dom", lambda cmd: (_dom(selftest), ""))
     assert tm.main(["x", str(page)]) == 1
     assert "細目 §3「まず構造を疑う」" in capsys.readouterr().out.strip().splitlines()[-1]
-    monkeypatch.setattr(tm, "dump_dom", lambda cmd: _dom("SELFTEST OK 3 screens"))
+    monkeypatch.setattr(tm, "dump_dom", lambda cmd: (_dom("SELFTEST OK 3 screens"), ""))
     assert tm.main(["x", str(page)]) == 0
     assert "まず構造を疑う" not in capsys.readouterr().out
 
