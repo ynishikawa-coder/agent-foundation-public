@@ -31,7 +31,8 @@ POINT_ROW = re.compile(r"^\| (\d+) (\S[^|]*?) \|")
 POINT_LINE = re.compile(r"^- (\d+) ([^:：]+)[:：] ?(.*)$")
 VALUE = re.compile(r"^(pass|fail|N/A)(?:$|[ （(])")
 PICTURE = "全体の絵"
-PICTURE_PASS = re.compile(r"^pass（差なし・版 \d{4}-\d{2}-\d{2}\.\d+）$")
+_PV = r"(?:[^／）\s]+ )?\d{4}-\d{2}-\d{2}\.\d+"
+PICTURE_PASS = re.compile(r"^pass（差なし・版 " + _PV + r"(?:／" + _PV + r")*）$")
 OTHER_EYE = re.compile(r"^書いた窓 (session_[A-Za-z0-9]+) ≠ この窓$")
 
 

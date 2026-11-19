@@ -8,6 +8,7 @@
     python3 big_picture.py render  <絵.json> -o <出す.html>
     python3 big_picture.py compare <合意した絵.json> <実物の絵.json>
     python3 big_picture.py explain <絵.json> <起きた問題の id>
+    python3 big_picture.py pick    <repo の根> <PR が触った file>...
 
 check:   形の誤り（欄の欠け・知らない値・重なった id・行き先の無い矢印・無い箱を指す問題）は exit 1。
          合意の絵で意図が空の箱は「赤い点」として 1 行ずつ警告する（exit 0・止めない）。
@@ -15,6 +16,10 @@ render:  check を通った絵だけ HTML にする（誤りがあれば exit 1 
 compare: 合意した版（kind 合意・agreed あり）と、レビューの窓がコードから描いた実物（kind 実物・drawn_from あり）を
          4 欄で照らす。差なし exit 0／差あり exit 1／照らせない（形の誤り・合意の印が無い・取り違え）exit 2。
 explain: 起きた問題を、絵の箱の名を挙げたチャットの文にする。
+pick:    PR が触った file から、照らす合意した絵を選ぶ。値の表 docs-kit.big-picture.agreed は
+         文字列（repo 全体で 1 枚）か、[{name, path, covers: [path の頭…]}] の並び（1 repo に製品が複数）。
+         無ければ docs/全体の絵.json 1 枚。選んだ絵を 1 行ずつ「絵 <名> <在り処>」と出す（exit 0）。
+         どの絵も覆わない file が 1 つでもある・値の形が誤り・絵が無い 時は exit 2（照らせない＝黙って通さない）。
 
 標準ライブラリだけ。
 """
@@ -262,7 +267,83 @@ def render(pic):
     return tpl.replace(SLOT, data).replace("<title>全体の絵</title>", "<title>%s</title>" % title)
 
 
+VALUES = Path("config") / "skill-values.json"
+DEFAULT_AGREED = "docs/全体の絵.json"
+
+
+def _agreed_value(root):
+    vp = Path(root) / VALUES
+    if not vp.exists():
+        return None
+    vals = json.loads(vp.read_text(encoding="utf-8"))
+    return ((vals.get("docs-kit") or {}).get("big-picture") or {}).get("agreed")
+
+
+def pick(root, files):
+    """PR が触った file から照らす絵を選ぶ。返り値 (選んだ [(名, 在り処, [file])], 誤り [文])。"""
+    if not files:
+        return [], ["PR が触った file が渡されていない"]
+    value = _agreed_value(root)
+    errs = []
+    if value in (None, ""):
+        value = DEFAULT_AGREED
+    if isinstance(value, str):
+        if not value.strip():
+            return [], ["値の表の docs-kit.big-picture.agreed が空"]
+        local = Path(root) / value
+        if value.endswith(".json") and not local.exists():
+            return [], ["合意した絵が無い（%s）＝先に絵を描いてオーナーの OK を取る" % value]
+        return [("全体", value, list(files))], []
+    if not isinstance(value, list) or not value:
+        return [], ["値の表の docs-kit.big-picture.agreed は文字列か {name, path, covers} の並び"]
+    pics, names = [], set()
+    for i, ent in enumerate(value):
+        if not isinstance(ent, dict):
+            errs.append("agreed[%d] が {name, path, covers} でない" % i)
+            continue
+        name, path, covers = ent.get("name"), ent.get("path"), ent.get("covers")
+        if not isinstance(name, str) or not name.strip() or " " in name or "／" in name:
+            errs.append("agreed[%d] の name が無いか、空白・／を含む" % i)
+            continue
+        if name in names:
+            errs.append("agreed の name「%s」が重なる" % name)
+        names.add(name)
+        if not isinstance(path, str) or not path.strip():
+            errs.append("絵「%s」の path が無い" % name)
+        elif path.endswith(".json") and not (Path(root) / path).exists():
+            errs.append("絵「%s」の合意した絵が無い（%s）" % (name, path))
+        if not isinstance(covers, list) or not covers or not all(isinstance(c, str) and c for c in covers):
+            errs.append("絵「%s」の covers（覆う path の頭の並び・全体は \"/\"）が無い" % name)
+            continue
+        pics.append((name, path, covers))
+    if errs:
+        return [], errs
+
+    def hit(f, c):
+        return c == "/" or f == c.rstrip("/") or f.startswith(c.rstrip("/") + "/")
+
+    chosen = []
+    for name, path, covers in pics:
+        mine = [f for f in files if any(hit(f, c) for c in covers)]
+        if mine:
+            chosen.append((name, path, mine))
+    loose = [f for f in files if not any(hit(f, c) for _, _, cs in pics for c in cs)]
+    for f in loose:
+        errs.append("どの絵も覆わない file: %s（その製品の絵を描いて OK を取るか、covers に足す）" % f)
+    return ([] if errs else chosen), errs
+
+
 def main(argv):
+    if len(argv) >= 3 and argv[1] == "pick":
+        try:
+            chosen, errs = pick(argv[2], argv[3:])
+        except (ValueError, OSError, json.JSONDecodeError) as e:
+            chosen, errs = [], ["値の表が読めない: %s" % e]
+        for e in errs:
+            print("照らせない: " + e)
+        for name, path, mine in chosen:
+            print("絵 %s %s（触った file %d）" % (name, path, len(mine)))
+        return 2 if errs else 0
     if len(argv) < 3 or argv[1] not in ("check", "render", "compare", "explain"):
         sys.stderr.write(__doc__)
         return 2

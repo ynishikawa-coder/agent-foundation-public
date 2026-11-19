@@ -21,6 +21,7 @@ python3 <この skill>/scripts/big_picture.py check   <絵.json>                
 python3 <この skill>/scripts/big_picture.py render  <絵.json> -o <出す.html>  # check を通った絵だけ描く
 python3 <この skill>/scripts/big_picture.py compare <合意した絵.json> <実物の絵.json>  # 差なし 0／差あり 1／照らせない 2
 python3 <この skill>/scripts/big_picture.py explain <絵.json> <問題 id>        # 説明のチャットの文
+python3 <この skill>/scripts/big_picture.py pick    <repo の根> <触った file>...   # 照らす絵を選ぶ（覆わない file があれば exit 2）
 ```
 
 HTML の型は `references/template.html`（手で直さない・外の物を読まない・`file://` で動く）。URL の `?tab=flow&layer=explain&p=<問題 id>` で開く所を指せる。
@@ -54,7 +55,7 @@ HTML の型は `references/template.html`（手で直さない・外の物を読
 
 | 鍵 | 使う所 | 無い時の既定 |
 |---|---|---|
-| `docs-kit.big-picture.agreed` | 合意した絵の在り処（repo の中の path か、案件のページの名） | repo の根の `docs/全体の絵.json`。それも無ければ「絵が無い」＝照らせない（黙って通さない） |
+| `docs-kit.big-picture.agreed` | 合意した絵の在り処。repo 全体で 1 枚なら文字列（repo の中の path か、案件のページの名）。1 repo に製品が複数あるなら製品ごとの並び `[{"name": "<製品>", "path": "<在り処>", "covers": ["<その製品の path の頭>", …]}]`（全体を覆うのは `"/"`）。レビューの点 13 は `big_picture.py pick` で PR が触った file を覆う絵だけを選び、どの絵も覆わない file があれば照らせない | repo の根の `docs/全体の絵.json`。それも無ければ「絵が無い」＝照らせない（黙って通さない） |
 | `common.delivery` | HTML の渡し方 | Artifact で publish（非公開のまま）か `file:///…` の絶対パスを 1 行 |
 
 ## 渡す前に

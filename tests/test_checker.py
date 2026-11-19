@@ -196,3 +196,11 @@ def test_全体の絵に差があれば_red():
     red = text.replace("判定: green", "判定: red").replace("## verdict\ngreen", "## verdict\nred").replace(
         "- [後の便｜整地] 作り物の気づき", "- [止める｜設計] 全体の絵と差 2 件。main へ入れずに止め、差を見せてオーナーに決めてもらう")
     assert vf.check(red, writer="session_WRITER01") == []
+
+
+def test_全体の絵が複数なら全部の名と版を書いた_pass_だけ通る():
+    ok = "pass（差なし・版 うみ 2026-11-19.1／やま 2026-11-20.1）"
+    assert not [e for e in vf.check(GREEN.replace("pass（差なし・版 2026-11-19.1）", ok), writer="session_WRITER01") if "点 13" in e]
+    for bad in ["pass（差なし・版 うみ 2026-11-19.1／やま）", "pass（差なし・版 うみ／やま）", "pass（差なし・版 うみ 2026-11-19.1／）"]:
+        errs = vf.check(GREEN.replace("pass（差なし・版 2026-11-19.1）", bad), writer="session_WRITER01")
+        assert any("点 13" in e for e in errs), (bad, errs)

@@ -248,3 +248,64 @@ def test_main_へ入れる手を片方の_AI_に限らない():
         assert "Javis 側の親窓" not in text, f"{f} に畳んだ決まりの写しが残っている"
     github = next(b for b in agreed()["boxes"] if b["id"] == "github")
     assert github["intent"] and "どちらの AI" in github["what"]
+
+
+# --- 1 repo に製品が複数ある形（点 13 の pick） ---
+
+def _repo(tmp_path, agreed=None, pics=("docs/全体の絵.json",)):
+    for p in pics:
+        f = tmp_path / p
+        f.parent.mkdir(parents=True, exist_ok=True)
+        f.write_text(DODAI.read_text(encoding="utf-8"), encoding="utf-8")
+    if agreed is not None:
+        (tmp_path / "config").mkdir(exist_ok=True)
+        (tmp_path / "config" / "skill-values.json").write_text(
+            json.dumps({"docs-kit": {"big-picture": {"agreed": agreed}}}, ensure_ascii=False), encoding="utf-8")
+    return tmp_path
+
+
+MULTI = [
+    {"name": "うみ", "path": "docs/絵/うみ.json", "covers": ["apps/umi", "packages/umi-core"]},
+    {"name": "やま", "path": "docs/絵/やま.json", "covers": ["apps/yama"]},
+]
+
+
+def test_製品が複数の_repo_は触った製品の絵だけを選ぶ(tmp_path):
+    root = _repo(tmp_path, MULTI, pics=("docs/絵/うみ.json", "docs/絵/やま.json"))
+    chosen, errs = bp.pick(root, ["apps/umi/a.py", "packages/umi-core/b.py"])
+    assert not errs and [c[0] for c in chosen] == ["うみ"]
+    chosen, errs = bp.pick(root, ["apps/umi/a.py", "apps/yama/c.py"])
+    assert not errs and [c[0] for c in chosen] == ["うみ", "やま"]
+    r = run("pick", root, "apps/yama/c.py")
+    assert r.returncode == 0 and "絵 やま docs/絵/やま.json" in r.stdout and "うみ" not in r.stdout
+
+
+def test_どの絵も覆わない_file_があれば照らせない(tmp_path):
+    root = _repo(tmp_path, MULTI, pics=("docs/絵/うみ.json", "docs/絵/やま.json"))
+    r = run("pick", root, "apps/umi/a.py", "apps/other/x.py")
+    assert r.returncode == 2 and "apps/other/x.py" in r.stdout and "絵 うみ" not in r.stdout
+
+
+@pytest.mark.parametrize("bad", [
+    [{"name": "うみ", "path": "docs/絵/うみ.json"}],                                  # covers が無い
+    [{"name": "うみ", "path": "docs/絵/うみ.json", "covers": []}],                    # covers が空
+    [{"name": "うみ", "path": "docs/絵/うみ.json", "covers": ["/"]},
+     {"name": "うみ", "path": "docs/絵/うみ.json", "covers": ["/"]}],                 # name が重なる
+    [{"name": "", "path": "docs/絵/うみ.json", "covers": ["/"]}],                     # name が空
+    [{"name": "やま", "path": "docs/絵/無い.json", "covers": ["/"]}],                 # 絵が無い
+    {"name": "うみ"},                                                                  # 並びでない
+    [],                                                                                # 空の並び
+])
+def test_値の形の誤りは照らせない(tmp_path, bad):
+    root = _repo(tmp_path, bad, pics=("docs/絵/うみ.json",))
+    assert run("pick", root, "apps/umi/a.py").returncode == 2
+
+
+def test_値が無ければ土台の絵_1_枚_無ければ照らせない(tmp_path):
+    root = _repo(tmp_path)
+    r = run("pick", root, "any/file.py")
+    assert r.returncode == 0 and "絵 全体 docs/全体の絵.json" in r.stdout
+    empty = tmp_path / "empty"
+    empty.mkdir()
+    assert run("pick", empty, "any/file.py").returncode == 2
+    assert run("pick", root).returncode == 2, "触った file が渡されなければ照らせない"
