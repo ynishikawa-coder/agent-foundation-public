@@ -205,12 +205,18 @@ def _installed_home(tmp_path, names, have, entry):
     (loc / ".claude-plugin" / "marketplace.json").write_text(json.dumps(
         {"name": "agent-foundation", "plugins": [{"name": n} for n in names]}), encoding="utf-8")
     (home / ".claude" / "plugins" / "known_marketplaces.json").write_text(json.dumps({"agent-foundation": {
-        "source": {"source": "github", "repo": "o/r"}, "installLocation": str(loc)}}), encoding="utf-8")
+        "source": {"source": "github", "repo": kaku.UPSTREAM}, "installLocation": str(loc)}}), encoding="utf-8")
+    sha = "a" * 40
     (home / ".claude" / "plugins" / "installed_plugins.json").write_text(json.dumps(
-        {"version": 2, "plugins": {f"{n}@agent-foundation": [{}] for n in have}}), encoding="utf-8")
+        {"version": 2, "plugins": {f"{n}@agent-foundation": [{"scope": "user", "installPath": str(PLUGIN), "gitCommitSha": sha,
+                                                              "lastUpdated": "2026-11-19T11:57:05.000Z"}] for n in have}}),
+        encoding="utf-8")
+    (home / ".claude" / "settings.json").write_text(json.dumps(
+        {"enabledPlugins": {f"{n}@agent-foundation": True for n in have}}), encoding="utf-8")
     if entry:
         (home / ".claude" / "af-foundation").mkdir(parents=True)
-        (home / ".claude" / "af-foundation" / "setup.json").write_text("{}", encoding="utf-8")
+        (home / ".claude" / "af-foundation" / "setup.json").write_text(json.dumps(
+            {"catalog_sha": sha, "at": "2026-11-19T20:57:09+0900"}), encoding="utf-8")
     return home
 
 
@@ -218,7 +224,7 @@ def test_古い形の_setup_script_と入っていない_plugin_を名指しす�
     """注入: 土台が plugin を足したのに、名を写した古い setup script がそれを入れない → 窓の起動で名指し。"""
     home = _installed_home(tmp_path, ["core", "guard", "new-one"], ["core", "guard"], entry=False)
     ctx = _ctx(run("inject", project=tmp_path / "proj", home=home))
-    assert "setup script が古い形" in ctx and "入っていない: new-one" in ctx
+    assert "setup script が古い形" in ctx and "enabled になっていない: new-one" in ctx
 
 
 def test_入口で全部入った窓には入れ方の知らせを出さない(tmp_path):
@@ -391,13 +397,14 @@ class Foundation:
         _git(loc, "checkout", "-q", self.installed)
         plugins = self.home / ".claude" / "plugins"
         (plugins / "known_marketplaces.json").write_text(json.dumps({"agent-foundation": {
-            "source": {"source": source, "repo": "o/agent-foundation-public"}, "installLocation": str(loc)}}))
+            "source": {"source": source, "repo": kaku.UPSTREAM}, "installLocation": str(loc)}}))
         (plugins / "installed_plugins.json").write_text(json.dumps({"version": 2, "plugins": {"core@agent-foundation": [
             {"installPath": str(PLUGIN), "gitCommitSha": self.installed}]}}))
         if main_at_setup:
             (self.home / ".claude" / "af-foundation").mkdir(parents=True, exist_ok=True)
             (self.home / ".claude" / "af-foundation" / "setup.json").write_text(json.dumps(
-                {"entry": "scripts/setup_plugins.py", "main_at_setup": main_at_setup}))
+                {"entry": "scripts/setup_plugins.py", "main_at_setup": main_at_setup, "catalog_sha": self.installed,
+                 "at": "2026-11-19T20:57:09+0900"}))
 
     def hook(self, event, sid="s1", source="startup"):
         r = run(event, project=self.tmp, home=self.home, stdin=json.dumps({"session_id": sid, "source": source}),

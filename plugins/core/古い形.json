@@ -26,7 +26,7 @@
         ":(exclude)CHANGELOG.md",
         ":(exclude)**/CHANGELOG.md"
       ],
-      "pattern": "(?sm)plugins?\\s+(?:install|i)\\b(?:[^\\n]|\\\\\\n)*?@[^\\n]*agent-foundation|^[ \\t]*(?:export[ \\t]+)?\\w+=[\"']?agent-foundation[\"']?[ \\t]*$|\\A(?!.*setup_plugins\\.py).*?marketplace\\s+add\\b[^\\n]*agent-foundation",
+      "pattern": "(?sm)plugins?\\s+(?:install|i)\\b(?:[^\\n]|\\\\\\n)*?@agent-foundation(?![\\w.-])|^[ \\t]*(?:export[ \\t]+)?\\w+=[\"']?agent-foundation[\"']?[ \\t]*$|\\A(?!.*setup_plugins\\.py).*?marketplace\\s+add\\s+(?:--?[\\w-]+(?:[ =](?:user|project|local))?\\s+)*[\"']?(?:https://github\\.com/)?ynishikawa-coder/agent-foundation-public(?:\\.git)?(?:#[^\\s\"']*)?[\"']?(?=[\\s;|&)]|$)",
       "fix": "土台の docs/核の届け方.md の setup script の形（目録を足して scripts/setup_plugins.py を呼ぶ）に替える",
       "example": "claude plugin install core@agent-foundation --scope user || true"
     },
@@ -45,9 +45,9 @@
         ":(exclude)CHANGELOG.md",
         ":(exclude)**/CHANGELOG.md"
       ],
-      "pattern": "(?s)\\A(?=.*setup_plugins\\.py)(?=.*?marketplace\\s+add\\b[^\\n]*agent-foundation)(?!.*marketplace\\s+update\\b)",
+      "pattern": "(?s)\\A(?=.*setup_plugins\\.py)(?=.*?marketplace\\s+add\\s+(?:--?[\\w-]+(?:[ =](?:user|project|local))?\\s+)*[\"']?(?:https://github\\.com/)?ynishikawa-coder/agent-foundation-public(?:\\.git)?(?:#[^\\s\"']*)?[\"']?(?=[\\s;|&)]|$))(?!.*marketplace\\s+update\\s+(?:--?[\\w-]+(?:[ =](?:user|project|local))?\\s+)*[\"']?agent-foundation(?![\\w.-]))",
       "fix": "土台の docs/核の届け方.md の setup script の marketplace add の行（add の後に claude plugin marketplace update agent-foundation）に替える",
-      "example": "claude plugin marketplace add o/agent-foundation-public --scope user || true; python3 \"$af/scripts/setup_plugins.py\" || true"
+      "example": "claude plugin marketplace add ynishikawa-coder/agent-foundation-public --scope user || true; python3 \"$af/scripts/setup_plugins.py\" || true"
     },
     {
       "id": "no-stale-catalog-remove",
@@ -64,9 +64,38 @@
         ":(exclude)CHANGELOG.md",
         ":(exclude)**/CHANGELOG.md"
       ],
-      "pattern": "(?s)\\A(?=.*setup_plugins\\.py)(?=.*?marketplace\\s+add\\b[^\\n]*agent-foundation)(?!.*marketplace\\s+remove\\b)",
+      "pattern": "(?s)\\A(?=.*setup_plugins\\.py)(?=.*?marketplace\\s+add\\s+(?:--?[\\w-]+(?:[ =](?:user|project|local))?\\s+)*[\"']?(?:https://github\\.com/)?ynishikawa-coder/agent-foundation-public(?:\\.git)?(?:#[^\\s\"']*)?[\"']?(?=[\\s;|&)]|$))(?!.*marketplace\\s+remove\\s+(?:--?[\\w-]+(?:[ =](?:user|project|local))?\\s+)*[\"']?agent-foundation(?![\\w.-]))",
       "fix": "土台の docs/核の届け方.md の setup script の塊（前の目録を外す marketplace remove の行つき・1 行 200 バイト以下）をそのまま貼り替える",
-      "example": "claude plugin marketplace add o/agent-foundation-public --scope user || true; claude plugin marketplace update agent-foundation || true; python3 \"$af/scripts/setup_plugins.py\" || true"
+      "example": "claude plugin marketplace add ynishikawa-coder/agent-foundation-public --scope user || true; claude plugin marketplace update agent-foundation || true; python3 \"$af/scripts/setup_plugins.py\" || true"
+    },
+    {
+      "id": "stale-remove-substring",
+      "what": "setup script の前の目録を外す条件が、目録の出所を文字列の包含（a[2] not in json.dumps(s)）で見る形（fork や名を道に含む別の出所を今の目録と見なして外さず、その目録から入る）。#83 の塊をそのまま貼った写しに残る",
+      "files": [
+        "*.sh",
+        "*.md",
+        "*.yml",
+        "*.yaml",
+        "*.py",
+        ":(exclude)tests/**",
+        ":(exclude)**/tests/**",
+        ":(exclude)**/test_*.py",
+        ":(exclude)CHANGELOG.md",
+        ":(exclude)**/CHANGELOG.md"
+      ],
+      "pattern": "(?s)\\A(?=.*setup_plugins\\.py).*?\\bnot\\s+in\\s+json\\.dumps\\(\\s*s\\s*\\)",
+      "fix": "土台の docs/核の届け方.md の setup script の塊（出所を (s.get(\"repo\") or s.get(\"url\"))!=a[2] の一致で比べる形）をそのまま貼り替える。環境の setup script に貼った写しも同じ仕事で貼り替える",
+      "example": "af_old=\"$af_old\"';sys.exit(not(s.get(\"ref\") or a[2] not in json.dumps(s) or not os.path.isfile(m[\"installLocation\"]+\"/\"+a[3])))'  # scripts/setup_plugins.py"
+    },
+    {
+      "id": "repo-pattern-partial",
+      "what": "値の表 guard の repo の名の正規表現（pr_cleanup_exempt_repos・pr_words_exempt_repos・public_repos_extra）が、終わりの錨（$ や .*）を持たない前の形（守りの hook pr_text は 1 段目の間、名の一部で当たる前の形も受ける。o/b は o/bc にも当たる。2 段目で受けを畳むと名の全体だけで当て、^owner/ のような頭だけの行は何にも当たらなくなる）",
+      "files": [
+        "config/skill-values.json"
+      ],
+      "pattern": "(?s)\"(?:pr_cleanup_exempt_repos|pr_words_exempt_repos|public_repos_extra)\"\\s*:\\s*\\[(?:\\s*\"[^\"]*\"\\s*,)*\\s*\"(?![^\"]*(?:\\$|\\.\\*|\\.\\+)\")[^\"]+\\\"",
+      "fix": "名の全体に当たる形に書き直す（repo 1 つなら ^owner/repo$・owner ごとなら ^owner/.*$）",
+      "example": "\"guard\": {\"pr_words_exempt_repos\": [\"^my-owner/\"]}"
     },
     {
       "id": "atonobin-tag",

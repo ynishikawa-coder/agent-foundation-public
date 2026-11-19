@@ -15,7 +15,7 @@
 （判定の形の道具 verdict_form.py の `--writer` に渡す材料）。
 照らすのは AI の窓の枝（claude/ で始まる枝）だけ。人の枝・main への push・本文が無い（手元）時は照らさず、
 照らしていない事をそのまま出す（緑と言わない）。
-exit: 0=緑（または照らしていない）/ 1=赤 / 2=照らせない。
+exit: 0=緑 / 1=赤 / 2=照らせない / 3=照らしていない（緑に数えない・check_all が名指す）。
 """
 from __future__ import annotations
 
@@ -94,10 +94,10 @@ def main(argv=None) -> int:
         return 0
     if not a.branch.startswith("claude/"):
         print(f"pr_writer: 照らしていない（{a.branch or '枝の名なし'} は AI の窓の枝 claude/… でない）")
-        return 0
+        return 3
     if a.body_file is None:
         print("pr_writer: 照らしていない（PR 本文が無い＝PR の外。CI の PR では本文を渡して照らす）")
-        return 0
+        return 3
     try:
         errs = check(a.repo, a.head, a.base, a.body_file.read_text(encoding="utf-8"))
     except OSError as e:

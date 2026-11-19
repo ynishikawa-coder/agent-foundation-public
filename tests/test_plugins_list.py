@@ -3,7 +3,6 @@ import json
 import re
 from pathlib import Path
 
-import pytest
 
 ROOT = Path(__file__).resolve().parent.parent
 LIST = ROOT / "plugins" / "README.md"
@@ -76,17 +75,15 @@ def test_plugins_の下の_dir_は全部一覧にある():
 
 
 def test_出した_plugin_は中身と_skills_が一致():
-    for r in read_rows():
-        if r["種類"] != "plugin" or r["状態"] != "出した":
-            continue
+    rows = [r for r in read_rows() if r["種類"] == "plugin" and r["状態"] == "出した"]
+    assert rows, "「出した」plugin の行が 0（一覧の読み方か列の名が変わり、何も照らさずに通る形）"
+    for r in rows:
         skills_dir = ROOT / r["置き場"] / "skills"
         actual = {p.parent.name for p in skills_dir.glob("*/SKILL.md")}
         assert actual == set(skills_of(r)), f"{r['名前']}: 一覧 {skills_of(r)} / 実 {sorted(actual)}"
 
 
 def test_配りの器と一覧が合う():
-    if not MARKET.exists():
-        pytest.skip("配りの器 .claude-plugin/marketplace.json がまだ無い（A0 の合流待ち）")
     data = json.loads(MARKET.read_text(encoding="utf-8"))
     entries = data.get("plugins", [])
     assert isinstance(entries, list), "marketplace.json の plugins が配列でない"
