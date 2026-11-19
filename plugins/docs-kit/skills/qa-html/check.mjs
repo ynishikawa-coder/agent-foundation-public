@@ -895,11 +895,18 @@ export function checkFile(path, { priorPath, priorExplicit = false, ...opts } = 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const args = process.argv.slice(2);
   const takesValue = new Set(["--values", "--prior"]);
-  const file = args.find((a, i) => !a.startsWith("--") && !takesValue.has(args[i - 1]));
-  if (!file) {
-    console.error("使い方: check.mjs <file.html|file.json> [--json] [--values <skill-values.json>] [--prior <引いた結果.json>] [--run-prior] [--prior-input]");
+  // file は全部照らす（1 つ目だけ照らして残りを黙って通さない）
+  const files = args.filter((a, i) => !a.startsWith("--") && !takesValue.has(args[i - 1]));
+  if (!files.length) {
+    console.error("使い方: check.mjs <file.html|file.json> [<file> …] [--json] [--values <skill-values.json>] [--prior <引いた結果.json>] [--run-prior] [--prior-input]");
     process.exit(2);
   }
+  const perPage = ["--prior", "--run-prior", "--prior-input"].filter((f) => args.includes(f));
+  if (files.length > 1 && perPage.length) {
+    console.error(`${perPage.join("・")} は 1 枚ずつ（file が ${files.length} 個ある）: ${files.join(" ")}`);
+    process.exit(2);
+  }
+  const file = files[0];
   const at = (flag) => (args.indexOf(flag) >= 0 ? args[args.indexOf(flag) + 1] : undefined);
   for (const flag of takesValue) {
     if (args.includes(flag) && (at(flag) == null || at(flag).startsWith("--"))) {
@@ -931,12 +938,19 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
     writeFileSync(priorPath, JSON.stringify(got.raw ? { ...got.raw, page_version: page.version } : { error: got.error }, null, 2) + "\n");
     opts = { valuesPath, prior: { ...got, from: `prior_check_cmd → ${priorPath}` } };
   }
-  const res = checkFile(file, opts);
-  if (args.includes("--json")) console.log(JSON.stringify({ file: resolve(file), ...res }, null, 2));
+  const results = files.map((f) => {
+    const v = at("--values") ?? findValues(dirname(resolve(f)), process.cwd(), process.env.CLAUDE_PROJECT_DIR);
+    const o = f === file ? opts : { valuesPath: v, priorPath: priorPathFor(f), priorExplicit: false };
+    return { file: resolve(f), ...checkFile(f, o) };
+  });
+  if (args.includes("--json")) console.log(JSON.stringify(results.length === 1 ? results[0] : results, null, 2));
   else {
-    console.log(`${res.ok ? "🟢 緑" : "🔴 赤"}  ${resolve(file)}（${res.format}・問い ${res.questions.length}・宛先 ${res.dest ?? "?"}）`);
-    for (const r of res.red) console.log(`  ✗ ${r}`);
-    if (!res.ok) console.log(ROOT_CAUSE);
+    for (const res of results) {
+      console.log(`${res.ok ? "🟢 緑" : "🔴 赤"}  ${res.file}（${res.format}・問い ${res.questions.length}・宛先 ${res.dest ?? "?"}）`);
+      for (const r of res.red) console.log(`  ✗ ${r}`);
+    }
+    if (results.some((r) => !r.ok)) console.log(ROOT_CAUSE);
+    if (results.length > 1) console.log(`照らした file ${results.length}・赤 ${results.filter((r) => !r.ok).length}`);
   }
-  process.exit(res.ok ? 0 : 1);
+  process.exit(results.every((r) => r.ok) ? 0 : 1);
 }
