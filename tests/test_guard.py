@@ -531,6 +531,39 @@ def test_ask_shape_読みやすい問いは通す(env, name, payload):
     assert deny_reason(env, payload) == ""
 
 
+# 推奨の印の付け方（誤りの類をわざと入れて止まるか・正しい形は通るか）
+ASK_REC_BAD = [
+    ("印が2つ", ask_pre(q("作り物の置き場をどちらにしますか", labels=("A（推奨）", "B（推奨）", "分からない"))), "2 つの選択肢"),
+    ("印が2つ目", ask_pre(q("作り物の置き場をどちらにしますか", labels=("A", "B (推奨)", "分からない"))), "1 つ目でない"),
+    ("英語の印が後ろ", ask_pre(q("作り物の置き場をどちらにしますか", labels=("A", "分からない", "B (Recommended)"))), "1 つ目でない"),
+    ("分からないに印", ask_pre(q("作り物の置き場をどちらにしますか", labels=("分からない（推奨）", "A", "B"))), "「分からない」の選択肢"),
+    ("末の推奨が2つ", ask_pre(q("作り物の置き場をどちらにしますか", labels=("A 推奨", "B・推奨"))), "2 つの選択肢"),
+    ("【】の印が後ろ", ask_pre(q("作り物の置き場をどちらにしますか", labels=("A", "B【おすすめ】"))), "1 つ目でない"),
+]
+
+
+@pytest.mark.parametrize("name,payload,want", ASK_REC_BAD, ids=[c[0] for c in ASK_REC_BAD])
+def test_ask_shape_推奨の印の付け方が崩れた問いは画面を出す前に止める(env, name, payload, want):
+    why = deny_reason(env, payload)
+    assert "[rec]" in why and want in why, why
+    assert "作り方の分かれ道" in why and "画面はまだ人に出ていない" in why
+
+
+ASK_REC_GOOD = [
+    ("1つ目に1つ", ask_pre(q("作り物の置き場をどちらにしますか", labels=("A（推奨）", "B", "分からない")))),
+    ("英語の印が1つ目", ask_pre(q("作り物の置き場をどちらにしますか", labels=("A (Recommended)", "B", "分からない")))),
+    ("印が無い", ask_pre(q("作り物の置き場をどちらにしますか", labels=("A", "B", "分からない")))),
+    ("説明の中の推奨は印でない", ask_pre(q("作り物の置き場をどちらにしますか", labels=("A（推奨）", "B", "分からない"),
+                                    desc="推奨の理由: あとで動かしやすい"))),
+    ("推奨の語を含む見出し", ask_pre(q("作り物の置き場をどちらにしますか", labels=("A（推奨）", "推奨どおり B にする", "分からない")))),
+]
+
+
+@pytest.mark.parametrize("name,payload", ASK_REC_GOOD, ids=[c[0] for c in ASK_REC_GOOD])
+def test_ask_shape_推奨の印が1つ目に1つだけなら通す(env, name, payload):
+    assert deny_reason(env, payload) == ""
+
+
 def test_ask_shape_判定の値は値の表で変えられ誤って止まる形は外せる(env, tmp_path):
     long_q = ask_pre(q("作り物の置き場を、前の窓で話した二つの案のうち、あとで動かしやすい方に寄せて、今週のうちに決めて"
                        "しまってよいですか、それとも来週の打ち合わせまで待ちますか"))

@@ -10,6 +10,9 @@
   inner  … 問い・見出し・選択肢（label と description）に、AI の中の言葉らしい字が在る
             （番号・版・file 名・path・識別子・窓の id・commit の印・`…` で囲んだ字）。足しは ask_inner_terms_extra
   topic  … 1 画面に 2 問以上あり、問いと見出しの語（漢字・カタカナ・英字の 2 字の並び）を共にしない組に分かれる
+  rec    … 推奨の印（選択肢の見出しの「(推奨)」「（推奨）」「(Recommended)」・見出しの末の「推奨」など）の付け方が崩れている:
+            1 問に 2 つ以上・1 つ目でない選択肢に在る・「分からない」の選択肢に在る（細目 §4「推奨の印」）。
+            どの問いに付けてよいか（作り方の分かれ道か）は字の形で見分けられないので見ない（残る穴）
 誤って止めた時: 値の表 ask_shape_exempt（問いの文に当てる正規表現）に当たる問いは照らさない。ask_term_allow（見つけた字に
 当てる正規表現）に当たる字は中の言葉と数えない。値の表は PR とレビューを通る＝窓の一存では外れない。
 見分けは字の形の推し量り（意味は読まない）。残る穴は SKILL（guard-rules）と PR に書く。
@@ -36,6 +39,11 @@ INNER = (
     ("commit の印", re.compile(r"(?<![A-Za-z0-9])(?=[0-9a-f]*\d)(?=[0-9a-f]*[a-f])[0-9a-f]{7,40}(?![A-Za-z0-9])")),
     ("コードの字", re.compile(r"`[^`]+`")),
 )
+# 推奨の印: 括弧で囲んだ「推奨」等か、見出しの末に置いた「推奨」等。説明（description）の文の中の「推奨」は印と数えない
+#（推奨の理由は説明に書くため）。
+_REC = re.compile(r"[(（\[［【〔]\s*(?:推奨|おすすめ|お勧め|オススメ|recommended)\s*[)）\]］】〕]"
+                  r"|(?:^|[\s・:：/／-])(?:推奨|おすすめ|recommended)\s*$", re.I)
+_DUNNO = re.compile(r"分から(?:ない|ん)|わから(?:ない|ん)|不明|don'?t know|not sure", re.I)
 _SENT = re.compile(r"[^。．？?！!]+[。．？?！!]*")
 # 送り仮名（置き場・作り物・取り扱い）を詰めて 1 語にする。助詞（の・を・が…）を挟む所は詰めない。
 _OKURI = re.compile(r"(?<=[一-龠々])(?:(?![のをがはにでともへやかよ])[ぁ-ゔ]){1,2}(?=[一-龠々])")
@@ -109,6 +117,22 @@ def topic_groups(qs, vals):
     return sorted(groups.values())
 
 
+def _rec_findings(q):
+    """推奨の印の付け方の崩れ（文の並び）。印の有無そのもの（どの問いに付けてよいか）は見ない。"""
+    opts = [o for o in (q.get("options") or []) if isinstance(o, dict)]
+    marked = [(i, _text(o.get("label"))) for i, o in enumerate(opts) if _REC.search(_text(o.get("label")))]
+    why = []
+    if len(marked) >= 2:
+        why.append("%d つの選択肢に在る（%s）" % (len(marked), "・".join("「%s」" % lb[:20] for _, lb in marked)))
+    late = [lb for i, lb in marked if i != 0]
+    if late:
+        why.append("1 つ目でない選択肢に在る（%s）" % "・".join("「%s」" % lb[:20] for lb in late))
+    dunno = [lb for _, lb in marked if _DUNNO.search(lb)]
+    if dunno:
+        why.append("「分からない」の選択肢に在る（%s）" % "・".join("「%s」" % lb[:20] for lb in dunno))
+    return why
+
+
 def _exempt(text, vals):
     return any(isinstance(p, str) and p and re.search(p, text) for p in (vals.get("ask_shape_exempt") or []))
 
@@ -143,6 +167,9 @@ def findings(qs, vals):
         for where, t in fields:
             for name, tok in _inner_hits(t, vals):
                 hits.append("%s の %s「%s」" % (where, name, tok[:40]))
+        rec = _rec_findings(q)
+        if rec:
+            out.append(("rec", "「%s」— 推奨の印の付け方: %s" % (short, "／".join(rec))))
         if hits:
             out.append(("inner", "「%s」— AI の中の言葉らしい字: %s" % (short, "／".join(hits[:6])
                                                                 + ("（ほか %d 件）" % (len(hits) - 6) if len(hits) > 6 else ""))))
@@ -162,6 +189,9 @@ HOW = {
              "チャットで見せ、画面には言い換えだけを出す。",
     "topic": "1 画面は 1 つの話題にする。話題ごとに画面を分けて続けて出す（どれも全部聞く・捨てない）。同じ話題なのに分かれて"
              "見えたなら、問いか見出しにその話題の語（例: 「置き場」）を入れる。",
+    "rec": "推奨の印は作り方の分かれ道の問いだけに、1 問に 1 つ、1 つ目の選択肢に付け、理由はその選択肢の説明に書く"
+           "（細目 §4「推奨の印」）。推せる案が 2 つあるなら問いを分けるか印を外す。「分からない」には付けない。"
+           "意図・考えを聞く問いと済んだかの確認には印を付けない（付いていれば外す）。",
 }
 
 
