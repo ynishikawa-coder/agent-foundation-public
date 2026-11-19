@@ -74,11 +74,15 @@ def _drop_from_market(d):
 
 
 def _guard_never_denies(d):
-    f = d / "plugins" / "guard" / "scripts" / "guard.py"
-    text = f.read_text(encoding="utf-8")
-    broken = re.sub(r'"pre": \[[^\]]*\],', '"pre": [],', text, count=1)
-    assert broken != text, "guard.py の止める一覧の形が変わった（この注入を合わせる）"
-    f.write_text(broken, encoding="utf-8")
+    # 止める見張りの宣言（各見張りの頭の HOOKS の "pre"）を全部消す
+    hit = 0
+    for f in (d / "plugins" / "guard" / "scripts").glob("*.py"):
+        text = f.read_text(encoding="utf-8")
+        broken = re.sub(r'"pre": "\w+",? ?', "", text)
+        if broken != text:
+            hit += 1
+            f.write_text(broken, encoding="utf-8")
+    assert hit, "見張りの HOOKS の形が変わった（この注入を合わせる）"
 
 
 def _drop_furumai_from_inject(d):

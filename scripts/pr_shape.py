@@ -9,8 +9,10 @@
   2. 試験の file の末尾への追記: 元から在る tests/**/test_*.py の試験（def test_）を増やさない。
      新しい試験は、守る約束の名の新しい file（tests/test_<約束>.py）に置く。並ぶ PR が同じ file の末尾へ足すと、
      1 本入るたびに残りが全部衝突するので、足す所を PR ごとに別の file にする（直す・消すのはよい）。
-枝の名が claude/<8 桁の日付>-<話題> でない PR は照らせない＝赤（黙って通さない）。
-main（PR でない push）では照らす物が無いので緑で終わる。
+止めるのは AI の窓の枝（claude/ で始まる枝）だけ。claude/ で始まるのに claude/<8 桁の日付>-<話題> の形でない枝は
+照らせない＝赤。claude/ で始まらない枝（人が GitHub の画面で直した patch-1 など）は止めず、照らさなかった事を 1 行知らせる
+（新しく人の操作を止める物はオーナーの同意が要る＝核 §3）。main（PR でない push）・枝の名が分からない時（手元の
+detached HEAD）も照らさず、照らしていない事をそのまま出す（緑と言わない）。
 exit: 0=緑 / 1=赤 / 2=照らせない（比べる元が無い等）。
 """
 from __future__ import annotations
@@ -74,8 +76,14 @@ def main(argv=None) -> int:
     ap.add_argument("--base", required=True)
     ap.add_argument("--repo", type=Path, default=ROOT)
     a = ap.parse_args(argv)
-    if a.branch in ("main", "HEAD", ""):
-        print("pr_shape: 緑（PR の枝でない＝照らす差分が無い）")
+    if a.branch == "main":
+        print("pr_shape: 照らしていない（main への push＝PR の差分が無い）")
+        return 0
+    if a.branch in ("HEAD", ""):
+        print("pr_shape: 照らしていない（枝の名が分からない＝detached HEAD。GITHUB_HEAD_REF に枝の名を渡すと照らす）")
+        return 0
+    if not a.branch.startswith("claude/"):
+        print(f"pr_shape: 照らしていない（{a.branch} は AI の窓の枝 claude/… でない＝人の PR は止めない）")
         return 0
     try:
         errs = check(a.repo, a.branch, a.base)

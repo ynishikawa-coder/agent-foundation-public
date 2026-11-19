@@ -7,3 +7,4 @@
 - 足した: plugins/core/scripts/copies.py。使う側の文に土台の決まりの写し（言い換えも）が無いかを字の並びの重なりで拾う。
 - 足した: scripts/pr_shape.py（CI の check）。PR で足す変更の記録の断片は枝から決まる名だけ、元から在る試験の file の試験は増やさない。scripts/pr_overlap.py（CI の overlap・止めない）は同じ行の辺りを書き換える他の PR を名指す。
 - 畳んだ: PR の型の「触る path」の行と「残り」の行き先の写し（台帳の行の URL だけ）、plugin の説明・一覧・skill の説明の見張りの数、test_core_plugin.py の CHANGELOG.md の除き。review-pr の点 2 は「触った path」（差分から取る）。
+- 壊れる: guard の入口 guard.py は見張りの一覧（WATCHERS）を持たず、各見張りの file の頭の HOOKS = {出来事: 関数} を読んで回す。見張りを足す時は自分の file に HOOKS を書くだけ（入口の 1 行へ足さない）。

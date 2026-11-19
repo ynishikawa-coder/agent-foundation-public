@@ -16,6 +16,10 @@ _GATE = re.compile(r"check_spec_doc\.py")
 _LOCK = re.compile(r"(?<![\w-])--lock(?![\w-])")
 
 
+
+# この見張りが回る出来事と関数（guard.py がこの宣言を読んで回す＝入口の一覧に足さない）
+HOOKS = {"pre": "check"}
+
 def check(data, vals):
     """止めるなら理由、通すなら ""。"""
     if data.get("tool_name") != "Bash":
