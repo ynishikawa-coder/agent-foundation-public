@@ -42,6 +42,10 @@ ROOT_CAUSE = "直し: 文を移して量を合わせるだけで済ませず、�
 # 常に読まれる量の上限（バイト・UTF-8）。数はここの 1 か所だけに置く。
 LIMITS = {"核": 4800, "振る舞い": 2400, "各社固有": 3000}
 MARKET = "agent-foundation"
+# 土台の出所（GitHub の repo）。目録 agent-foundation がこの repo から入った時だけ、main の先端と比べ入れ方を照らす
+# （同じ名で fork が登録された箱で、fork の main を正と取り違えない）。docs/核の届け方.md の setup script の
+# `marketplace add` と同じ（試験が照らす）。
+UPSTREAM = "ynishikawa-coder/agent-foundation-public"
 # 土台の振る舞いを運ぶ path。ここが変わった時だけ「古い土台」と見る（文書・試験・CI だけの変更では窓を替えない）。
 CARRIERS = ("plugins", ".claude-plugin")
 FRESH_INTERVAL = 900  # 起動の後に main の先端を見に行く間（秒）。毎回の問いごとに外へ出ない。
@@ -80,13 +84,43 @@ def _tracked(project: Path, specs: list[str]) -> list[Path]:
     return [project / s for s in specs if "*" not in s]  # git でない dir は、名で書いた file だけ見る
 
 
-def main_ref(project: Path) -> str | None:
-    """開いた repo の main（origin の既定の枝）の commit。git でない・origin の main を持たない時は None。"""
+def _local_main(project: Path) -> str | None:
     for ref in ("refs/remotes/origin/HEAD", "refs/remotes/origin/main", "refs/remotes/origin/master"):
         sha = _git(str(project), "rev-parse", "--verify", "-q", f"{ref}^{{commit}}", timeout=10)
         if sha:
             return sha
     return None
+
+
+def main_ref(project: Path) -> tuple[str | None, str | None]:
+    """開いた repo の main（出所 origin の既定の枝）の今の commit と、それを確かめられなかった時の名指し。
+    正本は出所の今の main（手元の refs/remotes/origin/* は fetch しなければ古い・origin/HEAD は既定の枝と限らない）:
+    出所へ既定の枝と先端を聞き（ls-remote --symref）、手元に無ければその枝だけを取って来る。
+    (sha, None)＝出所の今の main を読んだ / (sha, 名指し)＝出所に出られない・取れず手元の origin の main を読んだ
+    （同じかは分からない）/ (None, None)＝git でない・origin が無い（checkout を読む）。"""
+    if _git(str(project), "remote", "get-url", "origin", timeout=5) is None:
+        return None, None
+    local = _local_main(project)
+    out = _git(str(project), "ls-remote", "--symref", "origin", "HEAD", timeout=3)
+    branch = tip = None
+    for line in (out or "").splitlines():
+        m = re.fullmatch(r"ref: refs/heads/(\S+)\tHEAD", line)
+        if m:
+            branch = m.group(1)
+        elif line.endswith("\tHEAD") and re.fullmatch(r"[0-9a-f]{40}|[0-9a-f]{64}", line.split("\t")[0]):
+            tip = line.split("\t")[0]
+    if not tip:
+        note = "出所（origin）に出られず、出所の今の main を確かめられない"
+        return local, (f"{note}。読んだのは手元の origin の main {local[:12]}（出所の今の main と同じかは分からない）"
+                       if local else note)
+    have = lambda: _git(str(project), "cat-file", "-e", f"{tip}^{{commit}}", timeout=5) is not None  # noqa: E731
+    if not have() and branch:
+        _git(str(project), "fetch", "--quiet", "--no-tags", "origin",
+             f"+refs/heads/{branch}:refs/remotes/origin/{branch}", timeout=3)
+    if have():
+        return tip, None
+    note = f"出所の今の main {tip[:12]} を取って来られなかった"
+    return local, (f"{note}。読んだのは手元の origin の main {local[:12]}（出所より古い）" if local else note)
 
 
 def _hits(rows: list[dict], texts) -> list[tuple[dict, str]]:
@@ -155,10 +189,15 @@ def olds_scan(project: Path, rows: list[dict] | None = None) -> dict:
     （behind・枝が main より古い）／無かった＝この枝で足した（added・この仕事で消す）。
     {"ref": main の commit か None, "found": main に残る (行, path), "behind": [...], "added": [...]}。"""
     rows = rows if rows is not None else olds_table()
-    ref = main_ref(project)
+    ref, note = main_ref(project)
     checkout = _hits(rows, _checkout_texts(project))
+    if note:  # 読んだ main が出所の今の main と確かめられない: どれも消す・直ったと言い切らない（分からないと名指す）
+        found = _hits(rows, _tree_texts(project, ref)) if ref else []
+        seen = {(r["id"], f) for r, f in found}
+        return {"ref": ref, "note": note, "found": [], "fixed_here": [], "behind": [], "added": [],
+                "unknown": found + [(r, f) for r, f in checkout if (r["id"], f) not in seen]}
     if not ref:
-        return {"ref": None, "found": checkout, "fixed_here": [], "behind": [], "added": [], "unknown": []}
+        return {"ref": None, "note": None, "found": checkout, "fixed_here": [], "behind": [], "added": [], "unknown": []}
     found = _hits(rows, _tree_texts(project, ref))
     seen = {(r["id"], f) for r, f in found}
     only = {(r["id"], f) for r, f in checkout} - seen
@@ -166,10 +205,10 @@ def olds_scan(project: Path, rows: list[dict] | None = None) -> dict:
     was = {(r["id"], f) for r, f in _hits(rows, _tree_texts(project, base, only))} if base else set()
     rest = [(r, f) for r, f in checkout if (r["id"], f) in only]
     if not base:  # 分かれ目が読めない（浅い clone 等）: main で直ったともこの枝で足したとも言い切らない
-        return {"ref": ref, "found": found, "fixed_here": [(r, f) for r, f in found if (r["id"], f) not in
-                                                           {(x["id"], y) for x, y in checkout}],
+        return {"ref": ref, "note": None, "found": found, "fixed_here": [(r, f) for r, f in found if (r["id"], f) not in
+                                                                         {(x["id"], y) for x, y in checkout}],
                 "behind": [], "added": [], "unknown": rest}
-    return {"ref": ref, "found": found, "fixed_here": [(r, f) for r, f in found if (r["id"], f) not in
+    return {"ref": ref, "note": None, "found": found, "fixed_here": [(r, f) for r, f in found if (r["id"], f) not in
                                                        {(x["id"], y) for x, y in checkout}],
             "behind": [x for x in rest if (x[0]["id"], x[1]) in was],
             "added": [x for x in rest if (x[0]["id"], x[1]) not in was], "unknown": []}
@@ -192,7 +231,7 @@ def find_olds_bounded(project: Path, budget: float = WATCH_BUDGET, table: Path =
         raise ValueError((p.stdout + p.stderr).strip() or f"olds が {p.returncode} で抜けた")
     rows = {r["id"]: r for r in olds_table(table)}
     got = json.loads(p.stdout)
-    return {"ref": got["ref"], **{k: [(rows[i], f) for i, f in got.get(k) or []] for k in SCAN_KEYS}}
+    return {"ref": got["ref"], "note": got.get("note"), **{k: [(rows[i], f) for i, f in got.get(k) or []] for k in SCAN_KEYS}}
 
 
 def olds_text(scan: dict, project: Path) -> str | None:
@@ -211,7 +250,12 @@ def olds_text(scan: dict, project: Path) -> str | None:
         lines += [f"## この repo（{project.name}）の作業の枝は main より古い — 古い形は main では直っている\n",
                   f"次は checkout には残るが main（{ref[:12]}）で直った（消す仕事は要らない。枝を main に追いつかせれば消える）: "
                   + "・".join(f"{f}（{r['id']}）" for r, f in scan["behind"]) + "\n"]
-    if scan.get("unknown"):
+    if scan.get("note") and scan.get("unknown"):
+        lines += [f"## この repo（{project.name}）の古い形が今の main に残るかが分からない — 照らした main を出所の今の main と確かめられない\n",
+                  f"{scan['note']}。次は手元の main か checkout に在る。消すか（main に残る）・直った（main で消えた）かを言い切れないので、"
+                  "`git fetch origin` の後に土台の kaku.py olds でこの repo を照らし直して決める: "
+                  + "・".join(f"{f}（{r['id']}）" for r, f in scan["unknown"]) + "\n"]
+    elif scan.get("unknown"):
         lines += [f"## この repo（{project.name}）の作業の枝にだけ古い形が在る — main で直ったか、この枝で足したかが分からない\n",
                   f"次は checkout には在るが main（{ref[:12]}）には無い。枝と main の分かれ目が読めない（浅い clone など）ので、"
                   "main で直った物（枝を main に追いつかせれば消える）か、この枝で足した物（この仕事で消す）かを言い切れない。"
@@ -233,23 +277,92 @@ def claude_md_text(project: Path) -> str | None:
             "その repo に固有の決まりだけを残し、細かい手順はその repo の文書へ移して指す 1 行にする。\n")
 
 
-def setup_text() -> str | None:
-    """GitHub から土台を入れた窓で、古い形の setup script（入口を通っていない）・入っていない plugin を知らせる文。"""
+LOCAL_SOURCES = ("directory", "file")  # 手元の dir・file から入れた試し・CI（使う側の setup script を持たず main と比べない）
+
+
+def catalog_source() -> tuple[dict, str | None]:
+    """目録 agent-foundation の登録（known_marketplaces.json の行）と、土台の出所でない時の名指し。
+    ({}, None)＝目録が無い・手元から入れた（照らさない）/ (行, None)＝土台の repo の GitHub から入った /
+    ({}, 名指し)＝別の出所（fork・別の git）から入った＝その main を正と見ない。"""
     m = (_read_json(_home() / "plugins" / "known_marketplaces.json") or {}).get(MARKET) or {}
-    if (m.get("source") or {}).get("source") != "github" or not m.get("installLocation"):
-        return None  # 手元の dir から入れた試し・CI は使う側の setup script を持たない
+    src = m.get("source") if isinstance(m.get("source"), dict) else {}
+    if not m.get("installLocation") or src.get("source") in LOCAL_SOURCES or not src:
+        return {}, None
+    where = src.get("repo") or src.get("url") or src.get("source")
+    if src.get("source") != "github" or str(src.get("repo") or "").lower() != UPSTREAM.lower():
+        return {}, (f"- 土台の目録 {MARKET} が土台の repo {UPSTREAM} でない出所（{where}）から入っている（同じ名の fork・別の git）。"
+                    "その出所の main を正として古さ・入れ損ねを照らさない＝この窓の核と守りが土台の今の物か分からない。"
+                    "最初にオーナーへ知らせ、setup script を土台の docs/核の届け方.md の形（土台の repo を足す）に直す。\n")
+    return m, None
+
+
+def _when(text) -> float | None:
+    """ISO 8601 の時（Z・+0900 の形）を秒に。読めなければ None。"""
+    from datetime import datetime
+    try:
+        return datetime.fromisoformat(str(text).replace("Z", "+00:00")).timestamp()
+    except ValueError:
+        return None
+
+
+def _foundation_rows() -> dict[str, dict]:
+    """{plugin の名: 入った台帳の user scope の行}（土台の目録の物だけ）。"""
+    table = (_read_json(_home() / "plugins" / "installed_plugins.json") or {}).get("plugins") or {}
+    out = {}
+    for key, rows in table.items() if isinstance(table, dict) else []:
+        name, _, market = str(key).partition("@")
+        user = [r for r in rows if isinstance(r, dict) and r.get("scope", "user") == "user"] if isinstance(rows, list) else []
+        if market == MARKET and user:
+            out[name] = user[0]
+    return out
+
+
+def setup_record() -> tuple[dict | None, str | None]:
+    """今の土台を入れた setup が入口 scripts/setup_plugins.py で書いた記録（setup.json）と、そう確かめられない訳。
+    file が在るだけでは今回の記録と見ない: 記録の名簿の版（catalog_sha）が入った plugin core の commit と同じで、
+    記録の時（at）が土台の plugin を入れ直した時（台帳の lastUpdated）より前でない時だけ今回の物（前の setup の記録が
+    残った容器で、入口を通らない古い形の setup script が入れ直したのを見逃さない）。"""
+    state = _read_json(_home() / "af-foundation" / "setup.json")
+    if not isinstance(state, dict):
+        return None, "入口の記録（~/.claude/af-foundation/setup.json）が無い"
+    have = installed_sha()
+    if not have or state.get("catalog_sha") != have:
+        return None, (f"入口の記録の名簿の版 {str(state.get('catalog_sha'))[:12]} が入った土台 {str(have)[:12]} と違う"
+                      "（前の setup の記録が残っている）")
+    at = _when(state.get("at"))
+    later = [t for t in (_when(r.get("lastUpdated")) for r in _foundation_rows().values()) if t is not None]
+    if at is None or (later and max(later) > at + 2):
+        return None, "入口の記録の時が土台の plugin を入れ直した時より前（記録の後に入口を通らずに入れ直した）"
+    return state, None
+
+
+def _enabled() -> set[str]:
+    """user scope で enabled の plugin（~/.claude/settings.json の enabledPlugins。入口の enabled() と同じ見方）。"""
+    on = (_read_json(_home() / "settings.json") or {}).get("enabledPlugins") or {}
+    return {k for k, v in on.items() if v is True} if isinstance(on, dict) else set()
+
+
+def setup_text() -> str | None:
+    """GitHub から土台を入れた窓で、古い形の setup script（入口を通っていない）・入っていない plugin・土台でない出所を知らせる文。"""
+    m, other = catalog_source()
+    if other:
+        return "## 土台の入れ方が古い・欠けている\n" + other
+    if not m:
+        return None
     parts = []
-    if _read_json(_home() / "af-foundation" / "setup.json") is None:
-        parts.append("- 環境の setup script が古い形（土台の入口 scripts/setup_plugins.py を呼んでいない＝plugin の名を写して入れている）。"
+    state, why = setup_record()
+    if state is None:
+        parts.append(f"- 環境の setup script が古い形（今の土台を入れた setup が土台の入口 scripts/setup_plugins.py を通っていない: {why}）。"
                      "土台が plugin を足しても入らず、入れ損ねの見張りにも入らない。土台の docs/核の届け方.md の形に貼り替える"
                      "（Javis の環境は get_environment → update_environment。直せない環境は親の窓・連絡板へ頼み、オーナーへ 1 行知らせる）。\n")
     want = _read_json(Path(m["installLocation"]) / ".claude-plugin" / "marketplace.json") or {}
-    have = set(((_read_json(_home() / "plugins" / "installed_plugins.json") or {}).get("plugins") or {}))
-    lack = [p.get("name") for p in want.get("plugins") or [] if isinstance(p, dict) and f"{p.get('name')}@{MARKET}" not in have]
+    have, on = set(_foundation_rows()), _enabled()
+    lack = [p.get("name") for p in want.get("plugins") or []
+            if isinstance(p, dict) and (p.get("name") not in have or f"{p.get('name')}@{MARKET}" not in on)]
     if lack:
-        parts.append(f"- 土台の plugin が入っていない: {' '.join(map(str, lack))}。その plugin の決まりと守りの hook がこの窓で効いていない。"
+        parts.append(f"- 土台の plugin が user scope で入って enabled になっていない: {' '.join(map(str, lack))}。その plugin の決まりと守りの hook がこの窓で効いていない。"
                      "最初にオーナーへ知らせ、setup script を土台の docs/核の届け方.md の形に直す。\n")
-    state = _read_json(_home() / "af-foundation" / "setup.json") or {}
+    state = state or {}
     if state.get("refreshed") is False or state.get("stale"):
         parts.append(f"- 土台の目録を先端へ取り直せず、または名簿の版に揃わずに入った（揃わない plugin: {' '.join(map(str, state.get('stale') or [])) or 'なし'}）。"
                      "古い決まりと守りの hook で動いている。最初にオーナーへ知らせ、setup script を土台の docs/核の届け方.md の形に直す。\n")
@@ -296,7 +409,8 @@ def _read_json(path: Path):
 
 def _git(loc: str, *args: str, timeout: int = 20) -> str | None:
     try:
-        p = subprocess.run(["git", "-c", "core.quotepath=off", "-C", loc, *args], capture_output=True, text=True, timeout=timeout)
+        p = subprocess.run(["git", "-c", "core.quotepath=off", "-C", loc, *args], capture_output=True, text=True, timeout=timeout,
+                           env=dict(os.environ, GIT_TERMINAL_PROMPT="0"))  # 鍵を問う画面で止まらない
     except (OSError, subprocess.SubprocessError):
         return None
     return p.stdout.strip() if p.returncode == 0 else None
@@ -317,9 +431,9 @@ def freshness() -> dict | None:
 
     GitHub から入れた時だけ見る（手元の dir から入れた試し・CI は main の先端と比べる物が無い）。
     main の先端は、入れた時の marketplace の clone へ main だけを取って来て比べる（鍵は要らない・public）。"""
-    m = (_read_json(_home() / "plugins" / "known_marketplaces.json") or {}).get(MARKET) or {}
+    m, _ = catalog_source()  # 土台の repo の GitHub から入った時だけ（fork の main を正と見ない）
     loc = m.get("installLocation")
-    if (m.get("source") or {}).get("source") != "github" or not loc:
+    if not loc:
         return None
     have = installed_sha()
     if not have or _git(loc, "fetch", "--quiet", "--depth=1", "origin", "main") is None:
@@ -372,14 +486,14 @@ def start_cause(f: dict | None) -> str | None:
     入れ、その後に main が進んだ / "unknown"＝setup の時の main の記録が無く見分けられない。"""
     if not f or not f["plugins"]:
         return None
-    rec = (_read_json(_home() / "af-foundation" / "setup.json") or {}).get("main_at_setup")
+    rec = (setup_record()[0] or {}).get("main_at_setup")  # 今回の setup の記録だけを読む（前の記録の残りを読まない）
     if not isinstance(rec, str) or not re.fullmatch(r"[0-9a-f]{40}|[0-9a-f]{64}", rec):
         return "unknown"
     return "after" if rec == f["installed"] else "setup"
 
 
 def stale_at_start_text(f: dict) -> str:
-    rec = (_read_json(_home() / "af-foundation" / "setup.json") or {}).get("main_at_setup") or ""
+    rec = (setup_record()[0] or {}).get("main_at_setup") or ""
     return ("## 土台が古いまま立った窓 — setup script を直してから引き継いで閉じる\n"
             f"この窓は main の先端より古い土台で立った（{_short(f)}）。setup の時の main の先端は {rec[:12]} で、setup はそれと違う物を入れた。"
             "setup script が版（tag）を指している・目録を取り直さない古い形（1 行目に marketplace update が無い）・入れ損ねている"
@@ -588,11 +702,16 @@ def olds(dirs: list[Path], table: Path = OLDS, as_json: bool = False) -> int:
             return 2
         found = scan["found"]
         if as_json:
-            print(json.dumps({"ref": scan["ref"], **{k: [[r["id"], f] for r, f in scan[k]] for k in SCAN_KEYS}},
+            print(json.dumps({"ref": scan["ref"], "note": scan.get("note"), **{k: [[r["id"], f] for r, f in scan[k]] for k in SCAN_KEYS}},
                              ensure_ascii=False))
             bad += len(found)
             continue
         src = f"main {scan['ref'][:12]} の中身" if scan["ref"] else "checkout"
+        if scan.get("note"):  # 出所の今の main を読めていない: 0 とも言い切らない（照らせない）
+            held = "・".join(f"{f}（{r['id']}）" for r, f in scan["unknown"])
+            print(f"✗ {d.name}: 照らせない — {scan['note']}（手元の main か checkout に在る形: "
+                  f"{held or 'なし'}）")
+            return 2
         for r, f in found:
             print(f"✗ {d.name}/{f}: {r['id']}（{r['what']}・読んだ物: {src}）")
         if not found:
