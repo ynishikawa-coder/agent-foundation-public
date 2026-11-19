@@ -116,7 +116,7 @@ def test_irreversible_は読み手の語で戻せない命令を拾う(cmd, tmp_
     assert irreversible.bash_verbs(cmd, str(tmp_path)), cmd
 
 
-@pytest.mark.parametrize("cmd", ["ls -la", "git status", "git branch -D old", "gh release create v9", "echo $(date)"])
+@pytest.mark.parametrize("cmd", ["ls -la", "git status", "git branch -a", "gh release create v9", "echo $(date)"])
 def test_irreversible_は戻せる命令を拾わない(cmd, tmp_path):
     assert not irreversible.bash_verbs(cmd, str(tmp_path)), cmd
 

@@ -369,6 +369,7 @@ INERT = {"cat", "less", "more", "head", "tail", "grep", "egrep", "fgrep", "rg", 
          "sha1sum", "sha256sum", "od", "hexdump", "strings", "echo", "printf"}
 INERT_GIT = {"log", "diff", "show", "status", "grep", "blame", "ls-files", "rev-parse", "branch", "describe",
              "shortlog", "cat-file", "ls-tree", "merge-base", "add", "commit", "fetch"}
+_BRANCH_LIST = {"-a", "-r", "-v", "-vv", "-l", "--list", "--all", "--remotes", "--show-current", "--no-color"}
 _GIT_OPT_ARG = {"-C", "-c", "--git-dir", "--work-tree", "--namespace"}
 
 
@@ -399,7 +400,11 @@ def _seg_inert(words):
         i = 1
         while i < len(words) and words[i].text.startswith("-"):
             i += 2 if words[i].text in _GIT_OPT_ARG else 1
-        return i < len(words) and words[i].text in INERT_GIT
+        if i >= len(words) or words[i].text not in INERT_GIT:
+            return False
+        if words[i].text == "branch":   # 名だけ並べる形だけが読むだけ（-d・-D・-m・-f・名を付けて作る形は書く）
+            return all(w.text in _BRANCH_LIST for w in words[i + 1:])
+        return True
     if prog == "sed":
         return not any(w.text.startswith("-i") or w.text == "--in-place" or re.search(r"(^|[;}])\s*[ew]\b|/[ew]\s*$", w.text)
                        for w in words[1:])
