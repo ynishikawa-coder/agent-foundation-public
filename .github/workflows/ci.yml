@@ -21,7 +21,8 @@ jobs:
           python-version: "3.12"
       # node（qa-html の検査 check.mjs）と playwright（型の JS を実ブラウザで動かす試験）を入れる。
       # 無いと試験が飛び、check_all が CI で飛んだ試験を赤にする（飛ばしたのに緑に数えない）。
-      # python と node の playwright は同じ版に揃え、ブラウザを 1 度だけ入れる。
+      # python と node の playwright は同じ版に揃える。両者の版が同じでも求めるブラウザの build が違う事があるので、
+      # ブラウザはそれぞれの playwright で入れる（足りなければ試験が飛び、check_all が赤にする）。
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
@@ -31,6 +32,7 @@ jobs:
           npm install -g --silent playwright@1.65.1
           echo "NODE_PATH=$(npm root -g)" >> "$GITHUB_ENV"
           python3 -m playwright install --with-deps chromium
+          node "$(npm root -g)/playwright/cli.js" install chromium
       - name: 検査（入口は check_all の 1 本）
         # PR 本文と先端は外から来る値なので run に直に埋めず env で渡す（scripts/checks/pr_writer.sh が読む）。
         env:
