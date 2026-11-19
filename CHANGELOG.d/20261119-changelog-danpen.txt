@@ -1,0 +1,1 @@
+- 壊れる（土台の中だけ）: 変更の記録を 1 PR に 1 つの file（`CHANGELOG.d/<日付>-<話題>.txt`）で書く形にした。全部の PR が `CHANGELOG.md` の先頭へ行を足して、1 本入るたびに残りが全部衝突していたのを無くす。`CHANGELOG.md` に記録の行を書くと検査が赤。束ねて読むのは `python3 scripts/changelog.py`。今までの記録は `CHANGELOG.d/00000000-断片へ移す前.txt` にそのまま移した。
