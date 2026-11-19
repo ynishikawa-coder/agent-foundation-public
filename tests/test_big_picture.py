@@ -243,7 +243,8 @@ def test_設計書の型は全体の絵の下に置かれる():
 
 def test_main_へ入れる手を片方の_AI_に限らない():
     """照らす段が green なら、どちらの AI の親窓が入れてもよい（決定 2026-11-19）。"""
-    contributing = (ROOT / "CONTRIBUTING.md").read_text(encoding="utf-8")
-    assert "Javis 側の親窓だけ" not in contributing
+    for f in ("CONTRIBUTING.md", ".github/pull_request_template.md"):
+        text = (ROOT / f).read_text(encoding="utf-8")
+        assert "Javis 側の親窓" not in text, f"{f} に畳んだ決まりの写しが残っている"
     github = next(b for b in agreed()["boxes"] if b["id"] == "github")
     assert github["intent"] and "どちらの AI" in github["what"]
