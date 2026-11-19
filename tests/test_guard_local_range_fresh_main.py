@@ -59,8 +59,9 @@ def setup(tmp_path):
 def test_手元の_origin_main_が古くても_main_で入った_commit_を照らさない(tmp_path):
     work, old = setup(tmp_path)
     r = guard(work)
-    assert r.returncode == 0, r.stdout + r.stderr
-    assert "置かない物 0" in r.stdout
+    # 当たりは 0。手元には PR の event が無く PR の題・本文は照らしていないので、緑でなく exit 3（照らしていない）
+    assert r.returncode == 3, r.stdout + r.stderr
+    assert "当たりは 0" in r.stdout and "PR の題・本文" in r.stdout
     # 比べる元は出所の今の main で、手元の origin/main は黙って書き換えない
     assert git(work, "rev-parse", "refs/remotes/origin/main") == old
 
