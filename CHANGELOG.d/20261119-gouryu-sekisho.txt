@@ -1,4 +1,4 @@
-- 足した（止める物: AI の合流の窓だけ・人の操作は止めない）: 合流の関所を機械で照らす CI `merge-gate`（plugins/checker/scripts/merge_gate.py）。今の先端に書いた窓と別の窓の green が在り、頼み直しで前回の止めるを全部番号で照らした PR だけ、先端の状態 merge-gate が success になる。合流の窓は目で読まずこの状態を見る。
+- 足した（止める物: AI の合流の窓だけ・人の操作は止めない）: 合流の関所を機械で照らす CI `merge-gate`（plugins/checker/scripts/merge_gate.py）。main へ向いた PR で、全部の commit が本文の書いた窓を名乗り、今の先端を見た最後の判定（持ち主・仲間が書いた物だけ）が別の窓の green で、頼み直しで前回の止めるを全部番号で照らした時だけ、先端の状態 merge-gate が success になる。yml と道具は main の版で回る（pull_request_target）。合流の窓は目で読まずこの状態を見る。main の守りの必須に載せるのはオーナーの同意の後。
 - 足した: 頼み直しの文を作る plugins/checker/scripts/rereview.py（前回の止めるの全部に前回の後の commit を結ばないと文が出ない）。verdict_form.py に --previous（前回の止めるを番号で照らす・先端が動かない頼み直しを拒む）。
 - 壊れる（土台の中だけ）: review-pr の判定に使う側の足す点の節 `## 使う側の点`。使う側の値の表 checker.review-pr.extra_points（{"<記号>": "<名>"}）が在る repo だけ要る（fail は red に結ぶ）。無い repo は今のまま。
 - 直した: 判定の窓の id は session_・cse_（同じ窓に揃える）・手元の窓の UUID の 3 つの形を受ける。

@@ -8,9 +8,10 @@
   4. `## 所見` の各行の札 `- [止める|台帳へ|直った｜<段>] …`。`[止める｜…]` か点の fail が 1 つでも在れば red、無ければ green
   5. 別の目: 書いた窓（--writer）とレビューした窓が同じなら形の誤り（自分の PR に判定を付けない）
   6. `## 点` に、review-pr の SKILL.md の「見る点」の表の点（番号と名）が全部 1 行ずつ在り、
-     各行の値が pass／fail／N/A のどれか（点 3 は `書いた窓 <id> ≠ この窓` も可）。
-     欠け・重なり・表に無い点・選べる値の外・同じ見出しの節が 2 つ在るのは誤り。
-     点の正本は SKILL.md の表 1 か所（ここに写さない）。表が読めない時は止まる（点を見ずに通さない）。
+     各行の値がその点に選べる値のどれか。選べる値は SKILL.md の「判定の形」の雛形の `## 点` の行
+     （`- 1 依頼の充足: pass/fail`・`- 8 歯と口・注入の試験: pass/fail/N/A`・点 3 は `書いた窓 <id> ≠ この窓`）から点ごとに読む。
+     欠け・重なり・表に無い点・その点に選べる値の外（例: 点 1〜7 の N/A）・同じ見出しの節が 2 つ在るのは誤り。
+     点と選べる値の正本は SKILL.md の 1 か所（ここに写さない）。読めない時は止まる（点を見ずに通さない）。
   7. red（blocked を除く）は `## verdict` に `直し: 細目 §3「まず構造を疑う」` の行が在る
      （所見を直す行の一覧として返さず、根治の入口を指す。中身は細目が正本＝ここは指すだけ）。
 
@@ -47,6 +48,8 @@ POINT_LINE = re.compile(r"^- (\d+) ([^:：]+)[:：] ?(.*)$")
 VALUE = re.compile(r"^(pass|fail|N/A)(?:$|[ （(])")
 OTHER_EYE = re.compile(r"^書いた窓 (%s) ≠ この窓$" % WINDOW)
 PREV_NO = re.compile(r"前回の\s*(\d+)\s*番")
+TEMPLATE_EYE = "書いた窓 <id> ≠ この窓"   # 雛形の点 3 の値の書き方（OTHER_EYE の雛形の形）
+TEMPLATE_VALUES = re.compile(r"^((?:pass|fail|N/A)(?:/(?:pass|fail|N/A))*)(?:$|[ （(])")
 EXTRA_LINE = re.compile(r"^- (\S+) ([^:：]+)[:：] ?(.*)$")
 
 
@@ -71,6 +74,34 @@ def load_points(path=SKILL):
     if not points:
         raise ValueError("見る点の表が読めない: %s" % path)
     return points
+
+
+def load_values(path=SKILL):
+    """review-pr の「判定の形」の雛形の `## 点` の行から {番号: 選べる値の組}。点 3 の別の目の形は {"eye"}。
+    雛形が読めない・点の値が読めない行が在る時は例外（黙って pass／fail／N/A を全部許さない）。"""
+    lines = [ln.strip() for ln in Path(path).read_text(encoding="utf-8").splitlines()]
+    try:
+        start = lines.index("## 点")
+    except ValueError:
+        raise ValueError("判定の形の雛形の `## 点` が読めない: %s" % path)
+    out = {}
+    for ln in lines[start + 1:]:
+        if not ln.startswith("- "):
+            break
+        m = POINT_LINE.match(ln)
+        if not m:
+            raise ValueError("雛形の点の行が読めない: %s" % ln[:40])
+        val = m.group(3).strip()
+        if val == TEMPLATE_EYE:
+            out[int(m.group(1))] = frozenset({"eye"})
+            continue
+        mv = TEMPLATE_VALUES.match(val)
+        if not mv:
+            raise ValueError("雛形の点 %s の選べる値が読めない: %s" % (m.group(1), val[:30]))
+        out[int(m.group(1))] = frozenset(re.findall(r"pass|fail|N/A", mv.group(1)))
+    if not out:
+        raise ValueError("判定の形の雛形の `## 点` に行が無い: %s" % path)
+    return out
 
 
 def load_cards(path=SKILL):
@@ -104,8 +135,10 @@ def section(lines, head):
     return out if inside or out else None
 
 
-def check_points(lines, points, reviewer=None, writer=None):
-    """`## 点` の欄の誤りと、fail の数。"""
+def check_points(lines, points, reviewer=None, writer=None, values=None):
+    """`## 点` の欄の誤りと、fail の数。values は {番号: 選べる値の組}（既定は SKILL.md の雛形から読む）。"""
+    if values is None:
+        values = load_values()
     errs, fails = [], 0
     body = section(lines, "点")
     if body is None:
@@ -128,7 +161,11 @@ def check_points(lines, points, reviewer=None, writer=None):
         seen.add(no)
         if name != points[no]:
             errs.append("点 %d の名が `%s` でない（今は `%s`）" % (no, points[no], name))
-        eye = OTHER_EYE.match(val) if no == 3 else None
+        allowed = values.get(no)
+        if allowed is None:
+            errs.append("点 %d の選べる値が判定の形の雛形に無い（SKILL.md の雛形に足す）" % no)
+            continue
+        eye = OTHER_EYE.match(val) if "eye" in allowed else None
         if eye:
             if reviewer and norm(eye.group(1)) == norm(reviewer):
                 errs.append("点 3: 書いた窓とレビューした窓が同じ（別の目でない）")
@@ -136,8 +173,9 @@ def check_points(lines, points, reviewer=None, writer=None):
                 errs.append("点 3: 書いた窓 %s が --writer %s と違う" % (eye.group(1), writer))
             continue
         mv = VALUE.match(val)
-        if not mv:
-            errs.append("点 %d の値が pass／fail／N/A のどれでもない: %s" % (no, val[:20]))
+        if not mv or mv.group(1) not in allowed:
+            want = "書いた窓 <id> ≠ この窓" if "eye" in allowed else "／".join(v for v in ("pass", "fail", "N/A") if v in allowed)
+            errs.append("点 %d の値が %s のどれでもない: %s" % (no, want, val[:20]))
             continue
         if mv.group(1) == "fail":
             fails += 1
@@ -225,9 +263,11 @@ def load_extra(starts=None):
     return val
 
 
-def check(text, writer=None, head=None, points=None, cards=None, previous=None, extra=None):
+def check(text, writer=None, head=None, points=None, cards=None, values=None, previous=None, extra=None):
     if points is None:
         points = load_points()
+    if values is None:
+        values = load_values()
     if cards is None:
         cards = load_cards()
     card = card_re(*cards)
@@ -272,7 +312,7 @@ def check(text, writer=None, head=None, points=None, cards=None, previous=None, 
             continue
         if re.match(r"^- [\[［]%s" % STOP_CARD, s):
             stops += 1
-    perrs, fails = check_points(lines, points, reviewer=reviewer, writer=writer)
+    perrs, fails = check_points(lines, points, reviewer=reviewer, writer=writer, values=values)
     errs.extend(perrs)
     xerrs, xfails = check_extra(lines, extra or {})
     errs.extend(xerrs)
@@ -317,6 +357,10 @@ def main(argv):
     if not opts["--writer"] or not opts["--head"]:
         # 欠けた材料で通さない: 書いた窓が無いと別の目を、先端が無いと見た後の push を照らせない
         sys.stderr.write("--writer <書いた窓の session id> と --head <PR の先端の SHA> の両方が要る（欠けたまま形を通さない）\n")
+        return 2
+    if not re.fullmatch(WINDOW, opts["--writer"]) or not re.fullmatch(r"[0-9a-f]{12,40}", opts["--head"]):
+        # 形の外の値（`,`・`x` 等）で別の目と先端の照らしを黙って素通りさせない
+        sys.stderr.write("--writer は窓の id（session_…・cse_…・UUID）、--head は先端の SHA（12〜40 桁の 16 進）で書く\n")
         return 2
     try:
         import json

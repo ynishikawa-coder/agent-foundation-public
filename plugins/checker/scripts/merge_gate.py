@@ -1,16 +1,23 @@
 #!/usr/bin/env python3
-"""合流の関所を機械で照らす（目で読まない）。main へ入れてよい PR かを、PR の本文・commit・コメントだけから決める。
+"""合流の関所を機械で照らす（目で読まない）。main へ入れてよい PR かを、PR の本文・commit・コメント・出来事だけから決める。
 
-入れてよい（exit 0）のは次が全部そろう時だけ:
-  1. 書いた窓が分かる: PR 本文の `書いた窓: <id>` が在る。merge でない commit の `Claude-Session:` の窓も書いた窓に数える。
-  2. 今の先端に、書いた窓のどれとも別の窓の green が在る: 判定のコメントが verdict_form.py の形を通り
-     （--writer に書いた窓・--head に今の先端）、1 行目の窓が書いた窓のどれでもない。
-  3. 頼み直しを照らした: その green より前に red の判定が在れば、最後の red を前回として verdict_form.py の
+入れてよい（exit 0）のは次が全部そろう時だけ（どれかを照らせない時も入れない＝既定で止める）:
+  1. main へ向いた PR: base が main（既定の枝）で、本文に `積んだ基点:` が無い。base を後から main へ向け直した PR は、
+     向け直した後に付いた判定だけを数える（積んだ差分だけを見た green で下の PR の commit を通さない）。
+  2. 書いた窓が 1 つに決まる: PR 本文の `書いた窓: <id>` が在り、merge でない commit が全部 `Claude-Session:` で
+     同じ窓を名乗る（id の 3 つの形 session_・cse_・UUID を揃えて比べる）。名乗りの無い commit・違う窓の commit は入れない。
+  3. 判定は repo の持ち主・仲間（author_association が OWNER・MEMBER・COLLABORATOR）のコメントだけを数える。
+  4. 今の先端を見た判定のうち最後の物が、書いた窓と別の窓の green で、verdict_form.py の形を通る
+     （--writer に書いた窓・--head に今の先端）。green の後に red が付けば、その red が勝つ。
+  5. 頼み直しを照らした: その green より前に red の判定が在れば、最後の red を前回として verdict_form.py の
      --previous と同じ照らし（前回の止めるを全部 `前回の N 番` で照らし、見た先端が動いた）を通る。
 材料が欠けた・読めない時は入れない（exit 1・照らせない事を名指す）。
 
 使い方:
-  python3 merge_gate.py --json <PR の材料の JSON>      （{"body": str, "head": sha, "commits": [{"message": str, "parents": int}], "comments": [str]}）
+  python3 merge_gate.py --json <PR の材料の JSON>
+      {"body": str, "head": sha, "base": "main", "default_branch": "main", "base_changed_at": ISO 時刻か null,
+       "commits": [{"message": str, "parents": int}],
+       "comments": [{"body": str, "author_association": str, "created_at": ISO 時刻}]}
   python3 merge_gate.py --github <owner/repo> --pr <番号> [--status]
       GitHub から材料を取る（環境の GITHUB_TOKEN）。--status は結果を今の先端の commit の状態 `merge-gate` に書く（CI 用）。
 """
@@ -25,25 +32,33 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import verdict_form as VF  # noqa: E402  判定の形の正本（形をここに写さない）
 
 WRITER = re.compile(r"^書いた窓:\s*(%s)\s*$" % VF.WINDOW, re.M)
-TRAILER = re.compile(r"^Claude-Session:\s*\S*?(session_[A-Za-z0-9]+)\s*$", re.M)
+STACKED = re.compile(r"^積んだ基点:", re.M)
+TRAILER = re.compile(r"^Claude-Session:\s*\S*?(%s)\s*$" % VF.WINDOW, re.M)
+TRUSTED = ("OWNER", "MEMBER", "COLLABORATOR")   # 判定を数えるコメントの書き手（公開の repo の誰でも書けるコメントは数えない）
 CONTEXT = "merge-gate"
 
 
-def writers_of(body, commits):
-    """(PR 本文の書いた窓, 書いた窓の集まり〔揃えた形〕, 誤り)。PR 本文の名乗りが無ければ誤り（照らせない）。"""
-    errs, ws, named = [], set(), None
+def writer_of(body, commits):
+    """(書いた窓〔揃えた形〕, 誤り)。本文の名乗りが無い・commit の名乗りが欠ける／違う時は誤り（照らせない）。"""
     m = WRITER.search(body or "")
     if not m:
-        errs.append("PR 本文に `書いた窓: <id>` が無い（別の目かを照らせない）")
-    else:
-        named = VF.norm(m.group(1))
-        ws.add(named)
+        return None, ["PR 本文に `書いた窓: <id>` が無い（別の目かを照らせない）"]
+    named, errs = VF.norm(m.group(1)), []
     for c in commits or []:
         if int(c.get("parents", 1)) > 1:
-            continue    # main を取り込む merge の commit は書いた窓の名乗りに数えない
-        for s in TRAILER.findall(c.get("message", "")):
-            ws.add(VF.norm(s))
-    return named, ws, errs
+            continue    # main を取り込む merge の commit は名乗りを照らさない
+        title = (c.get("message") or "").splitlines()[0][:30] if (c.get("message") or "").strip() else "(空)"
+        got = {VF.norm(s) for s in TRAILER.findall(c.get("message") or "")}
+        if not got:
+            errs.append("commit「%s」に `Claude-Session:` の名乗りが無い（誰が書いたか照らせない）" % title)
+        elif got != {named}:
+            errs.append("commit「%s」の名乗り %s が本文の書いた窓 %s と違う（別の窓の commit が混ざる・積んだ PR の下の commit）"
+                        % (title, "・".join(sorted(got)), named))
+    return named, errs
+
+
+def _comment(c):
+    return c if isinstance(c, dict) else {"body": c}    # 字だけの材料は書き手が分からない＝数えない
 
 
 def judge(data, extra=None):
@@ -51,39 +66,43 @@ def judge(data, extra=None):
     head = (data.get("head") or "").strip()
     if not re.fullmatch(r"[0-9a-f]{40}", head):
         return False, ["今の先端の SHA が分からない（照らせない）"]
-    writer, writers, errs = writers_of(data.get("body", ""), data.get("commits", []))
+    base, default = data.get("base"), data.get("default_branch") or "main"
+    if base != default:
+        return False, ["PR の base が %s でない（%s）。積んだ PR は下の PR が入ってから main へ向け直し、頼み直す" % (default, base)]
+    if STACKED.search(data.get("body") or ""):
+        return False, ["本文に `積んだ基点:` が残る（積んだ差分だけを見た判定で main へ入れない。向け直したら本文から消して頼み直す）"]
+    writer, errs = writer_of(data.get("body", ""), data.get("commits", []))
     if errs:
         return False, errs
+    since = data.get("base_changed_at") or ""
     verdicts = []
-    for text in data.get("comments", []):
-        first = (text or "").splitlines()[0].strip() if (text or "").strip() else ""
+    for c in map(_comment, data.get("comments", [])):
+        text = c.get("body") or ""
+        first = text.splitlines()[0].strip() if text.strip() else ""
         m = VF.LINE1.match(first)
-        if m:
-            verdicts.append((VF.norm(m.group(1)), m.group(2), text))
+        if not m:
+            continue
+        if c.get("author_association") not in TRUSTED:
+            continue    # 持ち主・仲間でない人の判定は数えない
+        if since and (c.get("created_at") or "") <= since:
+            continue    # base を main へ向け直す前の判定（積んだ差分だけを見た物）は数えない
+        verdicts.append((VF.norm(m.group(1)), m.group(2), text))
     if not verdicts:
-        return False, ["判定のコメントが 1 つも無い（別の窓のレビューを頼む）"]
-    why = []
-    last_red = None
-    ok = False
-    for reviewer, judged, text in verdicts:
-        if judged == "red":
-            last_red = text
-            continue
-        if reviewer in writers:
-            why.append("green の窓 %s は書いた窓（自分の PR に green を付けない）" % reviewer)
-            continue
-        if VF.seen_head(text) != head[:12]:
-            continue    # 見た後に push があった green は数えない（今の先端で見直す）
-        e = VF.check(text, writer=writer, head=head, previous=last_red, extra=extra)
-        if e:
-            why.append("窓 %s の green が形を通らない: %s" % (reviewer, " / ".join(e)))
-            continue
-        ok = True
-    if ok:
-        return True, ["今の先端 %s に書いた窓（%s）と別の窓の green が在る" % (head[:12], "・".join(sorted(writers)))]
-    if not why:
-        why.append("今の先端 %s を見た別の窓の green が無い（最後の判定の後に push があったら見直しを頼む）" % head[:12])
-    return False, why
+        return False, ["数えられる判定のコメントが 1 つも無い（持ち主・仲間が書いた別の窓のレビューを頼む）"]
+    at_head = [v for v in verdicts if VF.seen_head(v[2]) == head[:12]]
+    if not at_head:
+        return False, ["今の先端 %s を見た判定が無い（最後の判定の後に push があったら見直しを頼む）" % head[:12]]
+    reviewer, judged, text = at_head[-1]
+    if judged == "red":
+        return False, ["今の先端の最後の判定が red（窓 %s）。直して頼み直す" % reviewer]
+    if reviewer == writer:
+        return False, ["green の窓 %s は書いた窓（自分の PR に green を付けない）" % reviewer]
+    idx = verdicts.index(at_head[-1])
+    reds = [t for _, j, t in verdicts[:idx] if j == "red"]
+    e = VF.check(text, writer=writer, head=head, previous=reds[-1] if reds else None, extra=extra)
+    if e:
+        return False, ["窓 %s の green が形を通らない: %s" % (reviewer, " / ".join(e))]
+    return True, ["今の先端 %s の最後の判定が書いた窓（%s）と別の窓 %s の green" % (head[:12], writer, reviewer)]
 
 
 def _get(url, token):
@@ -107,8 +126,14 @@ def from_github(repo, pr, token):
     p = _get("%s/pulls/%d" % (api, pr), token)
     commits = [{"message": c["commit"]["message"], "parents": len(c.get("parents", []))}
                for c in _pages("%s/pulls/%d/commits" % (api, pr), token)]
-    comments = [c.get("body") or "" for c in _pages("%s/issues/%d/comments" % (api, pr), token)]
-    return {"body": p.get("body") or "", "head": p["head"]["sha"], "commits": commits, "comments": comments}
+    comments = [{"body": c.get("body") or "", "author_association": c.get("author_association"),
+                 "created_at": c.get("created_at") or ""}
+                for c in _pages("%s/issues/%d/comments" % (api, pr), token)]
+    moved = [e.get("created_at") or "" for e in _pages("%s/issues/%d/events" % (api, pr), token)
+             if e.get("event") == "base_ref_changed"]
+    return {"body": p.get("body") or "", "head": p["head"]["sha"], "base": p["base"]["ref"],
+            "default_branch": p["base"]["repo"]["default_branch"], "base_changed_at": max(moved) if moved else None,
+            "commits": commits, "comments": comments}
 
 
 def post_status(repo, sha, ok, text, token):
