@@ -32,7 +32,9 @@
 - 枝へ `main` を取り込む時は **merge**（`git merge origin/main`）。rebase と force push はしない（レビュー窓が見た SHA を消さないため）。
 - 親窓から `合流済` が届いた枝には、もう push しない。続きは原因の台帳の行にし、新しい枝の窓をその行の直す窓にする。
 
-### main の守りの設定（推奨・repo の持ち主が GitHub の設定で入れる）
+### main の守りの設定
+
+正本は `.github/rulesets/main.json`。直す時は AI がこの file を PR で直し、main に入ると CI の job `rulesets` が GitHub へ書き戻す（クラウドの窓は設定の口へ直に書けない・鍵 `RULESET_TOKEN` が無い時は書き戻しが赤で止まる）。鍵は environment `rulesets` の秘密に置く（repo の秘密に置くと、どの枝の workflow からも読める）。持ち主が 1 回だけ、Settings → Environments で `rulesets` を作り、Deployment branches を「Selected branches and tags」にして `main` だけを足し、Environment secrets に `RULESET_TOKEN`（この repo だけ・Administration: Read and write の鍵）を置く。書く前に `scripts/ruleset_apply.py` が枝の制限を読み、main だけでなければ書かずに赤で止まる。
 
 - `main` への直の push を禁止し、PR を必須にする。
 - 必須の検査に CI の `check`・`public-guard`・`plugin-smoke`（`.github/workflows/ci.yml`）を入れる。土台は main の先端をそのまま全部の窓へ配るので、`plugin-smoke`（使う側と同じ入れ方で入れて起動する試験）が合流の前の守り。`public-guard` か `plugin-smoke` が必須でないと見回りが知らせる（`docs/公開の検査.md`）。
@@ -71,7 +73,7 @@
 ## 6. 検査の入口（CI）
 
 - CI は `.github/workflows/ci.yml`。`main` への push と、すべての PR で走る。
-- CI の job は `check`（入口は `bash scripts/check_all.sh` の 1 本）と `public-guard`（公開の検査）と `plugin-smoke`（PR の枝を使う側と同じ入れ方で入れて窓を起動し、核の差し込み・守りの hook・skill の読み込みを見る。`scripts/plugin_smoke.py` と、その歯の `tests/test_plugin_smoke.py`）と、止めない知らせの `overlap`（開いている他の PR が同じ file の同じ行の辺りを書き換えていれば名指す・`scripts/pr_overlap.py`）。`check_all.sh` は中で pytest（`tests/`）と、`scripts/checks/*.sh` があればそれを順に走らせる（claude の命令が無い所では `tests/test_plugin_smoke.py` を飛ばす）。
+- CI の job は `check`（入口は `bash scripts/check_all.sh` の 1 本）と `public-guard`（公開の検査）と `plugin-smoke`（PR の枝を使う側と同じ入れ方で入れて窓を起動し、核の差し込み・守りの hook・skill の読み込みを見る。`scripts/plugin_smoke.py` と、本物の claude を要る試験＝印 `real_claude` の付いた試験を `pytest -m real_claude tests/` で全部）と、止めない知らせの `overlap`（開いている他の PR が同じ file の同じ行の辺りを書き換えていれば名指す・`scripts/pr_overlap.py`）。`check_all.sh` は中で pytest（`tests/`）と、`scripts/checks/*.sh` があればそれを順に走らせる（claude の命令が無い所では印 `real_claude` の試験を飛ばす。飛ばす条件は `tests/conftest.py` の 1 か所で、試験の file に書かない）。
 - 検査を足す時は `scripts/checks/<名前>.sh` を足すか、`tests/` に試験を足す。`ci.yml` と `check_all.sh` は書き換えなくてよい。
 - `check_all.sh` の最後の行が `check_all: 緑` なら通り、`check_all: 赤 …` なら止まり。止まったら赤の行を 1 つずつ潰さず、細目 §3「まず構造を疑う」で原因から直す。
 

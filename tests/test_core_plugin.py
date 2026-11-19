@@ -119,7 +119,7 @@ def test_plugin_を入れる行は綴りが違っても古い形に当たる(lin
 
 
 def test_入口を呼ぶ_setup_は古い形に当たらない():
-    """入口 scripts/setup_plugins.py を通る形（docs の 3 行）は、目録を足していても古い形ではない。"""
+    """入口 scripts/setup_plugins.py を通る形（docs の塊）は、目録を足していても古い形ではない。"""
     row = next(r for r in kaku.olds_table() if r["id"] == "plugin-name-copy")
     doc = (ROOT / "docs" / "核の届け方.md").read_text(encoding="utf-8")
     block = re.search(r"<!-- setup-script.*?-->\s*```bash\n(.*?)\n\s*```", doc, re.S).group(1)
