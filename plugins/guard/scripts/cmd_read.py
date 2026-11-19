@@ -355,3 +355,67 @@ def abbrev_of(word, long_opt, min_len=3):
 
 def prog_name(words):
     return os.path.basename(words[0].text) if words else ""
+
+
+# ── 網と読むだけの見分け（守りは網を既定にし、読み手は「何も走らせない」と証せた時に通す側にだけ使う）──
+# なぜ: 読み手が段の頭を知っている形の表で決めると、表に無い形（if/then・!・coproc・timeout -s・env -u・
+#   echo … | bash・perl -e・ssh・find -exec など）を「ふつうの命令」と返し、守りが黙って通した（PR #81 のレビュー）。
+#   形の表は必ず漏れる。だから守りは「危ない語が命令のどこかに在る」を既定で止め、読み手が全部の段を
+#   「読むだけの命令」と証せた時だけ通す。知らない形は証せないので止まる。
+_SPLIT = re.compile(r"[\s;|&()<>{}`$=,\[\]]+")
+INERT = {"cat", "less", "more", "head", "tail", "grep", "egrep", "fgrep", "rg", "ag", "ls", "wc", "file", "stat",
+         "diff", "cmp", "comm", "sort", "uniq", "cut", "tr", "nl", "column", "jq", "yq", "readlink", "realpath",
+         "dirname", "basename", "pwd", "true", "false", "test", "[", "which", "type", "du", "df", "tree", "md5sum",
+         "sha1sum", "sha256sum", "od", "hexdump", "strings", "echo", "printf"}
+INERT_GIT = {"log", "diff", "show", "status", "grep", "blame", "ls-files", "rev-parse", "branch", "describe",
+             "shortlog", "cat-file", "ls-tree", "merge-base", "add", "commit", "fetch"}
+_GIT_OPT_ARG = {"-C", "-c", "--git-dir", "--work-tree", "--namespace"}
+
+
+def _flat(s):
+    return s.replace("\\\n", "").replace("'", "").replace('"', "").replace("\\", "")
+
+
+def mentions(cmd):
+    """命令の中の語の集合: 引用符・逃がしを外した字を割った語 ∪ 読み手が変数を解いた語（とその中を割った語）。
+    位置を問わない網（字を割る・変数に置く・包む・段の頭が知らない形でも、語は網に掛かる）。"""
+    out = set()
+    if not isinstance(cmd, str):
+        return out
+    out.update(t for t in _SPLIT.split(_flat(cmd)) if t)
+    for seg in read(cmd).segments:
+        for w in seg:
+            out.add(w.text)
+            out.update(t for t in _SPLIT.split(_flat(w.text)) if t)
+    out.update(os.path.basename(t) for t in list(out))
+    return out
+
+
+def _seg_inert(words):
+    if not words or any(w.opaque for w in words):
+        return False
+    prog = prog_name(words)
+    if prog == "git":
+        i = 1
+        while i < len(words) and words[i].text.startswith("-"):
+            i += 2 if words[i].text in _GIT_OPT_ARG else 1
+        return i < len(words) and words[i].text in INERT_GIT
+    if prog == "sed":
+        return not any(w.text.startswith("-i") or w.text == "--in-place" or re.search(r"(^|[;}])\s*[ew]\b|/[ew]\s*$", w.text)
+                       for w in words[1:])
+    if prog in ("sort",):
+        return not any(w.text.startswith("-o") for w in words[1:])
+    return prog in INERT
+
+
+def inert(cmd):
+    """命令の全部の段が、読み手の読める形で「何も走らせない・消さない・書き換えない読むだけの命令」の時だけ True。
+    読めない所（$(…)・解けない変数・字句が割れない）・表に無い頭・リダイレクトで file へ書く形は False（＝守りは止める側）。"""
+    if not isinstance(cmd, str):
+        return False
+    r = read(cmd)
+    if r.opaque or not r.segments:
+        return False
+    if re.search(r"(?<![<>&\d])\d*>{1,2}(?!&)\s*(?!/dev/null\b)[^\s&|;]", _flat(_strip_heredocs(cmd))):
+        return False   # file へ書く
+    return all(_seg_inert(seg) for seg in r.segments)
