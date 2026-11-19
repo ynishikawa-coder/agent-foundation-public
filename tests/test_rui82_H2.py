@@ -98,7 +98,7 @@ PAT = ["決定の記録"]
     {"name": NOTION_PAGES, "input": {"pages": [{"content": "決定の記録 を書く"}]}},
     {"name": "Write", "input": {"file_path": "/x/決定の記録.md", "content": "x"}},
 ])
-def test_rui82_H2_名を書いただけ・作る道具の入力は引いた跡に数えない(block):
+def test_rui82_H2_名を書いただけと作る道具の入力は引いた跡に数えない(block):
     assert not any(prior_ask.re.search(p, s) for s in prior_ask.read_sigs(block) for p in PAT)
 
 
