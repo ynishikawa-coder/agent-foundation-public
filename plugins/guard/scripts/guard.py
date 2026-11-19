@@ -5,11 +5,13 @@
                                 ＋ qa_page（問いのページを Artifact で出す前の qa-html の検査）
                                 ＋ ask_shape（選択肢の画面の問いの形: 題の長さ・中の言葉・話題の混ざり・推奨の印の付け方）
                                 ＋ pick_one（選択肢の画面で作業・論点・原因を 1 つだけ選ばせる問い）
+                                ＋ prior_ask（選択肢の画面の前に決定の記録と問いの表を引いた跡）
   guard.py post   … PostToolUse: unanswered の capture（答えの無い問いの台帳）＋ context_size（文脈の量）
                                 ＋ ask_shape の notice（推奨の印が済んだか・意図の問いに付いた知らせ）
   guard.py start  … SessionStart: unanswered の resurface（持ち越した問いの出し直し）
+  guard.py stop   … Stop:        context_size の stop（文脈の目安を越えて引き継がずに締める AI を差し戻す）
 
-止めるのは pre だけ（permissionDecision=deny）。post と start は隣に文を出すだけ。
+止めるのは pre（permissionDecision=deny）と stop（decision=block・AI の締めだけ・上限つき）。post と start は隣に文を出すだけ。
 どの見張りも壊れた時は黙って通す（1 つの故障で他の見張りや仕事を止めない）。exit は常に 0。
 """
 import importlib
@@ -22,7 +24,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import guard_common as G  # noqa: E402
 
-EVENTS = {"pre": "PreToolUse", "post": "PostToolUse", "start": "SessionStart"}
+EVENTS = {"pre": "PreToolUse", "post": "PostToolUse", "start": "SessionStart", "stop": "Stop"}
 # 止めた時の最後の行（どの見張りの止めにも 1 か所で付ける。中身は細目 §3 が正本＝ここは指すだけ）
 ROOT_CAUSE = "直し: 止められた所を直して出し直すだけで済ませず、その形が出た原因を細目 §3「まず構造を疑う」で探して直す"
 
@@ -37,9 +39,11 @@ def _run(module, func, data, vals):
 
 
 WATCHERS = {
-    "pre": [("irreversible", "check"), ("paid_upstream", "check"), ("qa_page", "check"), ("ask_shape", "check"), ("pick_one", "check")],
+    "pre": [("irreversible", "check"), ("paid_upstream", "check"), ("qa_page", "check"), ("ask_shape", "check"), ("pick_one", "check"),
+            ("prior_ask", "check")],
     "post": [("unanswered", "capture"), ("context_size", "check"), ("ask_shape", "notice")],
     "start": [("unanswered", "resurface")],
+    "stop": [("context_size", "stop")],
 }
 
 
@@ -52,6 +56,8 @@ def run(event, data):
     outs = [o for o in (_run(m, f, data, vals) for m, f in WATCHERS[event]) if o]
     if not outs:
         return None
+    if event == "stop":
+        return {"decision": "block", "reason": "\n\n".join(outs + [ROOT_CAUSE])}
     if event == "pre":
         return {"hookSpecificOutput": {"hookEventName": EVENTS[event], "permissionDecision": "deny",
                                        "permissionDecisionReason": "\n\n".join(outs + [ROOT_CAUSE])}}
@@ -61,7 +67,7 @@ def run(event, data):
 def main(argv):
     event = argv[1] if len(argv) > 1 else ""
     if event not in EVENTS:
-        sys.stderr.write("使い方: guard.py pre|post|start（標準入力に hook の JSON）\n")
+        sys.stderr.write("使い方: guard.py pre|post|start|stop（標準入力に hook の JSON）\n")
         return 0
     try:
         data = json.load(sys.stdin)
