@@ -18,7 +18,15 @@
   8. 所見の札（止める・台帳へ・直った）と段（設計・整地…）は、review-pr の SKILL.md の「判定の形」の節の
      「- 札は」の行から読む（ここに写さない＝札や段を足す PR がこの file の定数を触らない）。読めない時は止まる。
 
+  9. 判定のコメントかの見分け（looks_verdict）も、判定を返す 1 行（return_line）もここが正本。guard の pr_text は
+     looks_verdict を直に呼び、返しの 1 行は --return-line が組む（手で組まない）。判定の決まりの文 JUDGE_RULE・
+     SAME_EYE_RULE は review-pr の SKILL.md がそのまま載せ、試験が一致を照らす。窓の id の形は window_shape（lib）。
+
 使い方: python3 verdict_form.py <コメントのファイル> [<ファイル> …] --writer <書いた窓の session id> --head <PR の先端の SHA>
+        [--return-line --pr <PR の番号> --branch <枝> --ruler <物差しの最後の行>]
+  --return-line: 形に誤りが無い時だけ、返しの 1 行（RETURN_LINE の形）を出す（ファイルは 1 つだけ）。
+       python3 verdict_form.py --looks <コメントのファイル>
+  --looks: 判定のコメントかだけを `verdict`／`other` の 1 行で出す（exit 0）。guard の pr_text がこれを呼ぶ。
   --writer と --head は欠かせない（欠けたら別の目と先端を照らさずに通さない＝exit 2）。
   助手（Agent）の判定は立てた窓の session id で書く。書いた窓が立てた助手の判定は --writer と同じになり誤り。
   ファイルは全部照らす（2 つ以上の時は誤りの頭にファイルの名）。誤りを 1 行ずつ出し、どれかに誤りがあれば exit 1。
@@ -27,19 +35,56 @@ import re
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
+from window_shape import SESSION_ID_PAT  # noqa: E402  窓の id の形の正本（土台の window-shape/ への symlink）
+
 SKILL = Path(__file__).resolve().parent.parent / "skills" / "review-pr" / "SKILL.md"
 
-LINE1 = re.compile(r"^レビューした窓: (session_[A-Za-z0-9]+) 判定: (green|red)$")
+# 判定の決まりの文（review-pr の SKILL.md はこの文をそのまま載せる＝試験が照らす。決め方は check の want）。
+JUDGE_RULE = "`[止める｜…]` か点の fail が 1 つでも在れば red、どちらも無ければ green（1 行目の `判定:` と合わせる）。"
+SAME_EYE_RULE = "書いた窓と同じ窓は判定を書かない（名乗りが無い・合わない時は `red（blocked: …）`）。"
+
+LINE1 = re.compile(r"^レビューした窓: (%s) 判定: (green|red)$" % SESSION_ID_PAT)
 LINE2 = re.compile(r"^見た先端: ([0-9a-f]{12})$")
 VERDICT = re.compile(r"^(green|red)(?:（blocked: .+）)?$")
 STOP_CARD = "止める"   # 1 つでも在れば red になる札（判定の決まりの軸。名は SKILL.md の札の並びに在ることを load_cards が確かめる）
 POINT_ROW = re.compile(r"^\| (\d+) (\S[^|]*?) \|")
 POINT_LINE = re.compile(r"^- (\d+) ([^:：]+)[:：] ?(.*)$")
 VALUE = re.compile(r"^(pass|fail|N/A)(?:$|[ （(])")
-OTHER_EYE = re.compile(r"^書いた窓 (session_[A-Za-z0-9]+) ≠ この窓$")
+OTHER_EYE = re.compile(r"^書いた窓 (%s) ≠ この窓$" % SESSION_ID_PAT)
 TEMPLATE_EYE = "書いた窓 <id> ≠ この窓"   # 雛形の点 3 の値の書き方（OTHER_EYE の雛形の形）
 TEMPLATE_VALUES = re.compile(r"^((?:pass|fail|N/A)(?:/(?:pass|fail|N/A))*)(?:$|[ （(])")
 ROOT_CAUSE = "直し: 細目 §3「まず構造を疑う」"
+
+# 判定のコメントかの見分け（guard の pr_text が直に呼ぶ）: 名乗りの欄と判定が 1 行に揃う行（どの行でも・`:` の全角半角を
+# 問わない）か、verdict の見出し（# の数・大小文字を問わない）。コードの囲み・HTML のコメントの中は数えない。崩れた判定も
+# 判定として拾い、上の形で照らす（形の崩れを見分けの外へ逃がさない）。
+LOOKS_LINE = re.compile(r"^[ \t]*レビューした窓\s*[:：].*判定\s*[:：]\s*(?:green|red)\b", re.M | re.I)
+LOOKS_HEAD = re.compile(r"^[ \t]*#{1,6}\s*verdict\s*$", re.M | re.I)
+_FENCE = re.compile(r"^\s*(```|~~~).*?^\s*\1", re.M | re.S)
+_COMMENT = re.compile(r"<!--.*?-->", re.S)
+
+# 判定を返す 1 行の形（review-pr の手順 5。--return-line が組む）。
+RETURN_LINE = "判定 {pr} {branch}@{sha} verdict={verdict} レビューした窓={reviewer} 物差し={ruler}"
+RETURN_RED = " 直し=細目 §3「まず構造を疑う」"
+
+
+def looks_verdict(body):
+    """判定のコメントか。文中に「判定: green」と書いた普通のコメントや「レビューした窓は…」の文は判定と見なさない。"""
+    body = _FENCE.sub(" ", _COMMENT.sub(" ", body or ""))
+    return bool(LOOKS_LINE.search(body) or LOOKS_HEAD.search(body))
+
+
+def return_line(text, pr, branch, ruler):
+    """形の通った判定から返しの 1 行。1 行目・2 行目が読めなければ None。"""
+    lines = (text or "").splitlines()
+    m1 = LINE1.match(lines[0].strip()) if lines else None
+    m2 = LINE2.match(lines[1].strip()) if len(lines) > 1 else None
+    if not (m1 and m2):
+        return None
+    out = RETURN_LINE.format(pr=pr, branch=branch, sha=m2.group(1), verdict=m1.group(2), reviewer=m1.group(1),
+                             ruler=" ".join(str(ruler).split()))
+    return out + (RETURN_RED if m1.group(2) == "red" else "")
 
 
 def load_points(path=SKILL):
@@ -228,7 +273,16 @@ def main(argv):
     if not args:
         sys.stderr.write(__doc__)
         return 2
-    opts, paths, i = {"--writer": None, "--head": None}, [], 0
+    if args[0] == "--looks":
+        if len(args) != 2:
+            sys.stderr.write("--looks はファイル 1 つ\n")
+            return 2
+        with open(args[1], encoding="utf-8") as f:
+            print("verdict" if looks_verdict(f.read()) else "other")
+        return 0
+    opts, paths, i = {"--writer": None, "--head": None, "--pr": None, "--branch": None, "--ruler": None}, [], 0
+    want_return = "--return-line" in args
+    args = [a for a in args if a != "--return-line"]
     while i < len(args):
         a = args[i]
         if a in opts:
@@ -253,6 +307,9 @@ def main(argv):
         # 欠けた材料で通さない: 書いた窓が無いと別の目を、先端が無いと見た後の push を照らせない
         sys.stderr.write("--writer <書いた窓の session id> と --head <PR の先端の SHA> の両方が要る（欠けたまま形を通さない）\n")
         return 2
+    if want_return and (len(paths) != 1 or not all(opts[k] for k in ("--pr", "--branch", "--ruler"))):
+        sys.stderr.write("--return-line はファイル 1 つと --pr・--branch・--ruler が要る（欠けたまま返しの行を組まない）\n")
+        return 2
     bad = 0
     for path in paths:
         with open(path, encoding="utf-8") as f:
@@ -262,6 +319,9 @@ def main(argv):
             print(("%s: %s" % (path, e)) if len(paths) > 1 else e)
     if len(paths) > 1:
         print("照らしたファイル %d・誤りのあるファイル %d" % (len(paths), bad))
+    if want_return and not bad:
+        with open(paths[0], encoding="utf-8") as f:
+            print(return_line(f.read(), opts["--pr"], opts["--branch"], opts["--ruler"]))
     return 1 if bad else 0
 
 

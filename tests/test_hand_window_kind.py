@@ -19,8 +19,8 @@ sw = importlib.util.module_from_spec(spec)
 sys.dont_write_bytecode = True
 spec.loader.exec_module(sw)
 
-CHILD = "作り物の手を頼む（親窓 session_PARENT01 の子）。"
-TO_WINDOW = "作り物の手を頼む（返し先=session_PARENT01）。"
+CHILD = "作り物の手を頼む（親窓 session_01PARENT0100000000 の子）。"
+TO_WINDOW = "作り物の手を頼む（返し先=session_01PARENT0100000000）。"
 HAND_REPLY = ("⏳ 待ち\n目的: 作り物の設定を入れる\n手順: 作り物の画面で作り物の値を入れる\n"
               "済んだ目印: 作り物の画面に値が出る\n済んだ後: 頼んだ窓へ返す\n"
               "AI がこの後やること: 済んだ目印を確かめて頼んだ窓へ返す\n"
@@ -32,7 +32,7 @@ def hand_log(tmp_path, first, title, reply=HAND_REPLY):
         {"type": "user", "message": {"role": "user", "content": first}},
         {"type": "assistant", "message": {"role": "assistant", "content": [
             {"type": "tool_use", "id": "t1", "name": "mcp__claude-code-remote__set_session_title",
-             "input": {"session_id": "session_HAND01", "title": title}}]}},
+             "input": {"session_id": "session_01HAND010000000000", "title": title}}]}},
         {"type": "user", "message": {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "t1",
                                                                   "content": "ok"}]}, "toolUseResult": {"ok": True}},
         {"type": "assistant", "message": {"role": "assistant", "content": [{"type": "text", "text": reply}]}},
@@ -44,7 +44,7 @@ def hand_log(tmp_path, first, title, reply=HAND_REPLY):
 
 def stop_reason(tmp_path, first, title, reply=HAND_REPLY):
     env = {"CLAUDE_CODE_REMOTE": "true", "AF_SESSION_WATCH_TMP": str(tmp_path / "tmp")}
-    return sw.stop({"transcript_path": str(hand_log(tmp_path, first, title, reply)), "session_id": "session_HAND01",
+    return sw.stop({"transcript_path": str(hand_log(tmp_path, first, title, reply)), "session_id": "session_01HAND010000000000",
                     "last_assistant_message": reply}, env)
 
 

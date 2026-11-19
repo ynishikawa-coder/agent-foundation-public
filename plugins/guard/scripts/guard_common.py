@@ -23,9 +23,8 @@ import skill_values as SV  # noqa: E402  値の表の 1 本の口（土台の sk
 
 DEFAULTS = SV.defaults("guard")
 
-# 窓の種類の決まり（session-watch の title-mark と同じ線）: 最初の頼みの文の返し先が別の窓なら子の窓（文脈の知らせだけが読む）。
-RETURN_TO_WINDOW = re.compile(r"返し先\s*[=＝:：]\s*session_[A-Za-z0-9]+")
-CHILD_OF = re.compile(r"（親窓\s*session_[A-Za-z0-9]+\s*の子）")
+# 窓の形の正本（窓の id・返し先・種類）。土台の window-shape/ への symlink＝ここに写さない。
+import window_shape as W  # noqa: E402
 
 
 GUARD_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -212,15 +211,27 @@ def is_owner_row(row):
             and bool(text_of(row).strip()))
 
 
-def first_owner_text(path):
+def window_kind_of_log(path):
+    """会話ログの窓の種類（🤖／🙋／None）。正本 window_shape.window_kind に、最初の頼みの文と、窓が自分で付けた最後の題
+    （手の窓は返し先によらず 🙋）を渡す。読めない時は None。"""
+    first, title = "", None
     try:
         for row in iter_rows(path):
-            if is_owner_row(row):
-                return text_of(row)
+            if not first and is_owner_row(row):
+                first = text_of(row)
+            if row.get("type") != "assistant":
+                continue
+            msg = row.get("message")
+            for b in (msg.get("content") if isinstance(msg, dict) else None) or []:
+                if isinstance(b, dict) and b.get("type") == "tool_use":
+                    t = W.title_in_tool(b.get("name"), b.get("input"))
+                    if t is not None:
+                        title = t
     except Exception:
-        return ""
-    return ""
+        return None
+    return W.window_kind(first, title)
 
 
-def is_child_prompt(text):
-    return bool(RETURN_TO_WINDOW.search(text or "") or CHILD_OF.search(text or ""))
+def is_child_window(path):
+    """別の窓へ返す窓（🤖）か。手の窓は返し先が窓でも 🙋＝人のいる窓（種類の決め方は window_shape が正本）。"""
+    return window_kind_of_log(path) == W.AI

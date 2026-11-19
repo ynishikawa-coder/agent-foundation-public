@@ -38,7 +38,7 @@ def test_context_stop_目安を越えて引き継がずに締めると差し戻�
 
 
 def test_context_stop_子の窓には返し先へ送って止まる直し方を返す(env, tmp_path):
-    why = stop_hook(env, over_log(tmp_path, 400_000, first="あなたは書く窓です（親窓 session_ABC123 の子）。"))
+    why = stop_hook(env, over_log(tmp_path, 400_000, first="あなたは書く窓です（親窓 session_01ABC1230000000000 の子）。"))
     assert "返し先の窓へ送り、止まる" in why, why
 
 

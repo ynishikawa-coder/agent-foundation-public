@@ -23,7 +23,12 @@
 """
 from __future__ import annotations
 
+import os
 import re
+import sys
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib"))
+from window_shape import SESSION_ID  # noqa: E402  窓の id の形の正本（土台の window-shape/ への symlink）
 
 ASK_TOOL = "AskUserQuestion"
 
@@ -39,11 +44,11 @@ INNER = (
                        r"|(?<![A-Za-z0-9_.\-])(?=[A-Za-z0-9_.\-/]*[A-Za-z])[A-Za-z0-9_.\-]+(?:/[A-Za-z0-9_.\-]+){2,}")),
     ("英字の識別子", re.compile(r"(?<![A-Za-z0-9])[a-z][a-z0-9]*(?:_[a-z0-9]+)+(?![A-Za-z0-9])")),  # snake_case
     ("識別子", re.compile(r"[ぁ-んァ-ヶ一-龠ー]+_\d+")),                                         # 直し_0020
-    ("窓の id", re.compile(r"session_[A-Za-z0-9]+")),
+    ("窓の id", SESSION_ID),
     ("commit の印", re.compile(r"(?<![A-Za-z0-9])(?=[0-9a-f]*\d)(?=[0-9a-f]*[a-f])[0-9a-f]{7,40}(?![A-Za-z0-9])")),
     ("コードの字", re.compile(r"`[^`]+`")),
 )
-# 推奨の印: 形は 1 つだけ（見出しの末の「(推奨)」「（推奨）」「(Recommended)」）。見出しに推奨の語（推奨・おすすめ・recommend…）が
+# 推奨の印: 見出しの末の括弧の推奨 1 つ（「(推奨)」と、同じ印の全角・英語の書き「（推奨）」「(Recommended)」を受ける＝受ける形の正本はここ）。見出しに推奨の語（推奨・おすすめ・recommend…）が
 # それ以外の形で在れば、印の形の崩れとして止める（「非推奨」「推奨なし」「推奨どおり」も見出しには置かず説明へ）。
 # 形を 1 つに閉じるので、言い回しの数だけ見分けを足さない（知らない形は既定で止める）。説明（description）の文の中の語は数えない。
 _REC_WORD = re.compile(r"推奨|おすすめ|お勧め|お薦め|オススメ|おススメ|イチオシ|recommend|suggested", re.I)
