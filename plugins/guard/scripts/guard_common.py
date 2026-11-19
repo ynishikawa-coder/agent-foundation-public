@@ -216,17 +216,17 @@ def is_owner_row(row):
 # 人が打った頼みの記録（会話ログの行の origin.kind。Claude Code が頼みを受けた口で付ける＝文の中身では変わらない）。
 # 正本はここ 1 か所（plugin session-watch も隣の正本としてこれを直に読む＝写さない）。
 HUMAN_ORIGINS = ("human", "person")
-# 窓の親の記録: 別の窓が create_session で立てた窓に、クラウドの仕組みが窓の環境へ入れる印（道具の呼び出しの文では変わらない）。
-CHILD_SESSION_ENV = "CLAUDE_CODE_CHILD_SESSION"
+# 窓の環境の CLAUDE_CODE_CHILD_SESSION は読まない: 公式の文書（code.claude.com/docs/en/env-vars）では「Claude Code が Bash・
+# hook・status line で起動する子プロセスに付く 1」で、どの窓でも hook の中では 1＝別の窓が立てた窓の見分けにならない。
+# 頼みの行がまだ無い時の見分けは、サーバの記録（get_session の parent_session_id）を AI に読ませる（session-watch の知らせ）。
 
 
-def seeded_by_record(row, env=None):
+def seeded_by_record(row):
     """頼みの行が、人が打った物でなく別の窓・仕組みから来た事を、記録が示すか（子の窓の見分けの記録の正本）。
-    記録: 頼みの行が在れば行の origin.kind が人の物でない（別の窓の create_session・send_message・知らせ等）か
-    promptSource が system。頼みの行がまだ無い時（最初の頼みを受けた hook）は、窓の環境の CHILD_SESSION_ENV。
-    記録が無い・読めない時は False（文だけで子の窓と決めない）。"""
+    記録: 頼みの行の origin.kind が人の物でない（別の窓の create_session・send_message・知らせ等）か promptSource が system。
+    行が無い・記録が無い・読めない時は False（文だけで子の窓と決めない＝人の窓の側へ倒す）。"""
     if not isinstance(row, dict):
-        return truthy((os.environ if env is None else env).get(CHILD_SESSION_ENV))
+        return False
     origin = row.get("origin")
     if isinstance(origin, dict) and isinstance(origin.get("kind"), str) and origin["kind"]:
         return origin["kind"] not in HUMAN_ORIGINS

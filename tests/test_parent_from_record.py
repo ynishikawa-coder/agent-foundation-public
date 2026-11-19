@@ -4,8 +4,9 @@
   - 最初の知らせ（session-watch の remind_title）は、会話ログに頼みの行がまだ無い時に頼みの文しか読めず、子の窓と決めなかった。
   - PR 本文の頭の `親窓:` の欄は手で書いた写しで、どの道具も窓の親の記録と照らさず、窓の id の照らしからも外していた。
   - 人の頼みの印（origin.kind の human・person）を guard の guard_common と session-watch の session_watch の 2 か所に写していた。
-今の形: 子の窓かの記録は guard_common.seeded_by_record の 1 か所（頼みの行の origin、行が無い時は窓の環境の
-`CLAUDE_CODE_CHILD_SESSION`）。session_watch はそれを隣の正本として直に読む。`親窓:` の欄は畳んだ（親は get_session の記録）。
+今の形: 子の窓かの記録は guard_common.seeded_by_record の 1 か所（頼みの行の origin）。session_watch はそれを隣の正本として
+直に読む。行がまだ無い最初の知らせでは子の窓と決めず、文が別の窓を指す時だけ get_session の parent_session_id で決めさせる
+（窓の環境の `CLAUDE_CODE_CHILD_SESSION` は hook の子プロセス全部に付く印で見分けにならない＝test_child_session_mark.py）。`親窓:` の欄は畳んだ（親は get_session の記録）。
 """
 import importlib.util
 import json
@@ -35,28 +36,22 @@ def empty_log(tmp_path):
     return str(log)
 
 
-# ── 1. 最初の知らせ: 会話ログに行が無い時は窓の環境の記録を読む ──
-def test_注入_ログに行が無くても環境の記録が子なら子の窓の知らせ(tmp_path):
+# ── 1. 最初の知らせ: 会話ログに行が無い時は文だけで子の窓と決めず、サーバの記録で決めさせる ──
+def test_ログに行が無く文が別の窓を指せば_parent_session_id_で決めさせる(tmp_path):
     text = sw.remind({"prompt": CHILD, "transcript_path": empty_log(tmp_path)}, CHILD_ENV)
-    assert text and "付け直す" in text, text
+    assert text and "parent_session_id" in text and "付け直す" in text, text
 
 
-def test_ログに行が無く環境の記録も無ければ文だけで子の窓にしない(tmp_path):
-    text = sw.remind({"prompt": CHILD, "transcript_path": empty_log(tmp_path)}, CLOUD)
-    assert text and "付け直す" not in text, text
-
-
-def test_環境の記録が子でも返し先がオーナーなら_オーナー相手の窓(tmp_path):
+def test_ログに行が無く返し先がオーナーなら_オーナー相手の窓(tmp_path):
     text = sw.remind({"prompt": "作り物を見て（返し先=オーナー）", "transcript_path": empty_log(tmp_path)}, CHILD_ENV)
     assert text and "付け直す" not in text and "🙋（最初の頼みの返し先から）" in text, text
 
 
-def test_注入_頼みの行が人の記録なら環境の記録より行を正本にする():
+def test_注入_頼みの行が人の記録なら子の窓にしない():
     gc = load_gc()
     row = {"type": "user", "message": {"content": CHILD}, "origin": {"kind": "human"}}
-    assert gc.seeded_by_record(row, {"CLAUDE_CODE_CHILD_SESSION": "1"}) is False
-    assert gc.seeded_by_record(None, {"CLAUDE_CODE_CHILD_SESSION": "1"}) is True
-    assert gc.seeded_by_record(None, {}) is False
+    assert gc.seeded_by_record(row) is False
+    assert gc.seeded_by_record(None) is False
 
 
 # ── 3. 人の頼みの印は guard_common の 1 か所だけ ──
