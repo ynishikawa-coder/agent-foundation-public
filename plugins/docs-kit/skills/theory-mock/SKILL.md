@@ -1,6 +1,7 @@
 ---
 name: theory-mock
 description: 要件すり合わせ用の「触れる全画面モック（理論モック）」HTML 1枚を作って渡す skill。枠（左の目次・右の欄・社内/先方の切替・○×△＋一言・画面コメント・1回のコピーで貼り戻し）は固定で、題材ごとに中身（要件の整理・画面・決めたいこと・ダミーデータ）だけ差す。外部依存ゼロ・file://完動。qa-html＝質問だけ／mindmap＝構造の組み替え／これ＝画面を見ながら決めたいことに答える。「理論モック作って」「全画面モックで要件すり合わせ」「触れるモックで要件詰めて」「画面を見ながら決めたいことを聞いて」で起動。全agent共通。
+page-check: scripts/check_theory_mock.py
 ---
 
 # /theory-mock — 画面を見ながら要件をすり合わせる理論モック
@@ -46,7 +47,7 @@ repo ごとに違う値は、repo の根（`git rev-parse --show-toplevel`）の
 5. **ダミーデータは実名・実額にしない**（従業員A・サンプル会社・丸めた架空の額）。会社名・人名・Drive/Sheet の ID を中身に書かない（リンクが要る時も共有前提のものだけ）。
 6. **Q 番号と画面 id は作り直しでも変えない**（貼り戻しと保存済み回答の鍵）。消す時は欠番にし、詰め直さない。`META.storageKey` も同じ題材なら変えない（前の回答が残る）。
 7. **保存** = `確認_<件名>_理論モック_<YYYYMMDD>.html`。置き場は表の `common.save_dir`（無ければ窓の scratchpad＝git の外・PR に載せない）。`common.save_dir_avoid` には置かない。
-8. **検査してから渡す** = `python3 <この skill>/scripts/check_theory_mock.py <保存した html>` で `SELFTEST OK <n> screens`（exit 0）を取る。NG なら細目 §3「まず構造を疑う」で原因（枠の使い方・題材の組み方）から直してから（NG 行＝画面 id と例外。飛び先の無い `data-go`・`Q` に無い番号・`LINKS` に無いキーも NG）。exit 2 は Chrome が無い／起動できない＝検査できていない（OK と言わない）。
+8. **検査してから渡す** = `python3 <この skill>/scripts/check_theory_mock.py <保存した html>` で `SELFTEST OK <n> screens`（exit 0）を取る。NG なら細目 §3「まず構造を疑う」で原因（枠の使い方・題材の組み方）から直してから（NG 行＝画面 id と例外。飛び先の無い `data-go`・`Q` に無い番号・`LINKS` に無いキーも NG）。exit 2 は Chrome が無い／起動できない＝検査できていない（OK と言わない）。 Artifact で出す時は guard の `page_check` が publish の前に同じ検査を回し、赤・回せない時は止める（型の印 `<meta name="af-page">` を消さない＝消すと止まる）。
 9. **渡す** = 検査を通した html を表の `common.delivery` で渡す（無ければ Artifact で publish し非公開のまま・共有しない／`file:///…` の絶対パスでもよい）。チャットには URL 1 行と「見どころ」数行（特に答えてほしい Q・迷った画面）だけ。HTML の中身をチャットに再展開しない。
 
 ## 貼り戻しの受け方

@@ -913,10 +913,10 @@ def test_理論モックの検査は_NG_なら最後に根治の入口を指し_
     page = tmp_path / "m.html"
     page.write_text("<html></html>", encoding="utf-8")
     monkeypatch.setattr(tm, "find_chrome", lambda: "chrome")
-    monkeypatch.setattr(tm, "dump_dom", lambda cmd: _dom(selftest))
+    monkeypatch.setattr(tm, "dump_dom", lambda cmd: (_dom(selftest), ""))
     assert tm.main(["x", str(page)]) == 1
     assert "細目 §3「まず構造を疑う」" in capsys.readouterr().out.strip().splitlines()[-1]
-    monkeypatch.setattr(tm, "dump_dom", lambda cmd: _dom("SELFTEST OK 3 screens"))
+    monkeypatch.setattr(tm, "dump_dom", lambda cmd: (_dom("SELFTEST OK 3 screens"), ""))
     assert tm.main(["x", str(page)]) == 0
     assert "まず構造を疑う" not in capsys.readouterr().out
 

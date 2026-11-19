@@ -700,8 +700,47 @@ def text_of(row):
     return ""
 
 
+# 人がタイプした行の見分け（1 か所）: 印の無さで人と決めず、人がタイプした行の形が全部そろう時だけ人に数える（既定で人に数えない）。
+# 形の外の行（知らない印の付いた行・知らない中身の塊）は人に数えない＝go や席に戻った跡にならない側（止める側）へ倒れる。
+NOT_TYPED_FLAGS = ("isMeta", "isCompactSummary", "isVisibleInTranscriptOnly", "isSidechain")
+TYPED_BLOCKS = ("text", "image")
+# 人の字でなく Claude Code や別の窓が user の行に書く頭（中断の印・知らせ・別の窓の頼み・hook の差し戻し・手元の命令の出力）
+NOT_TYPED_HEADS = ("[Request interrupted", "<task-notification", "Another Claude session sent a message",
+                   "Stop hook feedback:", "<local-command-", "<command-", "Caveat:", "This session is being continued")
+_REMINDER = re.compile(r"<system-reminder>.*?</system-reminder>", re.S)
+_ENVELOPE = re.compile(r"\A<[A-Za-z][\w-]*[\s>]")
+
+
+def is_human_prompt(row):
+    """人がタイプした頼みの行か。人に数えるのは次が全部そろう時だけ:
+    type が user・道具の返り（toolUseResult・tool_result の塊）でない・NOT_TYPED_FLAGS のどれも立たない・origin が無い・
+    promptSource が無いか user・中身が字（か字と画像の塊だけ）・system-reminder を除いた字が空でない・
+    頭が NOT_TYPED_HEADS でも <名…> の包みでもない。"""
+    if not isinstance(row, dict) or row.get("type") != "user" or "toolUseResult" in row:
+        return False
+    if any(row.get(k) for k in NOT_TYPED_FLAGS) or "origin" in row:
+        return False
+    if row.get("promptSource") not in (None, "user"):
+        return False
+    msg = row.get("message")
+    c = msg.get("content") if isinstance(msg, dict) else None
+    if isinstance(c, list):
+        if not c or not all(isinstance(b, dict) and b.get("type") in TYPED_BLOCKS for b in c):
+            return False
+    elif not isinstance(c, str):
+        return False
+    text = _REMINDER.sub("", text_of(row)).strip()
+    return bool(text) and not text.startswith(NOT_TYPED_HEADS) and not _ENVELOPE.match(text)
+
+
 def is_owner_row(row):
-    """人がタイプした行か（道具の返り・差し戻し〔isMeta〕を除く）。"""
+    """人がタイプした行か（is_human_prompt と同じ 1 つの見分け）。"""
+    return is_human_prompt(row)
+
+
+def _prompt_like(row):
+    """窓の最初の頼みを読む口: 道具の返りと差し戻し（isMeta）でない user の行。子の窓の印（返し先）を読むために、
+    人の行より広く取る（狭めると親の頼みを読み落とし、子の窓を人のいる窓と取り違える＝止めない側へ倒れる）。"""
     return (row.get("type") == "user" and not row.get("isMeta") and "toolUseResult" not in row
             and bool(text_of(row).strip()))
 
@@ -709,7 +748,7 @@ def is_owner_row(row):
 def first_owner_text(path):
     try:
         for row in iter_rows(path):
-            if is_owner_row(row):
+            if _prompt_like(row):
                 return text_of(row)
     except Exception:
         return ""
