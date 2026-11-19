@@ -1,11 +1,11 @@
 ---
 name: guard-rules
-description: 守りの hook（guard）に止められた・知らされた時の直し方と、値の表での変え方。「戻せない操作が止められた」「試験に PAID_UPSTREAM_GUARD と言われた」「問いのページが qa-html の検査を通っていないと Artifact の publish を止められた」「選択肢の画面の問いが読みにくい形だと止められた（題が長い・中の言葉・話題が混ざる・推奨の印の付け方）・推奨の印が済んだか・意図の問いに付いたと知らされた」「選択肢の画面の問いを 1 つだけ選ばせる問いだと止められた」「設計書の型の gate を直に --lock で呼ぶ手を止められた」「送る・PR・Notion・Artifact の入力に鍵の形があると止められた」「番号だけの頼みを止められた」「窓の題・手の窓の頼みの形で止められた」「値の表に土台が読まない鍵が在ると止められた・知らされた」「文脈が目安を越えたと出た」「前の窓の答えの無い問いが渡された」「PR の題・本文やコメントを GitHub へ出す前に止められた（判定の形・整地の欄・窓の id・公開の repo に置かない物）」時、または guard の値（文脈の目安・人のいない窓の印・足す印・問いのページの検査から外す file・問いの形の上限と外す形・1 つだけ選ばせる問いの見張りから外す問い・外へ渡す入力の外す形）を変えたい時に使う（PR の文の照らしから外す repo も）。
+description: 守りの hook（guard）に止められた・知らされた時の直し方と、値の表での変え方。「戻せない操作が止められた」「試験に PAID_UPSTREAM_GUARD と言われた」「問いのページが qa-html の検査を通っていないと Artifact の publish を止められた」「選択肢の画面の問いが読みにくい形だと止められた（題が長い・中の言葉・話題が混ざる・推奨の印の付け方）・推奨の印が済んだか・意図の問いに付いたと知らされた」「選択肢の画面の問いを 1 つだけ選ばせる問いだと止められた」「設計書の型の gate を直に --lock で呼ぶ手を止められた」「送る・PR・Notion・Artifact の入力に鍵の形があると止められた」「番号だけの頼みを止められた」「窓の題・手の窓の頼みの形で止められた」「値の表に土台が読まない鍵が在ると止められた・知らされた」「選択肢の画面の前に決定の記録と問いの表を引いた跡が無いと止められた」「文脈が目安を越えたと出た・締めを差し戻された」「前の窓の答えの無い問いが渡された」「PR の題・本文やコメントを GitHub へ出す前に止められた（判定の形・整地の欄・窓の id・公開の repo に置かない物）」時、または guard の値（文脈の目安・人のいない窓の印・足す印・問いのページの検査から外す file・問いの形の上限と外す形・1 つだけ選ばせる問いの見張りから外す問い・外へ渡す入力の外す形）を変えたい時に使う（PR の文の照らしから外す repo も）。
 ---
 
 # 守りの hook（guard）
 
-1 本の入口（`${CLAUDE_PLUGIN_ROOT}/scripts/guard.py`）を、プラグインの `hooks/hooks.json` が 3 つの出来事で回す。止めるのは PreToolUse だけで、他は隣に文を出すだけ。どれも壊れた時は黙って通す。止められた・知らされた時は下の直し方でその場を出し直すだけで済ませず、その形が出た原因を細目 §3「まず構造を疑う」で探して直す。
+1 本の入口（`${CLAUDE_PLUGIN_ROOT}/scripts/guard.py`）を、プラグインの `hooks/hooks.json` が 4 つの出来事で回す。止めるのは PreToolUse（AI の道具の呼び出し）と Stop（AI の締めの差し戻し・上限つき）だけで、他は隣に文を出すだけ。どれも壊れた時は黙って通す。止められた・知らされた時は下の直し方でその場を出し直すだけで済ませず、その形が出た原因を細目 §3「まず構造を疑う」で探して直す。
 
 | 見張り | 出来事 | する事 | 止められた・知らされた時の直し方 |
 |---|---|---|---|
@@ -19,7 +19,8 @@ description: 守りの hook（guard）に止められた・知らされた時の
 | spec_gate（設計書の型の gate を直に呼ぶ手） | PreToolUse | Bash の命令に設計書の型の gate `check_spec_doc.py` と `--lock` の両方が在れば止める（封の入口 `seal.py` は 15 §6 の決定照合が済むまで gate を呼ばない。直に呼ぶとその照合を飛ばせた）。AI の道具の呼び出しだけを止める（人の手の命令は止めない）。`--lock` の無い呼び出し（各 step の機械チェック・`--verify-receipt`・`--stamp`）は通す | spec-doc の入口から封をする: `python3 <spec-doc の skill の dir>/seal.py <設計書dir>`（照合だけなら `--match-only`）。照合で止まったら 15 §6 の行を直す（seal.py の直し方の文） |
 | pr_text（GitHub へ出す前の PR の文） | PreToolUse | GitHub の道具（名の末尾で見る: `create_pull_request`・`update_pull_request`・`add_issue_comment`・`update_issue_comment`・`add_reply_to_pull_request_comment`・`pull_request_review_write`・`add_comment_to_pending_review`・`issue_write`。MCP から出す commit の説明＝`merge_pull_request`・`push_files`・`create_or_update_file`・`delete_file` は `public` だけ）の文を、出す前に照らし AI だけを止める。`verdict`＝コメントがレビューの判定（どの行かに `レビューした窓: … 判定: green|red` が揃うか verdict の見出し〔# の数・大小を問わない〕が在る。文中に「判定: green」と書いた普通のコメント・「レビューした窓は…」の文・引用の中は見ない）なら checker の `verdict_form.py` を直に呼び、赤なら止める／`cleanup`＝PR の本文に、dev-flow の preimpl-cleanup の `整地受領証.template.md` の 4 つの見出し（名は雛形から読む・`##` でも `###` でもよい）が全部在り、雛形の `〔…〕` が残っていない。整地の要らない PR は `整地: 不要（<訳>）` の 1 行で通る／`words`＝PR の題・本文に窓の id（`session_01…`）がそのまま在る（頭の決まった欄・コード・URL の中は数えない）／`public`＝公開の repo（窓の repo の取り出しの workflow が action `public-guard` を呼ぶ・値の表 `public_repos_extra`）なら題・本文を `public-guard/guard.py --text` に渡す（置かない語の表はその workflow の `deny-words-file`）。判定の道具・雛形・公開の検査（と workflow が名指す置かない語の表）が見つからない・壊れた時と、照らしの途中で壊れた時（`broken`・一時の置き場に書けない等）も止める | `verdict`: skill `checker:review-pr` の形で書き直し、`verdict_form.py` が exit 0 になってから出す。`cleanup`: `## 整地（根治の 4 段）` の下に雛形の 4 つの見出しで書く（skill `dev-flow:preimpl-cleanup`）。振る舞いを変えない PR（誤字・記録だけ・版だけ等）は 4 欄の代わりに `整地: 不要（<なぜ要らないか>）`。`words`: 窓の id は開けるリンク（`https://claude.ai/code/<id>`）にして役の名を添えるか、役の名だけにする。`public`: 当たった所を書き直す（GitHub の本文は書き替えても古い版が編集の履歴に公開で残る）。道具が無い時は plugin checker・dev-flow を入れる（`AF_VERDICT_FORM`・`AF_CLEANUP_TEMPLATE`・`AF_PUBLIC_GUARD` で path を渡せる）。整地を PR 本文の外に置く repo・言葉の照らしが合わない repo だけ、値の表の `pr_cleanup_exempt_repos`・`pr_words_exempt_repos` で外す（PR とレビューを通す）。判定の形と公開の検査は外さない |
 | values_keys（値の表の知らない鍵） | PreToolUse・SessionStart | 使う側の repo の `config/skill-values.json` を Write・Edit・MultiEdit で書いた後に、土台が読まない鍵（土台が畳んだ・名を変えた鍵か書き違い・型の違う値）が残り、書く前より減っていなければ止める（AI の書き込みだけ・人の手は止めない）。起動の時に在れば知らせる（止めない）。知っている鍵・畳んだ鍵・型の正本は値の表の 1 本の口 `lib/skill_values.py` と鍵の一覧 `lib/schema.json`（土台の `skill-values/`・SKILL.md の「repo ごとの値」の表と同じ。照らすのは頭が土台の plugin の名か `common` の所だけ・`_` で始まる注は通す） | 名指しされた鍵を消すか今の名の鍵へ移し（畳んだ鍵は理由と直し方が出る）、その repo の PR で直す。repo が自分で持つ値なら土台の plugin の名と `common` の外の頭へ移す。土台の道具が今も読む鍵なのに一覧に無いだけなら、土台の `skill-values/schema.json` と SKILL.md の表に行を足す PR を出す。手で照らす口: `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/values_keys.py" config/skill-values.json`（問題の鍵が在れば exit 1） |
-| context_size（文脈の量） | PostToolUse | 文脈が目安を越えた最初の 1 回だけ知らせる | 人のいる窓は区切りで引き継ぎを書き後継の窓へ替える。人のいない窓は今の段を終えて引き継ぎを書き止まる |
+| prior_ask（聞く前に引いた跡） | PreToolUse | AskUserQuestion の画面が人に出る前に、会話ログの最後の頼み（人か親の窓が打った行）より後に、決定の記録と問いの表を引いた跡（値の表 `ask_prior_lookup` の正規表現に「道具の名 + 入力の JSON」が当たる道具の呼び出し）があるかを見る。無ければ AI だけを止める（同じ頼みの中で 2 回まで・越えたら通す）。`ask_prior_lookup` が無い repo は引いたかを見分けられないので、窓ごとに 1 回だけ止める | 細目 §4 の「聞く前に引く」をして、答え済み・資料で決まる・道具の都合の問いを外し、引いた結果を問いの前にチャットで 1 行書いて出し直す。引けない時は 2 回止まった後に通るので、引けなかった事を問いの前に書く。引いたのに止まった時は使った道具の形を `ask_prior_lookup` に、引く要の無い問い（手の作業が済んだかの確かめ等）は `ask_prior_exempt` に足す（PR とレビューを通す） |
+| context_size（文脈の量） | PostToolUse・Stop | 文脈が目安を越えた最初の 1 回だけ知らせる。越えた後、引き継ぎの跡（値の表 `context_handoff` の正規表現に当たる道具の呼び出し。既定は後継の窓を立てる `create_session`・返し先へ送る `send_message`・名に「引き継ぎ」か handoff を含む file を書く）が無いまま AI が締めようとしたら、締めを差し戻す（同じターンで `context_stop_max` 回〔既定 2〕まで・越えたら通して届ける）。引き継いだ後と、まとめ直して目安の手前に縮んだ後は差し戻さない | 人のいる窓は区切りで引き継ぎを書き、後継の窓を立てて渡し、返事で続きをどの窓で見るかを書く。返し先が別の窓の窓・人のいない窓は今の段を終えて引き継ぎを書き、返し先へ送って止まる。別の道で引き継いだのに差し戻されたら、その道の形を `context_handoff` に足す。差し戻しそのものは `context_stop_max` を 0 で外す（PR とレビューを通す） |
 | unanswered（未回答の台帳） | PostToolUse・SessionStart | モーダルが答えのないまま閉じた問いを台帳に積み、24 時間の間、次の窓の冒頭に全部を渡す（頭の何件かで切らない）。寿命を過ぎた問いと文面の無い行は冒頭で一度知らせてから降ろす（控えは expired_recent）。人のいない窓では知らせず控えへ移すだけで、次の人のいる窓が一度知らせる。`list` は寿命切れ・文面の無い行・控えへ移した行に印を付ける。答えが返れば降ろす（同じ問いの見分けは文面の一致か含有だけ。字の形で別の問いを結ばない）。子の窓の問いも同じ | 1 件ずつ、今の窓の流れで扱う: ①答え済み・もう要らない → 出さずに `python3 <unanswered.py> drop <key> --why <訳>` で降ろす（渡された文に path が出る・`list` で一覧）②今の頼みと関わる → チャットで前提を 1〜2 文添えてから出し直す（問いの文は短く言い直してよい。言い直した問いに答えが返ったら、元の問いを drop で降ろす＝機械は結ばない）③関わらない → 冒頭で画面に出さず、締めの「あなたがやること」に 1 行で知らせ、求められたら出す。出す問いが 4 を越えたら 4 問ずつ続けて出す。言い方だけ変えて何度も出さない |
 
 強制 push・main への push・本番への出荷・sudo は、オーナーが居ても居なくても settings の `permissions.deny` の受け持ち（ここでは重ねない）。
@@ -32,6 +33,8 @@ repo の根の `config/skill-values.json` の `"guard"`（無ければ既定で�
 {
   "guard": {
     "context_limit": 300000,
+    "context_stop_max": 2,
+    "context_handoff": ["create_session\\b", "send_message\\b", "\"file_path\": \"[^\"]*(?:引き継ぎ|handoff)[^\"]*\""],
     "unattended_env": ["AF_UNATTENDED"],
     "state_dir": "~/.claude/af-guard",
     "paid_markers_extra": [],
@@ -47,6 +50,8 @@ repo の根の `config/skill-values.json` の `"guard"`（無ければ既定で�
     "ask_rec_notice_kinds": {"済んだかの確認": ["終わりましたか"]},
     "ask_rec_notice_exempt": [],
     "ask_pick_one_exempt": ["^作り物の試しの順"],
+    "ask_prior_lookup": ["notion-(?:search|fetch|query-data-sources).*決定", "\\bGrep\\b.*問いの表"],
+    "ask_prior_exempt": ["終わりましたか|済みましたか"],
     "outbound_secret_allow": ["^作り物の見本の字$"],
     "number_request_exempt": [],
     "pr_cleanup_exempt_repos": [],
@@ -67,6 +72,8 @@ repo の根の `config/skill-values.json` の `"guard"`（無ければ既定で�
 - 値の表の知らない鍵の見張りは Write・Edit・MultiEdit だけを止める（Bash の書き換えは起動の時の知らせで拾う）。入れていない土台の plugin の頭は照らせない（手で回す口がその頭を名指す）。
 - 未回答の台帳の扱い（降ろす・前提を添えて出す・締めで知らせる）は AI の判断で、答え済みかを機械は確かめない。降ろした問いは台帳の `dropped_recent` に訳と一緒に残る。
 - 1 つだけ選ばせる問いの見張りは、問いの文の語の形による推し量り（意味は読まない）。「AとBのどちらにしますか」のように作業の名を選択肢にだけ並べ、問いの文に進める・優先・原因の語が無い形は素通りする。言い換えでも抜けられる（残る穴・別の目のレビューと手で回す点検で拾う）。
+- 聞く前に引いた跡の見張りは、引く道具を呼んだかだけを見る（何を引いたか・問いと同じ言葉で引いたか・答え済みの問いを外したかは見ない）。引く先は会社ごとに違うので値の表に書く（`ask_prior_lookup` の例の道具の名は作り物）。値の無い repo では窓ごとに 1 回止めるだけ。
+- 文脈の差し戻しは、引き継ぎらしい道具を呼んだかだけを見る（引き継ぎの中身・後継の窓の最初の出し方は見ない）。上限を越えたターンは通して届く。
 - PR の文の見張りは、GitHub の MCP の道具の文だけを見る（Bash の `gh pr create --body` や git で打つ commit の説明は見ない。git の commit の説明は CI の公開の検査が拾う・MCP から出す commit の説明は `public` が照らす）。判定のコメントは、出す先の PR の先端と PR 本文の頭の `書いた窓:` を gh で引いて verdict_form.py に渡す（見た先端の古い判定・自分の PR への判定も止める・引けなければ止める）。判定の形の道具と雛形は、窓の repo に在ればその版を、無ければ入れた plugin の版を使う（見る点の表を変える PR の判定は、その枝を取り出した窓で出す）。言葉は窓の id だけを見る（番号・file 名・commit の印・`#31` の PR の指しは、過去の PR 本文 41 本に当てると 37 本が当たり、ほとんどが正しい指し＝当て所が無い）。公開かの見分けは窓の repo の取り出しの workflow か値の表で、手元に取り出しが無く値の表にも無い公開の repo は照らさない（CI の公開の検査が出した後に拾う）。
 - 問いのページの見張りは、Artifact の道具の publish の `file_path` と `files` の手元の元を見る（`files` で別の Artifact から写す物・型から作る Artifact のデータの store・Artifact の外で配るページは見ない）。問いのページの見分けは印による推し量りで、印を持たない問いのページ（radio を使わずボタンだけで答えるページなど）は素通りする。
 - 外へ渡す道具の入力の見張りの `secret` は公開の検査と同じ鍵の形だけ（パスワード・接続文字列・JWT など形の決まらない秘密は素通り）。返事の本文・Bash で外へ出す形（`curl`・`gh`）は見ない。`number` は字の形の推し量りで、番号の横に中身と関係ない語（「main に入れて」の main など）があれば通る。`title` は題の形だけで、種類が窓の返し先と合っているか（会話ログの最初の頼み）は見ない（session-watch の点検と Stop の差し戻しの受け持ち）。

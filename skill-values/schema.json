@@ -118,7 +118,11 @@
         "public_repos_extra": {
           "type": "list",
           "default": []
-        }
+        },
+        "context_stop_max": {"type": "int", "default": 2},
+        "context_handoff": {"type": "list", "default": ["create_session\\b", "send_message\\b", "\"file_path\": \"[^\"]*(?:引き継ぎ|handoff)[^\"]*\""]},
+        "ask_prior_lookup": {"type": "list", "default": []},
+        "ask_prior_exempt": {"type": "list", "default": []}
       }
     },
     "docs-kit": {
