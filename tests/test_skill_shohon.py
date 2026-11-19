@@ -33,8 +33,8 @@ def record_default_ok(cell):
     """記録の既定が各社の置き場（核 §8）を指し、PR 本文・返事の中を置き場にしていないか。"""
     if "核 §8" not in cell:
         return False
-    # 「PR 本文で代わりにしない」のような打ち消しは置き場にしていない。
-    placed = re.sub(r"PR 本文で代わりにせず|PR 本文は誰にでも見える", "", cell)
+    # 「PR 本文で代わりにしない」のような打ち消しの句は置き場にしていない（言い回しは問わず、句に打ち消しが在るかで見る）。
+    placed = re.sub(r"[^。、（）]*PR 本文[^。、（）]*?(せず|しない|書かない|見える)[^。、（）]*", "", cell)
     return "PR 本文" not in placed and "返事の中" not in placed
 
 
@@ -48,6 +48,7 @@ def test_記録の既定は各社の置き場を指す():
 
 
 def test_記録の既定の照らしは古い形を拒む():
+    assert record_default_ok("各社の決定の記録（核 §8）。PR 本文には書かない")   # 言い換えても通る
     for old in ["無し（返事の中に 1 行）", "PR 本文に原文と経緯を書く", "PR 本文の「学び:」の 1 行", "PR 本文に書く（核 §8）"]:
         assert not record_default_ok(old), "古い既定を通してしまう: %s" % old
 
@@ -132,3 +133,8 @@ def test_点検は終わった以外の札に付いた完了の印を拾う():
     assert make("🤖✅ 作り物の作業", "🛑止まった\n権限が無い。外せる人はオーナー。" + CLOSE)
     assert make("🤖✅ 作り物の作業", "✅終わった（一部）\n残りは直す窓へ。" + CLOSE)
     assert make("🤖 作り物の作業", "✅ 終わった\n作り物を終えた。" + CLOSE)
+
+
+def test_点検は終わったの本文に一部の字があっても終わったと読む():
+    make = _sw()
+    assert make("🤖✅ 作り物の作業", "✅ 終わった 一部の file だけ触る直しを入れた\n作り物を終えた。" + CLOSE) == []
