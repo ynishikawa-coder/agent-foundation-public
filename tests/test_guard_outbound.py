@@ -30,7 +30,7 @@ def tool(name, **ti):
 
 @pytest.mark.parametrize("label", sorted(FAKE_KEYS))
 @pytest.mark.parametrize("payload", [
-    lambda k: tool(SEND, session_id="session_x", message="作り物の鍵はこれ: %s を使って" % k),
+    lambda k: tool(SEND, session_id="session_01x000000000000000", message="作り物の鍵はこれ: %s を使って" % k),
     lambda k: tool("SendMessage", to="worker", message="鍵 %s" % k),
     lambda k: tool(CREATE, title="🤖 作り物の作業", prompt="この鍵で入って %s" % k),
     lambda k: tool("mcp__github__create_pull_request", title="作り物", body="手順\n\n```\nTOKEN=%s\n```" % k),
@@ -54,7 +54,7 @@ def test_outbound_Artifact_で出す_file_と_files_の中の鍵も止める(env
 
 
 @pytest.mark.parametrize("payload", [
-    tool(SEND, session_id="session_x", message="PR #31 の CHANGELOG の衝突は main を merge して直した。先端 1a21016e8983。"),
+    tool(SEND, session_id="session_01x000000000000000", message="PR #31 の CHANGELOG の衝突は main を merge して直した。先端 1a21016e8983。"),
     tool("mcp__github__create_pull_request", title="作り物", body="鍵は環境の秘密に入れた（値は書かない）。sk-ant- で始まる形を止める。\n整地: 不要（試験の作り物の本文）"),
     tool("mcp__notion__notion-fetch", id="https://example.invalid/page"),
     tool("Bash", command="echo " + FAKE_KEYS["GitHub のトークン"]),     # 外へ渡す道具でない（返事・Bash は別の守り）
@@ -65,14 +65,14 @@ def test_outbound_鍵の無い入力と外へ渡さない道具は通す(env, pa
 
 def test_outbound_作り物の見本は値の表で外せ_鍵の正本が無ければ止まる(env, tmp_path):
     key = FAKE_KEYS["AWS の鍵 ID"]
-    p = tool(SEND, session_id="session_x", message="見本の鍵 %s の形" % key)
+    p = tool(SEND, session_id="session_01x000000000000000", message="見本の鍵 %s の形" % key)
     proj = Path(env["CLAUDE_PROJECT_DIR"])
     (proj / "config").mkdir()
     (proj / "config" / "skill-values.json").write_text(
         json.dumps({"guard": {"outbound_secret_allow": ["^" + key + "$"]}}), encoding="utf-8")
     assert not denied(env, p)
     gone = dict(env, AF_PUBLIC_GUARD=str(tmp_path / "無い.py"))
-    assert "照らせない" in deny_reason(gone, tool(SEND, session_id="session_x", message="ふつうの文"))
+    assert "照らせない" in deny_reason(gone, tool(SEND, session_id="session_01x000000000000000", message="ふつうの文"))
 
 
 @pytest.mark.parametrize("msg", [
@@ -99,7 +99,7 @@ def test_outbound_番号だけで中身の名の無い頼みは送る前に止�
     "https://github.com/example/repo/pull/3 を見て",
 ])
 def test_outbound_番号に名や中身が添えてあれば通す(env, msg):
-    assert not denied(env, tool(SEND, session_id="session_x", message=msg))
+    assert not denied(env, tool(SEND, session_id="session_01x000000000000000", message=msg))
 
 
 def test_outbound_番号だけの頼みは値の表で外せる(env):

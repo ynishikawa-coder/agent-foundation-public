@@ -71,8 +71,8 @@ def test_モーダルで聞き直したターンは平文の問いにしない()
 def test_種類は返し先で決まり立てた窓では決まらない():
     first = rows("owner_ok.jsonl")[0]
     assert sw.kind_of(sw.text_of(first)) == sw.HUMAN
-    assert sw.kind_of("作り物を調べて（返し先=session_Y）。", seeded=True) == sw.AI
-    assert sw.kind_of("あなたは書く窓です（親窓 session_X の子）。", seeded=True) == sw.AI
+    assert sw.kind_of("作り物を調べて（返し先=session_01Y000000000000000）。", seeded=True) == sw.AI
+    assert sw.kind_of("あなたは書く窓です（親窓 session_01X000000000000000 の子）。", seeded=True) == sw.AI
     assert sw.kind_of("作り物を直して") is None
     assert sw.kind_of("作り物を直して", seeded=True) is None
     assert sw.kind_of("作り物の続き（返し先=オーナー）", seeded=True) == sw.HUMAN
@@ -254,7 +254,7 @@ STEPS = [
     "あなたがやること: 設定 → 作り物 → 追加 で値を入れる。これが済むまで合流に進めません。",
 ]
 NO_STEPS = [
-    "あなたがやること: 手の窓 https://claude.ai/code/session_HAND01 で設定を 1 つする。これが済むまで合流に進めません。",
+    "あなたがやること: 手の窓 https://claude.ai/code/session_01HAND010000000000 で設定を 1 つする。これが済むまで合流に進めません。",
     "あなたがやること: なし。この窓は閉じて大丈夫です。",
     "あなたがやること: 上の選択肢の画面で問いに答える。これが済むまで合流に進めません。",
     "あなたがやること: 作り物の PR を見る。これが済むまで合流に進めません。",

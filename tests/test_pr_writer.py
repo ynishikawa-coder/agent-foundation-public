@@ -125,8 +125,10 @@ def test_入口は_PR_で本文が違えば赤(tmp_path):
     repo, head = repo_with(tmp_path, [A, B])
     (repo / "scripts" / "checks").mkdir(parents=True)
     (repo / "plugins" / "checker" / "scripts").mkdir(parents=True)
+    (repo / "plugins" / "checker" / "lib").mkdir(parents=True)
     for p in (TOOL, CHECK, ROOT / "scripts" / "pr_shape.py"):  # pr_shape.py の fresh_main が出所の今の main を出す
         (repo / p.relative_to(ROOT)).write_bytes(p.read_bytes())
+    (repo / "plugins" / "checker" / "lib" / "window_shape.py").write_bytes((ROOT / "window-shape" / "window_shape.py").read_bytes())   # 入口は窓の形の正本を直に読む
     subprocess.run(["git", "init", "-q", "--bare", "-b", "main", str(tmp_path / "出所.git")], check=True)
     git(repo, "remote", "add", "origin", str(tmp_path / "出所.git"))
     git(repo, "push", "-q", "origin", "main")

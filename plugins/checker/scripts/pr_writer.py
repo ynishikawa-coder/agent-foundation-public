@@ -27,9 +27,12 @@ import subprocess
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
+import window_shape as W  # noqa: E402  窓の id と commit の書き手の行の形の正本（土台の window-shape/ への symlink・写さない）
+
 WRITER = re.compile(r"^\s*書いた窓\s*[:：]\s*(\S+)", re.M)
-SESSION = re.compile(r"^Claude-Session:\s*\S*?(session_[A-Za-z0-9]+)\s*$", re.M)
-ID = re.compile(r"^session_[A-Za-z0-9]+$")
+SESSION = W.COMMIT_SESSION
+ID = re.compile(r"^%s$" % W.SESSION_ID_PAT)
 
 
 def git(root: Path, *args: str) -> str:

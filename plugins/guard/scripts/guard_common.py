@@ -23,10 +23,8 @@ import skill_values as SV  # noqa: E402  値の表の 1 本の口（土台の sk
 
 DEFAULTS = SV.defaults("guard")
 
-# 窓の種類の決まり（session-watch の title-mark と同じ線）: 最初の頼みの文の返し先が別の窓なら子の窓（文脈の知らせだけが読む）。
-# 文の返し先は手で書いた写しなので、最初の頼みの行の記録（人が打った頼みでない＝seeded_by_record）と合う時だけ数える。
-RETURN_TO_WINDOW = re.compile(r"返し先\s*[=＝:：]\s*session_[A-Za-z0-9]+")
-CHILD_OF = re.compile(r"（親窓\s*session_[A-Za-z0-9]+\s*の子）")
+# 窓の形の正本（窓の id・返し先・種類）。土台の window-shape/ への symlink＝ここに写さない。
+import window_shape as W  # noqa: E402
 
 
 GUARD_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -263,50 +261,28 @@ def is_owner_row(row):
             and bool(text_of(row).strip()))
 
 
-# 人が打った頼みの記録（会話ログの行の origin.kind。Claude Code が頼みを受けた口で付ける＝文の中身では変わらない）。
-# 正本はここ 1 か所（plugin session-watch も隣の正本としてこれを直に読む＝写さない）。
-HUMAN_ORIGINS = ("human", "person")
-# 窓の環境の CLAUDE_CODE_CHILD_SESSION は読まない: 公式の文書（code.claude.com/docs/en/env-vars）では「Claude Code が Bash・
-# hook・status line で起動する子プロセスに付く 1」で、どの窓でも hook の中では 1＝別の窓が立てた窓の見分けにならない。
-# 頼みの行がまだ無い時の見分けは、サーバの記録（get_session の parent_session_id）を AI に読ませる（session-watch の知らせ）。
-
-
-def seeded_by_record(row):
-    """頼みの行が、人が打った物でなく別の窓・仕組みから来た事を、記録が示すか（子の窓の見分けの記録の正本）。
-    記録: 頼みの行の origin.kind が人の物でない（別の窓の create_session・send_message・知らせ等）か promptSource が system。
-    行が無い・記録が無い・読めない時は False（文だけで子の窓と決めない＝人の窓の側へ倒す）。"""
-    if not isinstance(row, dict):
-        return False
-    origin = row.get("origin")
-    if isinstance(origin, dict) and isinstance(origin.get("kind"), str) and origin["kind"]:
-        return origin["kind"] not in HUMAN_ORIGINS
-    return row.get("promptSource") == "system"
-
-
-def first_owner_row(path):
+def window_kind_of_log(path):
+    """会話ログの窓の種類（🤖／🙋／None）。正本 window_shape.window_kind に、最初の頼みの文・その行の記録
+    （人が打った頼みでない＝seeded_by_record。別の窓を指す返し先の写しはこれと合う時だけ数える）と、窓が自分で付けた
+    最後の題（手の窓は返し先によらず 🙋）を渡す。読めない時は None。"""
+    first, seeded, title = "", False, None
     try:
         for row in iter_rows(path):
-            if is_owner_row(row):
-                return row
+            if not first and is_owner_row(row):
+                first, seeded = text_of(row), W.seeded_by_record(row)
+            if row.get("type") != "assistant":
+                continue
+            msg = row.get("message")
+            for b in (msg.get("content") if isinstance(msg, dict) else None) or []:
+                if isinstance(b, dict) and b.get("type") == "tool_use":
+                    t = W.title_in_tool(b.get("name"), b.get("input"))
+                    if t is not None:
+                        title = t
     except Exception:
         return None
-    return None
+    return W.window_kind(first, title, seeded)
 
 
-def first_owner_text(path):
-    row = first_owner_row(path)
-    return text_of(row) if row else ""
-
-
-def is_child_prompt(text, seeded=False):
-    """子の窓か。頼みの文の返し先（写し）が別の窓を指し、かつ頼みの行の記録が人の打った物でない時だけ。
-    オーナーが引き継ぎの文を貼った窓（記録は人）は、文に親窓や返し先が在っても子の窓にしない。"""
-    if not seeded:
-        return False
-    return bool(RETURN_TO_WINDOW.search(text or "") or CHILD_OF.search(text or ""))
-
-
-def is_child_log(path):
-    """会話ログの最初の頼みの行で子の窓かを決める（文と記録の両方を読む）。"""
-    row = first_owner_row(path)
-    return bool(row) and is_child_prompt(text_of(row), seeded_by_record(row))
+def is_child_window(path):
+    """別の窓へ返す窓（🤖）か。手の窓は返し先が窓でも 🙋＝人のいる窓（種類の決め方は window_shape が正本）。"""
+    return window_kind_of_log(path) == W.AI

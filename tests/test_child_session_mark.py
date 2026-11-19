@@ -1,6 +1,6 @@
 """窓の環境の CLAUDE_CODE_CHILD_SESSION を子の窓の見分けに使わない注入の試験（台帳: 印の意味を子の窓で 1 を見ただけで決めた）。
 
-前の形: guard_common.seeded_by_record は頼みの行がまだ無い時に CLAUDE_CODE_CHILD_SESSION を「別の窓が create_session で
+前の形: 子の窓の見分けの記録（今は window_shape.seeded_by_record）は頼みの行がまだ無い時に CLAUDE_CODE_CHILD_SESSION を「別の窓が create_session で
 立てた窓の印」と読み、最初の知らせ（session-watch の remind_title）が子の窓と決めて親の題の付け直しを知らせた。
 正本で確かめた意味: 公式の文書 code.claude.com/docs/en/env-vars は「Claude Code が Bash・PowerShell・Monitor の道具・hook・
 status line で起動する子プロセスに 1 を付ける」と書く。実物でも、別の窓が立てた窓の claude の本体と、その親の環境の
@@ -16,8 +16,8 @@ from test_session_watch import CLOUD, sw
 
 ROOT = Path(__file__).resolve().parent.parent
 MARK = "CLAUDE_CODE_CHILD_SESSION"
-TO_WINDOW = "作り物を見て（返し先=session_X）"
-HUMAN_PASTE = "引き継ぎ: 作り物を見て（親窓 session_X の子）"
+TO_WINDOW = "作り物を見て（返し先=session_01X000000000000000）"
+HUMAN_PASTE = "引き継ぎ: 作り物を見て（親窓 session_01X000000000000000 の子）"
 VALUES = [None, "", "0", "1", "true", "yes", "偽の値", " 1 "]
 
 
@@ -55,9 +55,7 @@ def test_注入_文が窓を指さなければ印が1でも子の窓の知らせ
 
 
 def test_注入_行が無い時の記録は印によらず人の窓の側():
-    G = sw.neighbor("guard_common")
-    assert G is not None
-    assert G.seeded_by_record(None) is False
+    assert sw.seeded_by_record(None) is False   # 正本は window_shape（session_watch・guard_common は直に読む）
 
 
 def test_注入_見分けの道具が環境の印を読まない():

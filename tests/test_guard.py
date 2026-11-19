@@ -282,7 +282,7 @@ def test_文脈が目安を越えた最初の1回だけ知らせる(env, tmp_pat
 
 
 def test_子の窓には止まる側の知らせを出す(env, tmp_path):
-    tpath = usage_log(tmp_path, 400_000, first="あなたは書く窓です（親窓 session_ABC123 の子）。", origin="task-notification")
+    tpath = usage_log(tmp_path, 400_000, first="あなたは書く窓です（親窓 session_01ABC1230000000000 の子）。", origin="task-notification")
     assert "引き継ぎを書いて止まって" in hook(env, "post", post_tool(tpath))["additionalContext"]
 
 
@@ -421,7 +421,7 @@ def test_離席の止めは閉じた問いが多い時ほか何件と置き場�
 
 
 def test_子の窓の問いも台帳に積み離席の止めが働く(env, tmp_path):
-    tpath = write_log(tmp_path / "c.jsonl", [{"type": "user", "message": {"content": "あなたは書く窓です（親窓 session_P1 の子）。"}}])
+    tpath = write_log(tmp_path / "c.jsonl", [{"type": "user", "message": {"content": "あなたは書く窓です（親窓 session_01P100000000000000 の子）。"}}])
     assert "答えのないまま閉じました" in hook(env, "post", ask_result(tpath=tpath))["additionalContext"]
     assert denied(env, bash(DROP))
 
@@ -774,7 +774,7 @@ ASK_BAD = [
     ("path が説明に", ask_pre(q("置き場をどちらにしますか", desc="plugins/guard/scripts に置く")), "plugins/guard/scripts"),
     ("識別子", ask_pre(q("直し_0020 をそのまま使いますか")), "直し_0020"),
     ("コードの字", ask_pre(q("`unattended_env` を真にしますか")), "unattended_env"),
-    ("窓の id", ask_pre(q("作り物の窓 session_01AbCdEf へ回しますか")), "session_01AbCdEf"),
+    ("窓の id", ask_pre(q("作り物の窓 session_01AbCdEf0000000000 へ回しますか")), "session_01AbCdEf0000000000"),
     ("選択肢の見出しに番号", ask_pre(q("どちらの決め方にしますか", labels=("E05 の形（推奨）", "前の形"))), "E05"),
     ("話題が混ざる", ask_pre(q("記録の古い行を片付けますか", header="片付け"), q("予定表の例は決まりどおりですか", header="予定表"),
                             q("検査の線を厳しめにしますか", header="厳しさ")), "[topic]"),

@@ -24,14 +24,15 @@
   neighbor … 上の inner・secret の正本（隣の plugin guard・公開の検査）が見つからず照らせないか
 
 窓の種類＝「オーナーが相手の窓か」。誰が立てたかだけでは決めない（立てた記録は返し先の写しを数えるかの照らしにだけ使う）。
-決め方の正本は window_kind 1 つ（決まりの文 KIND_RULE を skill title-mark がそのまま載せ、細目 §4 は skill を指す。試験が照らす）:
+決め方の正本は土台の window-shape/window_shape.py の window_kind 1 つ（lib/window_shape.py の symlink で直に読む。
+決まりの文 KIND_RULE を skill title-mark がそのまま載せ、試験が照らす）:
   手の窓（作業名が `手:` で始まる窓）は返し先によらず 🙋 ／ それ以外は最初の頼みの文に書かれた返し先で
   `返し先=オーナー` → 🙋 ／ `返し先=session_…` → 🤖 ／ `（親窓 session_… の子）` → 🤖 ／ 書いていない → 決めない。
   別の窓を指す返し先は手で書いた写しなので、頼みの行の記録（origin.kind が人でない・promptSource が system＝
   別の窓や仕組みから来た頼み）と合う時だけ数える。行がまだ無い最初の知らせでは記録を読めないので決めず、サーバの記録
   （get_session の parent_session_id）を AI に読ませる。窓の環境の CLAUDE_CODE_CHILD_SESSION は Claude Code が hook・Bash の
   子プロセス全部に付ける印（公式の文書 env-vars）＝どの窓でも 1 なので見分けに使わない。
-  記録の読み方と人の印の表の正本は隣の plugin guard の guard_common.seeded_by_record（写さない）。オーナーが引き継ぎの文を貼った窓は 🤖 にしない。
+  記録の読み方と人の印の表の正本も window_shape の seeded_by_record・HUMAN_ORIGINS（写さない）。オーナーが引き継ぎの文を貼った窓は 🤖 にしない。
 
 使い方:
   python3 session_watch.py <transcript.jsonl>  … 拾った物を 1 行ずつ出す（拾えば exit 1）
@@ -52,6 +53,11 @@ import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 PLUGIN_ROOT = os.path.dirname(HERE)
+sys.path.insert(0, os.path.join(PLUGIN_ROOT, "lib"))
+# 窓の形の正本（窓の id・返し先・種類・状態の印・閉じる決まり）。土台の window-shape/ への symlink＝ここに写さない。
+from window_shape import (  # noqa: E402
+    AI, ASKING, CHILD_OF, CLOSE_RULE, DONE, HAND_PARTS, HAND_TITLE, HUMAN, KIND_RULE, KINDS, RETURN_TO,
+    SESSION_ID_PAT, SET_TITLE_SUFFIX, STATE_RULE, STATES, WAITING, kind_of, seeded_by_record, split_title, title_in_tool, window_kind)
 
 
 # ── 隣の正本（写さず直に呼ぶ）──────────────────────────────────
@@ -117,22 +123,10 @@ def neighbor(name):
 
 
 ASK = "AskUserQuestion"
-SET_TITLE_SUFFIX = "set_session_title"
 REMOTE_PREFIX = "mcp__claude-code-remote__"
 ROOT_CAUSE = "直し: 拾われた所を出し直すだけで済ませず、細目 §3「まず構造を疑う」で原因から直す"
 
-AI = "🤖"       # 返し先が別の窓か仕組み
-HUMAN = "🙋"    # 返し先がオーナー（オーナーが話しかける窓）
-KINDS = (AI, HUMAN)
-ASKING = "❓"    # オーナーの答え待ち
-WAITING = "⏳"   # オーナーの作業待ち
-DONE = "✅"      # 終わった（🤖 の窓だけ）
-STATES = (ASKING, WAITING, DONE)
 CARDS = ("✅", "❓", "⏳", "🛑")
-
-# 最初の頼みの文に書く返し先（型はここ 1 か所）。
-RETURN_TO = re.compile(r"返し先\s*[=＝:：]\s*(オーナー|session_[A-Za-z0-9]+)")
-CHILD_OF = re.compile(r"（親窓\s*session_[A-Za-z0-9]+\s*の子）")
 
 # 締めの 2 行の型（ここ 1 か所）。前後の ` と ** は許す。
 CLOSE_AI = re.compile(r"^[`*]*AI がこの後やること: ?\S")
@@ -167,11 +161,8 @@ def moves(name, inp):
         return True
     return name == "Agent" and inp.get("run_in_background") is not False
 
-# 手の窓（題 `🙋⏳ 手: <何を>`）が書く 4 つ。
-HAND_TITLE = re.compile(r"^手[:：]")
-HAND_PARTS = ("目的", "手順", "済んだ目印", "済んだ後")
 # 頼んだ窓のあなたがやること: 手の窓の URL だけを書く（細目 §4）。手順を直に書いたかを型で見る。
-HAND_URL = re.compile(r"claude\.ai/code/session_[A-Za-z0-9]+")
+HAND_URL = re.compile(r"claude\.ai/code/" + SESSION_ID_PAT)
 STEP_NUM = re.compile(r"(?:^|\s)(?:[1-9][.)．）](?!\d)\s*\S|[①-⑨])", re.M)
 STEP_VERB = re.compile(r"(開[くいけ]|貼[るっり]|足[すし]|押[すし]|入れ|入力|追加|クリック|コピー|選[ぶん]|設定[しす]|保存|ログイン)")
 STEP_ARROW = re.compile(r"[→＞>]")
@@ -207,14 +198,6 @@ def text_of(row):
     if isinstance(c, list):
         return "\n".join(b.get("text") or "" for b in c if isinstance(b, dict) and b.get("type") == "text")
     return ""
-
-
-def seeded_by_record(row):
-    """子の窓の見分けの記録（頼みの行の origin）。正本は隣の plugin guard の
-    guard_common.seeded_by_record（人の印の表もそこ 1 か所＝写さない）。隣が無い時は False（文だけで子の窓と決めない。
-    返事の差し戻しが neighbor の札で名指す）。"""
-    G = neighbor("guard_common")
-    return bool(G.seeded_by_record(row)) if G is not None else False
 
 
 def is_owner_text(row):
@@ -286,8 +269,8 @@ class Log(object):
                 name, inp = val
                 if name.startswith(REMOTE_PREFIX):
                     self.cloud = True
-                if name.endswith(SET_TITLE_SUFFIX):
-                    self.events.append(("title", str(inp.get("title") or "")))
+                if title_in_tool(name, inp) is not None:
+                    self.events.append(("title", title_in_tool(name, inp)))
                 elif name == ASK:
                     items = [q for q in inp.get("questions") or [] if isinstance(q, dict)]
                     qs = [_norm(q.get("question")) for q in items]
@@ -332,47 +315,6 @@ def _norm(text):
 
 
 # ── 窓の種類と題 ──────────────────────────────────────────────
-# 窓の種類の決まりの文（skill title-mark はこの文をそのまま載せ、細目 §4 は skill を指す＝試験が照らす）。決め方は window_kind。
-KIND_RULE = ("種類の決め方は 2 段: まず手の窓（作業名が `手:` で始まる窓）は返し先によらず `🙋`（相手はオーナー）。"
-             "それ以外は窓の最初の頼みの文に書いた返し先だけで決める: `返し先=オーナー` → `🙋`／"
-             "`返し先=session_…` か `（親窓 session_… の子）` → `🤖`（別の窓を指す返し先は手で書いた写しなので、頼みの行の記録が人の打った物でない時（行がまだ無い最初の知らせでは get_session の `parent_session_id`＝別の窓が立てた記録が在る時）＝別の窓や仕組みから来た頼みの時だけ数える。オーナーが引き継ぎの文を貼った窓は `🤖` にしない）／どれも無い → 窓が自分で決める（点検は種類の食い違いを拾わない）。")
-
-
-def kind_of(first_prompt, seeded=False):
-    """最初の頼みの文に書かれた返し先で種類を決める。書いていなければ None（決めない）。手の窓は見ない＝window_kind を使う。
-    別の窓を指す返し先（写し）は、頼みの行の記録が人の打った物でない時（seeded）だけ数える。"""
-    m = RETURN_TO.search(first_prompt or "")
-    if m and m.group(1) == "オーナー":
-        return HUMAN
-    if not seeded:
-        return None
-    if m or CHILD_OF.search(first_prompt or ""):
-        return AI
-    return None
-
-
-def window_kind(first_prompt, title=None, seeded=False):
-    """窓の種類の正本（KIND_RULE）。手の窓（作業名が `手:`）は返し先によらず 🙋、ほかは最初の頼みの返し先。"""
-    if HAND_TITLE.match(split_title(title)[2]):
-        return HUMAN
-    return kind_of(first_prompt, seeded)
-
-
-def split_title(title):
-    """題を (種類, 状態, 作業名) に分ける。印が無ければ None。"""
-    t = str(title or "").strip()
-    kind = mark = None
-    for k in KINDS:
-        if t.startswith(k):
-            kind, t = k, t[len(k):]
-            break
-    for s in STATES:
-        if t.startswith(s):
-            mark, t = s, t[len(s):]
-            break
-    return kind, mark, t.strip()
-
-
 def title_shape(title):
     """題そのものの形の崩れ [説明]（会話ログを見ずに題だけで決まる物）。題を付ける口・立てる口（guard の outbound）も
     これを直に呼ぶ＝題の形の決まりの正本はここ 1 つ。"""
@@ -383,7 +325,7 @@ def title_shape(title):
     if not name:
         out.append("題に作業名が無い（題: %s）" % title)
     if kind == HUMAN and mark == DONE:
-        out.append("%s の窓に %s は付けない（閉じるかはオーナーが決める）" % (HUMAN, DONE))
+        out.append("%s の窓に %s は付けない（%s は %s の窓の終わった印・閉じる決まりは細目 §5「閉じる窓」）" % (HUMAN, DONE, DONE, AI))
     if HAND_TITLE.match(name):
         if kind != HUMAN or mark != WAITING:
             out.append("手の窓の題は `%s%s 手: <何を>`（題: %s）" % (HUMAN, WAITING, title))

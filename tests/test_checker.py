@@ -12,7 +12,7 @@ vf = importlib.util.module_from_spec(spec)
 sys.dont_write_bytecode = True   # 写しの置き場（plugins/）に __pycache__ を作らない＝写しの照らしを汚さない
 spec.loader.exec_module(vf)
 
-GREEN = """レビューした窓: session_REVIEW01 判定: green
+GREEN = """レビューした窓: session_01REVIEW0100000000 判定: green
 見た先端: 0123456789ab
 job: 作り物
 
@@ -22,7 +22,7 @@ green
 ## 点
 - 1 依頼の充足: pass
 - 2 触った path: pass
-- 3 別の目: 書いた窓 session_WRITER01 ≠ この窓
+- 3 別の目: 書いた窓 session_01WRITER0100000000 ≠ この窓
 - 4 回帰: pass（check_all: 緑）
 - 5 秘密・顧客の物: pass
 - 6 当て物・本番の効き目: pass
@@ -37,7 +37,7 @@ green
 - [台帳へ｜整地] 作り物の気づき
 """
 
-RED = """レビューした窓: session_REVIEW01 判定: red
+RED = """レビューした窓: session_01REVIEW0100000000 判定: red
 見た先端: 0123456789ab
 
 ## verdict
@@ -47,7 +47,7 @@ red
 ## 点
 - 1 依頼の充足: fail（作り物の欠け）
 - 2 触った path: pass
-- 3 別の目: 書いた窓 session_WRITER01 ≠ この窓
+- 3 別の目: 書いた窓 session_01WRITER0100000000 ≠ この窓
 - 4 回帰: pass（check_all: 緑）
 - 5 秘密・顧客の物: pass
 - 6 当て物・本番の効き目: pass
@@ -65,12 +65,12 @@ red
 
 
 def test_型どおりの判定は通る():
-    assert vf.check(GREEN, writer="session_WRITER01", head="0123456789abcdef") == []
-    assert vf.check(RED, writer="session_WRITER01") == []
+    assert vf.check(GREEN, writer="session_01WRITER0100000000", head="0123456789abcdef") == []
+    assert vf.check(RED, writer="session_01WRITER0100000000") == []
 
 
 def test_書いた窓とレビューした窓が同じなら誤り():
-    errs = vf.check(GREEN, writer="session_REVIEW01")
+    errs = vf.check(GREEN, writer="session_01REVIEW0100000000")
     assert any("別の目" in e for e in errs)
 
 
@@ -129,14 +129,14 @@ def test_点の正本は_skill_の表で_1_から_12():
 def test_点を_1_つ抜くと赤():
     for no, name in vf.load_points().items():
         lines = [l for l in GREEN.splitlines() if not l.startswith("- %d %s:" % (no, name))]
-        errs = vf.check("\n".join(lines) + "\n", writer="session_WRITER01")
+        errs = vf.check("\n".join(lines) + "\n", writer="session_01WRITER0100000000")
         assert any("点 %d " % no in e and "無い" in e for e in errs), (no, errs)
 
 
 def test_点の値が選べる値の外なら赤():
     for bad in ["ok", "たぶん pass", "passed", "済", ""]:
         text = GREEN.replace("- 5 秘密・顧客の物: pass", "- 5 秘密・顧客の物: " + bad)
-        errs = vf.check(text, writer="session_WRITER01")
+        errs = vf.check(text, writer="session_01WRITER0100000000")
         assert any("点 5" in e for e in errs), (bad, errs)
 
 
@@ -157,8 +157,8 @@ def test_点に_fail_が在るのに_green_は赤():
 
 
 def test_点_3_の書いた窓が自分か名乗りと違えば赤():
-    assert any("点 3" in e for e in vf.check(GREEN.replace("書いた窓 session_WRITER01", "書いた窓 session_REVIEW01")))
-    assert any("点 3" in e for e in vf.check(GREEN, writer="session_OTHER01"))
+    assert any("点 3" in e for e in vf.check(GREEN.replace("書いた窓 session_01WRITER0100000000", "書いた窓 session_01REVIEW0100000000")))
+    assert any("点 3" in e for e in vf.check(GREEN, writer="session_01OTHER01000000000"))
 
 
 def test_見る点の表が読めない時は止まる(tmp_path):
@@ -172,16 +172,16 @@ def test_見る点の表が読めない時は止まる(tmp_path):
 def test_同じ見出しの節が_2_つ在ると赤():
     extra = "## 点\n- 99 作り物: ok\n\n"
     text = GREEN.replace("## 所見", extra + "## 所見", 1)
-    assert any("`## 点` の節が 2 個" in e for e in vf.check(text, writer="session_WRITER01"))
+    assert any("`## 点` の節が 2 個" in e for e in vf.check(text, writer="session_01WRITER0100000000"))
 
 
 def test_ファイルを2つ渡すと2つ目も照らす(tmp_path, capsys):
     good, bad = tmp_path / "a.md", tmp_path / "b.md"
     good.write_text(GREEN, encoding="utf-8")
     bad.write_text(GREEN.replace("## verdict\ngreen", "## verdict\nred"), encoding="utf-8")
-    assert vf.main(["verdict_form.py", str(good), "--writer", "session_WRITER01", "--head", "0123456789ab"]) == 0
+    assert vf.main(["verdict_form.py", str(good), "--writer", "session_01WRITER0100000000", "--head", "0123456789ab"]) == 0
     capsys.readouterr()
-    assert vf.main(["verdict_form.py", str(good), str(bad), "--writer", "session_WRITER01", "--head", "0123456789ab"]) == 1
+    assert vf.main(["verdict_form.py", str(good), str(bad), "--writer", "session_01WRITER0100000000", "--head", "0123456789ab"]) == 1
     out = capsys.readouterr().out
     assert str(bad) in out and "誤りのあるファイル 1" in out
 

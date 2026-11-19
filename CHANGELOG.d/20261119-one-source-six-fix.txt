@@ -1,0 +1,8 @@
+- 足した: 窓の形の正本 `window-shape/window_shape.py`（窓の id の形・返し先・窓の種類・状態の印・閉じる決まり）。session-watch・guard・checker は `lib/window_shape.py`（symlink）で直に読む（土台の中だけ）
+- 直した: 窓の id の形を 1 つ（`session_0` の後に 15 字以上）にした。`session_watch` のような名を窓の id と見ない（選択肢の画面の中の言葉・判定の名乗り・返し先の見分けが同じ形を読む）
+- 直した: 文脈の見張り（guard の context_size）が、返し先が窓の手の窓を「止まる側」の子の窓に扱っていた。種類の正本（手の窓は 🙋）で決める
+- 直した: 状態の印 ⏳ の意味を 1 つにした（人の手か別の窓の返しを待って止まる印・正本は window_shape.py の STATE_RULE・skill title-mark はその文を載せる）。閉じる決まりを細目 §5 の 1 文にまとめ、手の窓・土台が新しくなった窓・ほかの 🙋 の窓の扱いの食い違いを無くした
+- 直した: 選択肢の画面の問いの文の数を核 §4（1 文）と値の表の既定に揃え、細目 §4 の「前提は 1〜2 文まで」を畳んだ。「分からない」の選択肢の見分けを guard の ask_shape 1 つにし、session-watch の点検も同じ物を呼ぶ（「わからない」等で食い違わない）
+- 直した: レビューの判定の決まりの文（review-pr）を verdict_form.py の文に揃えた（点の fail も red・書いた窓と同じ窓は判定を書かない）
+- 足した: verdict_form.py の `--looks`（判定のコメントかの見分け・guard の pr_text が呼ぶ）と `--return-line`（判定を返す 1 行を組む）
+- 直した: main の #93 が足した「頼みの行の記録で窓の種類を決める」見分け（seeded_by_record）と commit の書き手の行の形（Claude-Session）が、session-watch・guard・scripts/pr_writer.py に 1 つずつ写して足されていたのを、窓の形の正本 window_shape.py の 1 か所に置いて各所が直に読む形にした

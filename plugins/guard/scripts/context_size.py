@@ -2,7 +2,8 @@
 
 決まり: 文脈の目安は値の表の context_limit（既定 30 万 token）の 1 本。越えたら
   - 人のいる窓: 区切りの良い所で引き継ぎを書き、後継の窓へ替える（後継は返し先を継ぐ）。
-  - 返し先が別の窓の子の窓・人のいない窓（値の表の unattended_env が真）: 今の段を終え、引き継ぎを書いて止まる。
+  - 別の窓へ返す窓（🤖・種類の決め方は window-shape の window_kind＝手の窓は返し先が窓でも人のいる窓）・
+    人のいない窓（値の表の unattended_env が真）: 今の段を終え、引き継ぎを書いて止まる。
 
 測り方: 会話ログの最新の assistant の入力の総量（input + cache_read + cache_creation）＝今の文脈の大きさ。
   知らせた印は窓ごとに 1 個（一時の箱）＝2 回目からは黙る。
@@ -63,7 +64,7 @@ def measure(tpath):
 
 
 def unattended(tpath, vals):
-    return G.unattended_by_env(vals) or G.is_child_log(tpath)
+    return G.unattended_by_env(vals) or G.is_child_window(tpath)
 
 
 def _mark(session_id):
