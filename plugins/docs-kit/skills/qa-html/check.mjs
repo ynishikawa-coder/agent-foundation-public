@@ -1,6 +1,7 @@
 #!/usr/bin/env node
-// qa-html の確認ページの検査（外部依存ゼロ・node だけで動く）。決まりの表はこのファイルの頭の RULES の 1 か所。
-//   repo ごとに足す語・上限は repo の根の config/skill-values.json の docs-kit.qa-html.internal_words・limits。
+// qa-html の確認ページの検査（外部依存ゼロ・node と python3 で動く）。決まりの表はこのファイルの頭の RULES の 1 か所（なぜ聞くかの 5 文だけは SKILL.md の表を直に読む）。
+//   repo ごとに足す語・上限は repo の根の config/skill-values.json の docs-kit.qa-html.internal_words・limits
+//   （表の探し方と鍵の一覧は土台の 1 本の口 ../../lib/skill_values.py が持つ）。
 // 赤にする物（形の約束は SKILL.md §型の約束）:
 //   型: 宛先の印（data-dest＝send・copy・artifact）が無い／qa:css・qa:js・qa:foot が型（references/template.html）と違う
 //     （qa:foot は「この後のこと」だけ差してよい）／型の外に許す物の表（ALLOW）に無い要素・属性・URL を書いた
@@ -38,13 +39,30 @@
 //                                           知らない形・知らない鍵・欠けた鍵・形の違う値は赤＝写した古い形のままなら止まる
 import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 // ── 問いの決まりの表（1 か所）。会社ごとに足す語は config/skill-values.json の docs-kit.qa-html.internal_words
 //    （文字列か {語, 正規表現, 言い換え}）、上限は docs-kit.qa-html.limits で上書きする。
 // 外した欄（差出人・連絡先の欄は要らない）。HTML の class と JSON の鍵が同じ名。
 const DROPPED = [["from", "差出人"], ["contact", "連絡先"]];
+// なぜ聞くかの決まった 5 文の正本は SKILL.md の表（「なぜ聞くかの決まった 5 文」の下の `| \`鍵\` | 文 |` の行）。ここに写さず直に読む。
+// 読めない時は止まる（決まった文を知らずに照らさない）。
+const SKILL_MD = fileURLToPath(new URL("./SKILL.md", import.meta.url));
+export function loadWhy(text = readFileSync(SKILL_MD, "utf8")) {
+  const lines = text.split("\n");
+  const at = lines.findIndex((l) => l.startsWith("なぜ聞くかの決まった 5 文"));
+  const why = {};
+  if (at >= 0) {
+    for (const l of lines.slice(at + 1)) {
+      if (why && Object.keys(why).length && !l.startsWith("|")) break;
+      const m = /^\| `(\w+)` \| ([^|]+?) \|/.exec(l);
+      if (m) why[m[1]] = m[2];
+    }
+  }
+  if (!Object.keys(why).length) throw new Error(`なぜ聞くかの決まった文の表が読めない: ${SKILL_MD}`);
+  return why;
+}
 const ROOT_CAUSE = "  直し: 赤の行を 1 つずつ潰さず、細目 §3「まず構造を疑う」で原因（問いの元の表・前提の写し方）から直す";
 
 export const RULES = {
@@ -70,14 +88,8 @@ export const RULES = {
     "basis_chars": 60,
     "rec_chars": 40
   },
-  // なぜ聞くか（決まった 5 文）。会社の表の docs-kit.qa-html.why で文だけ替えられる（例 once を「この月だけの事を確かめます」）
-  "why": {
-    "mismatch": "資料どうしで食い違っています",
-    "missing": "資料に書いてありません",
-    "law": "今の決まりが法律の決まりと合っていません",
-    "once": "今回だけの事を確かめます",
-    "ambiguous": "資料の書き方が 2 通りに読めます"
-  },
+  // なぜ聞くか（決まった 5 文）。正本は SKILL.md の表（loadWhy が直に読む）。会社の表の docs-kit.qa-html.why で文だけ替えられる
+  "why": loadWhy(),
   // この答えで変わる事を書かなくてよい選択肢＝ひとことに書かせる逃げ道だけ（鍵と見出しの両方が合う時）
   "free_options": { "other": ["ほかの答え", "別の決め方"], "none": ["当てはまらない"] },
   // ひとことに書かせる選択肢＝鍵が free_options.other（ほかの答え・別の決め方）か、字（見出し・添え書き・変わる事）がこれに当たる物。data-supp="need"（JSON は "supp": "need"）が要る
@@ -102,7 +114,8 @@ export const RULES = {
   //   「推奨」の字は型の CSS が出す・JSON は "recommended": "理由"）。お客さん宛て（send）と事実を聞く問いは印なし＝見込みは .estimate の枠だけ
   "rec": { "dests": ["copy", "artifact"], "kinds": ["judge"] },
   // 印の字は型が出す＝ページの文に書いたこの言葉は赤（印は small.rec・"recommended" で付ける）
-  "recommend": "おすすめ|お勧め|お薦め|オススメ|推奨",
+  // 語の並びは選択肢の画面の見張り（plugin guard の ask_shape の _REC_WORD・大小を問わない）と同じ（tests/test_doc_tool_values.py が照らす）
+  "recommend": "推奨|おすすめ|お勧め|お薦め|オススメ|おススメ|イチオシ|recommend|suggested",
   "estimate_word": "見込み|予測",
   // 1 画面 1 問＝ほかの問いの答えに頼らない（「前の問いの答えで決まります」の類は赤）
   "prior_ref": "(?:前|上|ひとつ前|1\\s*つ前|さっき)の(?:問(?!い合)|質問|設問|答え|回答)|前問",
@@ -198,28 +211,29 @@ const UNKNOWN = RULES.unknown.value;
 const WHYS = Object.keys(RULES.why);
 const TEMPLATE = fileURLToPath(new URL("./references/template.html", import.meta.url));
 
-// 会社の表（config/skill-values.json）を、渡した path か、ファイルの dir と今の dir から上へ探す。
-export function findValues(...starts) {
-  for (const s of starts.filter(Boolean)) {
-    let d = resolve(s);
-    for (;;) {
-      const p = join(d, "config", "skill-values.json");
-      if (existsSync(p)) return p;
-      const up = dirname(d);
-      if (up === d) break;
-      d = up;
+// 会社の表（config/skill-values.json）の docs-kit.qa-html の欄。探し方と鍵の一覧は土台の 1 本の口（plugin の lib/skill_values.py
+// ＝正本 skill-values/ への symlink）が持つ＝ここに写さない。知らない鍵・畳んだ鍵・型の違う値は { error } で名指しする（黙って捨てない）。
+const VALUES_PY = fileURLToPath(new URL("../../lib/skill_values.py", import.meta.url));
+export function loadValues({ explicit = null, starts = [] } = {}) {
+  const argv = [VALUES_PY, "section", "docs-kit", "qa-html"];
+  if (explicit) argv.push("--values", explicit);
+  for (const s of starts.filter(Boolean)) argv.push("--start", s);
+  const r = spawnSync("python3", argv, { encoding: "utf8" });
+  if (r.error) return { path: explicit, company: {}, error: `値の表を読む口（python3 ${VALUES_PY}）が走らない: ${r.error.message}` };
+  if (r.status !== 0) return { path: explicit, company: {}, error: String(r.stderr ?? "").trim() || `値の表を読む口が ${r.status} で終わった` };
+  const got = JSON.parse(r.stdout);
+  const company = got.values ?? {};
+  // limits・why の中の鍵は、この検査の表（RULES）が正本＝ここで照らす
+  const bad = [];
+  for (const k of ["limits", "why"]) {
+    for (const [kk, v] of Object.entries(company[k] ?? {})) {
+      if (kk.startsWith("_")) continue;
+      if (!(kk in RULES[k])) bad.push(`docs-kit.qa-html.${k}.${kk} は知らない鍵（効かない）。この欄の鍵: ${Object.keys(RULES[k]).join("・")}`);
+      else if (typeof v !== typeof RULES[k][kk]) bad.push(`docs-kit.qa-html.${k}.${kk} の型が違う（${typeof RULES[k][kk]} で書く）`);
     }
   }
-  return null;
-}
-
-function loadCompany(valuesPath) {
-  if (!valuesPath) return {};
-  try {
-    return JSON.parse(readFileSync(valuesPath, "utf8"))?.["docs-kit"]?.["qa-html"] ?? {};
-  } catch {
-    return {};
-  }
+  if (bad.length) return { path: got.path, company: {}, error: `値の表 ${got.path} に直す所がある:\n${bad.map((b) => `  - ${b}`).join("\n")}` };
+  return { path: got.path, company };
 }
 
 const mask = (s) => s.replace(/<!--[\s\S]*?(-->|$)/g, (m) => " ".repeat(m.length));
@@ -840,12 +854,14 @@ function checkRec(q, id, dest, format, limits, red) {
 }
 
 // ── 決まり: 問いの形（HTML でも JSON でも同じ物）を 1 か所で見る
-export function checkPage(page, { valuesPath = null, prior = null } = {}) {
-  const company = loadCompany(valuesPath);
+export function checkPage(page, { valuesPath = null, valuesStarts = [], values = null, prior = null } = {}) {
+  const loaded = values ?? loadValues({ explicit: valuesPath, starts: valuesStarts });
+  const company = loaded.company;
   const limits = { ...RULES.limits, ...(company.limits ?? {}) };
   const words = compileWords(company);
-  const rx = (k) => new RegExp(RULES[k], "u");
+  const rx = (k) => new RegExp(RULES[k], k === "recommend" ? "iu" : "u");
   const red = [...page.shape];
+  if (loaded.error) red.push(loaded.error);
   const warn = [];
   const { dest, holes, questions: qs } = page;
 
@@ -1252,9 +1268,9 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
     }
   }
   // guard の qa_page は cwd をページの dir にして呼ぶ＝ページが repo の外（窓の scratchpad）でも値の表を見つけるため、窓の repo も起点に足す
-  const valuesPath = at("--values") ?? findValues(dirname(resolve(file)), process.cwd(), process.env.CLAUDE_PROJECT_DIR);
+  const values = loadValues({ explicit: at("--values"), starts: [dirname(resolve(file))] });
   const priorPath = at("--prior") ?? priorPathFor(file);
-  let opts = { valuesPath, priorPath, priorExplicit: args.includes("--prior") };
+  let opts = { values, priorPath, priorExplicit: args.includes("--prior") };
   if (args.includes("--prior-input") || args.includes("--run-prior")) {
     const page = readPage(file);
     if (page.error) {
@@ -1265,19 +1281,23 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
       console.log(JSON.stringify(priorInput(page), null, 2));
       process.exit(0);
     }
-    const cmd = String(loadCompany(valuesPath).prior_check_cmd ?? "").trim();
+    if (values.error) {
+      console.error(values.error);
+      process.exit(2);
+    }
+    const cmd = String(values.company.prior_check_cmd ?? "").trim();
     if (!cmd) {
       console.error("--run-prior: 値の表（config/skill-values.json）に docs-kit.qa-html.prior_check_cmd が無い");
       process.exit(2);
     }
-    const got = runPrior(page, cmd, { cwd: valuesPath ? dirname(dirname(resolve(valuesPath))) : process.cwd() });
+    const got = runPrior(page, cmd, { cwd: values.path ? dirname(dirname(resolve(values.path))) : process.cwd() });
     // 落ちた時も書き換える（前の回の結果を残すと、後でページの path だけで呼ぶ guard が古い結果で緑にする）
     writeFileSync(priorPath, JSON.stringify(got.raw ? { ...got.raw, page_version: page.version } : { error: got.error }, null, 2) + "\n");
-    opts = { valuesPath, prior: { ...got, from: `prior_check_cmd → ${priorPath}` } };
+    opts = { values, prior: { ...got, from: `prior_check_cmd → ${priorPath}` } };
   }
   const results = files.map((f) => {
-    const v = at("--values") ?? findValues(dirname(resolve(f)), process.cwd(), process.env.CLAUDE_PROJECT_DIR);
-    const o = f === file ? opts : { valuesPath: v, priorPath: priorPathFor(f), priorExplicit: false };
+    const o = f === file ? opts
+      : { values: loadValues({ explicit: at("--values"), starts: [dirname(resolve(f))] }), priorPath: priorPathFor(f), priorExplicit: false };
     return { file: resolve(f), ...checkFile(f, o) };
   });
   if (args.includes("--json")) console.log(JSON.stringify(results.length === 1 ? results[0] : results, null, 2));

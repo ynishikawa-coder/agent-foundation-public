@@ -1,0 +1,2 @@
+- 直した: 使う側に貼る setup script の塊（docs/核の届け方.md）を 1 行 200 バイト・100 行に収めた（クラウドの窓の道具 update_environment が運べる上限・超えると AI の窓が環境に貼れない）。長い文は変数に分けて足す。上限は scripts/plugin_smoke.py の setup_block が照らす（CI の plugin-smoke も同じ口で読む）。
+- 壊れる（1 段目）: 塊に、版（tag）や枝に止めた・出所の違う・入口を持たない前の目録を外す行（marketplace remove）を足した。古い 3 行の形も今までどおり入る。使う側は環境の setup script と repo に写した形を新しい塊に貼り替える。repo に残る古い形は古い形 no-stale-catalog-remove（plugins/core/古い形.json）で起動の hook が名指す。

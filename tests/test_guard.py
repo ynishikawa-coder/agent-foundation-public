@@ -447,9 +447,9 @@ def test_時刻は字でなく時刻で比べる(env, tmp_path):
 
 
 def test_1つの見張りが_import_で壊れても他の見張りは走る(env, tmp_path):
-    broken = tmp_path / "plugin"
     import shutil
-    shutil.copytree(PLUGIN / "scripts", broken)
+    shutil.copytree(PLUGIN, tmp_path / "plugin")   # 入れた時と同じく lib/ の symlink は実体で写る
+    broken = tmp_path / "plugin" / "scripts"
     (broken / "irreversible.py").write_text("raise ImportError('作り物の故障')\n", encoding="utf-8")
     payload = {"tool_name": "Write", "tool_input": {"file_path": "/x/tests/test_a.py", "content": "OPENAI_API_KEY"}}
     p = subprocess.run([sys.executable, str(broken / "guard.py"), "pre"], input=json.dumps(payload),
@@ -862,8 +862,9 @@ def test_ask_shape_判定の値は値の表で変えられ誤って止まる形�
     env["SKILL_VALUES"] = str(table)
     table.write_text(json.dumps({"guard": {"ask_question_max_chars": 120}}), encoding="utf-8")
     assert deny_reason(env, long_q) == ""
-    table.write_text(json.dumps({"guard": {"ask_term_allow": ["^ISO\\d+$"]}}), encoding="utf-8")
-    assert deny_reason(env, ask_pre(q("ISO9001 の書き方に合わせますか"))) == ""
+    assert "B202" in deny_reason(env, ask_pre(q("B202 の部屋で会いますか")))
+    table.write_text(json.dumps({"guard": {"ask_term_allow": ["^B\\d+$"]}}), encoding="utf-8")
+    assert deny_reason(env, ask_pre(q("B202 の部屋で会いますか"))) == ""
     assert "E02" in deny_reason(env, ask_pre(q("E02 を入れますか")))
     table.write_text(json.dumps({"guard": {"ask_shape_exempt": ["^作り物の例外"]}}), encoding="utf-8")
     assert deny_reason(env, ask_pre(q("作り物の例外 E02 を入れますか"))) == ""
