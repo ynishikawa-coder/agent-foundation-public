@@ -197,10 +197,11 @@ def test_main_へは製品もオーナーに聞かずに入れ_絵と差があ�
     kaku_text = (PLUGIN / "核.md").read_text(encoding="utf-8")
     assert "本番への出荷" not in _節(kaku_text, 4), "核 §4 に「本番への出荷は聞く」が戻った"
     s7 = _節(kaku_text, 7)
-    for word in ["（製品も）オーナーに聞かずに入れる", "レビュー green", "試験が緑で衝突なし", "全体の絵", "差があれば止めて聞く", "先に絵を描き"]:
+    for word in ["（製品も）オーナーに聞かずに入れる", "レビュー green", "試験が緑で衝突なし", "全体の絵", "差がある・照らせない時は止めて聞く", "先に絵を描き"]:
         assert word in s7, f"核 §7 に無い: {word}"
     s7d = _節((PLUGIN / "細目.md").read_text(encoding="utf-8"), 7)
     assert "**main へ入れる**" in s7d and "**③の段が土台に入るまで**" in s7d
+    assert "核 §7 の「照らせない時」" in s7d, "照らす段が無い間の一言が核から読めない形に戻った"
     assert "核 §7 と細目 §7 の「main へ入れる」" in (ROOT / "CONTRIBUTING.md").read_text(encoding="utf-8")
 
 
