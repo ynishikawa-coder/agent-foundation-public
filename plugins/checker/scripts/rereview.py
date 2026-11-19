@@ -82,6 +82,7 @@ def main(argv):
     if errs:
         for e in errs:
             print(e)
+        print("直し: commit を結び直すだけで済ませず、止めるが直っていない原因を細目 §3「まず構造を疑う」で探して直す")
         return 1
     print("\n".join(lines))
     return 0

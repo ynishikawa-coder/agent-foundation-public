@@ -153,6 +153,8 @@ def main(argv):
     print("merge-gate: %s" % ("入れてよい" if ok else "入れない"))
     for w in why:
         print("- " + w)
+    if not ok:
+        print("直し: 判定を足し直すだけで済ませず、なぜ関所を通らない PR になったかを細目 §3「まず構造を疑う」で原因から直す")
     if opts.get("--status"):
         # 関所は先端の commit の状態 `merge-gate` が持つ（コメントで回る時も同じ先端に付く）。書けたら job は緑で終える
         post_status(opts["--github"], data["head"], ok, why[0], os.environ["GITHUB_TOKEN"])

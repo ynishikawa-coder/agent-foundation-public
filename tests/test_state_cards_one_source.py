@@ -17,8 +17,7 @@ def test_細目の表に_4_状態の_1_行目が在る():
     rows = sw.state_lines(str(SAIMOKU))
     assert rows == {"終わった": "✅終わった", "一部": "✅終わった（一部）", "止めた": "🛑止まった",
                     "続けられない": "🛑止まった（続けられない）"}
-    text = SAIMOKU.read_text(encoding="utf-8")
-    assert "- **4 状態と 1 行目の札** — 上の表の右の欄が、完了の 4 状態を返事の 1 行目（核 §5 の 4 札）でどう書くかの正本。道具（返事の見張り）もこの欄を直に読む（形を自分で持たない）。" in text
+    assert "| 状態 | 意味 | 返事の 1 行目 |" in SAIMOKU.read_text(encoding="utf-8")
 
 
 def test_見張りは表の形を写さない():

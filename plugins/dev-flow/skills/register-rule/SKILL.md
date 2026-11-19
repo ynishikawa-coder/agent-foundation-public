@@ -17,7 +17,7 @@ repo の根の `config/skill-values.json` の `dev-flow.register-rule.<鍵>` か
 |---|---|---|
 | `dup_check_cmd` | Step 2 の機械の重複検査の命令 | grep だけ |
 | `desc_budget_bytes` | skill の description の合計の予算（Step 4） | 測って PR 本文に書くだけ |
-| `decision_record` | 原文・経緯を書く決定の記録の口 | 各社の CLAUDE.md が名指す決定の記録（核 §8）。名指しが無ければ PR 本文で代わりにせず聞く（公開の repo の PR 本文は誰にでも見える） |
+| `decision_record` | 原文・経緯を書く決定の記録の口 | 各社の CLAUDE.md が名指す決定の記録。名指しが無ければ PR 本文で代わりにせず聞く（公開の repo の PR 本文は誰にでも見える） |
 | `learning_record` | 失敗・学びの書き先 | 各社の CLAUDE.md が名指す原因の台帳の行 |
 
 ## Step 1: これは止める物か（最初に問う）
