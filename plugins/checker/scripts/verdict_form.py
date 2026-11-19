@@ -6,7 +6,8 @@
   2. 2 行目 `見た先端: <SHA の先頭 12 文字>`
   3. `## verdict` の次の行が green／red／red（blocked: …）で、1 行目の判定と合う
   4. `## 所見` の各行の札 `- [止める|台帳へ|直った｜<段>] …`。`[止める｜…]` か点の fail が 1 つでも在れば red、無ければ green
-  5. 別の目: 書いた窓（--writer）とレビューした窓が同じなら形の誤り（自分の PR に判定を付けない）
+  5. 別の目: 書いた窓（--writer）のどれかとレビューした窓が同じなら形の誤り（自分の PR に判定を付けない）。
+     引き継ぎで書いた窓が 2 つ以上の PR は、全部を `,` で並べて渡す（1 つ目だけを照らすと、後の書き手が自分の PR に判定を付けられた）
   6. `## 点` に、review-pr の SKILL.md の「見る点」の表の点（番号と名）が全部 1 行ずつ在り、
      各行の値がその点に選べる値のどれか。選べる値は SKILL.md の「判定の形」の雛形の `## 点` の行
      （`- 1 依頼の充足: pass/fail`・`- 8 歯と口・注入の試験: pass/fail/N/A`・点 3 は `書いた窓 <id> ≠ この窓`）から点ごとに読む。
@@ -15,14 +16,19 @@
   7. red（blocked を除く）は `## verdict` に `直し: 細目 §3「まず構造を疑う」` の行が在る
      （所見を直す行の一覧として返さず、根治の入口を指す。中身は細目が正本＝ここは指すだけ）。
 
+  9. 名乗り: 1 行目の窓が、この命令を回した窓（環境の `CLAUDE_CODE_REMOTE_SESSION_ID` の `cse_<x>` → `session_<x>`）と同じ。
+     助手（Agent）は立てた窓の環境を受け継ぐので、書いた窓が立てた助手が作った id で名乗っても、ここで書いた窓の id と
+     照らされて誤りになる。回した窓が分からない（環境に無い）時は止まる（名乗りを照らさずに通さない＝exit 2）。
+
   8. 所見の札（止める・台帳へ・直った）と段（設計・整地…）は、review-pr の SKILL.md の「判定の形」の節の
      「- 札は」の行から読む（ここに写さない＝札や段を足す PR がこの file の定数を触らない）。読めない時は止まる。
 
-使い方: python3 verdict_form.py <コメントのファイル> [<ファイル> …] --writer <書いた窓の session id> --head <PR の先端の SHA>
+使い方: python3 verdict_form.py <コメントのファイル> [<ファイル> …] --writer <書いた窓の session id>[,<id> …] --head <PR の先端の SHA>
   --writer と --head は欠かせない（欠けたら別の目と先端を照らさずに通さない＝exit 2）。
   助手（Agent）の判定は立てた窓の session id で書く。書いた窓が立てた助手の判定は --writer と同じになり誤り。
   ファイルは全部照らす（2 つ以上の時は誤りの頭にファイルの名）。誤りを 1 行ずつ出し、どれかに誤りがあれば exit 1。
 """
+import os
 import re
 import sys
 from pathlib import Path
@@ -40,6 +46,13 @@ OTHER_EYE = re.compile(r"^書いた窓 (session_[A-Za-z0-9]+) ≠ この窓$")
 TEMPLATE_EYE = "書いた窓 <id> ≠ この窓"   # 雛形の点 3 の値の書き方（OTHER_EYE の雛形の形）
 TEMPLATE_VALUES = re.compile(r"^((?:pass|fail|N/A)(?:/(?:pass|fail|N/A))*)(?:$|[ （(])")
 ROOT_CAUSE = "直し: 細目 §3「まず構造を疑う」"
+REMOTE_ID = re.compile(r"^cse_([A-Za-z0-9]+)$")
+
+
+def this_window(env=None):
+    """この命令を回した窓の session id（`session_<x>`）。環境に無い・形が違えば None（呼ぶ側が止める）。"""
+    m = REMOTE_ID.match((env if env is not None else os.environ).get("CLAUDE_CODE_REMOTE_SESSION_ID", "").strip())
+    return "session_" + m.group(1) if m else None
 
 
 def load_points(path=SKILL):
@@ -114,8 +127,17 @@ def section(lines, head):
     return out if inside or out else None
 
 
+def writer_set(writer):
+    """--writer の値（`,` で並べた字か並び）を書いた窓の組にする。"""
+    if not writer:
+        return set()
+    items = writer.split(",") if isinstance(writer, str) else list(writer)
+    return {w.strip() for w in items if w and w.strip()}
+
+
 def check_points(lines, points, reviewer=None, writer=None, values=None):
     """`## 点` の欄の誤りと、fail の数。values は {番号: 選べる値の組}（既定は SKILL.md の雛形から読む）。"""
+    writers = writer_set(writer)
     if values is None:
         values = load_values()
     errs, fails = [], 0
@@ -148,8 +170,8 @@ def check_points(lines, points, reviewer=None, writer=None, values=None):
         if eye:
             if reviewer and eye.group(1) == reviewer:
                 errs.append("点 3: 書いた窓とレビューした窓が同じ（別の目でない）")
-            if writer and eye.group(1) != writer:
-                errs.append("点 3: 書いた窓 %s が --writer %s と違う" % (eye.group(1), writer))
+            if writers and eye.group(1) not in writers:
+                errs.append("点 3: 書いた窓 %s が --writer %s のどれとも違う" % (eye.group(1), ",".join(sorted(writers))))
             continue
         mv = VALUE.match(val)
         if not mv or mv.group(1) not in allowed:
@@ -163,7 +185,7 @@ def check_points(lines, points, reviewer=None, writer=None, values=None):
     return errs, fails
 
 
-def check(text, writer=None, head=None, points=None, cards=None, values=None):
+def check(text, writer=None, head=None, points=None, cards=None, values=None, me=None):
     if points is None:
         points = load_points()
     if values is None:
@@ -187,8 +209,14 @@ def check(text, writer=None, head=None, points=None, cards=None, values=None):
             errs.append("`## %s` の節が %d 個在る（1 つだけにする）" % (h, n))
     if m2 and head and not head.startswith(m2.group(1)):
         errs.append("見た先端 %s が PR の今の先端 %s と違う（見直して判定を足す）" % (m2.group(1), head[:12]))
-    if writer and reviewer and writer == reviewer:
+    writers = writer_set(writer)
+    if reviewer and reviewer in writers:
         errs.append("書いた窓とレビューした窓が同じ（別の目でない）")
+    if me and reviewer and reviewer != me:
+        errs.append("1 行目の窓 %s がこの命令を回した窓 %s と違う（名乗りを作らない。書いた窓が立てた助手は判定を出せない"
+                    "＝書いた窓と別の窓を create_session で立ててそこで当てる）" % (reviewer, me))
+    if me and me in writers:
+        errs.append("この命令を回した窓が書いた窓 %s と同じ（書いた窓とその助手は判定を出せない）" % me)
 
     verdict = section(lines, "verdict")
     body = [ln.strip() for ln in (verdict or []) if ln.strip()]
@@ -249,14 +277,20 @@ def main(argv):
     if not paths:
         sys.stderr.write(__doc__)
         return 2
-    if not opts["--writer"] or not opts["--head"]:
+    if not writer_set(opts["--writer"]) or not opts["--head"]:
         # 欠けた材料で通さない: 書いた窓が無いと別の目を、先端が無いと見た後の push を照らせない
         sys.stderr.write("--writer <書いた窓の session id> と --head <PR の先端の SHA> の両方が要る（欠けたまま形を通さない）\n")
+        return 2
+    me = this_window()
+    if not me:
+        # 名乗りを照らせない所で通さない: 誰が回したか分からないと、作った id の名乗りを見分けられない
+        sys.stderr.write("この命令を回した窓の session id が環境（CLAUDE_CODE_REMOTE_SESSION_ID）に無い"
+                         "（名乗りを照らさずに形を通さない。判定はクラウドの窓で回す）\n")
         return 2
     bad = 0
     for path in paths:
         with open(path, encoding="utf-8") as f:
-            errs = check(f.read(), writer=opts["--writer"], head=opts["--head"])
+            errs = check(f.read(), writer=opts["--writer"], head=opts["--head"], me=me)
         bad += bool(errs)
         for e in errs:
             print(("%s: %s" % (path, e)) if len(paths) > 1 else e)

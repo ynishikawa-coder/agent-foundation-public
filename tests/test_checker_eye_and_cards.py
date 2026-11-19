@@ -1,4 +1,5 @@
 """チェック役: 書いた窓が立てた助手の判定を別の目と取り違えない・札と段を SKILL.md 1 か所から読む（注入の試験）。"""
+import os
 import subprocess
 import sys
 
@@ -10,10 +11,14 @@ FORM = PLUGIN / "scripts" / "verdict_form.py"
 SKILL = PLUGIN / "skills" / "review-pr" / "SKILL.md"
 
 
-def run(tmp_path, text, *args):
+def run(tmp_path, text, *args, me="cse_REVIEW01"):
+    """me は回した窓の環境の id（cse_<x>）。None なら環境から外す。"""
     f = tmp_path / "判定.md"
     f.write_text(text, encoding="utf-8")
-    return subprocess.run([sys.executable, "-B", str(FORM), str(f), *args], capture_output=True, text=True)
+    env = {k: v for k, v in os.environ.items() if k != "CLAUDE_CODE_REMOTE_SESSION_ID"}
+    if me is not None:
+        env["CLAUDE_CODE_REMOTE_SESSION_ID"] = me
+    return subprocess.run([sys.executable, "-B", str(FORM), str(f), *args], capture_output=True, text=True, env=env)
 
 
 @pytest.mark.parametrize("args", [[], ["--head", "0123456789ab"], ["--writer", "session_WRITER01"],
@@ -25,7 +30,7 @@ def test_書いた窓か先端が欠けたら形を通さない(tmp_path, args):
 
 def test_書いた窓が立てた助手の判定は書いた窓と同じ_id_になり誤り(tmp_path):
     helper = GREEN.replace("session_REVIEW01", "session_WRITER01", 1)
-    res = run(tmp_path, helper, "--writer", "session_WRITER01", "--head", "0123456789ab")
+    res = run(tmp_path, helper, "--writer", "session_WRITER01", "--head", "0123456789ab", me="cse_WRITER01")
     assert res.returncode == 1 and "別の目でない" in res.stdout
 
 

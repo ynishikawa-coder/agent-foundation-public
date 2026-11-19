@@ -1,0 +1,3 @@
+- 壊れる（土台の中だけ）: review-pr の判定の形を見る verdict_form.py が、1 行目の名乗りの窓を回した窓の環境の id（CLAUDE_CODE_REMOTE_SESSION_ID）と照らす。違えば誤り（書いた窓が立てた助手が作った id で名乗る形を拒む）・回した窓が分からない所では止まる（exit 2）。使う側の repo は verdict_form.py を呼んでいない。
+- 壊れる（土台の中だけ）: 書いた窓を 1 つでなく組で照らす。verdict_form.py の --writer は `,` で並べた全部を受け、どれかとレビューした窓・回した窓が同じなら誤り。PR の文の見張りは PR 本文の `書いた窓:` の全部の窓と、PR の commit の `Claude-Session:` の全部の窓を組にして渡す（commit を引けなければ止める）。
+- 壊れる（土台の中だけ）: guard に見張り gh_bash を足した。Bash から GitHub へ PR・issue の文を書く命令（gh pr comment・gh pr review・gh pr create・gh pr edit・gh issue comment・書き込みの gh api・GitHub の API へ書く curl など）を出す前に止め、GitHub の MCP の道具で出すよう返す。判定の名乗りの照らしと PR の文の見張りを Bash で迂回する道を閉じる。読むだけの gh（gh pr view・gh api -X GET）は通る。
