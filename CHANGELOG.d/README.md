@@ -8,6 +8,7 @@
 - `CHANGELOG.md` には記録の行を書かない。束ねて読むのは `python3 scripts/changelog.py`（main に入った順・新しい物が上）。
 - 拡張子が `.txt` なのは、記録が経緯として古い言い回しを含むため（土台の文を照らす試験は `.md` などを見る）。
 - 形は `python3 scripts/changelog.py check` が照らす（CI の `check` の中の `tests/test_changelog.py`）。古い形で `CHANGELOG.md` へ直に行を足すと赤。
+- `00000000-断片へ移す前.txt`（この形の前の記録）は動かさない。頭へ足しても直しても赤（中身の印 `OLD_SHA256` が `scripts/changelog.py` に在る）。
 - `CHANGELOG.md` は決まった文だけ（文の正本は `scripts/changelog.py` の `MAIN_TEXT`）。見出し・地の文・並びのどれで足しても赤。
 
 ## この形の前に枝を切った PR が main を取り込む時

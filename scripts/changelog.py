@@ -12,6 +12,7 @@
 """
 from __future__ import annotations
 
+import hashlib
 import re
 import subprocess
 import sys
@@ -22,6 +23,8 @@ ROOT = Path(__file__).resolve().parent.parent
 DIR_NAME = "CHANGELOG.d"
 # 断片へ移す前の記録（そのまま移した経緯・札の形を照らさない）。
 OLD_FILE = "00000000-断片へ移す前.txt"
+# 移す前の記録は動かさない（頭へ足せば、同じ所へ追記する形がこの file へ移るだけ）。中身の印で止める。
+OLD_SHA256 = "03b2d26bc3b3a62d155f02883fac68c3824c29a70ed77da736813355a5352301"
 NAME_RE = re.compile(r"^\d{8}-[0-9A-Za-z][0-9A-Za-z._-]*\.txt$")
 LINE_RE = re.compile(r"^- (壊れる|足した|直した|畳んだ)(（[^）\n]+）)?: \S")
 JST = timezone(timedelta(hours=9))
@@ -57,6 +60,9 @@ def check(root: Path = ROOT) -> list[str]:
         return errs
     if not (d / OLD_FILE).is_file():
         errs.append(f"{DIR_NAME}/{OLD_FILE} が無い（移す前の記録を消さない）")
+    elif hashlib.sha256((d / OLD_FILE).read_bytes()).hexdigest() != OLD_SHA256:
+        errs.append(f"{DIR_NAME}/{OLD_FILE}: 移す前の記録は動かさない（足す・直すと、全部の PR が同じ所へ追記する形に戻る）。"
+                    f"記録は自分の枝の {DIR_NAME}/<日付>-<話題>.txt へ書く")
     for p in sorted(d.iterdir()):
         if p.name == "README.md":
             continue

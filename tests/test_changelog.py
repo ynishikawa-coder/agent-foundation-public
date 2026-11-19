@@ -76,7 +76,8 @@ def test_この形が後に入る時は先に入った_PR_の行を移す前の�
     assert cl.adopt(_old_form(lines), old, root) == lines
     assert old.read_text(encoding="utf-8").splitlines()[:2] == lines
     assert cl.adopt(_old_form(lines), old, root) == []      # 2 度回しても重ならない
-    assert cl.check(root) == []
+    # 入った後は移す前の記録は動かせない（B はこの PR が main に入る前だけの手順で、印も一緒に替える）
+    assert any("移す前の記録は動かさない" in e for e in cl.check(root))
 
 
 @pytest.mark.parametrize("name,body", [
@@ -91,6 +92,16 @@ def test_形の外の断片は赤(tmp_path, name, body):
     root = _copy(tmp_path)
     (root / "CHANGELOG.d" / name).write_text(body, encoding="utf-8")
     assert cl.check(root), (name, body)
+
+
+@pytest.mark.parametrize("edit", [lambda t: "- 足した: 頭へ足す\n" + t, lambda t: t + "- 足した: 末尾へ足す\n",
+                                  lambda t: t.replace("壊れる", "こわれる", 1)])
+def test_移す前の記録へ足す_直すと赤(tmp_path, edit):
+    """古い形の追記が、移す前の記録の file へ迂回して残らない。"""
+    root = _copy(tmp_path)
+    old = root / "CHANGELOG.d" / cl.OLD_FILE
+    old.write_text(edit(old.read_text(encoding="utf-8")), encoding="utf-8")
+    assert any("移す前の記録は動かさない" in e for e in cl.check(root))
 
 
 def test_移す前の記録を消すと赤(tmp_path):
