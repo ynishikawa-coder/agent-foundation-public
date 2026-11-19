@@ -299,6 +299,7 @@ def _local_check(tmp_path, ci_text):
     (box / "public-guard").mkdir()
     (box / ".github" / "workflows").mkdir(parents=True)
     shutil.copy(ROOT / "scripts" / "checks" / "public_guard.sh", box / "scripts" / "checks" / "public_guard.sh")
+    shutil.copy(ROOT / "scripts" / "af_unchecked.sh", box / "scripts" / "af_unchecked.sh")
     shutil.copy(ROOT / "public-guard" / "workflow_reader.py", box / "public-guard" / "workflow_reader.py")
     (box / "public-guard" / "guard.py").write_text(FAKE_GUARD, encoding="utf-8")
     (box / ".github" / "workflows" / "ci.yml").write_text(ci_text, encoding="utf-8")

@@ -9,19 +9,20 @@ import subprocess
 from pathlib import Path
 
 import pytest
+from entry_box import box_env
 
 ROOT = Path(__file__).resolve().parent.parent
 CI = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
 
 
 def _box(tmp_path, ci_text):
-    for rel in ("scripts/checks/public_guard.sh", "public-guard/workflow_reader.py"):
+    for rel in ("scripts/checks/public_guard.sh", "public-guard/workflow_reader.py", "scripts/af_unchecked.sh"):
         (tmp_path / rel).parent.mkdir(parents=True, exist_ok=True)
         shutil.copy(ROOT / rel, tmp_path / rel)
     (tmp_path / "public-guard" / "guard.py").write_text("import sys\nprint('GUARD RAN')\nsys.exit(0)\n", encoding="utf-8")
     (tmp_path / ".github" / "workflows").mkdir(parents=True)
     (tmp_path / ".github" / "workflows" / "ci.yml").write_text(ci_text, encoding="utf-8")
-    env = dict(os.environ, GITHUB_ACTIONS="true")
+    env = box_env(ci=True)
     return subprocess.run(["bash", str(tmp_path / "scripts" / "checks" / "public_guard.sh")], capture_output=True,
                           text=True, env=env, timeout=60)
 

@@ -612,6 +612,8 @@ def main(argv=None) -> int:
         unchecked = ["顧客の語（環境に無いので、その照合を飛ばした）"] + unchecked
     if unchecked:
         print("公開の検査: 照らしていない（当たりは 0。照らしていない物:）\n  " + "\n  ".join(unchecked))
+        if os.environ.get("AF_CHECK_UNCHECKED"):   # 検査の入口 check_all へ訳を渡す（訳の無い 3 は赤）
+            Path(os.environ["AF_CHECK_UNCHECKED"]).write_text("照らせない: " + "・".join(unchecked) + "\n", encoding="utf-8")
         return 3
     scope = f"中身 {g.files_n} 個" + ("・歴史と外側は照らさない〔--files-only〕" if a.files_only
                                      else f"・歴史と外側 {g.commits_n} commit")
