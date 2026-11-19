@@ -209,15 +209,27 @@ HOW = {
 
 # 推奨の印を付けない問いの形（既定）。字の形の推し量りなので、止めずに知らせるだけ。
 REC_NOTICE_KINDS = {
-    "済んだかの確認": [r"(?:終わり|済み|でき|入れ|完了し|設定し|保存し|押し|送り|届き|直り|動き)ましたか",
+    "済んだかの確認": [r"(?:終わり|済み|でき|入れ|完了し|設定し|保存し|押し|送り|届き|直り|動き|反映され|され)ましたか",
+                   r"(?:済んで|終わって|完了して|入って|届いて|直って|動いて|反映されて|できて)(?:い)?ますか",
                    r"(?:終わった|済んだ|できた|入った|届いた|直った|動いた)(?:か|？|\?|$)", r"完了(?:しましたか|ですか|か)"],
-    "意図・考えを聞く問い": [r"なぜ|どうして|何のため", r"どういう(?:意図|つもり|狙い|考え)", r"意図|つもりですか|お考え",
-                    r"どう思い|どう考え|どう感じ", r"好み"],
+    "意図・考えを聞く問い": [r"なぜ|どうして|何のため", r"どういう(?:意図|つもり|狙い|考え)", r"意図は|意図を(?:教え|聞かせ)|つもりですか|お考え",
+                    r"どう思い|どう考え|どう感じ", r"お好み|好みは|好きな"],
 }
 
 
-def rec_kind_notes(qs, vals):
-    """印（決まりの形）が付いた問いのうち、済んだか・意図の形に見える物 [(問いの頭, 名)]。"""
+def _search(pat, text, bad):
+    """値の表の正規表現が壊れていても知らせ全体を落とさない（壊れた形は bad に集めて知らせる）。"""
+    try:
+        return re.search(pat, text)
+    except re.error:
+        if pat not in bad:
+            bad.append(pat)
+        return None
+
+
+def rec_kind_notes(qs, vals, bad=None):
+    """印（推奨の語）が付いた問いのうち、済んだか・意図の形に見える物 [(問いの頭, 名)]。"""
+    bad = [] if bad is None else bad
     kinds = vals.get("ask_rec_notice_kinds")
     if not isinstance(kinds, dict) or not kinds:
         kinds = REC_NOTICE_KINDS
@@ -227,13 +239,13 @@ def rec_kind_notes(qs, vals):
         if not isinstance(q, dict):
             continue
         text = _text(q.get("question"))
-        if not text or any(re.search(p, text) for p in exempt):
+        if not text or any(_search(p, text, bad) for p in exempt):
             continue
         labels = [_text(o.get("label")) for o in (q.get("options") or []) if isinstance(o, dict)]
         if not any(_REC_WORD.search(lb) for lb in labels):
             continue
         for name, pats in kinds.items():
-            if any(isinstance(p, str) and p and re.search(p, text) for p in (pats if isinstance(pats, list) else [])):
+            if any(isinstance(p, str) and p and _search(p, text, bad) for p in (pats if isinstance(pats, list) else [])):
                 out.append((text[:40] + ("…" if len(text) > 40 else ""), str(name)))
                 break
     return out
@@ -250,10 +262,17 @@ def notice(data, vals):
         qs = tr.get("questions") if isinstance(tr, dict) else None
     if not isinstance(qs, list) or not qs:
         return ""
-    notes = rec_kind_notes(qs, vals)
-    if not notes:
+    bad = []
+    notes = rec_kind_notes(qs, vals, bad)
+    if not notes and not bad:
         return ""
-    lines = ["[guard] 推奨の印が付いた問いが、印を付けない形に見える（知らせるだけ・止めていない。印は作り方の分かれ道の問い"
+    lines = []
+    if bad:
+        lines.append("[guard] 値の表の guard.ask_rec_notice_kinds か ask_rec_notice_exempt の正規表現が壊れていて、その形は"
+                     "照らせていない（直す）: %s" % "・".join(bad[:5]))
+    if not notes:
+        return "\n".join(lines)
+    lines += ["[guard] 推奨の印が付いた問いが、印を付けない形に見える（知らせるだけ・止めていない。印は作り方の分かれ道の問い"
              "だけ＝細目 §4「推奨の印」）:"]
     lines += ["- 「%s」— %s に見える" % (t, n) for t, n in notes]
     lines.append("当たっていれば: 答えが印に引かれて寄っていないかを確かめ（済んだかは AI が確かめられる所を先に確かめる）、"
