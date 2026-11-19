@@ -7,6 +7,7 @@
 import importlib.util
 import json
 import re
+import sys
 from pathlib import Path
 
 import pytest
@@ -144,11 +145,110 @@ def test_手順を渡す先の_skill_は在る(sentence):
         assert (ROOT / doc).is_file(), f"渡す先の文書が無い: {doc}"
 
 
-@pytest.mark.parametrize("pat, bad", [
-    (r"^- 1 行目は 4 札のどれか: (.+?)。", "- 1 行目は 4 札のどれか: `✅終わった`／`❓答えて`／`⏳待ち`。"),
-    (r"状態: (.+?)／無し＝動いている。", "状態: `❓`＝答え待ち／`✅`＝終わった／無し＝動いている。"),
+# 道具が照らす種類 → その種類が守る決まりの文（文の中の一続きの字で指す・指す文はちょうど 1 つ）。
+# 種類の一覧は道具から読む（session_watch の拾う物・ask_shape の HOW・guard の見張り）。道具に種類を足して文を指さないと赤、
+# 指した文を消すと赤＝道具が照らす文は試験で守られ、守らない文の表（判断の訳）に載らない（tests/test_rule_holes_table_reasons.py）。
+照らしの種類 = {
+    "session_watch.title": ["形は `<種類><状態> <作業名>`", "（役）は作業名に書く", "🙋 の窓とオーナーが立てた窓は自動で閉じない"],
+    "session_watch.close": ["最後の 2 行は", "オーナーが最後だけ読んで"],
+    "session_watch.card": ["1 行目は 4 札のどれか"],
+    "session_watch.plain": ["選ぶ問いを平文で出さない", "選ぶ問いと開いた問い"],
+    "session_watch.idk": ["「分からない」の選択肢"],
+    "session_watch.unanswered": ["1 時間答えの無い問い"],
+    "session_watch.rest": ["AI がこの後やることは締める前に", "AI がこの後やること＝自分が次に打つ手だけ"],
+    "session_watch.hand": ["頼んだ窓は締めの「あなたがやること」に手の窓の URL", "①目的（1 行）②手順"],
+    "session_watch.inner": ["決まりの中だけの言葉・AI 同士の呼び名・番号は出さない", "番号には中身を 1 行そえる"],
+    "session_watch.time": ["「13:43 UTC」と書かない"],
+    "session_watch.done": ["全部申告でなく記録", "「たぶん」「概ね」"],
+    "session_watch.secret": ["2. 秘密を出さない"],
+    "session_watch.neighbor": ["照らす材料が欠けた日は"],
+    "ask_shape.long": ["②画面の問いは何を決めるかの 1 文", "背景を問いの文に詰めない"],
+    "ask_shape.inner": ["決まりの言葉（段取りの名"],
+    "ask_shape.topic": ["1 画面は 1 つの話題"],
+    "ask_shape.rec": ["`(推奨)` は作り方の分かれ道"],
+    "guard.ask_shape": ["は guard の `ask_shape` が出す前に照らす"],
+    "guard.irreversible": ["1. 戻せない操作の前に人に聞く"],
+    "guard.outbound": ["2. 秘密を出さない", "形は `<種類><状態> <作業名>`", "①目的（1 行）②手順"],
+    "guard.paid_upstream": ["試験から有料の上流"],
+    "guard.pick_one": ["並べて 1 つ選ばせる問いを出さない", "原因から 1 つを選ばせる問いを出さない"],
+    "guard.pr_text": ["PR の題と本文が全部世界に見える", "秘密・個人の情報・顧客の語をどれにも書かない"],
+    "guard.prior_ask": ["問いを出す前に、各社の決定の記録と問いの表", "引いた結果（照らした前の答え"],
+    "guard.qa_page": ["**確認 HTML**"],
+    "guard.spec_gate": ["出す道具は証明の無い物"],
+    "guard.values_keys": ["知らない値・欠けた材料・仕組みで表せない決まりは"],
+    "guard.context_size": ["重くなったら区切りの良い所で後継の窓へ移る", "後継へ移る時は前の窓の最後の返事に後継の URL", "後継の第一声は"],
+    "guard.unanswered": ["1 時間答えの無い問い", "問いが 5 つ以上なら 4 問ずつ"],
+}
+
+
+def 道具の種類():
+    """道具が照らす種類の一覧（道具から読む）。"""
+    doc = SW.__doc__.split("窓の種類＝")[0]
+    kinds = {"session_watch." + k for k in re.findall(r"^  (\w+)\s+…", doc, re.M)}
+    kinds |= {"ask_shape." + k for k in _load("plugins/guard/scripts/ask_shape.py").HOW}
+    guard = _load("plugins/guard/scripts/guard.py")
+    kinds |= {"guard." + n for ev in ("pre", "post", "stop", "prompt", "start") for n, _ in guard.watchers(ev)}
+    return kinds
+
+
+def 決まりの文():
+    """[(path, 文)]（文の切り方は tests/test_rule_holes.py の 文の並び と同じ）。"""
+    out = []
+    for rel in ("plugins/core/核.md", "plugins/core/振る舞い.md", "plugins/core/細目.md"):
+        for ln in (ROOT / rel).read_text(encoding="utf-8").splitlines():
+            out += [(rel, s.strip()) for s in re.findall(r"[^。]*。|[^。]+$", ln) if s.strip()]
+    return out
+
+
+def 照らされる文():
+    """{(path, 文): [種類]}。指す字が文にちょうど 1 つ当たらなければ赤。"""
+    sents, out = 決まりの文(), {}
+    for kind, frags in 照らしの種類.items():
+        for frag in frags:
+            hit = [x for x in sents if frag in x[1]]
+            assert len(hit) == 1, f"{kind} の指す文（{frag}）が {len(hit)} 文に当たる（ちょうど 1 文を指す）"
+            out.setdefault(hit[0], []).append(kind)
+    return out
+
+
+def test_道具が照らす種類は全部_決まりの文を指す():
+    tools = 道具の種類()
+    assert tools - set(照らしの種類) == set(), "決まりの文を指していない照らしの種類（道具が照らす決まりの文を 照らしの種類 に足す）"
+    assert set(照らしの種類) - tools == set(), "道具に無い照らしの種類（畳んだ種類は 照らしの種類 から消す）"
+    assert 照らされる文()
+
+
+def test_時刻の文の例は_session_watch_が日本時間でないと拾う():
+    m = _当てる(r"^- 「(\d{1,2}:\d{2} (\w+))」と書かない。", _細目(), "細目 §6 書かない時刻")
+    assert [z for _, z in SW.time_hits(m.group(1))] == ["日本時間でない"] and SW.ZONE.match(" " + m.group(2))
+
+
+def test_窓の題の形と手の窓の作業名は_session_watch_の題の形と同じ():
+    text = _細目()
+    m = _当てる(r"^- \*\*窓の題\*\* — 形は `<種類><状態> <作業名>`。", text, "細目 §4 窓の題の形")
+    assert SW.title_shape(SW.AI + SW.WAITING + " 作業") == [] and SW.title_shape(SW.WAITING + SW.AI + " 作業"), \
+        "種類→状態→作業名の並びを道具が照らしていない"
+    m = _当てる(r"窓が何をする窓か（役）は作業名に書く（決まった一覧は無い・手の窓だけ作業名を `(手: <何を>)` にする）。", text, "細目 §4 役")
+    assert SW.HAND_TITLE.match(m.group(1)) and SW.title_shape(SW.HUMAN + SW.WAITING + " " + m.group(1)) == []
+
+
+@pytest.mark.parametrize("test, rel, old, new", [
+    ("test_返事の_1_行目の_4_札は_session_watch_の札と同じ", "_核", "／`🛑止まった`", ""),
+    ("test_窓の題の種類と状態の印は_session_watch_の印と同じ", "_細目", "／`✅`＝終わった（🤖 だけ）", ""),
+    ("test_手の窓の題と_4_つの欄は_session_watch_の型と同じ", "_細目", "③済んだ目印", "③済んだ印"),
+    ("test_時刻の文の例は_session_watch_が日本時間でないと拾う", "_細目", "「13:43 UTC」", "「13:43 日本時間」"),
+    ("test_道具が照らす種類は全部_決まりの文を指す", "_細目", "選ぶ問いを平文で出さない。", ""),
 ])
-def test_文の値を書き換えると道具とずれて赤(pat, bad):
-    """注入の試験: 札や状態の印を 1 つ消した文は、道具の値と合わない。"""
-    m = re.search(pat, bad, re.M)
-    assert tuple(re.findall(r"`(.)[^`]*`", m.group(1))) not in (SW.CARDS, SW.STATES)
+def test_文の値を書き換えると本物の試験が赤(monkeypatch, test, rel, old, new):
+    """注入の試験: 決まりの文を書き換えた中身で本物の試験を回すと赤（比べ方を写さず、試験そのものを回す）。"""
+    mod = sys.modules[__name__]
+    body = getattr(mod, rel)()
+    assert old in body, f"書き換える字が無い: {old}"
+    bad = body.replace(old, new, 1)
+    monkeypatch.setattr(mod, rel, lambda: bad)
+    if rel == "_細目":   # 決まりの文() は file を直に読む＝その読みも書き換えた中身にする
+        real = Path.read_text
+        target = (CORE / "細目.md").resolve()
+        monkeypatch.setattr(Path, "read_text", lambda self, *a, **k: bad if self.resolve() == target else real(self, *a, **k))
+    with pytest.raises(AssertionError):     # 書き換える前の緑は、同じ試験が別に回って示す
+        getattr(mod, test)()

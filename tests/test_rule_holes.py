@@ -26,7 +26,6 @@ import os
 import pathlib
 import re
 import shutil
-import signal
 import sys
 import tempfile
 import time
@@ -41,7 +40,7 @@ TABLE = ROOT / "tests" / "data" / "試験で守らない文.txt"
 # 表に残す訳（行の 3 列目）。訳の無い行・知らない訳の行は赤。
 訳 = {
     "形": "見出し・表の見出しと罫・コードの囲みの行で、文でない（照らす値が無い）",
-    "判断": "AI と人の判断に任せる既定で、機械が照らせる値が無い（消す・書き換えると表の行が古くなり赤。弱めは review-pr の点 12 が読む）",
+    "判断": "AI と人の判断に任せる既定で、機械が照らせる値が無い（道具の照らしの種類〔tests/test_rule_tool_values.py の 照らしの種類〕が指す文には付けない・消す・書き換えると表の行が古くなり赤。弱めは review-pr の点 12 が読む）",
 }
 形の行 = re.compile(r"^(#{1,6} |\|.*\|$|`{1,3}$)")
 
@@ -138,8 +137,7 @@ _FIXTURES = {"tmp_path", "monkeypatch", "capsys"}
 # 引数を取る試験を回すのは、決まりの file の名か core の dir を名指す module だけ（引数を取る試験は重い統合の試験が多い。
 # 名指さずに決まりを読む試験〔repo の md を全部歩く形〕は引数の無い形が多く、そちらは全部の module で回す）。
 _名指す = re.compile(r'核\.md|細目\.md|振る舞い\.md|"core"')
-_見分けの上限 = 20.0   # 秒。止まったままの試験で見分けが終わらないのを防ぐだけ（越えた試験は数えない）
-# 回さない module: 理由。時間で切ると数えるかが回ごとに揺れるので、重い module は名で外す（揺れない）。
+# 回さない module: 理由。時間では切らない（切ると数える試験が回ごとに揺れる・PR #79 のレビュー）。重い module は名で外す。
 _窓を起動 = "窓（claude）を起動する試験で重く、決まりの file を読むのは起動した窓（subprocess）の中＝ここでは数えられない"
 _回さない = {"test_plugin_smoke.py": _窓を起動, "test_setup_plugins_real_claude.py": _窓を起動}
 
@@ -165,23 +163,12 @@ def _組(f):
     return [functools.reduce(lambda a, b: {**a, **b}, combo, {}) for combo in itertools.product(*axes)]
 
 
-class _時間切れ(BaseException):
-    pass
-
-
-def _切る(*_):
-    raise _時間切れ()
-
-
-def _回す(f, args, limit=None):
-    """1 つの組で試験を回す。赤なら True。limit 秒を越えたら _時間切れ（見分けの時だけ）。"""
+def _回す(f, args):
+    """1 つの組で試験を回す。赤なら True。"""
     params = inspect.signature(f).parameters
     kw = {k: v for k, v in args.items() if k in params}
     tmp, mp, cap = None, None, None
     stdin, sys.stdin = sys.stdin, io.StringIO("")          # pytest と同じく標準入力は空（読む試験が待たない）
-    if limit:
-        signal.signal(signal.SIGALRM, _切る)
-        signal.setitimer(signal.ITIMER_REAL, limit)
     try:
         if "tmp_path" in params:
             tmp = tempfile.mkdtemp(prefix="rule_holes_")
@@ -192,14 +179,10 @@ def _回す(f, args, limit=None):
             cap = kw["capsys"] = _Capsys()
         f(**kw)
         return False
-    except _時間切れ:
-        raise
     except BaseException:      # noqa: BLE001 — 赤（例外・assert）。skip は赤と数えない
         return not isinstance(sys.exc_info()[1], pytest.skip.Exception)
     finally:
         sys.stdin = stdin
-        if limit:
-            signal.setitimer(signal.ITIMER_REAL, 0)
         if cap:
             cap.close()
         if mp:
@@ -254,11 +237,8 @@ def _決まりの試験():
             for args in cases:
                 read = set()
                 t0 = time.monotonic()
-                try:
-                    with _口(log=read):
-                        _回す(f, args, limit=_見分けの上限)   # 元から赤の試験は他の所で赤になる。ここは読むかだけを見る
-                except _時間切れ:
-                    continue                             # 重い試験は数えない（穴を多めに出す側）
+                with _口(log=read):
+                    _回す(f, args)                       # 元から赤の試験は他の所で赤になる。ここは読むかだけを見る
                 for r in RULE_FILES:
                     if r in read or r in head:
                         readers[r].append((time.monotonic() - t0, len(readers[r]), _試験(m, name, args, r in head)))
@@ -272,27 +252,13 @@ def _赤(rel, text, cut):
         return any(t.赤か() for t in tests)
 
 
-def 穴(rel, text=None, only=None, expect=frozenset()):
+def 穴(rel, text=None, only=None):
     """rel の文のうち、消しても決まりの試験がどれも赤にならない文の並び。text を渡せばその中身で見る（only は見る文を絞る）。
-    expect（穴と見込む文）はまとめて消して 1 回で確かめ、赤なら半分ずつに割る（守られる文は 1 つずつ見る）。"""
+    文は 1 つずつ消して見る（まとめて消すと、2 文を一緒に消した時だけ照らしが通る形で、守られた文を穴と見誤る・
+    PR #79 のレビュー）。"""
     text = _open_real(ROOT / rel, encoding="utf-8").read() if text is None else text
-    sents = [(i, s) for i, s in 文の並び(text) if only is None or s.strip() in only]
-    holes = []
-
-    def bisect(group):
-        if not group:
-            return
-        if not _赤(rel, text, group):
-            holes.extend(s.strip() for _, s in group)
-        elif len(group) > 1:
-            bisect(group[:len(group) // 2])
-            bisect(group[len(group) // 2:])
-
-    bisect([x for x in sents if x[1].strip() in expect])
-    for x in sents:
-        if x[1].strip() not in expect and not _赤(rel, text, [x]):
-            holes.append(x[1].strip())
-    return holes
+    return [s.strip() for i, s in 文の並び(text)
+            if (only is None or s.strip() in only) and not _赤(rel, text, [(i, s)])]
 
 
 def 表():
@@ -307,8 +273,7 @@ def 表():
 
 @functools.lru_cache(maxsize=1)
 def 今の穴():
-    t = 表()
-    return {(rel, s) for rel in RULE_FILES for s in 穴(rel, expect=frozenset(s for r, s in t if r == rel))}
+    return {(rel, s) for rel in RULE_FILES for s in 穴(rel)}
 
 
 def test_核と細目の文は消すと試験が赤になるか_守らない文の表に在る():
@@ -330,9 +295,7 @@ def test_文を足しても照らす試験が無ければ穴に出て_照らし�
     added = text.replace("## 4. ", "- 作り物の新しい決まり。誰も照らしていない。\n\n## 4. ", 1)
     new = {"- 作り物の新しい決まり。", "誰も照らしていない。"}
     assert set(穴(rel, added, only=new)) == new
-    assert set(穴(rel, added, only=new, expect=frozenset(new))) == new      # まとめて消す見方でも同じ
     # PR #30 の穴の並走は振る舞いの既定へ移った（PR #44）。今の並走の文は消すと赤になる
     walk = "- **並走** — 着手と言われたら確認させずに進め、5 分を超える作業は窓・助手を並べて同時に進める。"
     assert walk in _open_real(ROOT / "plugins/core/振る舞い.md", encoding="utf-8").read()
     assert 穴("plugins/core/振る舞い.md", only={walk}) == []
-    assert 穴("plugins/core/振る舞い.md", only={walk}, expect=frozenset({walk})) == []   # 見込みが外れても割って確かめる
