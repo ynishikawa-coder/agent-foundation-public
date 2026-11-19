@@ -157,3 +157,4 @@ def test_注入_窓の_id_を数えない欄は頭の塊の書いた窓だけ(en
 def test_頭の塊の書いた窓の欄の窓の_id_は数えない(env):
     body = "書いた窓: %s\njob: 20261119-fake\n検査: 緑\n\n" % WRITER + _tail()
     assert deny_reason(env, gh("create_pull_request", title="作り物", head="b", base="main", body=body)) == ""
+
