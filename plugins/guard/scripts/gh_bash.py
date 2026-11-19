@@ -13,7 +13,8 @@
   HTTP … curl・wget・http（httpie）で api.github.com か uploads.github.com へ GET・HEAD 以外を送る
          （-X/--request、-d/--data*/--json/-F/--form/-T、wget の --post-data・--method）
 読み切れない形（引用の閉じ忘れ等）は、命令の字に gh か api.github.com と書き込みの印が在れば止める側に倒す。
-通す物: 読むだけの gh（`gh pr view`・`gh api -X GET search/...`・`gh pr diff`）と git（push は pr_text が commit の説明を見る）。
+通す物: 読むだけの gh（`gh pr view`・`gh api -X GET search/...`・`gh pr diff`）と git（Bash の git push の commit の説明は
+  ここでは見ない＝CI の公開の検査が出した後に拾う）。gh の release・gist・repo edit など PR・issue の外の文も見ない（原因の台帳に残す）。
 射程の天井: python・node の中から HTTP で書く形は命令の字に出ないので見えない（原因の台帳に残す・レビューの見る点で見る）。
 """
 from __future__ import annotations
