@@ -90,6 +90,7 @@ def test_make_deck_の差し込みが埋まる_欠ければ止まる(tmp_path):
     ng = subprocess.run([sys.executable, "-B", str(render), "render", "--values", str(thin), "--out", str(tmp_path / "q.txt")],
                         capture_output=True, text=True)
     assert ng.returncode != 0
+    assert "細目 §3「まず構造を疑う」" in ng.stderr.strip().splitlines()[-1], "欠けを埋めて出し直させるだけの古い形に戻った"
 
 
 # ── qa-html の検査 ──────────────────────────────────────────────────

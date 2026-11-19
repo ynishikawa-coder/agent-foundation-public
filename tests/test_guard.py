@@ -95,6 +95,11 @@ def test_試験から有料の上流へつなぐ線を止める(env, name, paylo
     assert denied(env, payload) is want
 
 
+def test_有料の上流を止めた文は根治の入口を指す(env):
+    """止めた file の直し方だけを並べる古い形（線を書いた原因を見させない）に戻すと赤。"""
+    assert "細目 §3「まず構造を疑う」" in deny_reason(env, PAID_CASES[0][1])
+
+
 def test_有料の印は値の表で足せる(env, tmp_path):
     table = tmp_path / "values.json"
     table.write_text(json.dumps({"guard": {"paid_markers_extra": ["api.example-paid.test"]}}), encoding="utf-8")
@@ -156,6 +161,12 @@ def test_離席中はメールを送る道具も止め別の窓は止めない(e
     hook(env, "post", ask_result())
     assert denied(env, {"tool_name": "mcp__mail-x__send_email", "session_id": "s1", "tool_input": {}})
     assert not denied(env, {"tool_name": "mcp__mail-x__send_email", "session_id": "other", "tool_input": {}})
+
+
+def test_離席の止めの文は根治の入口を指す(env):
+    """同じ問いを出し直させるだけの古い形に戻すと赤。"""
+    hook(env, "post", ask_result())
+    assert "細目 §3「まず構造を疑う」" in deny_reason(env, bash(DROP))
 
 
 def test_答えが返ると離席の止めが解ける(env):

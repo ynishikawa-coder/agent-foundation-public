@@ -79,6 +79,7 @@ def test_各社固有が上限を越えると赤で_上限ちょうどは緑(tmp
     claude.write_text("決" * (LIMITS["各社固有"] // 3 + 1), encoding="utf-8")
     r = run("check", "--claude", claude)
     assert r.returncode == 1 and "各社固有" in r.stdout
+    assert "細目 §3「まず構造を疑う」" in r.stdout.strip().splitlines()[-1], "越えた時に文を移させるだけの古い形に戻った"
 
 
 def test_写しの枠が在れば枠の外だけを各社固有として測る(tmp_path):
@@ -266,6 +267,13 @@ def test_核から細目へ移した物が細目に在る():
     "scripts/check_all.sh": ['本: ${failed[*]})"'],
     "plugins/docs-kit/skills/blueprint/scripts/check_blueprint.py": [],
     "plugins/docs-kit/skills/theory-mock/scripts/check_theory_mock.py": [],
+    "plugins/guard/scripts/irreversible.py": [],
+    "plugins/guard/scripts/paid_upstream.py": [],
+    "plugins/core/scripts/kaku.py": [],
+    "plugins/dev-flow/skills/codex/codex_pack.py": [],
+    "plugins/docs-kit/skills/make-deck/scripts/render_prompt.py": [],
+    "plugins/docs-kit/skills/make-deck/scripts/finish_deck.py": [],
+    "scripts/release/next_tag.py": [],
 }
 
 

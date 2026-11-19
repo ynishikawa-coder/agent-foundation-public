@@ -50,6 +50,8 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import skill_values  # noqa: E402  同じ dir の読み口（repo ごとの値の表）
 
+# 止まる時の最後の行（中身は細目 §3 が正本＝ここは指すだけ）
+ROOT_CAUSE = "直し: 当て直して出し直すだけで済ませず、要確認が出た原因（材料・型・検査の形）を細目 §3「まず構造を疑う」で探して直す"
 DEFAULT_ACCENT = "#334155"   # 中立の既定（会社の色は config/skill-values.json の docs-kit.make-deck.accent）
 
 try:
@@ -393,6 +395,7 @@ def finish(args):
     else:
         print("出力: ❌ 納品ファイルは作っていない（unsafe %d 枚）／診断のみ: %s" % (len(unsafe), saved_path))
         print("  → --wm-rect で領域を当て直す / 該当ページを目視 / 有色背景は今回スコープ外")
+        print(ROOT_CAUSE)
     print("次の人間判断: 表紙の社名/タイトル/日付・要確認ページ・納品前チェックリスト（SKILL.md）")
     return 1 if unsafe else 0
 
@@ -601,6 +604,8 @@ def self_test():
     print("[self-test] 判定:", "PASS ✅" if verdict_all else "FAIL ❌",
           "（verdict=%s / under=%s / drop=%s / mutation=%s）"
           % (base_ok, uc_ok, df_ok, mut_ok))
+    if not verdict_all:
+        print(ROOT_CAUSE)
     return 0 if verdict_all else 1
 
 
