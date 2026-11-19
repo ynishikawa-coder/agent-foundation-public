@@ -6,6 +6,7 @@ claude の命令が無い所（手元）では飛ばす。CI の job `plugin-smo
 """
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -74,9 +75,10 @@ def _drop_from_market(d):
 
 def _guard_never_denies(d):
     f = d / "plugins" / "guard" / "scripts" / "guard.py"
-    f.write_text(f.read_text(encoding="utf-8").replace(
-        '"pre": [("irreversible", "check"), ("paid_upstream", "check"), ("qa_page", "check")],', '"pre": [],'),
-        encoding="utf-8")
+    text = f.read_text(encoding="utf-8")
+    broken = re.sub(r'"pre": \[[^\]]*\],', '"pre": [],', text, count=1)
+    assert broken != text, "guard.py の止める一覧の形が変わった（この注入を合わせる）"
+    f.write_text(broken, encoding="utf-8")
 
 
 @pytest.mark.parametrize("breaks,want", [
