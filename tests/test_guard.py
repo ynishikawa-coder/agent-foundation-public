@@ -462,3 +462,149 @@ def test_qa_page_入れた_plugin_の形でも検査を見つける(tmp_path):
     finally:
         if old is not None:
             os.environ["AF_QA_CHECK"] = old
+
+
+# ── ask_shape（選択肢の画面の問いの形）──
+def ask_pre(*qs):
+    return {"tool_name": "AskUserQuestion", "session_id": "s1", "tool_input": {"questions": list(qs)}}
+
+
+def q(text, header="作り物", labels=("A（推奨）", "B"), desc=""):
+    return {"question": text, "header": header, "multiSelect": False,
+            "options": [{"label": lb, "description": desc or "作り物の %s を選ぶ" % lb} for lb in labels]}
+
+
+def deny_reason(env, payload):
+    out = hook(env, "pre", payload)
+    return out.get("permissionDecisionReason", "") if out.get("permissionDecision") == "deny" else ""
+
+
+ASK_BAD = [
+    ("題が長い", ask_pre(q("新しく入れた値『日々の不足（月の決まった時間から使った時間を引いて頭打ちにした時間）』を、会議を回数で別に"
+                          "数える作り物の会社にも同じく当てて、不足の時間として表から引く形にしてよいでしょうか")), "[long]"),
+    ("題が 2 文", ask_pre(q("会議の数え方を作り物の表で調べました。回数で別に数えますか？")), "[long]"),
+    ("問いの番号", ask_pre(q("Q202611-67 の答えはどちらですか")), "Q202611-67"),
+    ("短い番号", ask_pre(q("E02 の直しを入れますか")), "E02"),
+    ("# の番号", ask_pre(q("#616 の変更を入れますか")), "#616"),
+    ("版の番号", ask_pre(q("v0.21.0 の値を使いますか")), "v0.21.0"),
+    ("file 名", ask_pre(q("設問の作り方.md の線に合わせますか")), "設問の作り方.md"),
+    ("path が説明に", ask_pre(q("置き場をどちらにしますか", desc="plugins/guard/scripts に置く")), "plugins/guard/scripts"),
+    ("識別子", ask_pre(q("直し_0020 をそのまま使いますか")), "直し_0020"),
+    ("コードの字", ask_pre(q("`unattended_env` を真にしますか")), "unattended_env"),
+    ("窓の id", ask_pre(q("作り物の窓 session_01AbCdEf へ回しますか")), "session_01AbCdEf"),
+    ("選択肢の見出しに番号", ask_pre(q("どちらの決め方にしますか", labels=("E05 の形（推奨）", "前の形"))), "E05"),
+    ("話題が混ざる", ask_pre(q("記録の古い行を片付けますか", header="片付け"), q("予定表の例は決まりどおりですか", header="予定表"),
+                            q("検査の線を厳しめにしますか", header="厳しさ")), "[topic]"),
+]
+
+
+@pytest.mark.parametrize("name,payload,want", ASK_BAD, ids=[c[0] for c in ASK_BAD])
+def test_ask_shape_読みにくい問いは画面を出す前に止め何でどう直すかを返す(env, name, payload, want):
+    why = deny_reason(env, payload)
+    assert want in why, why
+    assert "直し方" in why and "画面はまだ人に出ていない" in why
+
+
+ASK_GOOD = [
+    ("短い1文", ask_pre(q("会議の日は、回数で別に数えますか？", header="会議の数え方"))),
+    ("どちらにしますか", ask_pre(q("作り物の置き場を A と B のどちらにしますか"))),
+    ("同じ話題の2問", ask_pre(q("会議を回数で別に数えますか", header="会議の数え方"),
+                           q("会議の端数は切り上げますか", header="会議の端数"))),
+    ("済んだかの確かめ", ask_pre(q("設定の保存は終わりましたか？", header="手の確かめ",
+                               labels=("終わった（推奨）", "うまくいかない", "分からない")))),
+    ("日付と分数", ask_pre(q("11 月の締めを 2026/11/19 にしますか", desc="1/2 ずつ 2 回に分ける"))),
+    ("URL は数えない", ask_pre(q("作り物の資料の読み方は合っていますか", desc="資料 https://example.com/a/b/c.md の 3 行目"))),
+    ("語の取れない問いを混ぜても", ask_pre(q("会議を回数で別に数えますか", header="会議"), q("どちらにしますか", header="どれ"))),
+    ("A4 や 1 画面 4 問", ask_pre(q("A4 の紙 1 枚に 4 問まで載せますか"))),
+]
+
+
+@pytest.mark.parametrize("name,payload", ASK_GOOD, ids=[c[0] for c in ASK_GOOD])
+def test_ask_shape_読みやすい問いは通す(env, name, payload):
+    assert deny_reason(env, payload) == ""
+
+
+def test_ask_shape_判定の値は値の表で変えられ誤って止まる形は外せる(env, tmp_path):
+    long_q = ask_pre(q("作り物の置き場を、前の窓で話した二つの案のうち、あとで動かしやすい方に寄せて、今週のうちに決めて"
+                       "しまってよいですか、それとも来週の打ち合わせまで待ちますか"))
+    assert "[long]" in deny_reason(env, long_q)
+    table = tmp_path / "values.json"
+    env["SKILL_VALUES"] = str(table)
+    table.write_text(json.dumps({"guard": {"ask_question_max_chars": 120}}), encoding="utf-8")
+    assert deny_reason(env, long_q) == ""
+    table.write_text(json.dumps({"guard": {"ask_term_allow": ["^ISO\\d+$"]}}), encoding="utf-8")
+    assert deny_reason(env, ask_pre(q("ISO9001 の書き方に合わせますか"))) == ""
+    assert "E02" in deny_reason(env, ask_pre(q("E02 を入れますか")))
+    table.write_text(json.dumps({"guard": {"ask_shape_exempt": ["^作り物の例外"]}}), encoding="utf-8")
+    assert deny_reason(env, ask_pre(q("作り物の例外 E02 を入れますか"))) == ""
+    table.write_text(json.dumps({"guard": {"ask_inner_terms_extra": ["例の関所"]}}), encoding="utf-8")
+    assert "例の関所" in deny_reason(env, ask_pre(q("例の関所を外しますか")))
+
+
+def test_ask_shape_選択肢の画面の外は見ない(env):
+    assert deny_reason(env, {"tool_name": "Bash", "tool_input": {"command": "echo Q202611-67 v0.21.0"}}) == ""
+
+
+# ── unanswered の出し直し（流れの中で扱う・降ろせる・言い直しても閉じる）──
+UNANSWERED = Path(__file__).resolve().parent.parent / "plugins" / "guard" / "scripts" / "unanswered.py"
+
+
+def run_cli(env, *args):
+    return subprocess.run([sys.executable, str(UNANSWERED), *args], capture_output=True, text=True, env=env,
+                          cwd=env["CLAUDE_PROJECT_DIR"], timeout=60)
+
+
+def test_持ち越した問いは前提を添えて出すか降ろすかを選ばせ文面そのままを求めない(env):
+    hook(env, "post", ask_result())
+    again = hook(env, "start", {"session_id": "s2"}).get("additionalContext", "")
+    assert "そのまま" not in again and "作り直さない" not in again
+    assert "前提" in again and "drop <key>" in again and "関わらない問い" in again
+    assert "key: " in again
+
+
+def test_答え済みの問いはAIが台帳から降ろせ次の窓に出ない(env):
+    hook(env, "post", ask_result())
+    listed = run_cli(env, "list")
+    assert listed.returncode == 0, listed.stderr
+    key = listed.stdout.split("\t")[0]
+    assert run_cli(env, "drop", key).returncode == 2           # 訳の無い降ろしは受けない
+    p = run_cli(env, "drop", key, "--why", "この窓の頼みで答えが出ていた")
+    assert p.returncode == 0 and "降ろした" in p.stdout, p.stdout + p.stderr
+    assert hook(env, "start", {"session_id": "s3"}) == {}
+    assert run_cli(env, "drop", "nokey", "--why", "x").returncode == 1
+
+
+def _ask_post(question, labels, answered, sid):
+    qq = {"question": question, "header": "置き場",
+          "options": [{"label": lb, "description": "作り物"} for lb in labels]}
+    return {"tool_name": "AskUserQuestion", "session_id": sid, "transcript_path": "",
+            "tool_response": {"questions": [qq], "answers": {question: labels[0]} if answered else {}}}
+
+
+def test_言い直した問いに答えが返っても元の問いは機械では結ばずAIが降ろす(env):
+    labels = ["A に置く（推奨）", "B に置く", "分からない"]
+    hook(env, "post", _ask_post("作り物の置き場を A と B のどちらにしますか", labels, False, "s1"))
+    hook(env, "post", _ask_post("前の窓の続きです。作り物の置き場はどちらにしますか", labels, True, "s2"))
+    again = hook(env, "start", {"session_id": "s3"}).get("additionalContext", "")
+    assert "作り物の置き場を A と B のどちらにしますか" in again and "言い直した問いに答えが" in again
+    key = run_cli(env, "list").stdout.split("\t")[0]
+    assert run_cli(env, "drop", key, "--why", "言い直した問いに答えが返った").returncode == 0
+    assert hook(env, "start", {"session_id": "s4"}) == {}
+
+
+@pytest.mark.parametrize("left,right,labels", [
+    ("設定の保存は終わりましたか", "鍵の登録は済みましたか", ["終わった（推奨）", "うまくいかない", "分からない"]),
+    ("請求書を先方へ送ってよいですか？", "古い請求書の控えを消してよいですか？", ["はい（推奨）", "いいえ", "分からない"]),
+    ("資料の共有の範囲をどちらにしますか", "資料を社外へ送る時期をどちらにしますか", ["今週（推奨）", "来週", "分からない"]),
+    ("資料の置き場はどこにしますか", "議事録の置き場はどこにしますか", ["共有の棚（推奨）", "個人の棚", "分からない"]),
+    ("請求書は郵送とメールのどちらで送りますか", "見積書は郵送とメールのどちらで送りますか", ["メール（推奨）", "郵送", "分からない"]),
+    ("A社への請求書の送り方はどちらにしますか", "B社への請求書の送り方はどちらにしますか", ["メール（推奨）", "郵送", "分からない"]),
+])
+def test_同じ選択肢で物だけ違う問いを閉じず重ねもしない(env, left, right, labels):
+    hook(env, "post", _ask_post(left, labels, False, "s1"))
+    hook(env, "post", _ask_post(right, labels, True, "s2"))
+    again = hook(env, "start", {"session_id": "s3"}).get("additionalContext", "")
+    assert left in again
+    hook(env, "post", _ask_post(right, labels, False, "s4"))
+    again = hook(env, "start", {"session_id": "s5"}).get("additionalContext", "")
+    assert "2 件あります" in again and left in again and right in again
