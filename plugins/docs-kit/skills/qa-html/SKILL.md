@@ -41,7 +41,7 @@ repo の根（`git rev-parse --show-toplevel`）の `config/skill-values.json` �
 | `docs-kit.qa-html.limits` | 長さ・問いの数の上限を上書き | 下の §長さの上限 |
 | `docs-kit.qa-html.prior_check_cmd` | 作り方 0 の「聞く前に引く」を機械にする道具の命令（repo ごとの決定の記録・問いの表を引く物）。下の §前の答えを照らす口 | 無し＝作り方 0 は手で引く（検査は前の答えを見ない・今までどおり） |
 | `docs-kit.qa-html.later_lead` | 先に決めておきたい事（later）の最初のまとまりの 1 行の決まった文を替える | `check.mjs` の `RULES.later_lead` |
-| `docs-kit.qa-html.why` | なぜ聞くかの決まった文を替える（例 `{"once": "この月だけの事を確かめます"}`） | `check.mjs` の `RULES.why` |
+| `docs-kit.qa-html.why` | なぜ聞くかの決まった文を替える（例 `{"once": "この月だけの事を確かめます"}`） | 下の §前提の 3 段のなぜ聞くかの 5 文の表 |
 | `common.glossary` | 本文の語の意味 | 語の一般の意味 |
 | `docs-kit.qa-html.distribution` | この skill の配り方 | 無し |
 
@@ -63,7 +63,7 @@ repo の根（`git rev-parse --show-toplevel`）の `config/skill-values.json` �
 | 根拠 | `.evidence` の `li[data-doc][data-where]`（原文の引用は中の `.quote`） | どの資料（一覧の鍵）のどこ（ページ・欄・行、シートならタブ名とセル範囲）。実物＝切り抜きか引用が 1 つ以上 | 3 つまで・場所 60 字・引用 80 字 |
 | くわしく | `details.more`（資料の原文は中の `.orig`） | 決まり・計算の元・語の説明 | 3 行＋原文 |
 
-なぜ聞くかの決まった 5 文（`check.mjs` の `RULES.why`・会社の表の `docs-kit.qa-html.why` で文だけ替えられる）:
+なぜ聞くかの決まった 5 文（この表が正本・`check.mjs` が直に読む・会社の表の `docs-kit.qa-html.why` で文だけ替えられる）:
 
 | `data-why` | 文 | 見つけた事に書く物 | 選択肢の形 |
 |---|---|---|---|
@@ -282,5 +282,5 @@ repo の根（`git rev-parse --show-toplevel`）の `config/skill-values.json` �
 ## 関連
 
 - `references/template.html` — 1 つの型の正本（はじめ・1 画面 1 問・送る前の確認・受付・保存・答えの形を作る JS）
-- `check.mjs` — 検査（node だけで動く・HTML と問いの JSON の両方を読む・前の答えを照らす口 `--run-prior`／`--prior`・`import { checkQa, checkQaJson, checkFile }` でほかの検査からも呼べる）。頭の `RULES` が問いの決まりの表の 1 か所。`qa:css`・`qa:js`・`qa:foot`（「この後のこと」を除く）は型と突き合わせる
+- `check.mjs` — 検査（node だけで動く・HTML と問いの JSON の両方を読む・前の答えを照らす口 `--run-prior`／`--prior`・`import { checkQa, checkQaJson, checkFile }` でほかの検査からも呼べる）。頭の `RULES` が問いの決まりの表の 1 か所（なぜ聞くかの 5 文だけは §前提の 3 段の表を直に読む）。`qa:css`・`qa:js`・`qa:foot`（「この後のこと」を除く）は型と突き合わせる
 - theory-mock（画面を見ながら決める時）・mindmap（構造そのものを組み替える時）
