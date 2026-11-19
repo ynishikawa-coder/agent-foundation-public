@@ -104,9 +104,9 @@ REC_HIDE = [
     ("class の NBSP の区切り", lambda r: _mark(0)(r).replace('<small class="rec">', '<small class="x\u00a0rec">', 1),
      "class の値は半角英数字"),
     ("閉じ忘れた印が次の選択肢に写る", lambda r: _mark(0)(r).replace(REC, '<small class="rec">貸した物の手入れは今も貸した側がしている', 1), "閉じタグ </span> が開いた順と合わない"),
-    ("表の中から印を外へ移させる", lambda r: _mark(0)(r).replace(REC, "<table>" + REC + "</table>", 1), "<table> の中にじかに <small> を置かない"),
+    ("表の中から印を外へ移させる", lambda r: _mark(0)(r).replace('<div class="opts">', "<table><small>x</small></table>" + '<div class="opts">', 1), "<table> の中にじかに <small> を置かない"),
     ("select の中で閉じタグを消させる", lambda r: _mark(0)(r).replace(REC, "<select></label></select>" + REC, 1), "選択肢の枠（label.opt）の中の欄は radio か checkbox 1 つだけ"),
-    ("p の中の div で p を閉じさせる", lambda r: _mark(0)(r).replace(REC, '<p><div></div></p>' + REC, 1), "<p> の中に <div> を置かない"),
+    ("p の中の div で p を閉じさせる", lambda r: _mark(0)(r).replace('<div class="opts">', '<p><div></div></p><div class="opts">', 1), "<p> の中に <div> を置かない"),
     ("label.opt の外の radio で 1 つ目をずらす（label）", lambda r: _mark(0)(r).replace('<label class="opt">', '<label><input type="radio" name="q3" value="d3"></label><label class="opt">', 1),
      "選択（radio・checkbox）が問いの選択肢（label.opt）の外"),
     ("label.opt の外の radio で 1 つ目をずらす（div）", lambda r: _mark(0)(r).replace('<label class="opt">', '<div><input type="radio" name="q3" value="d3"></div><label class="opt">', 1),
@@ -114,7 +114,7 @@ REC_HIDE = [
     ("p の奥の div で label を閉じさせる", lambda r: _mark(0)(r).replace(REC, "<span><div></div></span>" + REC, 1).replace('<label class="opt">', '<p><label class="opt">', 1).replace("</label>", "</label></p>", 1),
      "選択肢の枠は型と同じ置き場だけ"),
     ("select の中の input", lambda r: _mark(0)(r).replace(REC, '<select><input type="hidden" name="x" value="1"></select>' + REC, 1), "選択肢の枠（label.opt）の中の欄は radio か checkbox 1 つだけ"),
-    ("li の中の li", lambda r: _mark(0)(r).replace(REC, "<ul><li>a<li>b</li></li></ul>" + REC, 1), "<li> の中に <li> を開かない"),
+    ("li の中の li", lambda r: _mark(0)(r).replace('<div class="opts">', '<ul><li>a<li>b</li></li></ul><div class="opts">', 1), "<li> の中に <li> を開かない"),
     ("label.opt の外の select で 1 つ目をずらす", lambda r: _mark(0)(r).replace('<label class="opt">', '<select name="q3"><option value="d3">借りた日から 3 日</option></select><label class="opt">', 1),
      "問い q3: 推奨の印の付いた問いは、答えの欄"),
     ("label で包んだ select で 1 つ目をずらす", lambda r: _mark(0)(r).replace('<label class="opt">', '<label><select name="q3"><option value="d3">3 日</option></select></label><label class="opt">', 1),
@@ -139,7 +139,7 @@ REC_HIDE = [
     ("印の選択肢を fieldset disabled で包む", lambda r: _mark(0)(r).replace('<label class="opt">', '<fieldset disabled><label class="opt">', 1).replace("</label>", "</label></fieldset>", 1), "<fieldset> の中に <fieldset> を置かない"),
     ("問いの fieldset に disabled", lambda r: _mark(0)(r).replace('data-kind="judge"', 'data-kind="judge" disabled', 1), "disabled の属性を付けない"),
     ("印の選択肢をリンクで包む", lambda r: _mark(0)(r).replace('<label class="opt">', '<a href="#x"><label class="opt">', 1).replace("</label>", "</label></a>", 1), "選択肢の枠は型と同じ置き場だけ"),
-    ("印の選択肢の中のリンク", lambda r: _mark(0)(r).replace(REC, '<a href="#x">x</a>' + REC, 1), "選択肢の枠（label.opt）の中に <a> を置かない"),
+    ("印の選択肢の中のリンク", lambda r: _mark(0)(r).replace(REC, '<a href="#x">x</a>' + REC, 1), "選択肢の枠の中身は型と同じ形だけ"),
     ("印の選択肢に step の class", lambda r: _mark(0)(r).replace('<label class="opt">', '<label class="opt step">', 1), "選択肢の枠は型と同じ置き場だけ"),
     ("印の選択肢を div.step で包む", lambda r: _mark(0)(r).replace('<label class="opt">', '<div class="step"><label class="opt">', 1).replace("</label>", "</label></div>", 1), "選択肢の枠は型と同じ置き場だけ"),
     ("印の選択肢を div.err で包む", lambda r: _mark(0)(r).replace('<label class="opt">', '<div class="err"><label class="opt">', 1).replace("</label>", "</label></div>", 1), "選択肢の枠は型と同じ置き場だけ"),
@@ -152,6 +152,11 @@ REC_HIDE = [
     ("選択肢の箱に supp の class", lambda r: _mark(0)(r).replace('<div class="opts">', '<div class="opts supp">', 1), "class の supp は問いの箱"),
     ("印の選択肢を div.supp で包む", lambda r: _mark(0)(r).replace('<label class="opt">', '<div class="supp"><label class="opt">', 1).replace("</label>", "</label></div>", 1), "class の supp は問いの箱"),
     ("選択肢の箱の中の p.supp", lambda r: _mark(0)(r).replace('<div class="opts">', '<div class="opts"><p class="supp"></p>', 1), "class の supp は問いの箱"),
+    ("枠の中身を details で包む", lambda r: _mark(0)(r).replace('<label class="opt"><input type="radio" name="q3" value="d7" required>', '<label class="opt"><details><input type="radio" name="q3" value="d7" required>', 1).replace("</span></label>", "</span></details></label>", 1),
+     "選択肢の枠の中身は型と同じ形だけ"),
+    ("印だけを details に入れる", lambda r: _mark(0)(r).replace(REC, "<details>" + REC + "</details>", 1), "選択肢の枠の中身は型と同じ形だけ"),
+    ("radio だけを details に入れる", lambda r: _mark(0)(r).replace('<input type="radio" name="q3" value="d7" required>', '<details><input type="radio" name="q3" value="d7" required></details>', 1),
+     "選択肢の枠の中身は型と同じ形だけ"),
     ("閉じタグの中の空白で選択肢の切り方をずらす", lambda r: _mark(1)(r).replace("</label>", "</label >", 1), "検査が読めない < の書き方"),
     ("</ と空白の崩れたタグ", lambda r: _mark(0)(r).replace(REC, '</ x <!-- >' + REC + '<!-- -->', 1), "検査が読めない < の書き方"),
 ]
@@ -161,7 +166,8 @@ REC_HIDE = [
 @pytest.mark.parametrize("name, mutate, expect", REC_HIDE, ids=[m[0] for m in REC_HIDE])
 def test_印を検査から隠す書き方は赤(tmp_path, name, mutate, expect):
     red = _rec_page(tmp_path, "send", mutate)
-    assert red and red[0].startswith(expect), (name, red)
+    # 入口の止めは重なってよい（treeReds は最初の崩れで読みを止める）。狙った赤が出ていればよい
+    assert any(r.startswith(expect) for r in red), (name, red)
 
 
 @needs_node

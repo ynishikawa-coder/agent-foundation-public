@@ -11,3 +11,4 @@
 - 直した: qa-html の検査で、fieldset の入れ子は赤（型の JS は fieldset.q[data-qkey] を入れ子も問わず別の画面として集める）。選択肢の枠（label.opt）は鍵（半角英数字と _）を持つ問いの箱の中にだけ置き、details（開いていても）・figure の中に置かない。
 - 直した: qa-html の検査で、data-qkey は form の中の fieldset.q にだけ付けられる（型の JS が画面と答えとして集める物と、検査が問いと読む物を同じにする）。
 - 直した: qa-html の検査で、選択肢の枠の置き場を型と同じ形だけにした（`<fieldset class="q" data-qkey="鍵">` のじかの子の `<div class="opts">` のじかの子の `<label class="opt">`・class を足さない）。包む要素で隠す・押した先を替える・別の画面にする形（details・a・summary・figure・.supp など）はこれで全部閉じるので、前に足した包む要素ごとの止めは畳んだ。class の supp は問いの箱のじかの子の div だけ（型の JS が中の見出しを書き換える）。
+- 直した: qa-html の検査で、選択肢の枠の中身も型と同じ形だけ通す（label.opt ＞ radio・checkbox の input と span ／ span ＞ b・small ／ b・small ＞ 字と br）。details などで枠の中身・印・radio を隠させない。枠の中の a・summary の止めはこれに含まれるので畳んだ。印の付いた選択肢には見出しの b が要る（「（推奨）」の字は見出しの後に出る）。
