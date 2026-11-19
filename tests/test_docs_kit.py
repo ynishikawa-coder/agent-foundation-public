@@ -862,3 +862,12 @@ def test_選択肢_1_つは資料の外の数の欄の時だけ(tmp_path):
     for i, (kind, input_) in enumerate([("choose", "text"), ("judge", "text"), ("judge", "number"), ("fact", "text"), ("fact", "date")]):
         red = _json_page(tmp_path, one(kind, input_), f"o{i}.json")
         assert any(r.startswith("問い q3: 選択肢が 1 つだけ") for r in red), (kind, input_, red)
+
+
+@needs_node
+def test_検査が赤なら根治の入口を指し緑なら出さない():
+    """赤の行だけを返す古い形（原因から直させない）に戻すと赤。"""
+    bad = subprocess.run([NODE, str(CHECK), str(DATA / "bad.json")], capture_output=True, text=True)
+    assert bad.returncode == 1 and "細目 §3「まず構造を疑う」" in bad.stdout.strip().splitlines()[-1]
+    good = subprocess.run([NODE, str(CHECK), str(DATA / "good.json")], capture_output=True, text=True)
+    assert good.returncode == 0 and "まず構造を疑う" not in good.stdout
