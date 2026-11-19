@@ -15,7 +15,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0   # 核の増え方を origin/main との分かれ目と比べる（scripts/checks/kaku_growth.sh）
+          fetch-depth: 0   # 核と細目の増え方を origin/main との分かれ目と比べる（scripts/checks/kaku_growth.sh）
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -23,6 +23,23 @@ jobs:
         run: python3 -m pip install --quiet pytest
       - name: 検査（入口は check_all の 1 本）
         run: bash scripts/check_all.sh
+
+  # 並ぶ PR が同じ file の同じ行の辺りを書き換えていないかを知らせる（scripts/pr_overlap.py・止めない）。
+  overlap:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: 重なる PR を知らせる
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: python3 scripts/pr_overlap.py --repo "${{ github.repository }}" --pr "${PR_NUMBER}"
 
   # 公開の検査（docs/公開の検査.md）。他の公開 repo と同じ action を、この repo では今の枝の物で呼ぶ。
   # job の名 public-guard を変えない（main の守りの必須の検査と、見回りがこの名で見る）。
@@ -43,7 +60,7 @@ jobs:
           pattern-skip: public-guard/guard.py tests/test_public_guard.py
 
   # 入れて起動する試験（scripts/plugin_smoke.py）。土台は版で止めず main の先端を配るので、合流の前に
-  # 使う側と同じ入れ方（GitHub の <repo>#<枝> から marketplace add → plugin install）で入れて窓を起動し、
+  # 使う側と同じ入れ方（docs/核の届け方.md の setup script の塊を、目録だけ GitHub の <repo>#<枝> に替えてそのまま回す）で入れて窓を起動し、
   # 核の差し込み・守りの hook・skill の読み込みを見る。鍵は使わない（API の行き先は閉じた口）。
   # job の名 plugin-smoke を変えない（main の守りの必須の検査と、見回りがこの名で見る）。
   plugin-smoke:

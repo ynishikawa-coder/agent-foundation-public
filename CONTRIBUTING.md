@@ -8,7 +8,7 @@
 
 - 枝の名は `claude/<日付>-<話題>`。日付は `YYYYMMDD`（例: `claude/20261111-hone`）。
 - **1 枝 = 1 PR = 1 窓。** 1 つの窓が 1 本の枝を持ち、その枝から PR を 1 本だけ出す。他の窓の枝へは push しない。1 本に入らなかった仕事は各社の原因の台帳の行にし、直す窓を付けて PR 本文の「残り」に書く（細目 §3）。土台を直す時は、使う側の repo に残った写しも同じ仕事の中で直し、PR 本文の「使う側の写しの残り」に書く（細目 §7「土台の直しの終わり」）。
-- PR の base は `main`。本文は `.github/pull_request_template.md` の型で書く（冒頭 5 行: 親窓・書いた窓・job・触る path・検査）。
+- PR の base は `main`。本文は `.github/pull_request_template.md` の型で書く（冒頭 4 行: 親窓・書いた窓・job・検査。触った path は本文に手で書かず、レビューの窓が `git diff --name-only` で取る）。
 - **どちらの AI（Javis の窓・UTC エージェントの窓）からも、この repo へ直に PR を出してよい。**
 
 ## 2. レビュー
@@ -62,6 +62,7 @@
   3. **回帰の見張り**: 直した所の外の結果が変わらないことを見る試験（作り物の入力で）。
 - 2・3 の入力は作り物だけ。`tests/data/` か試験の中に書く。**顧客の物（実データ・実 ID・実画面）はどの場合も置かない。**
 - 1 つの試験は 1 つの約束を見る。名前で何を守るかが分かるようにする（例: `test_一覧の行が全部ある`）。
+- **新しい試験は守る約束の名の新しい file に置く**（元から在る `tests/test_*.py` の試験を増やさない）。並ぶ PR が同じ file の末尾へ足すと 1 本入るたびに残りが全部衝突するので、足す所を PR ごとに分ける。直す・消す・parametrize の行を足すのはよい。AI の窓の枝（`claude/`）の PR の差分で `scripts/pr_shape.py` が照らす（CI の `check`・人の枝は止めない）。
 - まだ無い物（他の窓が先に置く物）に頼る試験は、無い間は `pytest.skip` で飛ばし、理由を書く。消さない・赤のまま置かない。
 - 赤は試験を飛ばす・消すで消さず、細目 §3「まず構造を疑う」で原因から直す。
 - 手元で走らせる: `python3 -m pytest -q tests/`
@@ -69,7 +70,7 @@
 ## 6. 検査の入口（CI）
 
 - CI は `.github/workflows/ci.yml`。`main` への push と、すべての PR で走る。
-- CI の job は 3 つ: `check`（入口は `bash scripts/check_all.sh` の 1 本）と `public-guard`（公開の検査）と `plugin-smoke`（PR の枝を使う側と同じ入れ方で入れて窓を起動し、核の差し込み・守りの hook・skill の読み込みを見る。`scripts/plugin_smoke.py` と、その歯の `tests/test_plugin_smoke.py`）。`check_all.sh` は中で pytest（`tests/`）と、`scripts/checks/*.sh` があればそれを順に走らせる（claude の命令が無い所では `tests/test_plugin_smoke.py` を飛ばす）。
+- CI の job は `check`（入口は `bash scripts/check_all.sh` の 1 本）と `public-guard`（公開の検査）と `plugin-smoke`（PR の枝を使う側と同じ入れ方で入れて窓を起動し、核の差し込み・守りの hook・skill の読み込みを見る。`scripts/plugin_smoke.py` と、その歯の `tests/test_plugin_smoke.py`）と、止めない知らせの `overlap`（開いている他の PR が同じ file の同じ行の辺りを書き換えていれば名指す・`scripts/pr_overlap.py`）。`check_all.sh` は中で pytest（`tests/`）と、`scripts/checks/*.sh` があればそれを順に走らせる（claude の命令が無い所では `tests/test_plugin_smoke.py` を飛ばす）。
 - 検査を足す時は `scripts/checks/<名前>.sh` を足すか、`tests/` に試験を足す。`ci.yml` と `check_all.sh` は書き換えなくてよい。
 - `check_all.sh` の最後の行が `check_all: 緑` なら通り、`check_all: 赤 …` なら止まり。止まったら赤の行を 1 つずつ潰さず、細目 §3「まず構造を疑う」で原因から直す。
 
@@ -84,8 +85,8 @@
 - 版は無い。窓は setup script で **main の先端** を入れる（`docs/核の届け方.md`）。合流した時から、次に立つ窓に届く。版の印を打つ手・版を上げる PR は無い。立った後に土台が変わった窓は、AI が自分で新しい窓へ引き継ぐ（同じ文書の「古い土台で立った窓」）。
 - 使う側に関係する変更は、PR ごとに自分の file を `CHANGELOG.d/<日付>-<話題>.txt` に 1 つ足す（`CHANGELOG.md` へは足さない・書き方は `CHANGELOG.d/README.md`）。使う側の振る舞いが変わる物は、行の札を「壊れる」にする。
 - **「壊れる:」変更は 2 段で入れる**（main の先端は合流した時に全部の窓・全部の公開 repo へ届き、版で待ってもらえないため）:
-  1. **1 段目**: 土台は新しい形を足し、古い形も通し続ける（新旧の両方を受ける・古い形には「移ってほしい」と知らせるだけ）。断片の行の札を「壊れる（1 段目）」にし、使う側がやる事を書く。
-  2. **使う側が移る**: 土台の外の物（使う側の repo・環境の setup script・Artifact 型など）を直す。2 つのアカウントにまたがる物は連絡板の issue で頼む。
-  3. **2 段目**: 使う側が移ったのを確かめてから、古い形を畳む PR を出す。断片の行の札を「壊れる（2 段目）」にし、移ったのを確かめた所を書く。
+  1. **1 段目**: 土台は新しい形を足し、古い形も通し続ける（新旧の両方を受ける）。使う側の物（repo の file・setup script の行）が古い形を持つなら、その形を `plugins/core/古い形.json` に 1 行足す（見つけ方の正規表現・当たる作り物の例・直し方）。足すと、古い形が残る repo を開いた窓に plugin core の起動の hook が file の名で知らせ、その窓が同じ仕事で消す（`docs/核の届け方.md`「使う側に残った写し・古い形」）。環境の setup script は土台の入口 `scripts/setup_plugins.py` を通らない古い形を、起動の hook が名指しする。断片の行の札を「壊れる（1 段目）」にし、使う側がやる事を書く。
+  2. **使う側が移る**: 土台の外の物（使う側の repo・環境の setup script・Artifact 型など）を、土台を直した同じ仕事で直す（オーナー決定 2026-11-19）。使う側の一覧は公開の repo に置かない（repo の名が顧客の語を含みうる）。Javis 側は Notion の原因の台帳と同じ所の「土台の使う側」、UTC 側は連絡板の issue に持つ。2 つのアカウントにまたがる物（UTC の repo と環境）は連絡板の issue で頼む。
+  3. **2 段目**: 使う側が移ったのを **記録で** 確かめてから、古い形を畳む PR を出す。確かめは `python3 plugins/core/scripts/kaku.py olds <使う側の一覧の各 repo の checkout>...` が全部「古い形 0」（読めない repo は名と理由を書く）。同じ PR で `古い形.json` の行を消す。断片の行の札を「壊れる（2 段目）」にし、olds の出力（見た repo と結果）を書く。一覧に無い使う側が古い形のまま残っても、開いた窓に起動の hook が名指しする。
   - 土台の中だけで閉じる変更（使う側の物が古い形に頼っていない）は 1 段でよい。その時は行に「土台の中だけ」と書く。
   - レビューは点 10（呼ぶ側と呼ばれる側）で、この 2 段を見る（skill `checker:review-pr`）。

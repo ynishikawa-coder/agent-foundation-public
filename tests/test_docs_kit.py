@@ -1061,6 +1061,43 @@ def test_選択肢_1_つは資料の外の数の欄の時だけ(tmp_path):
 
 
 @needs_node
+def test_file_を2つ渡すと2つ目の赤も出る(tmp_path):
+    good = tmp_path / "確認.html"
+    good.write_text(filled_template("copy"), encoding="utf-8")
+    bad = DATA / "bad.json"
+    one = subprocess.run([NODE, str(CHECK), str(good)], capture_output=True, text=True, cwd=tmp_path)
+    assert one.returncode == 0, one.stdout
+    res = subprocess.run([NODE, str(CHECK), str(good), str(bad), "--json"], capture_output=True, text=True, cwd=tmp_path)
+    assert res.returncode == 1, res.stderr
+    out = json.loads(res.stdout)
+    assert [r["ok"] for r in out] == [True, False] and out[1]["file"] == str(bad.resolve())
+
+
+@needs_node
+def test_1枚ずつの印は_file_が2つなら止まる(tmp_path):
+    good = tmp_path / "確認.html"
+    good.write_text(filled_template("copy"), encoding="utf-8")
+    res = subprocess.run([NODE, str(CHECK), str(good), str(DATA / "good.json"), "--run-prior"],
+                         capture_output=True, text=True, cwd=tmp_path)
+    assert res.returncode == 2 and "1 枚ずつ" in res.stderr
+
+
+@needs_node
+@pytest.mark.parametrize("flags,word", [(["--jsno"], "知らない印"), (["--values", "a.json", "--values", "b.json"], "2 度")])
+def test_知らない印と同じ印の2度書きは止まる(flags, word):
+    res = subprocess.run([NODE, str(CHECK), str(DATA / "good.json"), *flags], capture_output=True, text=True)
+    assert res.returncode == 2 and word in res.stderr and res.stdout == ""
+
+
+@needs_node
+def test_file_を2つ渡して1つでも赤なら根治の入口を指す(tmp_path):
+    good = tmp_path / "確認.html"
+    good.write_text(filled_template("copy"), encoding="utf-8")
+    res = subprocess.run([NODE, str(CHECK), str(good), str(DATA / "bad.json")], capture_output=True, text=True, cwd=tmp_path)
+    assert res.returncode == 1 and "まず構造を疑う" in res.stdout and "赤 1" in res.stdout
+
+
+@needs_node
 def test_検査が赤なら根治の入口を指し緑なら出さない():
     """赤の行だけを返す古い形（原因から直させない）に戻すと赤。"""
     bad = subprocess.run([NODE, str(CHECK), str(DATA / "bad.json")], capture_output=True, text=True)
