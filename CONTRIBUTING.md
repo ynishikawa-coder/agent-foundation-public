@@ -22,7 +22,7 @@
   ```
 
 - `見た先端` が PR の今の先端と違う green は無効（見た後に push があった）。もう一度見てもらう。
-- red の時は、同じ枝に直して push し、同じレビュー窓へ再レビューを頼む。
+- red の時は、指摘を単発の手直しで済ませず細目 §3「まず構造を疑う」で原因から直し、同じ枝に push して、同じレビュー窓へ再レビューを頼む。
 
 ## 3. main へ入れる
 
@@ -63,7 +63,7 @@
 - 2・3 の入力は作り物だけ。`tests/data/` か試験の中に書く。**顧客の物（実データ・実 ID・実画面）はどの場合も置かない。**
 - 1 つの試験は 1 つの約束を見る。名前で何を守るかが分かるようにする（例: `test_一覧の行が全部ある`）。
 - まだ無い物（他の窓が先に置く物）に頼る試験は、無い間は `pytest.skip` で飛ばし、理由を書く。消さない・赤のまま置かない。
-- 試験を飛ばして緑にしない。赤を消すために試験を消さない。
+- 赤は試験を飛ばす・消すで消さず、細目 §3「まず構造を疑う」で原因から直す。
 - 手元で走らせる: `python3 -m pytest -q tests/`
 
 ## 6. 検査の入口（CI）
@@ -71,7 +71,7 @@
 - CI は `.github/workflows/ci.yml`。`main` への push と、すべての PR で走る。
 - CI の job は 3 つ: `check`（入口は `bash scripts/check_all.sh` の 1 本）と `public-guard`（公開の検査）と `plugin-smoke`（PR の枝を使う側と同じ入れ方で入れて窓を起動し、核の差し込み・守りの hook・skill の読み込みを見る。`scripts/plugin_smoke.py` と、その歯の `tests/test_plugin_smoke.py`）。`check_all.sh` は中で pytest（`tests/`）と、`scripts/checks/*.sh` があればそれを順に走らせる（claude の命令が無い所では `tests/test_plugin_smoke.py` を飛ばす）。
 - 検査を足す時は `scripts/checks/<名前>.sh` を足すか、`tests/` に試験を足す。`ci.yml` と `check_all.sh` は書き換えなくてよい。
-- `check_all.sh` の最後の行が `check_all: 緑` なら通り、`check_all: 赤 …` なら止まり。
+- `check_all.sh` の最後の行が `check_all: 緑` なら通り、`check_all: 赤 …` なら止まり。止まったら赤の行を 1 つずつ潰さず、細目 §3「まず構造を疑う」で原因から直す。
 
 ## 7. プラグインの一覧
 

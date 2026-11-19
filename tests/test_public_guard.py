@@ -200,6 +200,21 @@ def test_CIで顧客の語が無ければ赤(tmp_path):
     assert res.returncode == 1, res.stdout
 
 
+def test_赤の最後の行は根治の入口を指し緑は指さない(tmp_path):
+    """当たりだけを並べて返す古い形（消して出し直させる）に戻すと赤。"""
+    red = _cli(_repo(tmp_path), {"GITHUB_ACTIONS": "true"})
+    assert red.returncode == 1 and "細目 §3「まず構造を疑う」" in red.stdout.strip().splitlines()[-1], red.stdout
+    (tmp_path / "g").mkdir()
+    green = _cli(_repo(tmp_path / "g"), {})
+    assert green.returncode == 0 and "まず構造を疑う" not in green.stdout
+
+
+def test_見回りで外れが在れば最後の行が根治の入口を指す(monkeypatch, capsys):
+    monkeypatch.setattr(patrol, "GitHub", lambda token=None: FakeGitHub(_routes("o/x", None, rules=["public-guard"])))
+    assert patrol.main(["--owner", "o"]) == 1
+    assert "細目 §3「まず構造を疑う」" in capsys.readouterr().out.strip().splitlines()[-1]
+
+
 def test_手元で顧客の語が無ければ飛ばして緑(tmp_path):
     res = _cli(_repo(tmp_path), {})
     assert res.returncode == 0, res.stdout

@@ -499,5 +499,16 @@ def main(argv=None) -> int:
     return 0
 
 
+# 当たりで止まる時の最後の行（中身は土台の細目 §3 が正本＝ここは指すだけ）
+ROOT_CAUSE = "直し: 当たった物を消して出し直すだけで済ませず、置く形になった原因を細目 §3「まず構造を疑う」で探して直す"
+
+
+def main_with_root_cause(argv=None):
+    rc = main(argv)
+    if rc == 1:
+        print(ROOT_CAUSE)
+    return rc
+
+
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(main_with_root_cause())
