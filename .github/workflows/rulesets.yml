@@ -19,15 +19,4 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.RULESET_TOKEN }}
           RULESET_ID: "27175248"
-        run: |
-          if [ -z "$GH_TOKEN" ]; then echo "::error::鍵 RULESET_TOKEN が無い。守りは書き戻していない"; exit 1; fi
-          gh api -X PUT "repos/${GITHUB_REPOSITORY}/rulesets/${RULESET_ID}" --input .github/rulesets/main.json > after.json
-          python3 - <<'PY'
-          import json
-          want = json.load(open(".github/rulesets/main.json"))
-          got = json.load(open("after.json"))
-          diff = [k for k in want if got.get(k) != want[k]]
-          if diff:
-              raise SystemExit(f"書き戻した後の守りが正本と違う: {diff}")
-          print("守りは正本どおり")
-          PY
+        run: python3 scripts/ruleset_apply.py

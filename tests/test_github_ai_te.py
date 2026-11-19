@@ -1,6 +1,10 @@
 """GitHub の手は AI が打つ（オーナーの指摘 2026-11-19: 合流や守りの設定がオーナーの手に回っていた）。"""
+import importlib.util
 import json
 import pathlib
+import subprocess
+
+import pytest
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 
@@ -29,9 +33,11 @@ def test_守りの正本の必須の検査は重複なく今の3つ():
     assert set(checks) == {"check", "public-guard", "plugin-smoke"}
 
 
-def test_書き戻しは鍵が無いと止まりPRでは回らない():
+def test_書き戻しは鍵が無いと止まりPRでは回らない(monkeypatch):
+    monkeypatch.delenv("GH_TOKEN", raising=False)
+    assert _apply().main() == 1
     t = _read(".github/workflows/rulesets.yml")
-    assert 'if [ -z "$GH_TOKEN" ]' in t and "exit 1" in t
+    assert "python3 scripts/ruleset_apply.py" in t
     assert "pull_request" not in t
 
 
@@ -45,4 +51,74 @@ def test_鍵はmainだけのenvironmentから読み_手動でも回らない():
     t = _read(".github/workflows/rulesets.yml")
     assert "environment: rulesets" in t
     assert "workflow_dispatch" not in t
-    assert "environment `rulesets` の秘密に置く" in _read("CONTRIBUTING.md")
+    c = _read("CONTRIBUTING.md")
+    assert "鍵は environment `rulesets` の秘密に置く" in c
+    assert "Deployment branches を「Selected branches and tags」にして `main` だけを足し" in c
+
+
+def _apply():
+    spec = importlib.util.spec_from_file_location("ruleset_apply", ROOT / "scripts/ruleset_apply.py")
+    m = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(m)
+    return m
+
+
+MAIN_ONLY = ({"deployment_branch_policy": {"protected_branches": False, "custom_branch_policies": True}},
+             {"branch_policies": [{"name": "main", "type": "branch"}]})
+
+
+def test_枝の制限がmainだけなら通る():
+    assert _apply().env_problem(*MAIN_ONLY) is None
+
+
+@pytest.mark.parametrize("env,pol", [
+    ({"deployment_branch_policy": None}, None),                                            # 名を指して自動で作られた（制限なし）
+    ({"deployment_branch_policy": {"protected_branches": True, "custom_branch_policies": False}}, None),
+    (MAIN_ONLY[0], {"branch_policies": []}),
+    (MAIN_ONLY[0], {"branch_policies": [{"name": "main", "type": "branch"}, {"name": "claude/*", "type": "branch"}]}),
+    (MAIN_ONLY[0], {"branch_policies": [{"name": "*", "type": "branch"}]}),
+    (MAIN_ONLY[0], {"branch_policies": [{"name": "main", "type": "tag"}]}),
+])
+def test_枝の制限がmainだけでなければ書かずに止まる(env, pol):
+    assert _apply().env_problem(env, pol)
+
+
+def _fake_gh(env, pol, calls):
+    def gh(*args, stdin=None):
+        calls.append(args)
+        if args[-1].endswith("/environments/rulesets"):
+            return env
+        if args[-1].endswith("/deployment-branch-policies"):
+            return pol
+        raise AssertionError(f"書いてはいけない所で書いた: {args}")
+    return gh
+
+
+def test_制限の無い返りでは守りへ書かずに赤(monkeypatch):
+    m = _apply()
+    calls = []
+    monkeypatch.setenv("GH_TOKEN", "x")
+    monkeypatch.setenv("GITHUB_REPOSITORY", "o/r")
+    monkeypatch.setenv("RULESET_ID", "1")
+    monkeypatch.setattr(m, "gh", _fake_gh({"deployment_branch_policy": None}, {"branch_policies": []}, calls))
+    assert m.main() == 1
+    assert not any("PUT" in a for a in calls)
+
+
+def test_枝の制限が読めない時も書かずに赤(monkeypatch):
+    m = _apply()
+    monkeypatch.setenv("GH_TOKEN", "x")
+    monkeypatch.setenv("GITHUB_REPOSITORY", "o/r")
+    monkeypatch.setenv("RULESET_ID", "1")
+
+    def boom(*a, **k):
+        raise subprocess.CalledProcessError(1, "gh", stderr="Not Found")
+    monkeypatch.setattr(m, "gh", boom)
+    assert m.main() == 1
+
+
+def test_書き戻した後に正本と違えば赤():
+    m = _apply()
+    want = {"name": "main", "rules": [1]}
+    assert m.diff(want, {"name": "main", "rules": [1], "id": 9}) == []
+    assert m.diff(want, {"name": "main", "rules": []}) == ["rules"]
