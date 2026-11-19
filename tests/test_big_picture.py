@@ -231,3 +231,19 @@ def test_土台の絵は配りの器から全部の_plugin_へ流れを描く():
     parts = {b["id"] for b in pic["boxes"] if b["tab"] == "arch" and b["k"] == "part" and b["id"] != "a2"}
     fed = {a["to"] for a in pic["arrows"] if a["from"] == "a2"}
     assert parts <= fed, parts - fed
+
+
+def test_設計書の型は全体の絵の下に置かれる():
+    """全体の絵が上・spec-doc は部品ごとの細部（決定 2026-11-19）。両方の SKILL が互いを指す。"""
+    spec_doc = (ROOT / "plugins" / "dev-flow" / "skills" / "spec-doc" / "SKILL.md").read_text(encoding="utf-8")
+    assert "big-picture" in spec_doc and "全体の絵の下で部品ごとの細部" in spec_doc
+    assert "唯一の正解" not in spec_doc, "設計書を全体の絵より上の正と書かない"
+    assert "spec-doc" in (SKILL / "SKILL.md").read_text(encoding="utf-8")
+
+
+def test_main_へ入れる手を片方の_AI_に限らない():
+    """照らす段が green なら、どちらの AI の親窓が入れてもよい（決定 2026-11-19）。"""
+    contributing = (ROOT / "CONTRIBUTING.md").read_text(encoding="utf-8")
+    assert "Javis 側の親窓だけ" not in contributing
+    github = next(b for b in agreed()["boxes"] if b["id"] == "github")
+    assert github["intent"] and "どちらの AI" in github["what"]
