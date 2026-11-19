@@ -179,6 +179,7 @@ def test_挙げた原因は全部台帳に行き先つきで持ち_全部済む�
     assert "1 つ選ばせる問いを出さない" in s4 and "挙がった物は全部やり" in s4
     saimoku = (PLUGIN / "細目.md").read_text(encoding="utf-8")
     assert "**原因の台帳**" in _節(saimoku, 3) and "**選ばせない**" in _節(saimoku, 4) and "**根治の終わり**" in _節(saimoku, 7)
+    assert "③は 1 本の列（番号の順）にせず" in _節(saimoku, 8), "引き継ぎの残りが番号の列に戻った"
     olds = ["どれを今回直す", "一番手前の未決から取る", "どれから進めますか」と聞"]
     hits = []
     for p in sorted(ROOT.rglob("*")):
@@ -250,3 +251,15 @@ def test_残りの受け皿は原因の台帳_1_つで_名だけの受け皿を�
             text = p.read_text(encoding="utf-8")
             hits += [f"{rel}: {o}" for o in olds if o in text]
     assert not hits, hits
+
+
+def test_main_へは製品もオーナーに聞かずに入れ_絵と差がある時だけ止める():
+    """「本番への出荷は聞く」を核に戻すと赤（Notion の決定と窓が読む核が食い違う形）。"""
+    kaku_text = (PLUGIN / "核.md").read_text(encoding="utf-8")
+    assert "本番への出荷" not in _節(kaku_text, 4), "核 §4 に「本番への出荷は聞く」が戻った"
+    s7 = _節(kaku_text, 7)
+    for word in ["（製品も）オーナーに聞かずに入れる", "レビュー green", "試験が緑で衝突なし", "全体の絵", "差があれば止めて聞く", "先に絵を描き"]:
+        assert word in s7, f"核 §7 に無い: {word}"
+    s7d = _節((PLUGIN / "細目.md").read_text(encoding="utf-8"), 7)
+    assert "**main へ入れる**" in s7d and "**③の段が土台に入るまで**" in s7d
+    assert "核 §7 と細目 §7 の「main へ入れる」" in (ROOT / "CONTRIBUTING.md").read_text(encoding="utf-8")
