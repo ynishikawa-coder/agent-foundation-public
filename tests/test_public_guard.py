@@ -398,7 +398,18 @@ def test_出す前の文は顧客の語が無ければ手元でも緑にしな�
     body.write_text("作り物の本文だけ\n", encoding="utf-8")
     code = guard.main(["--repo", str(_repo(tmp_path)), "--text", str(body)])
     out = capsys.readouterr().out
-    assert code == 1 and "照らせない" in out, out
+    assert code == 1 and "照らせない" in out and "当たりは 0" in out, out
+
+
+def test_出す前の文は顧客の語が無くても語の表と形は照らして当たりを出す(tmp_path, capsys):
+    """顧客の語が無い手元でも、置かない語・秘密の形の当たりは名指しで出す（照らさずに止まらない）。"""
+    repo = _repo(tmp_path)
+    (repo / "deny.txt").write_text("見本業務\n", encoding="utf-8")
+    body = tmp_path / "body.md"
+    body.write_text("見本業務の話\n", encoding="utf-8")
+    code = guard.main(["--repo", str(repo), "--deny-words-file", "deny.txt", "--text", str(body)])
+    out = capsys.readouterr().out
+    assert code == 1 and "置かない物" in out and "当たりは 0" not in out, out
 
 
 def test_正本を読めた時は壊れた写しの_secret_が残っていても止めない(tmp_path, monkeypatch, capsys):

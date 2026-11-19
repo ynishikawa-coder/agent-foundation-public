@@ -472,12 +472,7 @@ def main(argv=None) -> int:
         except ValueError as e:
             print(f"✗ AF_DENY_BUNDLE の形が違う（pct1.<鍵>.<束> の 1 行）: {e}")
             return 2
-    if customer_source_missing() and a.text is not None:
-        # 出す前の文は顧客の語を出さないための道なので、材料が欠けたら緑にしない（手元でも）
-        print("✗ 顧客の語が渡っていないので出す前の文を照らせない（AF_DENY_SOURCE_TOKEN か AF_DENY_BUNDLE を環境に。"
-              "語の表と形の照らしだけで緑にしない）")
-        return 1
-    if customer_source_missing():
+    if customer_source_missing() and a.text is None:
         if in_ci():
             print(f"✗ 顧客の語がどこからも渡っていない（{CUSTOMER_HINT}）")
             return 1
@@ -492,6 +487,12 @@ def main(argv=None) -> int:
         hits = sorted(set(g.text_hits("出す前の文", text, "")))
         if hits:
             print("✗ 出す前の文に公開の repo に置かない物（直してから出す）:\n  " + "\n  ".join(hits))
+            return 1
+        if customer_source_missing():
+            # 出す前の文は顧客の語を出さないための道なので、材料が欠けたら緑にしない（手元でも）。
+            # 語の表と形の照らしは回し、その当たりが 0 なのは言う（顧客の名を書かない事は人の目で守る）
+            print("✗ 出す前の文: 語の表と形の当たりは 0。顧客の語が渡っていないので顧客の語は照らせない"
+                  "（AF_DENY_SOURCE_TOKEN か AF_DENY_BUNDLE を環境に。緑にしない）")
             return 1
         print("✅ 出す前の文: 置かない物 0")
         return 0
