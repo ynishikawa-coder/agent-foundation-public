@@ -39,3 +39,10 @@ def test_AIの道具で打てる手は自分で打ち_人にしか打てない�
     t = _read("plugins/core/細目.md")
     assert "push・PR・合流・調べる・見張る・Notion や Drive への書き込み）は自分で打つ。" in t
     assert "人にしか打てない手（許し・アカウントと支払い・PC やスマホにしか無い物・社外への go・他社のオーナーへの連絡）だけ" in t
+
+
+def test_鍵はmainだけのenvironmentから読み_手動でも回らない():
+    t = _read(".github/workflows/rulesets.yml")
+    assert "environment: rulesets" in t
+    assert "workflow_dispatch" not in t
+    assert "environment `rulesets` の秘密に置く" in _read("CONTRIBUTING.md")

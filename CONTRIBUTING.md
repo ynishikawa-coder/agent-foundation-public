@@ -34,7 +34,7 @@
 
 ### main の守りの設定
 
-正本は `.github/rulesets/main.json`。直す時は AI がこの file を PR で直し、main に入ると CI の job `rulesets` が GitHub へ書き戻す（クラウドの窓は設定の口へ直に書けない・鍵 `RULESET_TOKEN` が無い時は書き戻しが赤で止まる）。
+正本は `.github/rulesets/main.json`。直す時は AI がこの file を PR で直し、main に入ると CI の job `rulesets` が GitHub へ書き戻す（クラウドの窓は設定の口へ直に書けない・鍵 `RULESET_TOKEN` が無い時は書き戻しが赤で止まる）。鍵は main からしか使えない environment `rulesets` の秘密に置く（repo の秘密に置くと、どの枝の workflow からも読める）。
 
 - `main` への直の push を禁止し、PR を必須にする。
 - 必須の検査に CI の `check`・`public-guard`・`plugin-smoke`（`.github/workflows/ci.yml`）を入れる。土台は main の先端をそのまま全部の窓へ配るので、`plugin-smoke`（使う側と同じ入れ方で入れて起動する試験）が合流の前の守り。`public-guard` か `plugin-smoke` が必須でないと見回りが知らせる（`docs/公開の検査.md`）。
