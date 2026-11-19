@@ -141,12 +141,12 @@ def test_差し戻しの文に鍵の値を出さない(tmp_path):
 def test_差し戻しの文に直し方と誤った時の外し方を出す(tmp_path):
     reason = sw.stop(stop_data(owner_reply("#616 を 08:53 UTC に入れた。"), owner_log(tmp_path)), stop_env(tmp_path))
     assert "[inner]" in reason and "[time]" in reason
-    assert "session_watch.reply_exempt" in reason and "guard.ask_term_allow" in reason
+    assert "session-watch.watch-log.reply_exempt" in reason and "guard.ask_term_allow" in reason
 
 
 def test_誤って止まる行は値の表で外せる(tmp_path, monkeypatch):
     table = tmp_path / "values.json"
-    table.write_text(json.dumps({"session_watch": {"reply_exempt": ["^元の記録:"]},
+    table.write_text(json.dumps({"session-watch": {"watch-log": {"reply_exempt": ["^元の記録:"]}},
                                  "guard": {"ask_term_allow": ["^B202$"]}}), encoding="utf-8")
     monkeypatch.setenv("SKILL_VALUES", str(table))
     assert stopped(tmp_path, owner_reply("元の記録: 2026-11-19T08:53:00Z", "部屋は B202 です。")) == []
@@ -203,7 +203,7 @@ def test_クラウドの窓で題が会話ログに無ければ差し戻し_付�
 def test_値の表に読めない形があっても他の札は黙って抜けず_読めない事を知らせる(tmp_path, monkeypatch):
     """1 つの誤った正規表現で差し戻しが全部抜ける（hook が例外を受けて黙って通す）形に戻すと赤。"""
     table = tmp_path / "values.json"
-    table.write_text(json.dumps({"session_watch": {"reply_exempt": ["(", "^元の記録:"]},
+    table.write_text(json.dumps({"session-watch": {"watch-log": {"reply_exempt": ["(", "^元の記録:"]}},
                                  "guard": {"ask_term_allow": ["["]}}), encoding="utf-8")
     monkeypatch.setenv("SKILL_VALUES", str(table))
     got = stopped(tmp_path, owner_reply("鍵は " + FAKE_KEY, "#616 を 08:53 UTC に入れた。", "元の記録: 2026-11-19T08:53:00Z"))
@@ -229,3 +229,14 @@ def test_中の言葉の値の表に読めない形があっても次のター�
     assert "- inner:" in first and "ask_term_allow「[」" in first and "B202" not in first.split("- inner:")[1].splitlines()[0]
     second = sw.stop(stop_data(owner_reply("#617 と Q202611-67 を入れた。"), owner_log(tmp_path), sid="s1"), e)
     assert second and "- inner:" in second and "- neighbor:" not in second    # 2 ターン目も止める（知らせは 1 回）
+
+
+def test_外す形の鍵は値の表の知っている鍵に載る():
+    """reply_exempt を土台の知らない鍵（読まれずに黙って効かない）にしない。"""
+    import importlib.util
+    from pathlib import Path
+    p = Path(__file__).resolve().parent.parent / "plugins" / "guard" / "scripts" / "values_keys.py"
+    spec = importlib.util.spec_from_file_location("af_values_keys", p)
+    vk = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(vk)
+    assert vk.unknown({"session-watch": {"watch-log": {"reply_exempt": ["^元の記録:"]}}}) == []

@@ -7,7 +7,7 @@ description: 会話ログ（transcript の JSONL）を手で点検にかけ、�
 
 点検は会話ログだけを読む（環境の値・外の台帳・`get_session` の返りを見ない）。手で回す: `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/session_watch.py" <transcript.jsonl>`。拾った物を 1 行ずつ出し、拾えば exit 1（最後の行で細目 §3「まず構造を疑う」 を指す）。知らない印・読めないログは exit 2 で止まる（拾う物なしの緑に化けない）。拾われた物は下の直し方で出し直すだけで済ませず、細目 §3「まず構造を疑う」で原因から直す。
 
-`title`（今の題で直せる物）・`card`・`close`・`plain`・`inner`・`time`・`done`・`secret`・`neighbor` は、Stop の hook（`session_watch.py --stop`）も同じ見張りで見て、崩れていれば返事を届ける前に AI だけを差し戻して書き直させる（`decision: block`。人の操作は止めない）。同じターンで 2 回までで、越えたら通して届ける（窓が回り続けない）。差し戻しの文に直し方と誤った時の外し方を出す。誤って当たる行は値の表 `config/skill-values.json` の `session_watch.reply_exempt`（行に当てる正規表現の並び・`inner`・`time`・`done` で見ない）に、中の言葉の字は `guard.ask_term_allow` に足す（PR とレビューを通す）。見張りが壊れた時の逃げ道は環境変数 `AF_SESSION_WATCH_STOP=0`。「問いを出す前に ❓ を付けていない」は過ぎた事で今は直せないので差し戻さない。ほかの札（`idk`・`unanswered`・`rest`・`hand`）は手で回す点検と知らせるだけ。`neighbor` は AI には直せないので窓ごとに 1 回だけ差し戻す。
+`title`（今の題で直せる物）・`card`・`close`・`plain`・`inner`・`time`・`done`・`secret`・`neighbor` は、Stop の hook（`session_watch.py --stop`）も同じ見張りで見て、崩れていれば返事を届ける前に AI だけを差し戻して書き直させる（`decision: block`。人の操作は止めない）。同じターンで 2 回までで、越えたら通して届ける（窓が回り続けない）。差し戻しの文に直し方と誤った時の外し方を出す。誤って当たる行は値の表 `config/skill-values.json` の `session-watch.watch-log.reply_exempt`（行に当てる正規表現の並び・`inner`・`time`・`done` で見ない）に、中の言葉の字は `guard.ask_term_allow` に足す（PR とレビューを通す）。見張りが壊れた時の逃げ道は環境変数 `AF_SESSION_WATCH_STOP=0`。「問いを出す前に ❓ を付けていない」は過ぎた事で今は直せないので差し戻さない。ほかの札（`idk`・`unanswered`・`rest`・`hand`）は手で回す点検と知らせるだけ。`neighbor` は AI には直せないので窓ごとに 1 回だけ差し戻す。
 
 ## 拾う物と直し方
 
@@ -34,6 +34,14 @@ description: 会話ログ（transcript の JSONL）を手で点検にかけ、�
 | `neighbor` | 上の正本（隣の plugin guard・市場の写しの `public-guard/guard.py`）が見つからず照らせない／照らしが壊れた／値の表の `reply_exempt` に正規表現として読めない形がある（読めない形は捨て、他の札は札ごとに照らし続ける）。探す順は 環境変数（`AF_ASK_SHAPE`・`AF_GUARD_COMMON`・`AF_PUBLIC_GUARD`）→ 同じ repo の隣 → 入れた plugin の同じ版 → 市場の写し → 入れた plugin の新しい版 | 土台の plugin guard を入れ直す（`docs/核の届け方.md`） |
 
 `title` には、クラウドの窓で題が会話ログに一度も無い時（親が `create_session` で付けた題は会話ログの外）も入る。材料が無い時は既定で止め、`get_session` で今の題を読んで `set_session_title` で付け直させる（同じ題でよい）。
+
+## repo ごとの値
+
+値の表は使う repo の根の `config/skill-values.json`（在る時だけ読む・無ければ外す形なしで照らす）。
+
+| 鍵 | 中身 | 既定 |
+|---|---|---|
+| `reply_exempt` | 返事の行に当てる正規表現の並び。当たる行は `inner`・`time`・`done` で見ない（引いた記録・誤って止まる形だけ。PR とレビューを通す）。読めない形は捨てて `neighbor` で名指す | `[]` |
 
 ## 点検の外
 

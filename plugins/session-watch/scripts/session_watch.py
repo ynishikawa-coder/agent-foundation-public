@@ -414,10 +414,11 @@ SENTENCE = re.compile(r"[^。！？!?\n]+")
 
 
 def reply_exempt(data=None):
-    """値の表の session_watch.reply_exempt（行に当てる正規表現の並び）。当たる行は inner・time・done で見ない。
+    """値の表の session-watch.watch-log.reply_exempt（行に当てる正規表現の並び）。当たる行は inner・time・done で見ない。
     (通る形の並び, 通らない形の並び)。通らない形（正規表現として読めない）は捨てる＝1 つの誤りで照らしを全部止めない。"""
     G = neighbor("guard_common")
-    got = G.table("session_watch", data) if G else {}
+    got = G.table("session-watch", data) if G else {}
+    got = got.get("watch-log") if isinstance(got, dict) else None
     pats = got.get("reply_exempt") if isinstance(got, dict) else None
     ok, bad = [], []
     for p in pats or []:
@@ -493,7 +494,7 @@ def words(log, closing, data=None):
 
     exempt, bad = reply_exempt(data)
     if bad:
-        found.append(("neighbor", "値の表 session_watch.reply_exempt に正規表現として読めない形がある（捨てて照らした）: %s"
+        found.append(("neighbor", "値の表 session-watch.watch-log.reply_exempt に正規表現として読めない形がある（捨てて照らした）: %s"
                       % "／".join(b[:30] for b in bad[:3])))
     body = prose(closing, exempt)
 
@@ -776,7 +777,7 @@ STOP_HOW = {
                 "照らし続けているので、他の札は効いている。この知らせは窓ごとに 1 回だけ。",
 }
 STOP_FOOT = ("誤って差し戻した時（引いた言葉・記録の写しに当たった等）: 当たる行の形を値の表 config/skill-values.json の "
-             "session_watch.reply_exempt（行に当てる正規表現の並び）に、中の言葉の字は guard.ask_term_allow に足す（PR とレビューを"
+             "session-watch.watch-log.reply_exempt（行に当てる正規表現の並び）に、中の言葉の字は guard.ask_term_allow に足す（PR とレビューを"
              "通す）。見張りが壊れた時だけ環境変数 %s=0 で切る。" % STOP_OFF)
 
 
