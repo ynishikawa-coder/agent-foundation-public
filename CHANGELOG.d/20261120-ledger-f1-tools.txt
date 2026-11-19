@@ -1,5 +1,0 @@
-- 壊れる: `scripts/pr_overlap.py` は見ていない時（材料が無い・他の PR を読めない）を exit 0 でなく exit 3 で終え、GitHub の上では注記 `::warning::` も出す。CI の job `overlap` はその step を `continue-on-error` で回す（止めないまま、見ていない時に「重なりは無い」と同じ緑の印を出さない）。
-- 直した: `scripts/plugin_smoke.py` は入った台帳 installed_plugins.json に行の無い plugin を（台帳が空の時も）入った commit を照らせないと名指し、起動の hook の出力の JSON が読めない・終わり方（exit_code）が分からない hook を黙って通さない（JSON でない字の出力は Claude Code と同じく文脈に足す）。
-- 直した: `scripts/conflict_markers.py` は symlink の中身（指す先の字）・手元で消した追跡中の file（index の中身）・頭に NUL がある file（BOM で UTF-16・UTF-32 を読み分け、BOM が無ければバイトと UTF-16 の読みの全部）も照らす。読めない file は数えて名指し、exit 3（照らしていない）で終える。
-- 直した: `scripts/pr_shape.py` は元から在る試験の file の試験の増加を、書き換え（M）だけでなく名の変更（R・git が見つけない D+A）・型の変化（T）でも照らし、試験を ast で数える（字下げした class の中の試験も）。在る parametrize の行を足すのは許し、parametrize の軸を足すのは試験を増やす物と見る。
-- 直した: 値の表の型 repo_names（`skill-values/skill_values.py` の `bad_repo_names`・全体の形の印 `_whole_regex`）は、字の頭の ^ と尻の $ でなく正規表現の解析で全体の形かを決める（頭にフラグを置いた `(?i)^o/r$`・全部の道が錨の分かれを形の違いと名指さない。`^a|b$` は名指す）。

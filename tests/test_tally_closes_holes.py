@@ -78,9 +78,9 @@ def test_注入_conftest_の_pytest_plugins_は赤(tmp_path):
 
 # ---- conftest の hook が結果・集めを変える ---------------------------------------------------------
 
-LOGREPORT = ("import pytest\n\n@pytest.hookimpl(tryfirst=True)\ndef pytest_runtest_logreport(report):\n"
+LOGREPORT = ("import pytest\n\n" "@pytest.hookimpl(tryfirst=True)\ndef pytest_runtest_logreport(report):\n"
              "    if report.skipped:\n        report.outcome = 'passed'\n")
-MAKEREPORT = ("import pytest\n\n@pytest.hookimpl(hookwrapper=True, tryfirst=True)\ndef pytest_runtest_makereport(item, call):\n"
+MAKEREPORT = ("import pytest\n\n" "@pytest.hookimpl(hookwrapper=True, tryfirst=True)\ndef pytest_runtest_makereport(item, call):\n"
               "    o = yield\n    r = o.get_result()\n    if r.skipped:\n        r.outcome = 'passed'\n")
 TESTSTATUS = "def pytest_report_teststatus(report, config):\n    if report.skipped:\n        return 'passed', '.', 'PASSED'\n"
 FOLD = ("def pytest_collection_modifyitems(config, items):\n    items[:] = [i for i in items if 'skip' not in i.name]\n")

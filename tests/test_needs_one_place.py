@@ -59,7 +59,7 @@ def test_試験の_file_に条件と結ばれない飛ばしが無い():
 
 
 def test_注入_集める時に走る_skipif_と例外の文の飛ばしを拾う():
-    a = "import pytest\n\n@pytest.mark.skipif(not _probe(), reason='x')\ndef test_a():\n    pass\n"
+    a = "import pytest\n\n" "@pytest.mark.skipif(not _probe(), reason='x')\ndef test_a():\n    pass\n"
     b = ("import pytest\n\ndef test_b():\n    try:\n        go()\n    except Exception as e:\n"
          "        pytest.skip(f'起こせない: {e}')\n")
     assert bad_skips(a) == ["x.py:3: skipif の条件が集める時に走る"]

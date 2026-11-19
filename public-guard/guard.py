@@ -212,7 +212,8 @@ def personal_labels(text: str) -> list[str]:
     """個人の情報の形に当たった札の並び（値は返さない）。"""
     text = normalize(text)
     labels = [label for label, pat in PERSONAL_PATTERNS.items() if re.search(pat, text)]
-    if any(not SAFE_EMAIL.search(m) for m in re.findall(EMAIL, text)):
+    # 文字列の中の書き方 \n・\t・\r は区切りと読む（"…\n@pytest.mark…" の n を名の頭と読まない。"\nuser@…" は拾う）
+    if any(not SAFE_EMAIL.search(m) for m in re.findall(EMAIL, re.sub(r"\\[nrt]", " ", text))):
         labels.append("メールアドレス")
     return labels
 

@@ -39,7 +39,7 @@ def test_合格_印の試験が通れば緑(tmp_path):
 
 @pytest.mark.parametrize("body", [
     "import shutil\n\ndef test_a():\n    if shutil.which('af-no-such-tool') is None:\n        pytest.skip('自前の飛ばし')\n",
-    "from shutil import which\n\n@pytest.mark.skipif(which('nothing-here') is None, reason='x')\ndef test_a():\n    pass\n",
+    "from shutil import which\n\n" "@pytest.mark.skipif(which('nothing-here') is None, reason='x')\ndef test_a():\n    pass\n",
     "def test_a():\n    try:\n        import 無い部品  # noqa: F401\n    except ImportError:\n        pytest.skip('部品が無い')\n",
     "@pytest.mark.xfail(reason='作り物')\ndef test_a():\n    assert False\n",
 ], ids=["which is None", "from shutil import which", "try/except", "xfail"])
