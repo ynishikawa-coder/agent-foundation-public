@@ -1,0 +1,32 @@
+name: rulesets
+# main の守り（ruleset）の正本は .github/rulesets/main.json。main に入った時にこの job が GitHub へ書き戻す。
+# クラウドの窓は GitHub の設定の口へ書けない（通り道が 403）ので、守りの直しは PR でこの file を直す。
+# 鍵 RULESET_TOKEN（repo の管理の権限）が無い時は書かずに赤で止まる。PR では回さない（鍵を PR に渡さない）。
+on:
+  push:
+    branches: [main]
+    paths: [".github/rulesets/**"]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: 書き戻す
+        env:
+          GH_TOKEN: ${{ secrets.RULESET_TOKEN }}
+          RULESET_ID: "27175248"
+        run: |
+          if [ -z "$GH_TOKEN" ]; then echo "::error::鍵 RULESET_TOKEN が無い。守りは書き戻していない"; exit 1; fi
+          gh api -X PUT "repos/${GITHUB_REPOSITORY}/rulesets/${RULESET_ID}" --input .github/rulesets/main.json > after.json
+          python3 - <<'PY'
+          import json
+          want = json.load(open(".github/rulesets/main.json"))
+          got = json.load(open("after.json"))
+          diff = [k for k in want if got.get(k) != want[k]]
+          if diff:
+              raise SystemExit(f"書き戻した後の守りが正本と違う: {diff}")
+          print("守りは正本どおり")
+          PY
