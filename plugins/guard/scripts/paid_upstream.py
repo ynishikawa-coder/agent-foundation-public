@@ -8,8 +8,10 @@
   有料の上流の鍵名か公式のエンドポイントが現れた時。
 逃げ道: 中身に PAID_UPSTREAM_GUARD を書く（＝環境変数 1 本で本物へ切り替える共通の関所を通す宣言。既定は録画の再生か偽物）。
 
+見る口: Write / Edit / MultiEdit / NotebookEdit と、Bash で試験らしい path へ書く形（`>`・`>>` のリダイレクト・
+  `tee`・`sed -i`／`perl -i` の的）。Bash は命令の文全体（heredoc の中身を含む）に印があるかを見る。
 射程の外（正直に書く）: 自分のサーバを経た中継（例: 手元のサーバが本物の鍵で AI へ中継する）は見えない。
-  Write / Edit / MultiEdit / NotebookEdit だけを見る（Bash のリダイレクトで書く形は見えない）。
+  Bash でも、書く中身が命令の外にある形（cp・mv・別の script の中で書く・python -c の中の open）は見えない。
 判定できない時は通す（1 つの不具合で書き込みを止めない）。
 """
 from __future__ import annotations
@@ -69,8 +71,38 @@ def reason(path, hits):
     ).format(path, " / ".join(hits), GUARD_MARKER)
 
 
+# Bash で file へ書く的: リダイレクト（> と >>・2> などの数字つきや >& は除く）・tee・sed -i／perl -i の最後の語
+_REDIRECT = re.compile(r"(?<![0-9&>])>>?\s*(?!&)([^\s;&|<>()]+)")
+_TEE = re.compile(r"\btee\b((?:\s+-[a-zA-Z]+)*)((?:\s+[^\s;&|<>()-][^\s;&|<>()]*)+)")
+_INPLACE = re.compile(r"\b(?:sed|perl)\s+[^;&|]*?-i\S*[^;&|]*?\s([^\s;&|<>()]+)\s*(?:$|[;&|])", re.M)
+
+
+def bash_targets(cmd):
+    """Bash の命令が書く file の path の並び（推し量り）。"""
+    out = [m.group(1) for m in _REDIRECT.finditer(cmd)]
+    for m in _TEE.finditer(cmd):
+        out += m.group(2).split()
+    out += [m.group(1) for m in _INPLACE.finditer(cmd)]
+    return [t.strip("'\"") for t in out if t.strip("'\"") not in ("/dev/null", "-")]
+
+
+def check_bash(data, vals):
+    ti = data.get("tool_input")
+    cmd = ti.get("command") if isinstance(ti, dict) else None
+    if not isinstance(cmd, str) or GUARD_MARKER in cmd:
+        return ""
+    tests = [t for t in bash_targets(cmd) if TEST_PATH_RE.search(t.replace(os.sep, "/"))]
+    if not tests:
+        return ""
+    markers = list(PAID_MARKERS) + [m for m in vals.get("paid_markers_extra") or [] if isinstance(m, str) and m]
+    hits = [m for m in markers if m in cmd]
+    return reason(", ".join(tests), hits) if hits else ""
+
+
 def check(data, vals):
     """止めるなら理由、通すなら ""。"""
+    if str(data.get("tool_name") or "") == "Bash":
+        return check_bash(data, vals)
     if str(data.get("tool_name") or "") not in WRITE_TOOLS:
         return ""
     tool_input = data.get("tool_input")
