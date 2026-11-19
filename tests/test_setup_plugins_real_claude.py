@@ -43,11 +43,21 @@ def commit(up, names, msg):
     return git(up, "rev-parse", "HEAD")
 
 
-def test_古い目録が残った箱で塊を回すと先端に揃う(tmp_path):
+# 入口の直しより前の入口（目録を取り直さない）。clone にこれが残る箱では、塊の 1 行目だけが先端へ進める
+OLD_ENTRY = ENTRY.read_text(encoding="utf-8").replace(
+    'r = claude("plugin", "marketplace", "update", market)', "r = subprocess.CompletedProcess([], 0)")
+
+
+@pytest.mark.parametrize("old_entry", [False, True], ids=["入口が新しい箱", "古い入口が残る箱"])
+def test_古い目録が残った箱で塊を回すと先端に揃う(tmp_path, old_entry):
     up = tmp_path / "up"
     (up / "scripts").mkdir(parents=True)
     (up / ".claude-plugin").mkdir()
-    shutil.copy2(ENTRY, up / "scripts" / "setup_plugins.py")
+    if old_entry:
+        assert OLD_ENTRY != ENTRY.read_text(encoding="utf-8")
+        (up / "scripts" / "setup_plugins.py").write_text(OLD_ENTRY, encoding="utf-8")
+    else:
+        shutil.copy2(ENTRY, up / "scripts" / "setup_plugins.py")
     git(tmp_path, "init", "-q", "-b", "main", str(up))
     commit(up, ["core"], "v1")
     home = tmp_path / "home"
@@ -66,6 +76,8 @@ def test_古い目録が残った箱で塊を回すと先端に揃う(tmp_path):
 
     v1 = git(up, "rev-parse", "HEAD")
     assert setup() == {"core@agent-foundation": v1}
+    if old_entry:  # 出所の入口は新しくなる（箱の clone には古い入口が残る）
+        shutil.copy2(ENTRY, up / "scripts" / "setup_plugins.py")
     tip = commit(up, ["core", "added"], "v2")  # 出所が進む。箱には v1 の clone が残る
     assert setup() == {"core@agent-foundation": tip, "added@agent-foundation": tip}
     assert "af-plugin-missing" not in (home / ".claude" / "CLAUDE.md").read_text(encoding="utf-8") \

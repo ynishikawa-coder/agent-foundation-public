@@ -126,7 +126,11 @@ def refresh(market: str) -> bool:
     r = claude("plugin", "marketplace", "update", market)
     if not (r and r.returncode == 0):
         return False
-    if os.environ.get(REEXEC) != "1" and Path(__file__).read_bytes() != before:
+    try:
+        after = Path(__file__).read_bytes()
+    except OSError:  # 取り直した出所で入口が消えた・名が変わった: 移る先が無いので今の入口で入れる（名簿は読み直す・揃いは照らす）
+        after = before
+    if os.environ.get(REEXEC) != "1" and after != before:
         sys.stdout.flush()
         os.execve(sys.executable, [sys.executable, str(Path(__file__).resolve())], dict(os.environ, **{REEXEC: "1"}))
     return True

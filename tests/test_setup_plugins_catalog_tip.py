@@ -109,3 +109,40 @@ def test_使う側に貼る塊は古い入口でも先に目録を取り直す()
     row = _row("no-marketplace-update")
     assert not row["re"].search(block)
     assert row["re"].search(block.replace("; claude plugin marketplace update agent-foundation || true", ""))
+
+
+def test_取り直した出所で入口が消えても名簿で入れて照らす(tmp_path):
+    """出所で入口の file が消えた・名が変わった時も例外で落ちず、取り直した名簿で入れ、揃いを照らして印を書く。"""
+    root, _ = stale_box(tmp_path)
+    up = tmp_path / "upstream"
+    write_manifest(up, ["core", "guard", "足した物"])
+    (up / "scripts" / "setup_plugins.py").rename(up / "scripts" / "入れる.py")
+    git(up, "add", "-A")
+    git(up, "commit", "-qm", "v2")
+    r, _, _, home = run_from(tmp_path, root)
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert set(shas(tmp_path).values()) == {head(up)} and "足した物" in shas(tmp_path)
+    assert json.loads((home / ".claude" / "af-foundation" / "setup.json").read_text(encoding="utf-8"))["refreshed"] is True
+
+
+def run_from(tmp_path, root):
+    """入口を clone の外の写しから走らせる（取り直しで clone の入口が消える箱を作るため）。名簿と HEAD は clone を読む。"""
+    import os
+    import sys
+    entry = tmp_path / "entry" / "scripts" / "setup_plugins.py"
+    entry.parent.mkdir(parents=True)
+    src = ENTRY.read_text(encoding="utf-8").replace(
+        "ROOT = Path(__file__).resolve().parent.parent", f"ROOT = Path({str(root)!r})")
+    entry.write_text(src, encoding="utf-8")
+    probe = root / "scripts" / "setup_plugins.py"
+    src = src.replace("Path(__file__).read_bytes()", f"Path({str(probe)!r}).read_bytes()")
+    entry.write_text(src, encoding="utf-8")
+    fake = tmp_path / "claude"
+    from test_setup_plugins import FAKE
+    fake.write_text(FAKE, encoding="utf-8")
+    fake.chmod(0o755)
+    home = tmp_path / "home"
+    env = dict(os.environ, HOME=str(home), CLAUDE_BIN=str(fake), FAKE_LOG=str(tmp_path / "log"), FAKE_BROKEN="",
+               FAKE_ROOT=str(root))
+    r = subprocess.run([sys.executable, str(entry)], capture_output=True, text=True, env=env, timeout=60)
+    return r, None, None, home
