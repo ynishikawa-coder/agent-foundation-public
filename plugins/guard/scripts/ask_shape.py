@@ -30,7 +30,9 @@ ASK_TOOL = "AskUserQuestion"
 _URL = re.compile(r"https?://\S+")
 # AI の中の言葉らしい字（名 → 形）。人に向けた問いに出るなら日常の言葉に替える。
 INNER = (
-    ("番号", re.compile(r"(?<![A-Za-z0-9])[A-Z]{1,5}\d{2,}(?:[-_]\d+)*(?![A-Za-z0-9])")),       # E02・Q202611-67
+    # 番号の頭は 1〜2 字（E02・Q202611-67・PR12）。3 字以上の頭に数の続く名（COVID19・SHA256・ISO9001）は固有名として数えない。
+    #   3 字以上の頭でも [-_] で数が続けば番号（ABC123-4）。
+    ("番号", re.compile(r"(?<![A-Za-z0-9])(?:[A-Z]{1,2}\d{2,}(?:[-_]\d+)*|[A-Z]{3,5}\d{2,}(?:[-_]\d+)+)(?![A-Za-z0-9])")),
     ("番号", re.compile(r"[#＃]\d+")),                                                            # #616
     ("版の番号", re.compile(r"(?<![A-Za-z0-9])[vV]\d+(?:\.\d+)+")),                              # v0.21.0
     ("file 名", re.compile(r"[\w\-]+\.(?:py|md|json|jsonl|mjs|cjs|js|ts|tsx|jsx|html|ya?ml|sh|txt|csv|tsv|xlsx|toml|ini|cfg)"
