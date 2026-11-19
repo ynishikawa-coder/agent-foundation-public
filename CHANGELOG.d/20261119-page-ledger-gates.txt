@@ -4,5 +4,7 @@
 - 足した: 試験 — 宣言した guard の見張りが全部 import でき関数が在る事（入口は実行の時に壊れを飲むので、壊れた見張りは試験で拒む）。
 - 足した: guard の send_go — skill の SKILL.md の頭の send-gate が宣言する外へ送る命令（compose-message の送る命令・make-deck の NotebookLM への素材の投入）を、送る物（送る file の中身・字でない素材の名）を返事で見せた後に人の答えが無いまま打つと止める。人のいない窓では止める。
 - 直した: guard の send_go — 送る命令かを命令の字の並び（正規表現）でなく、守りの 1 つの読み手 guard_common.parse_shell の語で決める。send-gate の宣言は正規表現から送る命令の形（shell の 1 行）に替えた。送る物は引数から字のまま全部決め、読み切れない形・変数・展開・標準入力・同じ名の別の file は止める。字でない素材は絶対 path と sha256 で結ぶ。
-- 足した: guard_common.parse_shell（PR #77 の読み手を字のまま写した。台帳の行 ca88aa11c00d・d741bcfa2260）と is_human_prompt（人の行を印の無さでなく、人の行の形が全部そろう時だけ人に数える）。is_owner_row もこれを使う（窓の最初の頼みを読む first_owner_text は前の広い見分けのまま）。
+- 足した: guard_common.is_human_prompt（人の行を印の無さでなく、人の行の形が全部そろう時だけ人に数える）。is_owner_row もこれを使う（窓の最初の頼みを読む first_owner_text は前の広い見分けのまま）。
 - 直した: docs-kit の型の検査（blueprint・theory-mock）— Chrome を自分の process group で起こし、Chrome が終わったら子が stdout を握っていても待たない。sandbox が立たないと前もって分かる機械は初めから sandbox なしで 1 回だけ開く。上限は guard の page_check の 1 か所（締めを AF_CHECK_DEADLINE で渡す）。DOM が無い時の訳に開いた回ごとの時間を書く。
+- 直した: guard の send_go — 読み手 guard_common.parse_shell は PR #77 の 1 つを取り込んで使い（写しを持たない）、読み切れない形の止めは読み手が返す印（Unknown.code）と命令の字の事実だけで決める（訳の言い回しに正規表現を当てていたので、言い回しの違う読み手の下で `X=$(printf %s 送); python3 …/${X}る口.py` が go なしに通った）。
+- 直した: docs-kit の型の検査（blueprint・theory-mock）— Chrome の DOM の読み口は、出力の終わり（EOF）と Chrome の終わり（wait の exit の番号）の両方が揃ってから落ちた訳を決める（ある一瞬の poll() で分けると、EOF が先に来た時に落ちた Chrome を時間切れと取り違え、check_all が負荷の下で運で赤になった）。

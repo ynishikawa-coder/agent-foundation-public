@@ -109,11 +109,22 @@ def test_書き方を変えた送る命令も_go_が無ければ止める(senv, 
     "cat %s" % PROG,
     "grep -n to %s" % PROG,
     "%s source list" % NB,
-    "\"$V/notebooklm\" doctor",
     "echo 送る",
 ])
 def test_試しの形と_読むだけ_送る段でない命令は通す(senv, tmp_path, txt, cmd):
     assert not denied(senv, send(cmd.format(f=txt), no_go(tmp_path)))
+
+
+def test_送る段の名の無い命令は_道具の名が変数でも通す(env, tmp_path):
+    """make-deck の口（送る段の名 source add を宣言する）は、その字も置き換えも無い命令を止めない。
+    送る段の名の無い口（compose-message）を値の表で持つ repo では、走る道具を走る時に決める命令を全部止める（下）。"""
+    assert not denied(env, send("\"$V/notebooklm\" doctor", no_go(tmp_path)))
+    assert not denied(env, send("git commit -m \"$(cat /作り物/msg.txt)\"", no_go(tmp_path)))
+
+
+def test_送る段の名の無い口を持つ_repo_は_走る道具を走る時に決める命令を止める(senv, tmp_path):
+    assert denied(senv, send("\"$V/notebooklm\" doctor", no_go(tmp_path)))
+    assert not denied(senv, send("git commit -m \"$(cat /作り物/msg.txt)\"", no_go(tmp_path)))     # 値を隠せる印だけ
 
 
 # ── 送る物を字のまま決める ──
@@ -235,3 +246,9 @@ def test_読み切れない形の止めは読み手の訳の言い回しに頼�
     gate = DECK_GATE if name.startswith("deck:") else COMPOSE_GATE
     hits, why = sg.find_sends(form("/作り物/文面.txt"), gate)
     assert hits or why, form("/作り物/文面.txt")
+
+
+def test_止める印は読み手の印の一覧に在る():
+    """send_go が使う印が読み手（guard_common.UNKNOWN_CODES）に無い名なら、その止めは黙って効かない。"""
+    sg = _send_go()
+    assert sg.RUNTIME_PROGRAM <= sg.G.UNKNOWN_CODES and sg.HIDING <= sg.G.UNKNOWN_CODES
