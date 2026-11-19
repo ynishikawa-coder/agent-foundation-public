@@ -69,6 +69,7 @@ DEFAULTS = {
     "pr_cleanup_exempt_repos": [],
     "pr_words_exempt_repos": [],
     "public_repos_extra": [],
+    "ledger_targets": [],
 }
 
 # 窓の種類の決まり（session-watch の title-mark と同じ線）: 最初の頼みの文の返し先が別の窓なら子の窓（文脈の知らせだけが読む）。

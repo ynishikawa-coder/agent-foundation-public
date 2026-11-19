@@ -85,7 +85,6 @@ plugins/core/細目.md	- 言い換えの例: 「戻せる／戻せない」「�
 plugins/core/細目.md	- 非公開の repo をそのまま公開に切り替えない。
 plugins/core/細目.md	1 つの問いの中で、決めること（オーナーの言葉）・答えに要る事実（用語と具体の意味）・AI が済ませる事（出さない）を混ぜない。
 plugins/core/細目.md	1 画面は 1 つの話題（別の話題は画面を分けて続けて出す）。
-plugins/core/細目.md	1 窓に収まらない行は窓を並べて `直す窓` にする（核 §4）。
 plugins/core/細目.md	50 件以上を見る時は script で数える。
 plugins/core/細目.md	Chrome で打てない手（秘密の値を入れる・スマホにしか無い物）だけ人の手順にし、1〜3 手・開く所は URL を直に・貼る値はコードブロックで全部＝オーナーの手はワンクリックかコピペ 1 回まで。
 plugins/core/細目.md	`
@@ -163,7 +162,6 @@ plugins/core/細目.md	節の番号は核と同じです。
 plugins/core/細目.md	結論は 1 行、根拠は 2〜3 行。
 plugins/core/細目.md	綺麗な新しい repo に、照らした中身だけを noreply の名義で置く。
 plugins/core/細目.md	背景を問いの文に詰めない。
-plugins/core/細目.md	行き先の無い行（未定）を残して終わらない。
 plugins/core/細目.md	親は依頼文に「その窓が持つ論点」を書いて分け、同じ問いを 2 つの窓で出さない。
 plugins/core/細目.md	親は子の ❓ を見て、1 時間答えの無い問いを自分の窓に `まだ答えの無い問い: <窓 URL>・<問い 1 行>` で知らせる。
 plugins/core/細目.md	言えない時は解決がまだ足りていない。

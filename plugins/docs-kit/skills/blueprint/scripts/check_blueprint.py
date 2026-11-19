@@ -63,12 +63,24 @@ def find_chrome() -> str | None:
     return mac if Path(mac).is_file() else None
 
 
-def chrome_cmd(chrome: str, prof: str, url: str) -> list[str]:
+def chrome_cmd(chrome: str, prof: str, url: str, no_sandbox: bool = False) -> list[str]:
     cmd = [chrome, "--headless=new", "--disable-gpu", "--no-first-run",
            "--no-default-browser-check", f"--user-data-dir={prof}"]
-    if hasattr(os, "geteuid") and os.geteuid() == 0:
-        cmd.append("--no-sandbox")   # コンテナの root では sandbox が立たない
+    if no_sandbox:
+        cmd.append("--no-sandbox")
     return cmd + ["--dump-dom", url]
+
+
+def run_chrome(chrome: str, url: str) -> tuple[str | None, str]:
+    """sandbox ありで開き、sandbox が立たずに落ちた時だけ sandbox なしで開き直す。
+    sandbox が立つかは機械（コンテナの root・user namespace を閉じた CI 等）で決まり、uid では決まらない。"""
+    why = ""
+    for no_sandbox in (False, True):
+        with tempfile.TemporaryDirectory(prefix="blueprint-chrome-") as prof:
+            dom, why = dump_dom(chrome_cmd(chrome, prof, url, no_sandbox))
+        if dom is not None or "sandbox" not in why.lower():
+            return dom, why
+    return None, why
 FATE_TEXT = {"keep": "保存される", "lost": "消える", "calc": "その場で計算", "gap": "未定"}
 
 
@@ -102,7 +114,9 @@ def dump_dom(cmd: list[str]) -> tuple[str | None, str]:
         if ok and "</html>" in out:
             return out, ""
         err.seek(0)
-        tail = " / ".join(ln.strip() for ln in err.read().splitlines() if ln.strip())[-600:]
+        lines = [ln.strip() for ln in err.read().splitlines() if ln.strip()]
+        loud = [ln for ln in lines if re.search(r"FATAL|ERROR|sandbox", ln, re.I)]   # 落ちた訳の行を先に
+        tail = " / ".join(loud[:4] or lines[-4:])[:600]
     why = (f"Chrome が {TIMEOUT_SEC} 秒で DOM を返さない" if not ok
            else f"Chrome が DOM を返さずに終わった（exit {code}）")
     return None, f"{why}＝検査できない（{cmd[0]}）" + (f" stderr: {tail}" if tail else "")
@@ -113,12 +127,10 @@ def open_dom(target: Path, query: str) -> str:
     if chrome is None:
         raise ChromeMissing("Chrome（Playwright の chromium）が無い＝検査できない")
     url = target.as_uri() + "?" + query
-    with tempfile.TemporaryDirectory(prefix="blueprint-chrome-") as prof:
-        cmd = chrome_cmd(chrome, prof, url)
-        try:
-            dom, why = dump_dom(cmd)
-        except OSError as e:
-            raise ChromeMissing(f"Chrome を起動できない: {e}") from e
+    try:
+        dom, why = run_chrome(chrome, url)
+    except OSError as e:
+        raise ChromeMissing(f"Chrome を起動できない: {e}") from e
     if dom is None:
         raise ChromeMissing(why)
     return dom
