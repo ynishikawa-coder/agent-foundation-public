@@ -111,6 +111,15 @@ def test_核の根治は問題_原因_解決_未来の_4_段で_未来は試験�
         assert word in s3d, f"細目 §3 に無い: {word}"
 
 
+def test_MGkm_は根治の_4_段の呼び名で説明の頼みにも_4_段で答える():
+    assert "問題→原因→解決→未来（MGkm）" in _節((PLUGIN / "核.md").read_text(encoding="utf-8"), 3), "核 §3 に MGkm が無い"
+    s3d = _節((PLUGIN / "細目.md").read_text(encoding="utf-8"), 3)
+    assert "**呼び名 MGkm**" in s3d, "細目 §3 に MGkm の呼び名が無い"
+    line = next(l for l in s3d.splitlines() if "呼び名 MGkm" in l)
+    for word in ["問題 Mondai", "原因 Genin", "解決 Kaiketsu", "未来 Mirai", "説明", "4 段の見出しで答える"]:
+        assert word in line, f"MGkm の行に無い: {word}"
+
+
 def test_問いは選ぶ問いと開いた問いに分け_分からないを置き_言葉を混ぜない():
     kaku_text = (PLUGIN / "核.md").read_text(encoding="utf-8")
     s4 = _節(kaku_text, 4)
@@ -263,3 +272,16 @@ def test_main_へは製品もオーナーに聞かずに入れ_絵と差があ�
     s7d = _節((PLUGIN / "細目.md").read_text(encoding="utf-8"), 7)
     assert "**main へ入れる**" in s7d and "**③の段が土台に入るまで**" in s7d
     assert "核 §7 と細目 §7 の「main へ入れる」" in (ROOT / "CONTRIBUTING.md").read_text(encoding="utf-8")
+
+
+def test_土台の直しは使う側の写しの残りも同じ仕事で直し_合流まで終わったと言わない():
+    """写しの残りを洗い出すだけで終わる形（直す持ち主が無い）を戻すと赤。"""
+    s7d = _節((PLUGIN / "細目.md").read_text(encoding="utf-8"), 7)
+    line = [ln for ln in s7d.splitlines() if "**土台の直しの終わり**" in ln]
+    assert len(line) == 1, "細目 §7 に「土台の直しの終わり」が無い"
+    for word in ["使う側の repo", "同じ仕事の中で直す", "洗い出しだけで終わらせない", "使う側の写しの残り", "合流するまで「終わった」と言わない", "原因の台帳の行"]:
+        assert word in line[0], f"土台の直しの終わりに無い: {word}"
+    assert "## 使う側の写しの残り" in (ROOT / ".github" / "pull_request_template.md").read_text(encoding="utf-8")
+    assert "土台の直しの終わり" in (ROOT / "CONTRIBUTING.md").read_text(encoding="utf-8")
+    dm = [ln for ln in (ROOT / "plugins/dev-flow/skills/design-mode/SKILL.md").read_text(encoding="utf-8").splitlines() if ln.startswith("   | 写しの残り |")]
+    assert len(dm) == 1 and "同じ仕事の中" in dm[0], "design-mode の写しの残りが洗い出すだけに戻った"
