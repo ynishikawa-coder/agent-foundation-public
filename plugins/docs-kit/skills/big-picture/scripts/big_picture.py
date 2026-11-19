@@ -40,6 +40,8 @@ VERSION = re.compile(r"^\d{4}-\d{2}-\d{2}\.\d+$")
 ID = re.compile(r"^[A-Za-z][A-Za-z0-9_-]*$")
 TEMPLATE = Path(__file__).resolve().parent.parent / "references" / "template.html"
 SLOT = "/*__BIG_PICTURE_DATA__*/null"
+ROOT_CAUSE = "直し: 形の誤りを 1 つずつ潰して出し直すだけで済ませず、誤りが入った原因を細目 §3「まず構造を疑う」で探して直す"
+ROOT_CAUSE_DIFF = "直し: 差は main へ入れずに止め、差を見せてオーナーに決めてもらう（実物を直す時は細目 §3「まず構造を疑う」で原因から）"
 
 
 def load(path):
@@ -341,6 +343,8 @@ def main(argv):
             chosen, errs = [], ["値の表が読めない: %s" % e]
         for e in errs:
             print("照らせない: " + e)
+        if errs:
+            print(ROOT_CAUSE)
         for name, path, mine in chosen:
             print("絵 %s %s（触った file %d）" % (name, path, len(mine)))
         return 2 if errs else 0
@@ -359,6 +363,8 @@ def main(argv):
             for r in reds:
                 print(r)
             print("CHECK %s 誤り %d・赤い点 %d" % ("NG" if errs else "OK", len(errs), len(reds)))
+            if errs:
+                print(ROOT_CAUSE)
             return 1 if errs else 0
         if cmd == "render":
             if len(argv) != 5 or argv[3] != "-o":
@@ -373,6 +379,8 @@ def main(argv):
                 return 2
             text, diffs = compare(load(argv[2]), load(argv[3]))
             print(text)
+            if diffs:
+                print(ROOT_CAUSE_DIFF)
             return 1 if diffs else 0
         if len(argv) != 4:
             sys.stderr.write(__doc__)
@@ -381,6 +389,7 @@ def main(argv):
         return 0
     except (ValueError, OSError, json.JSONDecodeError) as e:
         print("照らせない: %s" % e if cmd == "compare" else "誤り: %s" % e)
+        print(ROOT_CAUSE)
         return 2 if cmd == "compare" else 1
 
 

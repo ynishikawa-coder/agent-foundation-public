@@ -21,7 +21,7 @@ description: チェック役として、書いた窓と別の目で PR を見て
 3. **全体の絵と照らす**（点 13・下の節）。
 4. **物差しを自分で回す**: 依頼の物差し（この repo なら `bash scripts/check_all.sh`）を PR の先端で回す。赤なら点 4 の fail（blocked ではない）。
 5. **判定を PR のコメントに残す**（下の形）。出す前に `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/verdict_form.py" <下書き> --writer <書いた窓> --head <PR の先端>` で形を見る（exit 0 で出す）。
-6. **返す**: green は依頼した窓へ、red は書いた窓へ直に 1 行（`判定 <PR> <枝>@<SHA12> verdict=green|red レビューした窓=<自分> 物差し=<最後の行>`）。
+6. **返す**: green は依頼した窓へ、red は書いた窓へ直に 1 行（`判定 <PR> <枝>@<SHA12> verdict=green|red レビューした窓=<自分> 物差し=<最後の行>`、red は末尾に `直し=細目 §3「まず構造を疑う」`）。red の所見は直す行の一覧でなく根治の入口: 書いた窓は細目 §3「まず構造を疑う」で原因から直す。
 
 ## 見る点
 
@@ -72,6 +72,7 @@ job: <job>
 
 ## verdict
 green / red / red（blocked: <なぜ測れなかったか 1 行>）
+直し: 細目 §3「まず構造を疑う」（red の時だけ・blocked は除く）
 
 ## 点
 - 1 依頼の充足: pass/fail（fail は 1 行理由）

@@ -12,6 +12,8 @@
      欠け・重なり・表に無い点・選べる値の外・同じ見出しの節が 2 つ在るのは誤り。
      点「全体の絵」は N/A にできず、pass は `pass（差なし・版 <版>）` の形だけ（照らさずに通さない）。
      点の正本は SKILL.md の表 1 か所（ここに写さない）。表が読めない時は止まる（点を見ずに通さない）。
+  7. red（blocked を除く）は `## verdict` に `直し: 細目 §3「まず構造を疑う」` の行が在る
+     （所見を直す行の一覧として返さず、根治の入口を指す。中身は細目が正本＝ここは指すだけ）。
 
 使い方: python3 verdict_form.py <コメントのファイル> [--writer <書いた窓の session id>] [--head <PR の先端の SHA>]
   誤りを 1 行ずつ出し、誤りがあれば exit 1。
@@ -34,6 +36,7 @@ PICTURE = "全体の絵"
 _PV = r"(?:[^／）\s]+ )?\d{4}-\d{2}-\d{2}\.\d+"
 PICTURE_PASS = re.compile(r"^pass（差なし・版 " + _PV + r"(?:／" + _PV + r")*）$")
 OTHER_EYE = re.compile(r"^書いた窓 (session_[A-Za-z0-9]+) ≠ この窓$")
+ROOT_CAUSE = "直し: 細目 §3「まず構造を疑う」"
 
 
 def load_points(path=SKILL):
@@ -157,6 +160,8 @@ def check(text, writer=None, head=None, points=None):
     errs.extend(perrs)
     want = "red" if stops or fails else "green"
     blocked = bool(mv and "blocked" in body[0])
+    if judged == "red" and not blocked and not any(ln.startswith(ROOT_CAUSE) for ln in body[1:]):
+        errs.append("red なのに `## verdict` に `%s` の行が無い（指摘を 1 つずつ手直しで返さない）" % ROOT_CAUSE)
     if judged and not blocked and judged != want:
         errs.append("`[止める｜…]` が %d 個・点の fail が %d 個なので判定は %s（今は %s）" % (stops, fails, want, judged))
     return errs
