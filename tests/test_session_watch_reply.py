@@ -166,7 +166,7 @@ def test_中の言葉と秘密の形は正本を直に呼ぶ(monkeypatch):
 
 
 def test_隣の正本が無ければ黙って抜かず_窓ごとに1回だけ差し戻す(tmp_path, monkeypatch):
-    monkeypatch.setattr(sw, "_loaded", {"ask_shape": None, "guard_common": None, "public_guard": None})
+    monkeypatch.setattr(sw, "_loaded", {"ask_shape": None, "skill_values": None, "public_guard": None})
     e = stop_env(tmp_path)
     first = stopped(tmp_path, OK_REPLY, env=e)
     assert first == ["neighbor"]
@@ -214,19 +214,22 @@ def test_値の表に読めない形があっても他の札は黙って抜け�
 
 
 def test_値の表の読み口が無ければ中の言葉を黙って抜かない(tmp_path, monkeypatch):
-    monkeypatch.setattr(sw, "_loaded", dict(sw._loaded, guard_common=None))
+    """値の表の読み口（session-watch の lib/skill_values.py）が無い時、外す形・中の言葉を黙って空にせず名指す。"""
     sw.neighbor("ask_shape"); sw.neighbor("public_guard")
-    assert "neighbor" in stopped(tmp_path, owner_reply("#616 を入れた。"))
+    monkeypatch.setattr(sw, "_loaded", dict(sw._loaded, skill_values=None))
+    got = stopped(tmp_path, owner_reply("#616 を入れた。"))
+    assert "neighbor" in got
 
 
 def test_中の言葉の値の表に読めない形があっても次のターンも中の言葉を止める(tmp_path, monkeypatch):
-    """読めない形で inner がまるごと例外で抜け、neighbor は窓ごとに 1 回なので 2 ターン目から黙って通る形に戻すと赤。"""
+    """読めない形で inner がまるごと例外で抜け、neighbor は窓ごとに 1 回なので 2 ターン目から黙って通る形に戻すと赤。
+    読めない形の鍵は値の表の読み口（型 regex）が鍵ごと既定に倒す＝その鍵の他の形（^B202$）も効かず、名指しで知らせる。"""
     table = tmp_path / "values.json"
     table.write_text(json.dumps({"guard": {"ask_term_allow": ["[", "^B202$"], "ask_inner_terms_extra": ["("]}}), encoding="utf-8")
     monkeypatch.setenv("SKILL_VALUES", str(table))
     e = stop_env(tmp_path)
     first = sw.stop(stop_data(owner_reply("#617 と Q202611-67 を入れた。部屋は B202。"), owner_log(tmp_path)), e)
-    assert "- inner:" in first and "ask_term_allow「[」" in first and "B202" not in first.split("- inner:")[1].splitlines()[0]
+    assert "- inner:" in first and "guard.ask_term_allow" in first and "guard.ask_inner_terms_extra" in first
     second = sw.stop(stop_data(owner_reply("#617 と Q202611-67 を入れた。"), owner_log(tmp_path), sid="s1"), e)
     assert second and "- inner:" in second and "- neighbor:" not in second    # 2 ターン目も止める（知らせは 1 回）
 

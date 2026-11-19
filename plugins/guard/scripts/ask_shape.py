@@ -7,11 +7,13 @@
 
 照らす物（どれも値の表 config/skill-values.json の "guard" で変えられる・決め打ちしない）:
   long   … 問いの文（question）が ask_question_max_chars 字を越える、または文が ask_question_max_sentences を越える
+            （文の区切りは sentences 1 つで読む: 。．？?！!；;…⋯ と改行。字の数は空白を詰めて数える）
   inner  … 問い・見出し・選択肢（label と description）に、AI の中の言葉らしい字が在る
             （番号・版・file 名・path・識別子・窓の id・commit の印・`…` で囲んだ字）。足しは ask_inner_terms_extra
   topic  … 1 画面に 2 問以上あり、問いと見出しの語（漢字・カタカナ・英字の 2 字の並び）を共にしない組に分かれる
-  rec    … 推奨の印の付け方が崩れている: 見出しに推奨の語が決まりの形（見出しの末の「(推奨)」「（推奨）」「(Recommended)」）
-            以外で在る・1 問に 2 つ以上・1 つ目でない選択肢に在る・「分からない」の選択肢に在る（細目 §4「推奨の印」）。
+  rec    … 推奨の印の付け方が崩れている: 見出しに印（推奨の語か、★◎👍 の類の記号＝Unicode の記号の字）が決まりの形
+            （見出しの末の「(推奨)」「（推奨）」「(Recommended)」）以外で在る・1 問に 2 つ以上・1 つ目でない選択肢に在る・
+            「分からない」の選択肢に在る（細目 §4「推奨の印」）。印の見分けは rec_marked 1 つ（知らせの rec_kind も同じ物を読む）。
             どの問いに付けてよいか（作り方の分かれ道か）は字の形で見分けられないので見ない（残る穴）
 知らせるだけの物（PostToolUse・notice・止めない）:
   rec_kind … 推奨の印が付いた問いの文が、済んだかの確認か意図・考えを聞く形に見える（印は作り方の分かれ道の問いだけ）。
@@ -46,12 +48,43 @@ INNER = (
 # 推奨の印: 形は 1 つだけ（見出しの末の「(推奨)」「（推奨）」「(Recommended)」）。見出しに推奨の語（推奨・おすすめ・recommend…）が
 # それ以外の形で在れば、印の形の崩れとして止める（「非推奨」「推奨なし」「推奨どおり」も見出しには置かず説明へ）。
 # 形を 1 つに閉じるので、言い回しの数だけ見分けを足さない（知らない形は既定で止める）。説明（description）の文の中の語は数えない。
+# 記号の印（★☆◎⭐👍 等）は語の並びでなく字の種類（Unicode の記号 So）で読む＝記号を足して塞がない。
 _REC_WORD = re.compile(r"推奨|おすすめ|お勧め|お薦め|オススメ|おススメ|イチオシ|recommend|suggested", re.I)
-_REC_CANON = re.compile(r"\s*[(（]\s*(?:推奨|recommended)\s*[)）]\s*$", re.I)
+_REC_CANON = re.compile(r"\s*[(]\s*(?:推奨|recommended)\s*[)]\s*$", re.I)
+
+
+def _flat(text):
+    """照らす前に字を 1 つの形へ寄せる（全角→半角・互換の字→元の字＝NFKC）。"""
+    import unicodedata
+    return unicodedata.normalize("NFKC", str(text or ""))
+
+
+def _rec_sign(text):
+    """見出しの中の印らしい物（推奨の語か、記号の字）が在るか。"""
+    import unicodedata
+    t = _flat(text)
+    return bool(_REC_WORD.search(t)) or any(unicodedata.category(c) == "So" for c in t)
+
+
+def rec_marked(label):
+    """選択肢の見出しに推奨の印が在るか（決まりの形でも崩れた形でも）。印の見分けの正本。"""
+    return _rec_sign(label)
+
+
+def rec_canon(label):
+    """見出しの印が決まりの形だけか（末の「(推奨)」1 つで、ほかに印らしい物が無い）。"""
+    t = _flat(label)
+    return bool(_REC_CANON.search(t)) and not _rec_sign(_REC_CANON.sub("", t))
 # 「分からない」の選択肢: 見出しの頭がそれである物だけ（「不明点を先に洗う」「unknowns を洗う」は数えない）
 _DUNNO = re.compile(r"^\s*(?:(?:よく|まだ|今は)?\s*(?:分から|わから|判ら)(?:ない|ん|ず)|(?:分かり|わかり)ません|知らない|知りません"
                     r"|不明\s*(?:$|[(（])|unknown\s*(?:$|[(（])|(?:i\s+)?don'?t\s+know|not\s+sure)", re.I)
-_SENT = re.compile(r"[^。．？?！!]+[。．？?！!]*")
+# 文の区切り（文の数を数える 1 つの読み手 sentences が読む）。；・…・改行でつないでも 1 文に数えない。
+_SENT_END = re.compile(r"[。．？?！!；;…⋯\n]|\.{3}")
+
+
+def sentences(text):
+    """文の並び（中身の無い切れ端は数えない）。文の数の読み手の正本（session-watch の完了の言い切りも直に呼ぶ）。"""
+    return [s.strip() for s in _SENT_END.split(str(text or "")) if s.strip()]
 # 送り仮名（置き場・作り物・取り扱い）を詰めて 1 語にする。助詞（の・を・が…）を挟む所は詰めない。
 _OKURI = re.compile(r"(?<=[一-龠々])(?:(?![のをがはにでともへやかよ])[ぁ-ゔ]){1,2}(?=[一-龠々])")
 _RUN = re.compile(r"[一-龠々]{2,}|[ァ-ヶー]{2,}|[A-Za-z]{3,}")
@@ -82,27 +115,18 @@ def inner_terms(text, vals, kinds=None):
     return [(n, t) for n, t in _inner_hits(text, vals) if kinds is None or n in kinds]
 
 
+# 中の言葉の見分けが読む値の表の鍵（型 regex＝読めない形は値の表の読み口 skill_values がその鍵ごと既定に倒し名指しする）
+INNER_KEYS = ("ask_term_allow", "ask_inner_terms_extra")
+
+
 def _patterns(vals, key):
-    """値の表の正規表現の並びを (読める形, 読めない形) に分ける。読めない形は捨てる＝1 本の誤りで照らし全体を止めない。"""
-    ok, bad = [], []
-    for p in vals.get(key) or []:
-        if not isinstance(p, str) or not p:
-            continue
-        try:
-            ok.append(re.compile(p))
-        except re.error:
-            bad.append(p)
-    return ok, bad
-
-
-def bad_patterns(vals):
-    """中の言葉の見分けが読む値の表（ask_term_allow・ask_inner_terms_extra）の、正規表現として読めない形 [(鍵, 形)]。"""
-    return [(k, p) for k in ("ask_term_allow", "ask_inner_terms_extra") for p in _patterns(vals, k)[1]]
+    """値の表の正規表現の並び（型 regex の鍵＝値の表の読み口が読める形だけを渡す）。"""
+    return [re.compile(p) for p in vals.get(key) or [] if isinstance(p, str) and p]
 
 
 def _inner_hits(text, vals):
-    allow = _patterns(vals, "ask_term_allow")[0]
-    extra = [("中の言葉", p) for p in _patterns(vals, "ask_inner_terms_extra")[0]]
+    allow = _patterns(vals, "ask_term_allow")
+    extra = [("中の言葉", p) for p in _patterns(vals, "ask_inner_terms_extra")]
     body = _URL.sub(" ", text)
     hits = []
     for name, pat in INNER + tuple(extra):
@@ -161,9 +185,9 @@ def _rec_findings(q):
     """推奨の印の付け方の崩れ（形・数・位置・「分からない」）。印を付けてよい問いか（作り方の分かれ道か）は見ない。"""
     opts = [o for o in (q.get("options") or []) if isinstance(o, dict)]
     labels = [_text(o.get("label")) for o in opts]
-    marked = [(i, lb) for i, lb in enumerate(labels) if _REC_WORD.search(lb)]
+    marked = [(i, lb) for i, lb in enumerate(labels) if rec_marked(lb)]
     why = []
-    odd = [lb for _, lb in marked if not _REC_CANON.search(lb) or _REC_WORD.search(_REC_CANON.sub("", lb))]
+    odd = [lb for _, lb in marked if not rec_canon(lb)]
     if odd:
         why.append("印の形が決まり（見出しの末の「(推奨)」）と違う（%s）" % "・".join("「%s」" % lb[:20] for lb in odd))
     if len(marked) >= 2:
@@ -195,7 +219,7 @@ def findings(qs, vals):
             continue
         checked.append(q)
         short = text[:40] + ("…" if len(text) > 40 else "")
-        sents = [s for s in _SENT.findall(text) if s.strip()]
+        sents = sentences(q.get("question"))
         why = []
         if max_chars and len(text) > max_chars:
             why.append("%d 字（上限 %d 字）" % (len(text), max_chars))
@@ -275,7 +299,7 @@ def rec_kind_notes(qs, vals, bad=None):
         if not text or any(_search(p, text, bad) for p in exempt):
             continue
         labels = [_text(o.get("label")) for o in (q.get("options") or []) if isinstance(o, dict)]
-        if not any(_REC_WORD.search(lb) for lb in labels):
+        if not any(rec_marked(lb) for lb in labels):
             continue
         for name, pats in kinds.items():
             if any(isinstance(p, str) and p and _search(p, text, bad) for p in (pats if isinstance(pats, list) else [])):

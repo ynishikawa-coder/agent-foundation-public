@@ -73,7 +73,8 @@ def test_種類は返し先で決まり立てた窓では決まらない():
     assert sw.kind_of(sw.text_of(first)) == sw.HUMAN
     assert sw.kind_of("作り物を調べて（返し先=session_Y）。") == sw.AI
     assert sw.kind_of("あなたは書く窓です（親窓 session_X の子）。") == sw.AI
-    assert sw.kind_of("作り物を直して") is None
+    assert sw.kind_of("作り物を直して") == sw.HUMAN     # 返せる別の窓の id が無い＝オーナーへ返す
+    assert sw.kind_of("") is None
 
 
 def test_parent_session_id_が在っても返し先がオーナーなら_AI_の題を拾う():
@@ -188,12 +189,13 @@ def test_クラウドの窓で題に種類が無ければ知らせる(tmp_path):
     log.write_text(json.dumps({"type": "user", "message": {"role": "user", "content": "作り物を直して（返し先=オーナー）"}},
                               ensure_ascii=False) + "\n", encoding="utf-8")
     text = sw.remind({"transcript_path": str(log)}, CLOUD)
-    assert "set_session_title" in text and "🙋（最初の頼みの返し先から）" in text
+    assert "set_session_title" in text and "🙋（最初の頼みの文に別の窓の id が無い" in text
 
 
 def test_最初の頼みの前でも知らせ_種類が決まらなければ両方を書く():
-    text = sw.remind({"prompt": "作り物を直して"}, CLOUD)
+    text = sw.remind({"prompt": ""}, CLOUD)
     assert "オーナーと話す窓なら 🙋" in text
+    assert "🙋（最初の頼みの文に別の窓の id が無い" in sw.remind({"prompt": "作り物を直して"}, CLOUD)
 
 
 def test_題に種類を付けた窓とクラウドでない窓には知らせない():
@@ -256,9 +258,13 @@ NO_STEPS = [
     "あなたがやること: なし。この窓は閉じて大丈夫です。",
     "あなたがやること: 上の選択肢の画面で問いに答える。これが済むまで合流に進めません。",
     "あなたがやること: 作り物の PR を見る。これが済むまで合流に進めません。",
-    "あなたがやること: 上の選択肢の画面で 1) か 2) を選んで答える。これが済むまで合流に進めません。",
     "あなたがやること: 1.5 時間後に作り物の PR を見る。これが済むまで合流に進めません。",
 ]
+# 選択肢の画面に答える事（番号の付いた選択肢）: 「問い」の語でなく、そのターンに画面を出したか（構造）で外す
+ANSWER_STEPS = "あなたがやること: 上の選択肢の画面で 1) か 2) を選んで答える。これが済むまで合流に進めません。"
+ASK_ROW = {"type": "assistant", "message": {"role": "assistant", "content": [
+    {"type": "tool_use", "id": "tuA", "name": "AskUserQuestion",
+     "input": {"questions": [{"question": "作り物の置き場はどちらにしますか", "options": [{"label": "分からない"}]}]}}]}}
 
 
 def reply(rs, owner):
@@ -272,6 +278,8 @@ def test_あなたがやることに手順を直に書けば拾い_URL_なし_�
         assert len(found) == 1 and "手の窓の URL だけ" in found[0] and "細目 §4" in found[0], owner
     for owner in NO_STEPS:
         assert "hand" not in codes(reply(rs, owner)), owner
+    asked = reply(rs, ANSWER_STEPS)
+    assert "hand" not in codes(asked[:-1] + [ASK_ROW, asked[-1]])
 
 
 def test_手の窓自身のあなたがやることは手順を見ない():
