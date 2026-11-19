@@ -15,6 +15,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 RULESET = ROOT / ".github/rulesets/main.json"
 ENV = "rulesets"
+FIX = "直し: 赤の訳を 1 つずつ潰さず、細目 §3「まず構造を疑う」で原因から直す"
 
 
 def env_problem(env: dict, policies: dict | None) -> str | None:
@@ -43,6 +44,7 @@ def gh(*args: str, stdin: str | None = None) -> dict:
 def main() -> int:
     if not os.environ.get("GH_TOKEN"):
         print("✗ 鍵 RULESET_TOKEN が無い。守りは書き戻していない")
+        print(FIX)
         return 1
     repo, rid = os.environ["GITHUB_REPOSITORY"], os.environ["RULESET_ID"]
     try:
@@ -50,16 +52,19 @@ def main() -> int:
         pol = gh(f"repos/{repo}/environments/{ENV}/deployment-branch-policies")
     except subprocess.CalledProcessError as e:
         print(f"✗ environment {ENV} の枝の制限が読めない: {e.stderr.strip()}")
+        print(FIX)
         return 1
     why = env_problem(env, pol)
     if why:
         print(f"✗ {why}。守りは書き戻していない（CONTRIBUTING の「main の守りの設定」の手順で直す）")
+        print(FIX)
         return 1
     want = json.loads(RULESET.read_text(encoding="utf-8"))
     got = gh("-X", "PUT", f"repos/{repo}/rulesets/{rid}", "--input", "-", stdin=json.dumps(want))
     bad = diff(want, got)
     if bad:
         print(f"✗ 書き戻した後の守りが正本と違う: {bad}")
+        print(FIX)
         return 1
     print("✅ 守りは正本どおり")
     return 0

@@ -1,1 +1,1 @@
-- 直した: 細目 §4 の手の窓: 合流・PR は repo が付いていなければ add_repo（push）で付けて打つ。main の守り（ruleset）は正本 `.github/rulesets/main.json` を PR で直し（CONTRIBUTING）、main に入ると job `rulesets` が書き戻す（鍵 RULESET_TOKEN はオーナーが 1 回だけ置く）。人の手へ回すのは道具が実際に拒んだ時だけで、拒みの原文を添える（オーナーの指摘 2026-11-19）。
+- 直した: 細目 §4 の手の窓: 合流・PR は repo が付いていなければ add_repo（push）で付けて打つ。main の守り（ruleset）は正本 `.github/rulesets/main.json` を PR で直し（CONTRIBUTING）、main に入ると job `rulesets` が書き戻す（鍵 RULESET_TOKEN はオーナーが 1 回だけ置く）。人の手へ回すのは道具が実際に拒んだ時だけで、拒みの原文を添える check_all の最後の行に回した先端と「+未 commit」の印を添える（オーナーの指摘 2026-11-19）。
