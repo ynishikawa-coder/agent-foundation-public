@@ -118,6 +118,13 @@ def test_答えの無い問いは台帳に積まれ隣に1行鳴り次の窓で�
     assert "作り物の置き場を A と B のどちらにしますか" in again and "A（推奨）" in again
 
 
+def test_出し直させる文は根治の入口を指す(env):
+    """答えの無い問いを出し直させるだけの古い形（原因を見させない）に戻すと赤。"""
+    hook(env, "post", ask_result())
+    again = hook(env, "start", {"session_id": "s2"}).get("additionalContext", "")
+    assert "細目 §3「まず構造を疑う」" in again
+
+
 def test_答えが返れば台帳から降りて冒頭に出ない(env):
     hook(env, "post", ask_result())
     assert hook(env, "post", ask_result(answered=True, sid="s2")) == {}
@@ -633,7 +640,8 @@ def verdict_comment(judged="green", head="0123456789ab", fail=None, stop=False, 
         val = "書いた窓 %s ≠ この窓" % WRITER if no == 3 else ("fail" if no == fail else "pass")
         rows.append("- %d %s: %s" % (no, name, val))
     first = line1 or "レビューした窓: %s 判定: %s" % (REVIEWER, judged)
-    lines = [first] + (["見た先端: " + head] if head else []) + ["", "## verdict", judged, "", "## 点"] + rows
+    fix = [verdict_form.ROOT_CAUSE] if judged == "red" else []
+    lines = [first] + (["見た先端: " + head] if head else []) + ["", "## verdict", judged] + fix + ["", "## 点"] + rows
     lines += ["", "## 所見", "- [止める｜実装] 作り物の欠け" if stop else "- [後の便｜実装] 作り物の後の便"]
     return "\n".join(lines) + "\n"
 
