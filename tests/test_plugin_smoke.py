@@ -81,12 +81,24 @@ def _guard_never_denies(d):
     f.write_text(broken, encoding="utf-8")
 
 
+def _drop_entry(d):
+    (d / "scripts" / "setup_plugins.py").unlink()
+
+
+def _entry_skips_guard(d):
+    f = d / "scripts" / "setup_plugins.py"
+    f.write_text(f.read_text(encoding="utf-8").replace("    for n in names:\n", "    for n in [x for x in names if x != \"guard\"]:\n"),
+                 encoding="utf-8")
+
+
 @pytest.mark.parametrize("breaks,want", [
     (_drop_skill, "skill docs-kit:qa-html"),
     (_break_core_hook, "核が起動した窓に差し込まれていない"),
-    (_drop_from_market, "plugin guard を入れられない"),
+    (_drop_from_market, "plugin guard が起動した窓に読み込まれていない"),
     (_guard_never_denies, "止めるべき作り物の入力を止めない"),
-], ids=["skill が欠ける", "核の hook が壊れる", "配りの器から plugin が落ちる", "守りが止めない"])
+    (_drop_entry, "土台の入口 scripts/setup_plugins.py を通っていない"),
+    (_entry_skips_guard, "入っていない: guard"),
+], ids=["skill が欠ける", "核の hook が壊れる", "配りの器から plugin が落ちる", "守りが止めない", "入口が無い", "入口が plugin を落とす"])
 def test_届かない物を入れた土台は赤(tmp_path, breaks, want):
     src, sha = copy_of_foundation(tmp_path, breaks)
     code, out = smoke(src, sha)
