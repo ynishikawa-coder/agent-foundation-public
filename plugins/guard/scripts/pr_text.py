@@ -14,7 +14,7 @@ AI が自分で回すか、出した後に CI やレビューが拾うだけだ�
   commit … merge_pull_request（commit_title・commit_message）・push_files・create_or_update_file・delete_file（message）
            ＝MCP から出す commit の説明。公開の検査だけを当てる
 照らす物（見分けは正本を直に読む・呼ぶ。ここに決まりを写さない）:
-  verdict … コメントがレビューの判定（1 行目が `レビューした窓` で始まるか、`## verdict` の節が在る）なら、checker の
+  verdict … コメントがレビューの判定（どの行かに `レビューした窓: … 判定: green|red` が揃うか、verdict の見出しが在る）なら、checker の
             `scripts/verdict_form.py` をそのまま呼ぶ。赤なら止める。道具が見つからない・壊れた時も止める
   cleanup … PR の本文（本文を渡す時だけ）に、dev-flow の preimpl-cleanup の `整地受領証.template.md` の 4 つの見出し
             （`## 1.`〜`## 4.`。見出しの名は雛形から読む）が全部在り、雛形の `〔…〕` が残っていない事。整地の要らない PR
@@ -51,7 +51,10 @@ COMMIT_FIELDS = (("commit_title", "commit の題"), ("commit_message", "commit �
 VERDICT_FORM = ("checker", os.path.join("scripts", "verdict_form.py"), "AF_VERDICT_FORM")
 CLEANUP_TEMPLATE = ("dev-flow", os.path.join("skills", "preimpl-cleanup", "整地受領証.template.md"), "AF_CLEANUP_TEMPLATE")
 
-VERDICT_HEAD = re.compile(r"^\s*##\s*verdict\s*$", re.M)   # 判定の形の節の見出し（review-pr の形の印）
+# 判定の形の印（review-pr の形）: 名乗りの欄と判定が 1 行に揃う行（どの行でも・`:` の全角半角を問わない）か、verdict の見出し
+# （# の数・大小文字を問わない）。引用（行頭の `>`）の中は、前の判定を引いた返事なので数えない。
+VERDICT_LINE = re.compile(r"^[ \t]*レビューした窓\s*[:：].*判定\s*[:：]\s*(?:green|red)\b", re.M | re.I)
+VERDICT_HEAD = re.compile(r"^[ \t]*#{1,6}\s*verdict\s*$", re.M | re.I)
 NOT_NEEDED = re.compile(r"^\s*(?:[-*]\s*)?\**整地\**\s*[:：]\s*(?:不要|要らない)\s*[（(]\s*(?![<＜〔])\S[^)）]*[)）]", re.M)
 TEMPLATE_HEAD = re.compile(r"^## (\d+)\. (.+?)\s*$", re.M)
 PLACEHOLDER = re.compile(r"〔[^〕\n]{4,}〕")
@@ -95,10 +98,10 @@ def _run(cmd, cwd=None):
 
 # ── verdict（レビューの判定の形）──
 def looks_verdict(body):
-    """判定のコメントか。判定の形そのものの印（1 行目の `レビューした窓` か `## verdict` の節）だけで見分ける。
-    文中に「判定: green」と書いた普通のコメントは判定と見なさない（形の印が無ければ形の検査の外）。"""
-    lines = [ln.strip() for ln in body.splitlines() if ln.strip()]
-    return bool(lines) and (lines[0].startswith("レビューした窓") or bool(VERDICT_HEAD.search(body)))
+    """判定のコメントか。判定の形そのものの印（名乗りと判定が揃う行か verdict の見出し）だけで見分ける。
+    文中に「判定: green」と書いた普通のコメントや「レビューした窓は…」で始まる文は判定と見なさない。"""
+    body = FENCE.sub(" ", COMMENT.sub(" ", body))
+    return bool(VERDICT_LINE.search(body) or VERDICT_HEAD.search(body))
 
 
 def check_verdict(body, data):
