@@ -21,8 +21,9 @@ pick:    PR が触った file から、照らす合意した絵を選ぶ。値�
          文字列（repo 全体で 1 枚）か、[{name, path, covers: [path の頭…]}] の並び（1 repo に製品が複数）。
          無ければ docs/全体の絵.json 1 枚。選んだ絵を 1 行ずつ「絵 <名> <在り処>」と出す（exit 0）。
          どの絵も覆わない file が 1 つでもある・値の形が誤り・絵が無い 時は exit 2（照らせない＝黙って通さない）。
-sources: 形 2 の絵の流れのタブの箱ごとの引用（src の quote）が、meta.sources.flow に挙げた手順の正本の今の文に
-         一字一句在るかを照らす（空白の違いは見ない）。全部在れば exit 0／無い引用・正本の外の引用があれば exit 1／
+sources: 形 2 の絵の流れのタブの箱ごとの引用（src の quote）が、手順の正本の今の文に一字一句在るかを照らす
+         （空白の違いは見ない・空白を除いて 12 字以上）。正本は各 repo が値の表 docs-kit.big-picture.procedure で宣言した
+         file だけ（描く側は選べない）。宣言の外・根の外・絵そのものを引く絵は止める。全部在れば exit 0／無い引用・正本の外の引用があれば exit 1／
          正本の file が読めない・根が渡されていない時は exit 2（照らせない）。根は 1 つなら path をそのまま、
          複数なら「<名>=<根>」で渡し、path を「<名>:<path>」で書く。
 
@@ -199,29 +200,65 @@ def _squash(t):
     return re.sub(r"\s+", "", t)
 
 
-def sources(pic, roots):
-    """(誤り, 照らせない) を返す。roots は {名: 根の dir}（名 "" は 1 つだけの根）。"""
+MIN_QUOTE = 12   # 空白を除いた字の数。1 語だけの引用で「読んだ」と言わせない
+
+
+def _procedures(root):
+    """その repo が値の表で宣言した手順の正本（docs-kit.big-picture.procedure・repo の根からの path の並び）。無ければ None。"""
+    vp = Path(root) / VALUES
+    if not vp.exists():
+        return None
+    v = ((json.loads(vp.read_text(encoding="utf-8")).get("docs-kit") or {}).get("big-picture") or {}).get("procedure")
+    if not isinstance(v, list) or not v or not all(_text(x) for x in v):
+        return None
+    return set(v)
+
+
+def sources(pic, roots, pic_path=None):
+    """(誤り, 照らせない) を返す。roots は {名: 根の dir}（名 "" は 1 つだけの根）。
+
+    正本は描く側が選ばない: 各 repo が値の表 docs-kit.big-picture.procedure で宣言した file だけを正本と認める。
+    """
     errs, _ = check(pic)
     if errs:
         return [], ["形の誤り: " + " / ".join(errs[:5])]
     if pic.get("form") != FORM:
         return [], ["%s の絵は引用を持たない＝正本を読んで描いたか照らせない（%s で描き直す）" % (pic.get("form"), FORM)]
     cache, bad, cannot = {}, [], []
+    declared = {}
+    me = Path(pic_path).resolve() if pic_path else None
 
     def read(path):
         if path in cache:
             return cache[path]
+        cache[path] = None
         name, _, rel = path.partition(":") if ":" in path else ("", "", path)
         root = roots.get(name)
         if root is None:
-            cache[path] = None
             cannot.append("根が渡されていない: %s（「%s=<根>」で渡す）" % (path, name) if name else "根が渡されていない: %s" % path)
             return None
+        if Path(rel).is_absolute() or ".." in Path(rel).parts:
+            bad.append("正本の path が根の外を指す: %s" % path)
+            return None
+        if name not in declared:
+            try:
+                declared[name] = _procedures(root)
+            except (OSError, ValueError) as e:
+                declared[name] = None
+                cannot.append("値の表が読めない（%s）: %s" % (name or "根", e))
+        if declared[name] is None:
+            cannot.append("%s が手順の正本を値の表 docs-kit.big-picture.procedure で宣言していない＝どれが正本か言えない" % (("「%s」の repo" % name) if name else "repo"))
+            return None
+        if rel not in declared[name]:
+            bad.append("%s は宣言された手順の正本でない（古い設計・別の文書・絵そのものから引いていないか）" % path)
+            return None
         f = Path(root) / rel
+        if me is not None and f.resolve() == me:
+            bad.append("絵が自分自身を正本として引いている: %s" % path)
+            return None
         try:
             cache[path] = _squash(f.read_text(encoding="utf-8"))
         except OSError:
-            cache[path] = None
             cannot.append("手順の正本が読めない: %s" % path)
         return cache[path]
 
@@ -231,8 +268,12 @@ def sources(pic, roots):
         if b.get("tab") != "flow":
             continue
         for s in b["src"]:
+            q = _squash(s["quote"])
+            if len(q) < MIN_QUOTE:
+                bad.append("%s「%s」: 引用が短すぎる（空白を除いて %d 字・%d 字以上）＝箱の中身を正本の文で示していない" % (b["id"], b["t"], len(q), MIN_QUOTE))
+                continue
             text = read(s["path"])
-            if text is not None and _squash(s["quote"]) not in text:
+            if text is not None and q not in text:
                 bad.append("%s「%s」: 引用が手順の正本 %s の今の文に無い（要約・古い版・書き換え）: %s" % (b["id"], b["t"], s["path"], s["quote"][:60]))
     return bad, cannot
 
@@ -437,7 +478,7 @@ def main(argv):
             name, eq, d = a.partition("=")
             roots[name if eq else ""] = d if eq else a
         try:
-            bad, cannot = sources(load(argv[2]), roots)
+            bad, cannot = sources(load(argv[2]), roots, argv[2])
         except (ValueError, OSError, json.JSONDecodeError) as e:
             bad, cannot = [], ["絵が読めない: %s" % e]
         for e in cannot:

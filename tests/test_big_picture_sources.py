@@ -30,6 +30,11 @@ PROC = """# 手順（作り物）
 """
 
 
+OLD = """# 前の設計（作り物）
+差が 0 になるまで次の段へ進まない。
+"""
+
+
 def box(i, t, x, src=None, tab="flow"):
     b = {"id": i, "tab": tab, "t": t, "k": "ai", "side": "個別", "x": x, "y": 10, "w": 100, "h": 40,
          "what": t, "why": "手順.md", "intent": None}
@@ -58,6 +63,10 @@ def pic():
 def repo(tmp_path):
     (tmp_path / "docs").mkdir()
     (tmp_path / "docs" / "手順.md").write_text(PROC, encoding="utf-8")
+    (tmp_path / "docs" / "古い設計.md").write_text(OLD, encoding="utf-8")
+    (tmp_path / "config").mkdir()
+    (tmp_path / "config" / "skill-values.json").write_text(
+        json.dumps({"docs-kit": {"big-picture": {"procedure": ["docs/手順.md"]}}}, ensure_ascii=False), encoding="utf-8")
     return tmp_path
 
 
@@ -144,7 +153,64 @@ def test_古い形の絵は引用を照らせないと言い_check_は止めず�
     assert run("sources", f, repo).returncode == 2
 
 
+def _base():
+    p = pic()
+    p["tabs"]["ctx"] = {"w": 200, "h": 100}
+    return p
+
+
+def _point_all(p, path):
+    p["meta"]["sources"]["flow"] = [path]
+    for b in p["boxes"]:
+        for s in b.get("src", []):
+            s["path"] = path
+
+
+def test_宣言されていない古い設計の文書を正本と名乗る絵は止める(repo):
+    p = _base()
+    _point_all(p, "docs/古い設計.md")
+    p["boxes"][1]["src"][0]["quote"] = "差が 0 になるまで次の段へ進まない。"
+    p["boxes"][0]["src"][0]["quote"] = "差が 0 になるまで次の段へ進まない。"
+    r = run("sources", save(repo, p), repo)
+    assert r.returncode == 1 and "宣言された手順の正本でない" in r.stdout, r.stdout
+
+
+def test_絵そのものを正本として引く絵は止める(repo):
+    p = _base()
+    f = repo / "docs" / "絵.json"
+    _point_all(p, "docs/絵.json")
+    p["boxes"][0]["src"][0]["quote"] = "読んで書く読んで書く読んで書く"
+    p["boxes"][1]["src"][0]["quote"] = "訳が分かれば進む訳が分かれば進む"
+    f.write_text(json.dumps(p, ensure_ascii=False), encoding="utf-8")
+    vals = repo / "config" / "skill-values.json"
+    vals.write_text(json.dumps({"docs-kit": {"big-picture": {"procedure": ["docs/手順.md", "docs/絵.json"]}}}), encoding="utf-8")
+    r = run("sources", f, repo)
+    assert r.returncode == 1 and "自分自身" in r.stdout, r.stdout
+
+
+def test_短すぎる引用は止める(repo):
+    p = _base()
+    p["boxes"][1]["src"][0]["quote"] = "段"
+    r = run("sources", save(repo, p), repo)
+    assert r.returncode == 1 and "短すぎる" in r.stdout, r.stdout
+
+
+@pytest.mark.parametrize("bad", ["../外/手順.md", "/etc/hostname"])
+def test_根の外を指す正本は止める(repo, bad):
+    p = _base()
+    _point_all(p, bad)
+    r = run("sources", save(repo, p), repo)
+    assert r.returncode == 1 and "根の外" in r.stdout, r.stdout
+
+
+def test_手順の正本を宣言していない_repo_は照らせない(repo):
+    (repo / "config" / "skill-values.json").unlink()
+    r = run("sources", save(repo, _base()), repo)
+    assert r.returncode == 2 and "宣言していない" in r.stdout, r.stdout
+
+
 def test_skill_は流れを手順の正本の引用で描くと書く():
     text = (ROOT / "plugins" / "docs-kit" / "skills" / "big-picture" / "SKILL.md").read_text(encoding="utf-8")
     assert "big_picture.py sources" in text
     assert "要約で描かない" in text
+    assert "docs-kit.big-picture.procedure" in text
