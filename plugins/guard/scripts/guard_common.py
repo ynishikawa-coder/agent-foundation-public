@@ -22,9 +22,13 @@
     ask_rec_notice_exempt    … 上の知らせから外す問いの文（正規表現の並び）
     outbound_secret_allow    … 外へ渡す道具の入力の鍵の照らしで、鍵と数えない字（当たった字に当てる正規表現の並び・作り物の見本だけ）
     number_request_exempt    … 番号だけの頼みの照らしから外す文（正規表現の並び・誤って止まる時だけ）
+    pr_cleanup_exempt_repos  … PR 本文の整地の欄を照らさない repo（owner/repo に当てる正規表現の並び・整地を PR 本文の外に置く repo だけ）
+    pr_words_exempt_repos    … PR の題・本文の言葉を照らさない repo（同じ形）
+    public_repos_extra       … 手元に取り出しが無くても公開とみなす repo（同じ形）
 """
 from __future__ import annotations
 
+import glob
 import json
 import os
 import re
@@ -51,6 +55,9 @@ DEFAULTS = {
     "ask_rec_notice_exempt": [],
     "outbound_secret_allow": [],
     "number_request_exempt": [],
+    "pr_cleanup_exempt_repos": [],
+    "pr_words_exempt_repos": [],
+    "public_repos_extra": [],
 }
 
 # 窓の種類の決まり（session-watch の title-mark と同じ線）: 最初の頼みの文の返し先が別の窓なら子の窓（文脈の知らせだけが読む）。
@@ -165,6 +172,9 @@ def state_dir(vals, payload=None):
             return ""
         d = os.path.join(root, d)
     return d
+
+
+GUARD_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
 def now_utc():
