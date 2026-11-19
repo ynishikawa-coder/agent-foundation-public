@@ -22,6 +22,8 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import guard_common as G  # noqa: E402
 
 EVENTS = {"pre": "PreToolUse", "post": "PostToolUse", "start": "SessionStart"}
+# 止めた時の最後の行（どの見張りの止めにも 1 か所で付ける。中身は細目 §3 が正本＝ここは指すだけ）
+ROOT_CAUSE = "直し: 止められた所を直して出し直すだけで済ませず、その形が出た原因を細目 §3「まず構造を疑う」で探して直す"
 
 
 def _run(module, func, data, vals):
@@ -52,7 +54,7 @@ def run(event, data):
         return None
     if event == "pre":
         return {"hookSpecificOutput": {"hookEventName": EVENTS[event], "permissionDecision": "deny",
-                                       "permissionDecisionReason": "\n\n".join(outs)}}
+                                       "permissionDecisionReason": "\n\n".join(outs + [ROOT_CAUSE])}}
     return {"hookSpecificOutput": {"hookEventName": EVENTS[event], "additionalContext": "\n\n".join(outs)}}
 
 

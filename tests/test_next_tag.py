@@ -35,6 +35,15 @@ def test_手で回す口は今より新しい版だけを通す():
             nt.plan(["v0.4.3"], [], bad)
 
 
+def test_版が違って止まる時は根治の入口を指す(tmp_path):
+    run = lambda *a: subprocess.run(["git", *a], cwd=tmp_path, capture_output=True, text=True, check=True)
+    run("init", "-q")
+    run("-c", "user.name=t", "-c", "user.email=t@example.invalid", "commit", "-q", "--allow-empty", "-m", "作り物")
+    run("tag", "v0.1.0")
+    out = subprocess.run([sys.executable, str(SCRIPT), "--repo", str(tmp_path), "--version", "v0.0.9"], capture_output=True, text=True)
+    assert out.returncode == 2 and "細目 §3「まず構造を疑う」" in out.stderr, "版を替えて出し直させるだけの古い形に戻った"
+
+
 def test_作り物の_repo_で_版_SHA_の1行を出す(tmp_path):
     run = lambda *a: subprocess.run(["git", *a], cwd=tmp_path, capture_output=True, text=True, check=True)
     run("init", "-q")

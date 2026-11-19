@@ -36,6 +36,7 @@ import sys
 ASK = "AskUserQuestion"
 SET_TITLE_SUFFIX = "set_session_title"
 REMOTE_PREFIX = "mcp__claude-code-remote__"
+ROOT_CAUSE = "直し: 拾われた所を出し直すだけで済ませず、細目 §3「まず構造を疑う」で原因から直す"
 
 AI = "🤖"       # 返し先が別の窓か仕組み
 HUMAN = "🙋"    # 返し先がオーナー（オーナーが話しかける窓）
@@ -520,6 +521,8 @@ def main(argv):
     found = watch(argv[1])
     for code, msg in found:
         print("%s: %s" % (code, msg))
+    if found:
+        print(ROOT_CAUSE)
     return 1 if found else 0
 
 
