@@ -161,114 +161,335 @@ def _hit(rx, text):
 
 
 # ── Bash の命令を語に分ける（命令の字に正規表現を当てず、走る命令を見分ける）──
+# 読み切れない形は「知らない」と返す（unknowns）。呼ぶ側はそれを照らす側に倒す＝知っている形の表に無い形を、黙って通さない。
 SHELLS = ("bash", "sh", "zsh", "dash", "ksh")
 # 後ろの命令をそのまま走らせる前置き → その前置きが値を取る option（値を取らない option は "-" で始まる語として飛ばす）
 PREFIXES = {
-    "env": ("-u", "--unset", "-C", "--chdir", "-S", "--split-string"),
+    "env": ("-u", "--unset", "-C", "--chdir"),
     "command": (), "builtin": (), "exec": ("-a",), "nohup": (), "time": ("-f", "--format", "-o", "--output"),
     "sudo": ("-u", "--user", "-g", "--group", "-h", "--host", "-p", "--prompt", "-C", "--close-from", "-D", "--chdir",
              "-r", "--role", "-t", "--type", "-U", "--other-user", "-T", "--command-timeout"),
-    "doas": ("-u", "-C"), "nice": ("-n", "--adjustment"), "ionice": ("-c", "--class", "-n", "--classdata", "-t"),
-    "stdbuf": ("-i", "-o", "-e", "--input", "--output", "--error"), "chrt": (), "taskset": (),
+    "nice": ("-n", "--adjustment"), "stdbuf": ("-i", "-o", "-e", "--input", "--output", "--error"),
     "timeout": ("-s", "--signal", "-k", "--kill-after"),
     "xargs": ("-a", "--arg-file", "-d", "--delimiter", "-E", "-e", "-I", "-i", "-L", "-l", "-n", "--max-args", "-P",
               "--max-procs", "-s", "--max-chars"),
 }
-KEYWORDS = ("!", "{", "}", "then", "do", "else", "elif", "if", "while", "until")
-OPERATORS = (";", "&&", "||", "|", "&", "\n", "(", ")", ";;", "|&")
-ASSIGN = re.compile(r"[A-Za-z_][A-Za-z0-9_]*=")
+# 引数を命令として走らせない（と分かっている）命令。ここに無い命令の引数に git・シェルの語・変数の展開が在れば読み切れないと見る
+NONEXEC = frozenset(("echo", "printf", "grep", "egrep", "fgrep", "rg", "cat", "head", "tail", "wc", "test", "[", "true",
+                     "false", "ls", "cd", "pushd", "popd", "pwd", "jq", "diff", "sort", "uniq", "tr", "cut", "basename",
+                     "dirname", "realpath", "readlink", "mkdir", "touch", "git"))
+KEYWORDS = ("!", "{", "}", "then", "do", "else", "elif", "if", "while", "until", "fi", "done")
+ASSIGN = re.compile(r"[A-Za-z_][A-Za-z0-9_]*\+?=")
+_OPS = (";;&", "<<-", "<<<", "&>>", "&&", "||", "|&", ";;", ";&", ">>", "<<", ">&", "<&", "&>", ">|", "<>",
+        ";", "&", "|", "(", ")", "<", ">", "\n")
+_REDIRS = frozenset(("<", ">", ">>", "<<", "<<-", "<<<", ">&", "<&", "&>", "&>>", ">|", "<>"))
+_GIT_WORD = re.compile(r"(?<![\w.-])git(?![\w-])")
 
 
-def _tokens(cmd):
-    """shlex で語と区切り（; && || | & 改行 括弧）に分ける。読めない（引用符が閉じない等）時は ValueError。"""
-    import shlex
-    lex = shlex.shlex(cmd, posix=True, punctuation_chars="();<>|&\n")
-    lex.whitespace = " \t\r"
-    lex.whitespace_split = True
-    lex.commenters = "#"
-    return list(lex)
+class _Word(str):
+    """語（引用を外した字）。dyn＝変数・命令の置き換えなど、走る時まで値の決まらない所を含む。"""
+    dyn = False
 
 
-def _strip_prefix(argv):
+def _skip_group(s, i, open_, close):
+    """s[i] が open_ の所から、対になる close の次の位置（入れ子を数える。閉じなければ len(s)）。"""
+    depth = 0
+    while i < len(s):
+        if s[i] == open_:
+            depth += 1
+        elif s[i] == close:
+            depth -= 1
+            if depth == 0:
+                return i + 1
+        i += 1
+    return len(s)
+
+
+def _dollar(s, i, unknowns, where):
+    """s[i] == "$" の所を読む。(次の位置, 足す字, 値が決まらないか)。"""
+    nxt = s[i + 1:i + 2]
+    if nxt == "(":
+        unknowns.append("%s$(…) の命令の置き換え" % where)
+        return _skip_group(s, i + 1, "(", ")"), "", True
+    if nxt == "{":
+        return _skip_group(s, i + 1, "{", "}"), "", True
+    m = re.match(r"[A-Za-z_][A-Za-z0-9_]*|[0-9#?$!@*-]", s[i + 1:])
+    if m:
+        return i + 1 + m.end(), "", True
+    return i + 1, "$", False
+
+
+def _lex(s, unknowns):
+    """字を ("w", 語) と ("op", 区切り) の並びに。ヒアドキュメントの本文は外す。注は語の頭の # から行の末まで。"""
+    toks, i, n, pending = [], 0, len(s), []
+    cur = None                                              # 今の語の字の並び（None＝語の外）
+    dyn = False
+
+    def flush():
+        nonlocal cur, dyn
+        if cur is not None:
+            w = _Word("".join(cur))
+            w.dyn = dyn
+            toks.append(("w", w))
+        cur, dyn = None, False
+
+    def word():
+        nonlocal cur
+        if cur is None:
+            cur = []
+
+    while i < n:
+        c = s[i]
+        if c in " \t\r":
+            flush()
+            i += 1
+        elif c == "\n":
+            flush()
+            toks.append(("op", "\n"))
+            i += 1
+            for delim, tabs in pending:                     # ヒアドキュメントの本文を区切りの行まで外す
+                while i < n:
+                    j = s.find("\n", i)
+                    line, i = (s[i:], n) if j < 0 else (s[i:j], j + 1)
+                    if (line.lstrip("\t") if tabs else line) == delim:
+                        break
+            pending = []
+        elif c == "#" and cur is None:
+            j = s.find("\n", i)
+            i = n if j < 0 else j
+        elif c == "\\":
+            if s[i + 1:i + 2] == "\n":
+                i += 2
+            else:
+                word()
+                cur.append(s[i + 1:i + 2])
+                i += 2
+        elif c == "'":
+            j = s.find("'", i + 1)
+            if j < 0:
+                unknowns.append("引用符 ' が閉じない")
+                flush()
+                return toks
+            word()
+            cur.append(s[i + 1:j])
+            i = j + 1
+        elif c == '"':
+            word()
+            i += 1
+            while i < n and s[i] != '"':
+                ch = s[i]
+                if ch == "\\" and i + 1 < n and s[i + 1] in '$`"\\\n':
+                    if s[i + 1] != "\n":
+                        cur.append(s[i + 1])
+                    i += 2
+                elif ch == "$":
+                    i, add, d = _dollar(s, i, unknowns, "引用の中の ")
+                    cur.append(add)
+                    dyn = dyn or d
+                elif ch == "`":
+                    unknowns.append("引用の中の `…` の命令の置き換え")
+                    j = s.find("`", i + 1)
+                    i, dyn = (n if j < 0 else j + 1), True
+                else:
+                    cur.append(ch)
+                    i += 1
+            if i >= n:
+                unknowns.append('引用符 " が閉じない')
+                flush()
+                return toks
+            i += 1
+        elif c == "$":
+            word()
+            if s[i + 1:i + 2] == "'":                       # $'…'（中の \ の書き替えは読まず、値が決まらない語と見る）
+                j = i + 2
+                while j < n and s[j] != "'":
+                    j += 2 if s[j] == "\\" else 1
+                if j >= n:
+                    unknowns.append("引用符 $' が閉じない")
+                    flush()
+                    return toks
+                cur.append(s[i + 2:j])
+                i, dyn = j + 1, True
+            else:
+                i, add, d = _dollar(s, i, unknowns, "")
+                cur.append(add)
+                dyn = dyn or d
+        elif c == "`":
+            unknowns.append("`…` の命令の置き換え")
+            word()
+            j = s.find("`", i + 1)
+            i, dyn = (n if j < 0 else j + 1), True
+        elif c in "<>" and s[i + 1:i + 2] == "(":
+            unknowns.append("%s(…) のプロセスの置き換え" % c)
+            word()
+            i, dyn = _skip_group(s, i + 1, "(", ")"), True
+        elif c in ";&|()<>":
+            if c in "<>" and cur is not None and not dyn and "".join(cur).isdigit():
+                cur = None                                  # 2>&1 の 2（fd の番号）は語でない
+            flush()
+            op = next(o for o in _OPS if s.startswith(o, i))
+            toks.append(("op", op))
+            i += len(op)
+            if op in ("<<", "<<-"):                         # 区切りの語を先に読み、次の改行の後の本文を外す
+                m = re.match(r"[ \t]*(\S+)", s[i:])
+                if m:
+                    delim = re.sub(r"[\"'\\]", "", m.group(1))
+                    toks.append(("w", _Word(delim)))
+                    pending.append((delim, op == "<<-"))
+                    i += m.end()
+        else:
+            word()
+            cur.append(c)
+            i += 1
+    flush()
+    return toks
+
+
+def _strip_prefix(argv, unknowns):
     """前の代入（A=1）と前置き（env・command・time・sudo・nice・xargs など）を外した、実際に走る命令の語の並び。"""
     i = 0
     while i < len(argv):
         w = argv[i]
-        if ASSIGN.match(w) or w in KEYWORDS:
+        if (ASSIGN.match(w) and not w.dyn) or w in KEYWORDS:
             i += 1
             continue
         name = os.path.basename(w)
-        if name not in PREFIXES:
+        if name not in PREFIXES or w.dyn:
             break
         takes = PREFIXES[name]
         i += 1
         if name == "timeout":
             while i < len(argv) and argv[i].startswith("-"):
                 i += 2 if argv[i] in takes else 1
-            i += 1                          # 時間の語
+            i += 1                                          # 時間の語
             continue
         while i < len(argv):
             w = argv[i]
             if w == "--":
                 i += 1
                 break
+            if name == "env" and (w in ("-S", "--split-string") or w.startswith(("-S", "--split-string="))):
+                unknowns.append("env -S（字を分けて走らせる）")
+                return []
             if name == "env" and ASSIGN.match(w):
                 i += 1
             elif w.startswith("-") and len(w) > 1:
                 i += 2 if w in takes else 1
-            elif name in ("nice", "ionice", "chrt", "taskset") and re.fullmatch(r"[+-]?\d+|0x[0-9a-f]+", w):
+            elif name == "nice" and re.fullmatch(r"[+-]?\d+", w):
                 i += 1
             else:
                 break
     return argv[i:]
 
 
-def shell_commands(cmd, _depth=0):
-    """Bash の命令の字を、走る単純な命令の語の並びの並びにする（前置きを外し、bash -c と eval の中も開く）。
-    読めない字（引用符が閉じない等）は ValueError（呼ぶ側が止める側に倒す）。"""
-    if not isinstance(cmd, str) or _depth > 4:
-        return []
-    out, cur = [], []
-    for t in _tokens(cmd) + [";"]:
-        if t and (t[0] in "<>" or (t[0] == "&" and ">" in t)):
-            cur.append(t)                   # リダイレクト（次の語が先）は語として残し、下で外す
-        elif t in OPERATORS or (t and set(t) <= set("();|&\n")):
-            argv = _drop_redirects(cur)
-            if argv:
-                out += _expand(argv, _depth)
-            cur = []
-        else:
-            cur.append(t)
-    return out
-
-
-def _drop_redirects(words):
-    """リダイレクトの印と先（`> f`・`2>&1` の 2 と 1）を外した語の並び。"""
-    out, skip = [], False
-    for w in words:
-        if skip:
-            skip = False
-        elif w and set(w) <= set("<>&"):
-            if out and out[-1].isdigit():
-                out.pop()
-            skip = True
-        else:
-            out.append(w)
-    return out
-
-
-def _expand(argv, depth):
-    argv = _strip_prefix(argv)
+def _command(words, depth, out, unknowns):
+    """単純な命令 1 つ（語の並び）を、走る命令の語の並びとして out に足す。読み切れない所は unknowns に足す。"""
+    if not words:
+        return
+    head = words[0]
+    if head == "function":
+        unknowns.append("関数の定義（function）")
+        return
+    if head in ("case", "coproc", "select"):
+        unknowns.append("%s の形" % head)
+        return
+    if head in ("for", "[["):
+        return                                              # 繰り返しの頭・条件の式は命令を走らせない（中の $(…) は上で拾う）
+    argv = _strip_prefix(words, unknowns)
     if not argv:
-        return []
+        return
+    if argv[0].dyn:
+        unknowns.append("命令の名が変数の展開・命令の置き換え")
+        return
     name = os.path.basename(argv[0])
     if name in SHELLS:
-        for j, w in enumerate(argv[1:], 1):
-            if w == "-c" or (w.startswith("-") and not w.startswith("--") and "c" in w[1:]):
-                return shell_commands(argv[j + 1], depth + 1) if j + 1 < len(argv) else []
+        j, inline, from_stdin = 1, False, False
+        while j < len(argv):
+            w = argv[j]
+            if w in ("-o", "+o", "-O", "+O", "--rcfile", "--init-file"):
+                j += 2
+            elif w == "--":
+                if inline:
+                    unknowns.append("%s -c の後の --" % name)
+                    return
+                j += 1
+                break
+            elif w.startswith("--"):
+                j += 1
+            elif w[:1] in "-+" and len(w) > 1:
+                inline = inline or (w[0] == "-" and "c" in w[1:])
+                from_stdin = from_stdin or (w[0] == "-" and "s" in w[1:])
+                j += 1
+            else:
+                break
+        if inline:
+            if j >= len(argv) or argv[j].dyn:
+                unknowns.append("%s -c の中が読めない" % name)
+                return
+            _parse(argv[j], depth + 1, out, unknowns)
+            return
+        if j >= len(argv) or from_stdin:
+            unknowns.append("標準入力からシェル（%s）へ流す命令（| %s・<<<・ヒアドキュメント）" % (name, name))
+            return
+        out.append([str(w) for w in argv])                  # 別の script を走らせる（中は読まない）
+        return
     if name == "eval":
-        return shell_commands(" ".join(argv[1:]), depth + 1)
-    return [argv]
+        if any(w.dyn for w in argv[1:]):
+            unknowns.append("eval の中が変数の展開")
+            return
+        _parse(" ".join(argv[1:]), depth + 1, out, unknowns)
+        return
+    if name not in NONEXEC:
+        if any(w.dyn for w in argv[1:]):
+            unknowns.append("表に無い命令 %s の引数に変数の展開（走らせる命令を読めない）" % name[:40])
+        elif any(_GIT_WORD.search(w) or w in SHELLS or w == "eval" for w in argv[1:]):
+            unknowns.append("表に無い命令 %s が引数の命令を走らせるかを読めない" % name[:40])
+    if name == "git" and any(re.match(r"alias\.", w) for w in argv[1:]):
+        unknowns.append("git の別名（alias.）")
+    out.append([str(w) for w in argv])
+
+
+def _parse(cmd, depth, out, unknowns):
+    if depth > 4:
+        unknowns.append("bash -c・eval の入れ子が深い")
+        return
+    toks = _lex(cmd, unknowns)
+    words, k = [], 0
+    while k <= len(toks):
+        kind, val = toks[k] if k < len(toks) else ("op", ";")
+        if kind == "w":
+            words.append(val)
+        elif val in _REDIRS:
+            k += 1                                          # 先の語（ファイル・区切り）は命令の語でない
+        else:
+            if val == "(":
+                if words and k + 1 < len(toks) and toks[k + 1] == ("op", ")"):
+                    unknowns.append("関数の定義（%s ()）" % words[-1][:40])
+                    k += 2
+                    words = []
+                    continue
+                if not words:
+                    unknowns.append("subshell の組 ( … )")
+            _command(words, depth, out, unknowns)
+            words = []
+        k += 1
+
+
+def parse_shell(cmd: str) -> tuple[list[list[str]], list[str]]:
+    """Returns (simple_commands, unknowns). simple_commands = argv lists after stripping known prefixes (VAR=, env, command,
+    builtin, exec, time, nice, nohup, sudo, timeout, stdbuf, xargs) and descending into `bash|sh|zsh -c <literal>` and
+    `eval <literal>`. Heredoc bodies are removed. Comments only start at a `#` that begins a word. unknowns = human-readable
+    reasons for anything not fully understood: $(…), backticks, variables in the program position, unclosed quotes, function
+    definitions, pipes into a shell (| bash), find -exec / xargs with a shell, flock/other wrappers not in the list, `--`
+    after -c, subshell groups, etc.
+
+    純（外を読まない・標準の道具だけ）。読み切れない形は unknowns に名指しで返す＝呼ぶ側が照らす側に倒す。"""
+    out, unknowns = [], []
+    if isinstance(cmd, str):
+        _parse(cmd, 0, out, unknowns)
+    else:
+        unknowns.append("命令が字でない")
+    return out, unknowns
 
 
 def table(section, payload=None):

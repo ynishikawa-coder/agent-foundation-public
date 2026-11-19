@@ -14,14 +14,16 @@ AI が自分で回すか、出した後に CI やレビューが拾うだけだ�
   commit … merge_pull_request（commit_title・commit_message）・push_files・create_or_update_file・delete_file（message）
            ＝MCP から出す commit の説明。公開の検査だけを当てる
   push   … Bash の git push（どの remote の枝にも無い commit の説明と名義）。公開の検査だけを当てる。命令の字に正規表現を
-           当てず、guard_common.shell_commands で走る命令の語に分けて見る（前置き・bash -c・eval の中も）
+           当てず、guard_common.parse_shell で走る命令の語に分けて見る（前置き・bash -c・eval の中も）。読み切れない形は git と
+           push の字が在れば push と見る
 照らす物（見分けは正本を直に読む・呼ぶ。ここに決まりを写さない）:
   verdict … （材料: 出す先の PR の先端と、PR 本文の頭の `書いた窓:` を gh で引き、--writer・--head で渡す。引けなければ止める）
             コメントがレビューの判定（verdict_form の LINE1 に合う行・その字の欄が窓の id と green|red と揃う崩れた行・
             verdict の見出し）なら、checker の `scripts/verdict_form.py` をそのまま呼ぶ。赤なら止める。道具が見つからない・
             壊れた時も止める。PR の review の event が APPROVE・REQUEST_CHANGES なら本文によらず判定と見る。形が合えば、
             点 4 の物差しの最後の行が、この窓か助手が物差しを回した道具の呼び出し（値の表 pr_ruler_trace の跡の形・
-            tool_use の id で結ぶ）の結果に在るか（回した跡）も照らす。PR 本文を読んだ結果など、ほかの道具の結果は数えない
+            Bash は読み切れる物差しの命令 1 つだけ・tool_use の id で結ぶ・誤りでない）の結果の最後の行と同じか（回した跡）も
+            照らす。PR 本文を読んだ結果・同じ呼び出しの他の命令の出力・結果の途中の字は数えない
   cleanup … PR の本文（本文を渡す時だけ）に、dev-flow の preimpl-cleanup の `整地受領証.template.md` の 4 つの見出し
             （`## 1.`〜`## 4.`。見出しの名は雛形から読む）が全部在り、雛形の `〔…〕` が残っていない事。整地の要らない PR
             （振る舞いを変えない: 誤字・記録だけ・版だけ等）は本文に `整地: 不要（<訳>）` の 1 行を書く。PR の差分の file を
@@ -79,18 +81,15 @@ COMMENT = re.compile(r"<!--.*?-->", re.S)
 QUOTE = re.compile(r"^[ \t]*>.*$", re.M)                  # 引用の行（人の文を引いた所＝この PR の欄でない）
 
 
-GIT_WORD = re.compile(r"\bgit\b[\s\S]*\bpush\b")       # 語に分けられない命令で、push の疑いを照らす側に倒す時だけ使う
 GIT_OPT_ARG = ("-C", "-c", "--git-dir", "--work-tree", "--namespace", "--exec-path", "--config-env")
 
 
 def git_push(cmd):
     """Bash の命令が git push を走らせるなら (push する dir の手がかり, True)、走らせないなら ("", False)。
-    命令の字に正規表現を当てず、guard_common.shell_commands で走る単純な命令の語に分けて見る（前置き・bash -c の中も）。
-    手がかりは git の -C か、前の cd。語に分けられない命令は、git と push の字が在れば push と見る（照らす側に倒す）。"""
-    try:
-        cmds = G.shell_commands(cmd)
-    except ValueError:
-        return "", bool(GIT_WORD.search(cmd or ""))
+    命令の字に正規表現を当てず、guard_common.parse_shell で走る単純な命令の語に分けて見る（前置き・bash -c・eval の中も）。
+    手がかりは git の -C か、前の cd。読み切れない形（parse_shell の unknowns: $(…)・関数・| bash・表に無い前置き等）が在り、
+    命令の字に git と push の字が在れば push と見る（知らない形を push でないと見て通さない＝照らす側に倒す）。"""
+    cmds, unknowns = G.parse_shell(cmd or "")
     cd = ""
     for argv in cmds:
         if argv[0] in ("cd", "pushd") and len(argv) == 2:
@@ -109,6 +108,8 @@ def git_push(cmd):
                 i += 1
         if i < len(argv) and argv[i] == "push":
             return where, True
+    if unknowns and "git" in (cmd or "") and "push" in (cmd or ""):
+        return "", True
     return "", False
 
 
@@ -315,20 +316,23 @@ def _rows(path):
 
 
 def is_ruler(block, matchers):
-    """道具の呼び出し 1 つが物差しを回した物か（跡の形＝値の表 pr_ruler_trace）。Bash は命令の字に当てず、走る単純な命令ごと
-    （前置き・bash -c の中を開いた語の並び）に当てる＝`cat scripts/check_all.sh`・本文を引く `gh api` は物差しでない。"""
+    """道具の呼び出し 1 つが物差しを回した物か（跡の形＝値の表 pr_ruler_trace）。Bash は命令の字に当てず、guard_common.parse_shell
+    で走る単純な命令に分け、読み切れない所が無く、前の cd を除いて物差しの命令 1 つだけの時に数える＝`cat scripts/check_all.sh`・
+    本文を引く `gh api …; bash scripts/check_all.sh`・`… | tail`・`$(…)` の付いた呼び出しは物差しでない（結果の字に他の命令の
+    出力が混ざる）。"""
     if str(block.get("name") or "") != "Bash":
         return G.matches_tool(block, matchers)
     inp = block.get("input") if isinstance(block.get("input"), dict) else {}
-    try:
-        cmds = G.shell_commands(inp.get("command") or "")
-    except ValueError:
-        return False                    # 読めない命令は物差しと数えない（数える側に倒さない）
-    return any(G.matches_tool(dict(block, input=dict(inp, command=" ".join(argv))), matchers) for argv in cmds)
+    cmds, unknowns = G.parse_shell(inp.get("command") or "")
+    if unknowns:
+        return False                    # 読み切れない命令は物差しと数えない（数える側に倒さない）
+    while cmds and cmds[0][0] in ("cd", "pushd"):
+        cmds = cmds[1:]                 # 前の cd は出力を出さない
+    return len(cmds) == 1 and G.matches_tool(dict(block, input=dict(inp, command=" ".join(cmds[0]))), matchers)
 
 
 def ruler_results(path, matchers):
-    """会話ログの、物差しを回した道具の呼び出し（tool_use の id で結ぶ）の結果の字を順に出す。ほかの道具の結果（PR 本文を
+    """会話ログの、物差しを回した道具の呼び出し（tool_use の id で結ぶ）の誤りでない結果の字を順に出す。ほかの道具の結果（PR 本文を
     読んだ結果など）は出さない＝本文に書かれた物差しの行を跡に数えない。"""
     ids, results = set(), []
     for row in _rows(path):
@@ -337,7 +341,7 @@ def ruler_results(path, matchers):
                 ids.add(blk["id"])
         content = (row.get("message") or {}).get("content") if isinstance(row.get("message"), dict) else None
         for blk in content if isinstance(content, list) else []:
-            if isinstance(blk, dict) and blk.get("type") == "tool_result":
+            if isinstance(blk, dict) and blk.get("type") == "tool_result" and not blk.get("is_error"):
                 c = blk.get("content")
                 if isinstance(c, list):
                     c = "\n".join(x.get("text", "") for x in c if isinstance(x, dict))
@@ -346,12 +350,18 @@ def ruler_results(path, matchers):
     return [c for i, c in results if i in ids]
 
 
+def last_line(text):
+    """結果の最後の空でない行（前後の空白と、pytest の囲みの = を外す）。"""
+    lines = [ln for ln in text.splitlines() if ln.strip()]
+    return lines[-1].strip().strip("=").strip() if lines else ""
+
+
 def check_ruler(body, data, vals=None):
-    """点 4 に書いた物差しの最後の行が、この窓（か助手）の物差しを回した道具の結果に在るか。在れば物差しを自分で回した跡。"""
+    """点 4 に書いた物差しの最後の行が、この窓（か助手）の物差しを回した道具の結果の最後の行と同じか。同じなら物差しを自分で回した跡。"""
     m = RULER_POINT.search(FENCE.sub(" ", COMMENT.sub(" ", body)))
     if not m or not m.group(1).strip():
         return ["物差しの跡: 点 4（回帰）の値の後に、回した物差しの最後の行（例: `pass（check_all: 緑 (4 本)）`）が無い"]
-    want = m.group(1).strip()
+    want = m.group(1).strip().strip("=").strip()
     matchers, bad = G.tool_matchers(vals if vals is not None else G.values(data), "pr_ruler_trace")
     if not matchers:
         return ["物差しの跡: 物差しを回した道具の呼び出しの形（値の表 guard.pr_ruler_trace）が無く、跡を照らせない%s" % (
@@ -361,13 +371,13 @@ def check_ruler(body, data, vals=None):
         return ["物差しの跡: この窓の会話ログが読めず、物差しを回した跡を照らせない"]
     for path in logs:
         try:
-            if any(want in r for r in ruler_results(path, matchers)):
+            if any(last_line(r) == want for r in ruler_results(path, matchers)):
                 return []
         except OSError:
             continue
-    return ["物差しの跡: 点 4 の「%s」が、この窓と助手が物差しを回した道具（値の表 guard.pr_ruler_trace の形）の結果のどこにも無い"
-            "（PR 本文や他の道具の結果に在る字は数えない。物差しを PR の先端で自分で回し、その最後の行をそのまま書く）%s" % (
-                want[:60], "。読めない形: " + "・".join(bad[:2]) if bad else "")]
+    return ["物差しの跡: 点 4 の「%s」が、この窓と助手が物差しを回した道具（値の表 guard.pr_ruler_trace の形・物差しの命令だけの"
+            "呼び出し）の結果の最後の行と合わない（PR 本文や他の道具・他の命令の出力に在る字は数えない。物差しを PR の先端で"
+            "それだけで回し、結果の最後の行をそのまま書く）%s" % (want[:60], "。読めない形: " + "・".join(bad[:2]) if bad else "")]
 
 
 # ── cleanup（PR 本文の整地の 4 欄）──

@@ -57,7 +57,7 @@ def test_物差しの結果と別の道具の結果は_tool_use_の_id_で分け
 
 
 def test_前置きや_bash_c_で回した物差しは跡に数える(env):
-    for cmd in ("bash scripts/check_all.sh", "env A=1 bash scripts/check_all.sh 2>&1 | tail -3",
+    for cmd in ("bash scripts/check_all.sh", "env A=1 bash scripts/check_all.sh 2>&1",
                 "cd /x && ./scripts/check_all.sh", "bash -c 'python3 -m pytest -q tests/'", "time pytest -q"):
         assert _verdict(env, results=("…\n" + RULER,), command=cmd) == "", cmd
 
