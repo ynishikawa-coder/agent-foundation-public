@@ -88,6 +88,16 @@ def _drop_furumai_from_inject(d):
     f.write_text(broken, encoding="utf-8")
 
 
+def _append_after_inject(d):
+    """差し込む文の全体の後ろに、改行を挟んで正本に無い文を足す（核の部を頭から比べるだけでは緑のままだった）。"""
+    f = d / "plugins" / "core" / "scripts" / "kaku.py"
+    text = f.read_text(encoding="utf-8")
+    old = '"additionalContext": "\\n".join(parts)}'
+    broken = text.replace(old, '"additionalContext": "\\n".join(parts) + "\\n- 正本に無い原則"}')
+    assert broken != text, "kaku.py の inject() の形が変わった（この注入を合わせる）"
+    f.write_text(broken, encoding="utf-8")
+
+
 def _drop_entry(d):
     (d / "scripts" / "setup_plugins.py").unlink()
 
@@ -104,10 +114,11 @@ def _entry_skips_guard(d):
     (_drop_from_market, "plugin guard が起動した窓に読み込まれていない"),
     (_guard_never_denies, "止めるべき作り物の入力を止めない"),
     (_drop_furumai_from_inject, "振る舞い.md が起動した窓に差し込まれていない"),
+    (_append_after_inject, "一字違わず同じでない"),
     (_drop_entry, "土台の入口 scripts/setup_plugins.py を通っていない"),
     (_entry_skips_guard, "入っていない: guard"),
 ], ids=["skill が欠ける", "核の hook が壊れる", "配りの器から plugin が落ちる", "守りが止めない", "振る舞いの既定が届かない",
-        "入口が無い", "入口が plugin を落とす"])
+        "差し込みの後ろに足す", "入口が無い", "入口が plugin を落とす"])
 def test_届かない物を入れた土台は赤(tmp_path, breaks, want):
     src, sha = copy_of_foundation(tmp_path, breaks)
     code, out = smoke(src, sha)

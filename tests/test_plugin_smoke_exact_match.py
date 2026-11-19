@@ -89,3 +89,30 @@ def test_差し込みの頭に足された文と核の無い文脈は赤(tmp_pat
     ctx = _real_inject(tmp_path)
     assert S.core_problems([ctx.replace(S.KAKU_HEAD, S.KAKU_HEAD + "（写し）", 1)], want) != []
     assert S.core_problems(["別の hook の文"], want)[0].startswith("核が起動した窓に差し込まれていない")
+
+
+def test_文脈の全体を正本の差し込む口の出す文と比べる_後ろに改行を挟んで足した文も赤(tmp_path):
+    want = S.expected(ROOT)
+    ctx = _real_inject(tmp_path)
+    assert S.core_problems([ctx], want, ctx) == []
+    other = ctx.replace(str(ROOT / "plugins/core/細目.md"), "/somewhere/else/細目.md")
+    assert S.core_problems([other], want, ctx) == []  # 細目の在り処だけは copy ごとに違ってよい
+    head = want["inject"].match(ctx).group(0)
+    for added in (head + "\n- 正本に無い原則" + ctx[len(head):],  # 核の部の後ろに改行を挟んで足す
+                  ctx + "\n- 正本に無い原則",                      # 文脈の末尾に足す
+                  ctx + "\n## 足した節\n"):
+        assert want["inject"].match(added)  # 核の部を頭から比べるだけでは通っていた
+        assert S.core_problems([added], want, ctx) != []
+
+
+def test_正本の差し込む口を同じ箱と同じ窓の_id_で回す(tmp_path):
+    env = dict(os.environ, HOME=str(tmp_path / "home"), CLAUDE_PROJECT_DIR=str(tmp_path))
+    (tmp_path / "home").mkdir()
+    a = S.expected_context(ROOT, env, tmp_path, "smoke-same")
+    b = S.expected_context(ROOT, env, tmp_path, "smoke-same")
+    assert a == b and a.startswith(S.KAKU_HEAD)
+
+
+def test_add_の前に値を取る旗が在っても出所を読む():
+    assert S.marketplace_adds("claude plugin marketplace add --scope user %s || true" % S.FOUNDATION) == [S.FOUNDATION]
+    assert S.marketplace_adds("claude plugin marketplace add -s project '%s'" % S.FOUNDATION) == [S.FOUNDATION]

@@ -88,10 +88,11 @@ def _matches(patterns, repo):
     return any(isinstance(p, str) and p and re.fullmatch(p, repo, re.I) for p in patterns or [])
 
 
-def _public_extra(patterns, repo):
-    """値の表 public_repos_extra で公開と見るか。全体の一致に加え、前の形（錨なしで名の一部に当たる）の行も、黙って公開の
-    検査から外さないよう 1 段目の間は公開と見る（多く照らす向きだけ）。前の形の行は古い形.json の repo-pattern-partial が
-    名指し、使う側が全体の形へ移った後の 2 段目でこの受けを畳む。"""
+def _listed(patterns, repo):
+    """値の表の repo の名の行（pr_cleanup_exempt_repos・pr_words_exempt_repos・public_repos_extra）に repo が在るか。
+    新しい形は名の全体の一致（_matches）。前の形（錨なしで名の一部に当たる）の行も、1 段目の間は在ると見る
+    （CONTRIBUTING.md §8＝新旧の両方を受ける）。前の形の行は古い形.json の repo-pattern-partial が開いた窓に名指し、
+    使う側が全体の形へ移ったのを kaku.py olds で確かめた 2 段目でこの受けを畳み、_matches だけにする。"""
     return _matches(patterns, repo) or any(isinstance(p, str) and p and re.search(p, repo, re.I) for p in patterns or [])
 
 
@@ -205,7 +206,7 @@ def template_parts(path):
 
 
 def check_cleanup(body, repo, data, vals):
-    if repo and _matches(vals.get("pr_cleanup_exempt_repos"), repo):
+    if repo and _listed(vals.get("pr_cleanup_exempt_repos"), repo):
         return []
     body = FENCE.sub(" ", COMMENT.sub(" ", body))      # 注記（雛形の説明）とコードの囲みの中は数えない
     if NOT_NEEDED.search(body):
@@ -238,7 +239,7 @@ def visible_prose(body):
 
 
 def check_words(texts, repo, vals):
-    if repo and _matches(vals.get("pr_words_exempt_repos"), repo):
+    if repo and _listed(vals.get("pr_words_exempt_repos"), repo):
         return []
     out = []
     for where, text in texts:
@@ -311,7 +312,7 @@ def public_target(repo, data, vals):
             if calls_public_guard(raw):
                 m = DENY_FILE.search(raw)
                 return True, top, (os.path.join(top, m.group(1)) if m else "")
-    if repo and _public_extra(vals.get("public_repos_extra"), repo):
+    if repo and _listed(vals.get("public_repos_extra"), repo):
         return True, top, ""
     return False, top, ""
 

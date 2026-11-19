@@ -68,16 +68,19 @@ def test_値の表の_repo_の名は全体で当てる(pats, repo, want):
     assert P._matches(pats, repo) is want
 
 
-def test_公開と見る値の表は前の形でも黙って外さない():
-    # 1 段目: 錨なしの前の形の行で当たる名は公開と見る（多く照らす向きだけ）
-    assert P._public_extra(["^fake-owner/"], "fake-owner/far-public")
-    assert not P._public_extra(["^other/"], "fake-owner/far-public")
+def test_値の表は_1_段目の間_前の形の行も受ける():
+    # CONTRIBUTING.md §8 の 1 段目: 新しい形（全体の一致）と前の形（錨なしで名の一部に当たる）の両方を受ける。
+    # 前の形の行は古い形 repo-pattern-partial が名指し、2 段目で _listed を _matches だけにする（台帳の行）。
+    assert P._listed(["^fake-owner/"], "fake-owner/far-public")
+    assert P._listed(["fake-owner/fake-private$"], "fake-owner/fake-private")
+    assert not P._listed(["^other/"], "fake-owner/far-public")
+    assert not P._listed(["^fake-owner/fake$"], "fake-owner/fake-private")  # 全体の形で書いた行は似た名を外さない
 
 
-def test_似た名の_repo_は値の表の外す行で外れない(env, tmp_path):  # noqa: F811
+def test_全体の形で書いた外す行は似た名の_repo_を外さない(env, tmp_path):  # noqa: F811
     table = tmp_path / "values.json"
     env["SKILL_VALUES"] = str(table)
-    table.write_text(json.dumps({"guard": {"pr_words_exempt_repos": ["fake-owner/fake"]}}), encoding="utf-8")
+    table.write_text(json.dumps({"guard": {"pr_words_exempt_repos": ["^fake-owner/fake$"]}}), encoding="utf-8")
     body = "## 整地（根治の 4 段）\n整地: 不要（試し）\n連絡: session_01CCCCCCCCCCCCCCCCCCCCCCCC\n"
     assert deny_reason(env, gh("update_pull_request", repo="fake", pullNumber=1, body=body)) == ""
     assert "[words]" in deny_reason(env, gh("update_pull_request", repo="fake-private", pullNumber=1, body=body))

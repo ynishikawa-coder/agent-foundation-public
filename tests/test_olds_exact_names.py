@@ -72,3 +72,9 @@ def test_stale_remove_substring_は包含で出所を見る写しを名指す():
 ])
 def test_repo_pattern_partial_は名の一部にしか当たらない行を名指す(vals, want):
     assert hit("repo-pattern-partial", vals) is want
+
+
+def test_add_の前に値を取る旗が在っても土台の出所を読む():
+    flagged = "claude plugin marketplace add --scope user %s || true\n" % F
+    assert hit("no-marketplace-update", flagged + ENTRY)
+    assert not hit("no-marketplace-update", flagged + "claude plugin marketplace update --scope user agent-foundation\n" + ENTRY)

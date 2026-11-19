@@ -26,7 +26,7 @@
         ":(exclude)CHANGELOG.md",
         ":(exclude)**/CHANGELOG.md"
       ],
-      "pattern": "(?sm)plugins?\\s+(?:install|i)\\b(?:[^\\n]|\\\\\\n)*?@agent-foundation(?![\\w.-])|^[ \\t]*(?:export[ \\t]+)?\\w+=[\"']?agent-foundation[\"']?[ \\t]*$|\\A(?!.*setup_plugins\\.py).*?marketplace\\s+add\\s+(?:-\\S+\\s+)*[\"']?(?:https://github\\.com/)?ynishikawa-coder/agent-foundation-public(?:\\.git)?(?:#[^\\s\"']*)?[\"']?(?=[\\s;|&)]|$)",
+      "pattern": "(?sm)plugins?\\s+(?:install|i)\\b(?:[^\\n]|\\\\\\n)*?@agent-foundation(?![\\w.-])|^[ \\t]*(?:export[ \\t]+)?\\w+=[\"']?agent-foundation[\"']?[ \\t]*$|\\A(?!.*setup_plugins\\.py).*?marketplace\\s+add\\s+(?:--?[\\w-]+(?:[ =](?:user|project|local))?\\s+)*[\"']?(?:https://github\\.com/)?ynishikawa-coder/agent-foundation-public(?:\\.git)?(?:#[^\\s\"']*)?[\"']?(?=[\\s;|&)]|$)",
       "fix": "土台の docs/核の届け方.md の setup script の形（目録を足して scripts/setup_plugins.py を呼ぶ）に替える",
       "example": "claude plugin install core@agent-foundation --scope user || true"
     },
@@ -45,7 +45,7 @@
         ":(exclude)CHANGELOG.md",
         ":(exclude)**/CHANGELOG.md"
       ],
-      "pattern": "(?s)\\A(?=.*setup_plugins\\.py)(?=.*?marketplace\\s+add\\s+(?:-\\S+\\s+)*[\"']?(?:https://github\\.com/)?ynishikawa-coder/agent-foundation-public(?:\\.git)?(?:#[^\\s\"']*)?[\"']?(?=[\\s;|&)]|$))(?!.*marketplace\\s+update\\s+(?:-\\S+\\s+)*[\"']?agent-foundation(?![\\w.-]))",
+      "pattern": "(?s)\\A(?=.*setup_plugins\\.py)(?=.*?marketplace\\s+add\\s+(?:--?[\\w-]+(?:[ =](?:user|project|local))?\\s+)*[\"']?(?:https://github\\.com/)?ynishikawa-coder/agent-foundation-public(?:\\.git)?(?:#[^\\s\"']*)?[\"']?(?=[\\s;|&)]|$))(?!.*marketplace\\s+update\\s+(?:--?[\\w-]+(?:[ =](?:user|project|local))?\\s+)*[\"']?agent-foundation(?![\\w.-]))",
       "fix": "土台の docs/核の届け方.md の setup script の marketplace add の行（add の後に claude plugin marketplace update agent-foundation）に替える",
       "example": "claude plugin marketplace add ynishikawa-coder/agent-foundation-public --scope user || true; python3 \"$af/scripts/setup_plugins.py\" || true"
     },
@@ -64,7 +64,7 @@
         ":(exclude)CHANGELOG.md",
         ":(exclude)**/CHANGELOG.md"
       ],
-      "pattern": "(?s)\\A(?=.*setup_plugins\\.py)(?=.*?marketplace\\s+add\\s+(?:-\\S+\\s+)*[\"']?(?:https://github\\.com/)?ynishikawa-coder/agent-foundation-public(?:\\.git)?(?:#[^\\s\"']*)?[\"']?(?=[\\s;|&)]|$))(?!.*marketplace\\s+remove\\s+(?:-\\S+\\s+)*[\"']?agent-foundation(?![\\w.-]))",
+      "pattern": "(?s)\\A(?=.*setup_plugins\\.py)(?=.*?marketplace\\s+add\\s+(?:--?[\\w-]+(?:[ =](?:user|project|local))?\\s+)*[\"']?(?:https://github\\.com/)?ynishikawa-coder/agent-foundation-public(?:\\.git)?(?:#[^\\s\"']*)?[\"']?(?=[\\s;|&)]|$))(?!.*marketplace\\s+remove\\s+(?:--?[\\w-]+(?:[ =](?:user|project|local))?\\s+)*[\"']?agent-foundation(?![\\w.-]))",
       "fix": "土台の docs/核の届け方.md の setup script の塊（前の目録を外す marketplace remove の行つき・1 行 200 バイト以下）をそのまま貼り替える",
       "example": "claude plugin marketplace add ynishikawa-coder/agent-foundation-public --scope user || true; claude plugin marketplace update agent-foundation || true; python3 \"$af/scripts/setup_plugins.py\" || true"
     },
@@ -89,7 +89,7 @@
     },
     {
       "id": "repo-pattern-partial",
-      "what": "値の表 guard の repo の名の正規表現（pr_cleanup_exempt_repos・pr_words_exempt_repos・public_repos_extra）が名の一部にしか当たらない形（守りの hook pr_text は名の全体で当てる。^owner/ のような頭だけの形は何にも当たらなくなる）",
+      "what": "値の表 guard の repo の名の正規表現（pr_cleanup_exempt_repos・pr_words_exempt_repos・public_repos_extra）が、終わりの錨（$ や .*）を持たない前の形（守りの hook pr_text は 1 段目の間、名の一部で当たる前の形も受ける。o/b は o/bc にも当たる。2 段目で受けを畳むと名の全体だけで当て、^owner/ のような頭だけの行は何にも当たらなくなる）",
       "files": [
         "config/skill-values.json"
       ],

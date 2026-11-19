@@ -76,26 +76,51 @@ _SAIMOKU_MARK = "\x00細目の在り処\x00"
 
 
 def inject_pattern(repo: Path) -> re.Pattern:
-    """差し込む文の全体（正本の kaku.py の inject_text() そのもの）に一字違わず当たる形。入った copy ごとに違う細目の在り処だけを
-    1 行の中の任意の字にする。中身を「含むか」で見ると、核の前後や間に足された物があっても緑になる（だから全体で比べる）。"""
+    """差し込む核の部（正本の kaku.py の inject_text() そのもの）に頭から一字違わず当たる形。入った copy ごとに違う細目の
+    在り処だけを 1 行の中の任意の字にする（その字を印に揃えるのにも使う＝normalize）。"""
     mod = _kaku(repo)
     mod.SAIMOKU = Path(_SAIMOKU_MARK)
     head, sep, tail = mod.inject_text().partition(_SAIMOKU_MARK)
-    body = re.escape(head) + (r"[^\n]+" + re.escape(tail) if sep else "")
-    return re.compile(body + r"(?=\n|\Z)")
+    return re.compile(re.escape(head) + (r"([^\n]+)" + re.escape(tail) if sep else ""))
 
 
-def core_problems(ctx: list[str], want: dict) -> list[str]:
-    """起動の hook の文脈 ctx に、毎回差し込む物が正本と一字違わず届いたか。外れの名指し（空なら届いた）。"""
+def normalize(text: str, pattern: re.Pattern) -> str:
+    """核の部の細目の在り処を印に揃えた text（核の部が正本どおりでなければそのまま）。"""
+    m = pattern.match(text)
+    if not m or not m.groups():
+        return text
+    return text[:m.start(1)] + _SAIMOKU_MARK + text[m.end(1):]
+
+
+def expected_context(repo: Path, env: dict, cwd: Path, session_id: str) -> str:
+    """正本の repo の差し込む口 kaku.py inject を、起動した窓と同じ箱（HOME・repo の根）と同じ窓の id で回した文脈の全体。
+    同じ窓の 2 回目なので、起動の時の記録を読み外へは見に行かない＝起動した窓の hook と同じ材料で作る。"""
+    p = subprocess.run([sys.executable, str(repo / "plugins" / "core" / "scripts" / "kaku.py"), "inject"],
+                       input=json.dumps({"session_id": session_id, "hook_event_name": "SessionStart"}), env=env,
+                       cwd=cwd, capture_output=True, text=True, timeout=120)
+    try:
+        return json.loads(p.stdout)["hookSpecificOutput"]["additionalContext"]
+    except (ValueError, KeyError, TypeError):
+        raise ValueError(f"正本の差し込む口が文脈を出さない: {(p.stdout + p.stderr).strip()[-300:]}") from None
+
+
+def core_problems(ctx: list[str], want: dict, expected: str | None = None) -> list[str]:
+    """起動の hook の文脈 ctx に、毎回差し込む物が正本と一字違わず届いたか。外れの名指し（空なら届いた）。
+    expected（正本の差し込む口が同じ材料で出した文脈の全体）を渡せば、核の部だけでなく文脈の全体を一字違わず比べる
+    （核の部の後ろに改行を挟んで足された文も外れ）。渡さなければ核の部を頭から比べ、その後ろは見ない。"""
     core = [c for c in ctx if c.startswith(KAKU_HEAD)]
     if not core:
         return ["核が起動した窓に差し込まれていない（plugin core の SessionStart の hook）"]
-    if any(want["inject"].match(c) for c in core):
+    pat = want["inject"]
+    if expected is None:
+        if any(pat.match(c) for c in core):
+            return []
+    elif any(normalize(c, pat) == normalize(expected, pat) for c in core):
         return []
     # 外れの時だけ、どの file が欠けたかを名指す（決めるのは上の全体の一致）
     lost = [name for name, text in want["injected"].items() if not any(text in c for c in core)]
     return ([f"{name} が起動した窓に差し込まれていない・中身が正本と違う（plugin core の SessionStart の hook）" for name in lost]
-            or ["差し込まれた文が正本（kaku.py の inject_text）と一字違わず同じでない（核・振る舞いの既定の前後か間に足された物がある）"])
+            or ["差し込まれた文が正本の差し込む口（kaku.py inject）の出す文と一字違わず同じでない（核・振る舞いの既定の前後か間に足された物がある）"])
 
 
 def installed_rows(table: dict) -> dict[str, dict]:
@@ -114,7 +139,9 @@ FOUNDATION = "ynishikawa-coder/agent-foundation-public"
 # 土台の名を 1 つの語として見る（前後が名に使える字・道・版の印なら別の物＝fork や名を道に含む出所を取り違えない）
 _NAME_EDGE = r"[\w.#/-]"
 FOUNDATION_WORD = re.compile(rf"(?<!{_NAME_EDGE}){re.escape(FOUNDATION)}(?!{_NAME_EDGE})")
-_ADD = re.compile(r"\bmarketplace\s+add\s+([^\s;|&]+)")
+# add の前に付く旗（`--scope user` のように値を取る物も）を飛ばす。古い形.json の同じ行の読み方と同じ形にする
+_ADD_FLAGS = r"(?:--?[\w-]+(?:[ =](?:user|project|local))?\s+)*"
+_ADD = re.compile(r"\bmarketplace\s+add\s+" + _ADD_FLAGS + r"([^\s;|&]+)")
 
 
 def marketplace_adds(script: str) -> list[str]:
@@ -260,7 +287,11 @@ def smoke(source: str, repo: Path, expect_sha: str | None) -> list[str]:
                 ctx.append(json.loads(e.get("output") or "{}")["hookSpecificOutput"]["additionalContext"])
             except (ValueError, KeyError, TypeError):
                 pass
-        bad += core_problems(ctx, want)
+        try:
+            expect = expected_context(repo, env, proj, str(init.get("session_id") or "smoke"))
+        except (OSError, subprocess.SubprocessError, ValueError) as e:
+            return bad + [f"正本の差し込む口を回せない: {e}"]
+        bad += core_problems(ctx, want, expect)
 
         # 4. 守りの hook: 入った copy の hooks.json に書かれた命令をそのまま回す。
         for name in want["hooks"]:
