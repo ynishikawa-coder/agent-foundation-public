@@ -74,14 +74,14 @@
       "example": "## 他の窓へ回す"
     },
     {
-      "id": "cleanup-followup-key",
-      "what": "preimpl-cleanup の値の表の鍵 cleanup_followup（土台が畳んだ。[後片付け] は原因の台帳の行にする）",
+      "id": "guard-trace-string",
+      "what": "値の表の guard.ask_prior_lookup・guard.context_handoff の文字列だけの跡の形（「道具の名 + 入力の JSON」の字に当てる古い形。入力にその字を含むだけの呼び出し〔echo・grep の命令の字など〕も跡に数える。土台は道具の名と入力の欄で見る形 {\"tool\": …, \"input\": {…}} に替えた・壊れる 1 段目の今は読み続ける）",
       "files": [
         "config/skill-values.json"
       ],
-      "pattern": "\"cleanup_followup\"\\s*:",
-      "fix": "鍵を消す。[後片付け] は原因の台帳の行にする（土台の dev-flow:preimpl-cleanup）",
-      "example": "      \"cleanup_followup\": \"…\""
+      "pattern": "\"(?:ask_prior_lookup|context_handoff)\"\\s*:\\s*\\[\\s*(?:\\{(?:[^{}]|\\{[^{}]*\\})*\\}\\s*,\\s*)*\"",
+      "fix": "文字列の 1 つずつを新しい形へ移す: 道具の名だけを見ていた物は {\"tool\": \"<名の正規表現>\"}（名の全体に当たる。mcp__…__ の頭も名に含めて書く）、入力の字に当てていた物は {\"tool\": \"<名>\", \"input\": {\"<欄>\": \"<正規表現>\"}}。形は skill guard:guard-rules の「値の表」",
+      "example": "\"context_handoff\": [\"create_session\\\\b\", {\"tool\": \"SendMessage\"}]"
     }
   ]
 }

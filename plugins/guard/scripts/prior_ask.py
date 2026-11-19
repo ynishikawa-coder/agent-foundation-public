@@ -7,12 +7,14 @@
 出ていない）。
 
 跡とは: 会話ログ（transcript_path）の、今の頼みの中の道具の呼び出しのうち、引く先の跡の形に名と入力の欄が当たる物
-  （形は guard_common の「跡の形」。入力を JSON の字に直して当てない＝その字を入力に含むだけの呼び出しは跡でない）。
+  （形は guard_common の「跡の形」。新しい形は入力を JSON の字に直して当てない＝その字を入力に含むだけの呼び出しは跡でない。
+  文字列の古い形は壊れる 1 段目として今までどおり字に当て、起動の時に古い形と名指す）。
   頼みの境は guard_common.new_request（人の行で、頼みの印 promptId が今の頼みと違う物。hook の差し戻しの行は境でない）。
 引く先（どこから読むか・上から順に最初に在る物）:
   1. 値の表 guard.ask_prior_lookup（会社ごとに違うので、名は値の表から読む＝ここに決め打ちしない）。
   2. 値の表 docs-kit.qa-html.prior_check_cmd（確認ページで前の答えを引く道具＝同じ引く先。その命令か check.mjs --run-prior
-     を Bash で走らせた跡を数える。引く先を 2 か所に写さない）。
+     を Bash で走らせた跡を数える。引く先を 2 か所に写さない）。走らせたかは命令の字で見ず、shell の字を区切って走る道具と
+     引数の並びで見る（guard_common.shell_runs: echo・grep の引数・# の注にその字が在るだけでは数えない）。
   3. どちらも無い repo: 引いたかを機械で見分けられないので照らさない（止めない）。代わりに起動の時（SessionStart）に、
      照らせていない事と値を足す道を知らせる（毎窓の最初の画面で止める形は、値を持つまで全部の窓を 1 回ずつ止めていた）。
 壊れた値: 跡の形として読めない値は跡に数えず（数える側に倒さない）、止めた文と起動の時の知らせ（values_keys）で名指す。
@@ -35,7 +37,7 @@ import guard_common as G
 ASK_TOOL = "AskUserQuestion"
 HOOKS = {"pre": "check", "start": "resurface"}
 ASK_PRIOR_MAX = 2      # 同じ頼みの中で止める回数の上限
-RUN_PRIOR = r"check\.mjs\b.*--run-prior"     # qa-html の検査に前の答えを引かせる口（SKILL の「前の答えを照らす口」）
+RUN_PRIOR = ("check.mjs", "--run-prior")     # qa-html の検査に前の答えを引かせる口（SKILL の「前の答えを照らす口」）
 
 
 def prior_check_cmd(payload):
@@ -51,8 +53,8 @@ def lookups(vals, payload):
         return ok, bad, "guard.ask_prior_lookup"
     cmd = prior_check_cmd(payload)
     if cmd:
-        specs = [{"tool": "Bash", "input": {"command": re.escape(cmd)}}, {"tool": "Bash", "input": {"command": RUN_PRIOR}}]
-        return [G.compile_matcher(s) for s in specs], [], "docs-kit.qa-html.prior_check_cmd"
+        ran = [lambda b: G.runs_command(b, cmd), lambda b: G.runs_script(b, *RUN_PRIOR)]
+        return ran, [], "docs-kit.qa-html.prior_check_cmd"
     return [], [], ""
 
 
@@ -97,14 +99,15 @@ def _all_exempt(qs, vals):
 HOW = ("聞く前に引く（細目 §4）: 問いの候補ごとに、この会社の決定の記録と問いの表（前に聞いた問いと答えの表）を、問いと同じ言葉で"
        "引く。答え済みの問い・資料で決まる事（AI が決めて進める）・道具の都合（原因の台帳の行にする）は問いから外し、残った問いだけを"
        "出し直す。引いた結果（照らした記録の在り処か、引いて無かった事）は問いの前にチャットで 1 行書く。")
-VALUE_HOW = ("値の表の guard.ask_prior_lookup に、決定の記録と問いの表を引く道具の呼び出しの跡の形（道具の名の正規表現か "
+VALUE_HOW = ("値の表の guard.ask_prior_lookup に、決定の記録と問いの表を引く道具の呼び出しの跡の形（{\"tool\": 名の正規表現} か "
              '{"tool": 名, "input": {欄: 正規表現}}）を足す PR を出す。細目は skill `guard:guard-rules`。')
 
 
 def resurface(data, vals):
     """SessionStart: 値の表を持つのに引く先が無い repo では、この見張りが照らせていない事を知らせる（止めない）。
     値の表そのものが無い repo（土台を試す所など・会社の決定の記録を持たない）は知らせない。"""
-    if not G.values_path(data) or lookups(vals, data)[2]:
+    path = G.SV.find(starts=G._starts(data))
+    if not path or not os.path.isfile(path) or lookups(vals, data)[2]:
         return ""
     return ("[guard] この repo は値の表に聞く前に引く先（guard.ask_prior_lookup か docs-kit.qa-html.prior_check_cmd）が無いので、"
             "選択肢の画面の前に決定の記録と問いの表を引いたかを照らしていない（止めない）。" + HOW + "引く先を足す: " + VALUE_HOW)

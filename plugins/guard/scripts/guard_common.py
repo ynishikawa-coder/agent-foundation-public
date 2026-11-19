@@ -2,41 +2,10 @@
 
 どの口も壊れた時は既定に倒す（見張りの故障で窓を止めない）。仕事の中身や特定の窓の名前は持たない。
 
-値の表（在る時だけ読む・無ければ既定で動く）:
-  repo の根の config/skill-values.json の "guard"。読む順は 環境変数 SKILL_VALUES → $CLAUDE_PROJECT_DIR → hook の cwd。
-    context_limit            … 文脈の量の目安（token・既定 300000）
-    context_stop_max         … 目安を越えて引き継がずに締める AI を同じターンで差し戻す回数の上限（既定 2・0 で差し戻さない）
-    context_handoff          … 引き継ぎの跡とみなす道具の呼び出し（跡の形の並び。形は下の「跡の形」）
-    unattended_env           … 真なら「人のいない窓」（夜の自走など）とみなす環境変数の名の並び（既定 ["AF_UNATTENDED"]）
-    state_dir                … 未回答の台帳を置く dir（既定 ~/.claude/af-guard。相対なら repo の根から）
-    paid_markers_extra       … 有料の上流の印（鍵名・エンドポイント）の足し
-    irreversible_bash_extra  … 戻せない Bash の足し [{"pattern": 正規表現, "why": 理由}]
-    irreversible_tools_extra … 戻せない道具の名の足し [{"pattern": 正規表現, "why": 理由}]
-    qa_page_exempt           … 問いのページの検査から外す file（path に当てる正規表現の並び・問いのページでない物だけ）
-    ask_pick_one_exempt      … 1 つだけ選ばせる問いの見張りから外す問いの文（正規表現の並び・意図や事実を問う問いだけ）
-    ask_question_max_chars   … 選択肢の画面の問いの文の字数の上限（既定 60・0 で見ない）
-    ask_question_max_sentences … 同じく文の数の上限（既定 1・0 で見ない）
-    ask_inner_terms_extra    … AI の中の言葉とみなす字の足し（正規表現の並び）
-    ask_term_allow           … 中の言葉と数えない字（見つけた字に当てる正規表現の並び・誤って止まる時だけ）
-    ask_topic_stopwords_extra … 話題の語と数えない語の足し
-    ask_shape_exempt         … 問いの形の見張りから外す問いの文（正規表現の並び・誤って止まる時だけ）
-    ask_rec_notice_kinds     … 推奨の印を付けない問いの形 {名: [正規表現]}（既定は ask_shape.REC_NOTICE_KINDS・知らせるだけ）
-    ask_rec_notice_exempt    … 上の知らせから外す問いの文（正規表現の並び）
-    ask_prior_lookup         … 決定の記録と問いの表を引いた跡とみなす道具の呼び出し（跡の形の並び・会社ごとに違うので既定は
-                               無し＝無い repo は docs-kit.qa-html.prior_check_cmd を走らせた跡で見る・それも無ければ照らさず
-                               起動の時に知らせる）
-    ask_prior_exempt         … 引いた跡の見張りから外す問いの文（正規表現の並び・引く要の無い問いだけ）
-    outbound_secret_allow    … 外へ渡す道具の入力の鍵の照らしで、鍵と数えない字（当たった字に当てる正規表現の並び・作り物の見本だけ）
-    number_request_exempt    … 番号だけの頼みの照らしから外す文（正規表現の並び・誤って止まる時だけ）
-    pr_cleanup_exempt_repos  … PR 本文の整地の欄を照らさない repo（owner/repo に当てる正規表現の並び・整地を PR 本文の外に置く repo だけ）
-    pr_words_exempt_repos    … PR の題・本文の言葉を照らさない repo（同じ形）
-    public_repos_extra       … 手元に取り出しが無くても公開とみなす repo（同じ形）
-
-跡の形（MATCHER_KEYS の値の 1 つ）: 会話ログの道具の呼び出しを、道具の名と入力の欄で見る（入力を JSON の字に直して
-  正規表現を当てない＝その字を入力に含むだけの呼び出しを跡に数えない）。
-    "<正規表現>"                                          … 道具の名の全体に当てる
-    {"tool": "<正規表現>", "input": {"<欄>": "<正規表現>"}} … 道具の名の全体に当て、挙げた入力の欄（a.b で下の欄）にも全部当たる時
-  読めない形・名に当たらない形（「"」や空白を含む＝入力の JSON に当てる古い形）は跡に数えず、value_faults が名指す。
+値の表（在る時だけ読む・無ければ既定で動く）: config/skill-values.json の "guard"。探し方・鍵の一覧・型・既定は
+  plugin の lib/skill_values.py と lib/schema.json（＝土台の skill-values/ の正本への symlink）が持つ＝ここに写さない。
+  知らない鍵・畳んだ鍵・型の違う値は、その鍵だけ既定で動き（守りを止めない）、窓の起動の時に名指しで知らせる（values_keys）。
+  鍵の意味は skill guard:guard-rules の「値の表」。
 """
 from __future__ import annotations
 
@@ -44,41 +13,18 @@ import glob
 import json
 import os
 import re
+import shlex
+import sys
 import tempfile
 from datetime import datetime, timezone
 
-VALUES_REL = os.path.join("config", "skill-values.json")
-DEFAULTS = {
-    "context_limit": 300_000,
-    "context_stop_max": 2,
-    # 後継の窓を立てる・返し先の窓へ送る・引き継ぎの file を書く（道具の名は Claude Code の窓の物。会社の物は持たない）
-    "context_handoff": [r"(?:mcp__.+__)?(?:create_session|send_message)", "SendMessage",
-                        {"tool": "Write|Edit|MultiEdit", "input": {"file_path": r"(?:引き継ぎ|handoff)[^/\\]*$"}}],
-    "unattended_env": ["AF_UNATTENDED"],
-    "state_dir": os.path.join("~", ".claude", "af-guard"),
-    "paid_markers_extra": [],
-    "irreversible_bash_extra": [],
-    "irreversible_tools_extra": [],
-    "qa_page_exempt": [],
-    "ask_pick_one_exempt": [],
-    "ask_question_max_chars": 60,
-    "ask_question_max_sentences": 1,
-    "ask_inner_terms_extra": [],
-    "ask_term_allow": [],
-    "ask_topic_stopwords_extra": [],
-    "ask_shape_exempt": [],
-    "ask_rec_notice_kinds": {},
-    "ask_rec_notice_exempt": [],
-    "ask_prior_lookup": [],
-    "ask_prior_exempt": [],
-    "outbound_secret_allow": [],
-    "number_request_exempt": [],
-    "pr_cleanup_exempt_repos": [],
-    "pr_words_exempt_repos": [],
-    "public_repos_extra": [],
-}
+sys.dont_write_bytecode = True
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib"))
+import skill_values as SV  # noqa: E402  値の表の 1 本の口（土台の skill-values/ への symlink）
 
-# 値の表の鍵のうち、正規表現の並び（壊れた形を value_faults が名指す）と、跡の形の並び
+DEFAULTS = SV.defaults("guard")
+
+# 値の表の鍵のうち、正規表現の並び（壊れた形を values_problems が名指す）と、跡の形の並び
 REGEX_LIST_KEYS = ("qa_page_exempt", "ask_pick_one_exempt", "ask_inner_terms_extra", "ask_term_allow", "ask_shape_exempt",
                    "ask_rec_notice_exempt", "ask_prior_exempt", "outbound_secret_allow", "number_request_exempt",
                    "pr_cleanup_exempt_repos", "pr_words_exempt_repos", "public_repos_extra")
@@ -98,7 +44,9 @@ GUARD_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 def sibling_plugin_file(plugin, rel, guard_root=None):
     """隣の plugin の file の path か ""。正本を写さず直に読むための在り処探し。
     repo の形: plugins/guard と plugins/<plugin> が隣。
-    入れた plugin の形: cache/<市場>/guard/<版> と cache/<市場>/<plugin>/<版>。同じ版を先に、無ければ新しい物。"""
+    入れた plugin の形: cache/<市場>/guard/<版> と cache/<市場>/<plugin>/<同じ版>。
+    同じ版だけを見る（別の版へ降りない＝正本と guard の版が食い違ったまま照らさない。見つからなければ "" で、
+    呼ぶ側が止めて「同じ版で入れ直す」と名指しする）。"""
     here = guard_root or GUARD_ROOT
     cand = os.path.join(os.path.dirname(here), plugin, rel)
     if os.path.isfile(cand):
@@ -106,11 +54,7 @@ def sibling_plugin_file(plugin, rel, guard_root=None):
     ver = os.path.basename(here)
     market = os.path.dirname(os.path.dirname(here))
     same = os.path.join(market, plugin, ver, rel)
-    if os.path.isfile(same):
-        return same
-    import glob
-    found = sorted(glob.glob(os.path.join(market, plugin, "*", rel)), key=os.path.getmtime, reverse=True)
-    return found[0] if found else ""
+    return same if os.path.isfile(same) else ""
 
 
 def foundation_file(rel, guard_root=None):
@@ -143,15 +87,44 @@ def project_dir(payload=None):
     return d
 
 
+def _starts(payload):
+    root = project_dir(payload)
+    return [root] if root else []
+
+
 def values(payload=None):
-    """値の表の "guard" を既定に重ねて返す。読めない・型が違う値は既定のまま。"""
+    """値の表の "guard" を既定に重ねて返す。読めない・問題のある鍵は既定のまま（名指しは values_problems）。"""
     out = dict(DEFAULTS)
-    for k, v in table("guard", payload).items():
-        if k in DEFAULTS and isinstance(v, type(DEFAULTS[k])) and not (isinstance(v, bool)):
+    try:
+        got, _ = SV.section("guard", strict=False, starts=_starts(payload))
+    except Exception:  # noqa: BLE001  見張りの故障で窓を止めない
+        return out
+    for k, v in got.items():
+        if k in DEFAULTS and v is not None:
             out[k] = v
     for k in set(REGEX_LIST_KEYS) - set(SELF_NAMED_KEYS):
-        out[k] = [p for p in out[k] if _regex_ok(p)]   # 読めない正規表現は渡さない（1 本で見張りごと落ちて黙って通らない・value_faults が名指す）
+        out[k] = [p for p in out[k] if _regex_ok(p)]   # 読めない正規表現は渡さない（1 本で見張りごと落ちて黙って通らない・values_problems が名指す）
     return out
+
+
+def table(section, payload=None):
+    """値の表の 1 つの節を dict で返す（無い・読めない時は {}）。探し方は値の表の 1 本の口（lib/skill_values.py）。他の plugin の口も使う。"""
+    try:
+        tbl, _ = SV.load(SV.find(starts=_starts(payload)))
+    except Exception:  # noqa: BLE001  見張りの故障で窓を止めない
+        return {}
+    got = tbl.get(section) if isinstance(tbl, dict) else None
+    return got if isinstance(got, dict) else {}
+
+
+def values_problems(payload=None):
+    """(表の path, 表全体の問題の並び)。表が無ければ (None, [])。名指しの 1 か所: 鍵と型（SV.check）に、guard の値の
+    中身（読めない正規表現・読めない跡の形・古い形の跡）を足す。"""
+    path = SV.find(starts=_starts(payload))
+    table, problems = SV.load(path)
+    problems = problems + SV.check(table)
+    got = table.get("guard") if isinstance(table, dict) else None
+    return path, problems + (_guard_value_problems(got) if isinstance(got, dict) else [])
 
 
 def _regex_ok(p):
@@ -164,58 +137,72 @@ def _regex_ok(p):
     return True
 
 
-def values_path(payload=None):
-    """値の表の file の path（無ければ ""）。読む順は 環境変数 SKILL_VALUES → $CLAUDE_PROJECT_DIR → hook の cwd。"""
-    path = os.environ.get("SKILL_VALUES") or ""
-    if not path:
-        root = project_dir(payload)
-        path = os.path.join(root, VALUES_REL) if root else ""
-    return path if path and os.path.isfile(path) else ""
-
-
-def value_faults(payload=None):
-    """値の表の "guard" の、黙って効かない値の名指し（文の並び）: 型が違う値（既定で動く）・読めない正規表現・読めない跡の形。"""
+def _guard_value_problems(got):
+    """guard の欄の、型は合うが中身が読めずに黙って効かない値の名指し（型の違いは SV.check が名指す）。"""
     out = []
-    for k, v in table("guard", payload).items():
-        if k not in DEFAULTS:
-            continue                       # 知らない鍵は values_keys が名指す
-        if not isinstance(v, type(DEFAULTS[k])) or isinstance(v, bool):
-            out.append("guard.%s: 型が違うので読まず既定で動いている（今の値: %s）" % (k, json.dumps(v, ensure_ascii=False)[:120]))
-        elif k in REGEX_LIST_KEYS:
-            for p in v:
-                try:
-                    if not isinstance(p, str) or not p:
-                        raise ValueError("空か文字列でない")
-                    re.compile(p)
-                except (re.error, ValueError) as e:
-                    out.append("guard.%s: 正規表現として読めない %s（%s）" % (k, json.dumps(p, ensure_ascii=False), e))
+    for k, v in got.items():
+        if k not in DEFAULTS or not isinstance(v, list):
+            continue
+        if k in REGEX_LIST_KEYS:
+            out += ["guard.%s: 正規表現として読めない %s" % (k, json.dumps(p, ensure_ascii=False)[:160])
+                    for p in v if not _regex_ok(p)]
         elif k in MATCHER_KEYS:
             out += ["guard.%s: %s" % (k, b) for b in tool_matchers({k: v}, k)[1]]
+            olds = [spec for spec in v if isinstance(spec, str) and spec]
+            if olds:
+                out.append("guard.%s: 古い形の跡（文字列＝「道具の名 + 入力の JSON」の字に当てる・入力にその字を含むだけの呼び出し"
+                           "も跡に数える）%s。今は読むが、新しい形 {\"tool\": 名の正規表現, \"input\": {欄: 正規表現}} へ移す"
+                           "（2 段目で読まなくなる・CONTRIBUTING.md §8・形は skill `guard:guard-rules`）"
+                           % (k, json.dumps(olds, ensure_ascii=False)[:200]))
         elif k in PATTERN_DICT_KEYS:
-            for e in v:
-                pat = e.get("pattern") if isinstance(e, dict) else None
-                if not _regex_ok(pat):
-                    out.append("guard.%s: pattern が正規表現として読めない %s" % (k, json.dumps(e, ensure_ascii=False)[:160]))
+            out += ["guard.%s: pattern が正規表現として読めない %s" % (k, json.dumps(e, ensure_ascii=False)[:160])
+                    for e in v if not _regex_ok(e.get("pattern") if isinstance(e, dict) else None)]
     return out
 
 
-# ── 跡の形（会話ログの道具の呼び出しを、名と入力の欄で見る）──
+# ── 跡の形（会話ログの道具の呼び出しを、道具の名と入力の欄で見る）──
+# 形（MATCHER_KEYS の値の 1 つ）:
+#   {"tool": "<正規表現>"}                                … 道具の名の全体に当てる
+#   {"tool": "<正規表現>", "input": {"<欄>": "<正規表現>"}} … 名の全体に当て、挙げた入力の欄（a.b で下の欄）の全部にも当たる時
+#   "<正規表現>"（古い形・壊れる 1 段目で読み続ける）       … 「道具の名 + 入力の JSON」の字に search で当てる（入力にその字を
+#                                                           含むだけの呼び出しも跡に数える）。起動の時に古い形と名指す
+# 読めない形は跡に数えず（数える側に倒さない）、名指す。input を書くなら欄を 1 つ以上の {…}（[]・null・""・{} は読めない形
+# ＝黙って名だけの形に広げない）。
+def _sig(block):
+    try:
+        body = json.dumps(block.get("input") or {}, ensure_ascii=False, sort_keys=True)
+    except (TypeError, ValueError):
+        body = str(block.get("input") or "")
+    return "%s %s" % (block.get("name") or "", body)
+
+
 def compile_matcher(spec):
-    """跡の形 1 つを (名の正規表現, {欄: 正規表現}) に。読めない形は ValueError か re.error。"""
+    """跡の形 1 つを「道具の呼び出し 1 つ（tool_use の塊）→ 当たるか」の関数に。読めない形は ValueError か re.error。"""
     if isinstance(spec, str):
-        spec = {"tool": spec}
+        if not spec:
+            raise ValueError("空の字")
+        old = re.compile(spec)
+        return lambda block: bool(old.search(_sig(block)))
     if not isinstance(spec, dict) or not set(spec) <= {"tool", "input"}:
-        raise ValueError('形が違う（文字列か {"tool": …, "input": {…}}）')
+        raise ValueError('形が違う（{"tool": …} か {"tool": …, "input": {…}}）')
     tool = spec.get("tool")
     if not isinstance(tool, str) or not tool:
         raise ValueError("tool が無い")
-    if '"' in tool or re.search(r"\s", tool):
-        raise ValueError("道具の名に当たらない形（入力の JSON に当てる古い形は読まない。入力は input の欄で書く）")
-    fields = spec.get("input") or {}
-    if not isinstance(fields, dict) or not all(isinstance(k, str) and k and isinstance(v, str) and v
-                                               for k, v in fields.items()):
-        raise ValueError("input は {欄の名: 正規表現}")
-    return re.compile(tool), {k: re.compile(v) for k, v in fields.items()}
+    rx = re.compile(tool)
+    if "input" not in spec:
+        return lambda block: bool(rx.fullmatch(str(block.get("name") or "")))
+    fields = spec["input"]
+    if not isinstance(fields, dict) or not fields:
+        raise ValueError("input は欄を 1 つ以上の {欄の名: 正規表現}（%s は読まない＝名だけの形に広げない）"
+                         % json.dumps(fields, ensure_ascii=False))
+    if not all(isinstance(k, str) and k and isinstance(v, str) and v for k, v in fields.items()):
+        raise ValueError("input は {欄の名: 正規表現}（欄の名も正規表現も空でない字）")
+    frx = {k: re.compile(v) for k, v in fields.items()}
+
+    def hit(block):
+        inp = block.get("input") if isinstance(block.get("input"), dict) else {}
+        return bool(rx.fullmatch(str(block.get("name") or ""))) and all(_hit(r, _field(inp, k)) for k, r in frx.items())
+    return hit
 
 
 def tool_matchers(vals, key):
@@ -248,32 +235,147 @@ def _field(inp, path):
     return cur if isinstance(cur, str) else json.dumps(cur, ensure_ascii=False, sort_keys=True)
 
 
-def matches_tool(block, matchers):
-    """道具の呼び出し 1 つが跡の形のどれかに当たるか（名の全体と、挙げた欄の全部）。"""
-    name = str(block.get("name") or "")
-    inp = block.get("input") if isinstance(block.get("input"), dict) else {}
-    for rx, fields in matchers:
-        if rx.fullmatch(name) and all(_hit(frx, _field(inp, k)) for k, frx in fields.items()):
-            return True
-    return False
-
-
 def _hit(rx, text):
     return text is not None and bool(rx.search(text))
 
 
-def table(section, payload=None):
-    """値の表の 1 つの節を dict で返す（無い・読めない時は {}）。読む順は values() と同じ。他の plugin の口も使う。"""
-    path = values_path(payload)
-    if not path:
-        return {}
+def matches_tool(block, matchers):
+    """道具の呼び出し 1 つが跡の形（compile_matcher の関数）のどれかに当たるか。"""
+    return any(m(block) for m in matchers)
+
+
+# ── Bash の命令で走る物（命令の字に含むだけの echo・grep・# の注を、走らせた事に数えない）──
+_SHELL_SEPS = {";", "&", "&&", "||", "|", "|&", "(", ")", ";;", ";&", ";;&"}
+_SHELLS = {"bash", "sh", "zsh", "dash", "ksh"}
+_WRAP_TAKES = {"sudo": ("-u", "-g", "-C", "-D", "-h", "-p", "-r", "-t", "-U"), "nice": ("-n",), "exec": ("-a",),
+               "timeout": ("-k", "-s", "--signal", "--kill-after"), "env": ("-u", "-C", "-S", "--unset", "--chdir")}
+
+
+def _strip_comments(cmd):
+    """引用の外で語の頭に在る # から行末までを消す（行の終わりは残す）。"""
+    out, i, n, q = [], 0, len(cmd), ""
+    while i < n:
+        c = cmd[i]
+        if q == "'":
+            q = "" if c == "'" else q
+        elif c == "\\" and i + 1 < n:
+            out.append(cmd[i:i + 2])
+            i += 2
+            continue
+        elif q == '"':
+            q = "" if c == '"' else q
+        elif c in "'\"":
+            q = c
+        elif c == "#" and (i == 0 or cmd[i - 1] in " \t\n;&|()"):
+            while i < n and cmd[i] != "\n":
+                i += 1
+            continue
+        out.append(c)
+        i += 1
+    return "".join(out)
+
+
+def _tokens(cmd):
+    lx = shlex.shlex(_strip_comments(cmd), posix=True, punctuation_chars=";&|()<>\n")
+    lx.whitespace, lx.whitespace_split, lx.commenters = " \t\r", True, ""
+    return list(lx)
+
+
+def _unwrap(argv):
+    """前置き（VAR=値・env・command・time・sudo・nohup・exec・nice・timeout・stdbuf）を外した argv。走らない形
+    （command -v 等）は []。"""
+    i = 0
+    while i < len(argv):
+        w = argv[i]
+        if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*=.*", w, re.S):
+            i += 1
+            continue
+        base = os.path.basename(w)
+        if base in ("command", "builtin") and i + 1 < len(argv) and argv[i + 1] in ("-v", "-V"):
+            return []
+        if base not in ("env", "command", "builtin", "time", "nohup", "exec", "sudo", "nice", "timeout", "stdbuf"):
+            break
+        takes = _WRAP_TAKES.get(base, ())
+        i += 1
+        while i < len(argv) and (argv[i].startswith("-") or (base == "env" and "=" in argv[i])):
+            i += 2 if argv[i] in takes else 1
+        if base == "timeout" and i < len(argv):
+            i += 1               # 時間
+    return argv[i:]
+
+
+def shell_runs(cmd, depth=0):
+    """Bash の命令の字で走る命令ごとの argv の並び（前置きを外し、bash -c・eval の中へ降りる）。読めない字は []。
+    走らせた事を字で見ず、走る道具（命令の頭）と引数の並びで見るための口。$(…) と `…` の中は数えない（数えない側＝止める側）。"""
     try:
-        with open(path, encoding="utf-8") as f:
-            got = json.load(f)
-        got = got.get(section) if isinstance(got, dict) else None
-    except Exception:
-        return {}
-    return got if isinstance(got, dict) else {}
+        toks = _tokens(str(cmd or ""))
+    except ValueError:
+        return []
+    runs, cur, skip = [], [], False
+    for t in toks + [";"]:
+        if skip:
+            skip = False
+            continue
+        if t in _SHELL_SEPS or not t.strip("\n"):
+            if cur:
+                runs.append(cur)
+            cur = []
+        elif set(t) <= set("<>&|") and ("<" in t or ">" in t):
+            skip = True          # 向け替えと、その先
+            if cur and cur[-1].isdigit():
+                cur.pop()        # 2>&1 の 2
+        else:
+            cur.append(t)
+    out = []
+    for argv in runs:
+        argv = _unwrap(argv)
+        if not argv:
+            continue
+        base = os.path.basename(argv[0])
+        if depth < 3 and base in _SHELLS:
+            flags = [j for j, a in enumerate(argv[1:], 1) if re.fullmatch(r"-[A-Za-z]*c[A-Za-z]*", a)]
+            if flags and flags[0] + 1 < len(argv):
+                out += shell_runs(argv[flags[0] + 1], depth + 1)
+                continue
+        if depth < 3 and base == "eval":
+            out += shell_runs(" ".join(argv[1:]), depth + 1)
+            continue
+        out.append(argv)
+    return out
+
+
+def _bash_runs(block):
+    if block.get("name") != "Bash" or not isinstance(block.get("input"), dict):
+        return []
+    return shell_runs(block["input"].get("command"))
+
+
+def runs_command(block, want):
+    """Bash の呼び出し 1 つが、命令 want（shell の 1 行）を走らせたか。want の各命令について、走った命令のどれかの頭の道具
+    （名だけで比べる）と引数の並びが頭から同じ時だけ（後ろに引数が足されてもよい）。"""
+    wants = shell_runs(want)
+    ran = _bash_runs(block) if wants else []
+    return bool(ran) and all(any(_same_head(r, w) for r in ran) for w in wants)
+
+
+def _same_head(ran, want):
+    return (len(ran) >= len(want) and os.path.basename(ran[0]) == os.path.basename(want[0])
+            and ran[1:len(want)] == want[1:])
+
+
+def runs_script(block, script, flag):
+    """Bash の呼び出し 1 つが、script（例 check.mjs）を flag（例 --run-prior）つきで走らせたか（node <script> … か
+    <script> … の形。script は走らせた引数の名で見る）。"""
+    for argv in _bash_runs(block):
+        rest = argv
+        if os.path.basename(argv[0]) in ("node", "nodejs"):
+            args = [j for j, a in enumerate(argv[1:], 1) if not a.startswith("-")]
+            if not args:
+                continue
+            rest = argv[args[0]:]
+        if os.path.basename(rest[0]) == script and flag in rest[1:]:
+            return True
+    return False
 
 
 def truthy(v):
