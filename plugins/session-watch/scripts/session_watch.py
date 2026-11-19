@@ -52,12 +52,14 @@ import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 PLUGIN_ROOT = os.path.dirname(HERE)
+sys.path.insert(0, os.path.join(PLUGIN_ROOT, "lib"))
+import af_place  # noqa: E402  土台の在り処探しの 1 本の口（土台の skill-values/ への symlink）
 
 
 # ── 隣の正本（写さず直に呼ぶ）──────────────────────────────────
 #  中の言葉・「分からない」の見分け … plugin guard の scripts/ask_shape.py（inner_terms・is_dunno）・値の表は scripts/guard_common.py
 #  秘密の形 … 公開の検査 public-guard/guard.py（secret_labels。plugin の外＝市場の写しから読む）
-#  探す順: 環境変数 → 同じ repo（plugins/session-watch の隣）→ 入れた plugin の同じ版 → 市場の写し（HEAD が同じ版の時だけ）
+#  探す順: 環境変数 → 土台の在り処探しの 1 本の口 lib/af_place.py（同じ repo の隣・入れた plugin の同じ版・市場の写しの同じ版）
 #  版の合う物が無ければ None（check は neighbor の札を出す＝黙って照らしを抜かない）。手近な別の版（mtime の新しい版・
 #  版の違う市場の写し）は拾わない（入った版と違う決まりで返事を照らさない）。
 NEIGHBORS = {
@@ -69,33 +71,18 @@ _loaded = {}
 
 
 def neighbor_path(name, env=None):
+    """隣の正本の path か None。環境変数の後は土台の在り処探しの 1 本の口（lib/af_place.py）だけで探す
+    （入った版と同じ版だけ・市場の写しが先へ進んでいれば入った版の中身を歴史から取り出す）。"""
     env = os.environ if env is None else env
     env_name, repo_rel, plugin, rel = NEIGHBORS[name]
-    cands = [env.get(env_name) or ""]
-    up2 = os.path.dirname(os.path.dirname(PLUGIN_ROOT))       # repo: <repo> ／ 入れた形: cache/<市場>
-    cands.append(os.path.join(up2, repo_rel))
-    ver, market = os.path.basename(PLUGIN_ROOT), os.path.basename(up2)
+    got = env.get(env_name) or ""
+    if got and os.path.isfile(got):
+        return got
     if plugin:
-        cands.append(os.path.join(up2, plugin, ver, rel))
-    clone = os.path.join(os.path.dirname(os.path.dirname(up2)), "marketplaces", market)
-    if _same_version(clone, ver):
-        cands.append(os.path.join(clone, repo_rel))
-    for c in cands:
-        if c and os.path.isfile(c):
-            return c
-    return None
-
-
-def _same_version(clone, ver):
-    """市場の写し（目録の clone）の HEAD が入った版（cache の dir の名＝commit の頭）と同じか。分からなければ False。"""
-    if not re.fullmatch(r"[0-9a-f]{7,64}", ver or "") or not os.path.isdir(clone):
-        return False
-    import subprocess
-    try:
-        r = subprocess.run(["git", "-C", clone, "rev-parse", "HEAD"], capture_output=True, text=True, timeout=5)
-    except (OSError, subprocess.SubprocessError):
-        return False
-    return r.returncode == 0 and r.stdout.strip().startswith(ver)
+        got = af_place.sibling_plugin_file(plugin, rel, PLUGIN_ROOT)
+    else:
+        got = af_place.foundation_file(repo_rel, PLUGIN_ROOT)
+    return got or None
 
 
 def neighbor(name):
