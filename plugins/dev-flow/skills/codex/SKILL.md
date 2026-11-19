@@ -16,7 +16,7 @@ repo ごとに違う値は、repo の根（`git rev-parse --show-toplevel`）の
 | 鍵 | 使う所 | 無い時の既定 |
 |---|---|---|
 | `pack_dir` | パックと戻りの置き場（以下 `<pack_dir>`） | `$TMPDIR/codex/`（窓の scratchpad を `--out-dir` で渡すのが推奨） |
-| `self_allow` | 顧客の物でない仕組みとして出してよい path（glob の並び・repo の根からの path の全体に当てる。`*` と `?` は `/` をまたがず、下の dir までは `**`〔`tools/**`〕。`clients.<名>.paths` も同じ当て方で、顧客の物を見落とさないよう前の読み方〔`*` が `/` をまたぐ〕でも当たれば顧客の物と見る） | 無し＝既定 deny（何も出さない） |
+| `self_allow` | 顧客の物でない仕組みとして出してよい path（glob の並び・repo の根からの path の全体に当てる。`*` と `?` は `/` をまたがず、下の dir までは `**`〔`tools/**`〕。`clients.<名>.paths` も同じ当て方で、顧客の物を見落とさないよう `*` が `/` をまたぐ広い読み方でも当たれば顧客の物と見る〔載せてよいかは全体の当て方だけで決める〕） | 無し＝既定 deny（何も出さない） |
 | `clients` | 顧客の物を出す許し `{<名>: {opt_in, no_training_tier, expires, paths}}` | 無し＝既定 deny |
 | `egress_log` | 送り出しの記録（jsonl・本文と秘密は書かず、時刻・task・送り先・file の path・結果・件数・パックの sha256 だけ） | 無し（記録しない） |
 | `entropy_allow` | 誤って止まる高エントロピーの塊を外す並び（`sha256:<指紋 12 字以上>` か塊の全体に当てる正規表現） | 無し＝全部止める |

@@ -592,7 +592,7 @@ def test_qa_page_値の表で外した_file_は見ない(env, tmp_path):
     proj = Path(env["CLAUDE_PROJECT_DIR"])
     (proj / "config").mkdir()
     (proj / "config" / "skill-values.json").write_text(
-        json.dumps({"guard": {"qa_page_exempt": [r"/quiz/[^/]+\.html$"]}}), encoding="utf-8")
+        json.dumps({"guard": {"qa_page_exempt": [r"^(?:.*/)?quiz/[^/]+\.html$"]}}), encoding="utf-8")
     (tmp_path / "quiz").mkdir()
     page = tmp_path / "quiz" / "q.html"
     page.write_text(STATE_PAGE, encoding="utf-8")

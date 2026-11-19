@@ -67,20 +67,20 @@ def test_字や正規表現を読む鍵は型の正本に当てる相手と当�
 def test_全体に当てる鍵の既定は全部_錨で始まり終わる():
     for at, s in specs_all():
         if s["type"] == "patterns" and s.get("match") == "whole":
-            assert not SV.old_pattern_rows(s, s.get("default") or []), at
+            assert not SV.not_whole_rows(s, s.get("default") or []), at
 
 
-def test_全体の行は相手の全体だけに当たり_前の形の行は名指される():
+def test_全体の行は相手の全体だけに当たり_全体の形でない行は名指される():
     spec = SV.key_spec("guard", None, "irreversible_tools_extra")
     rows = SV.compile_patterns(spec, ["^mcp__s__delete_item$"])
     assert SV.hit(rows, "mcp__s__delete_item") is not None
     assert SV.hit(rows, "mcp__s__undelete_item") is None        # 一部に当てる読み方へ戻すと赤
-    # ^…$ の行でも | で分けた形は、一部に当てると片側の錨が外れる（全体に当てる＝fullmatch でだけ当たらない）
-    alt = SV.compile_patterns(spec, ["^mcp__s__delete_item|mcp__s__purge$"])
+    # | で分けるのは ^(?:a|b)$ の形（一番外の | は全体の形と読まない＝tests/test_values_whole_fold.py）
+    alt = SV.compile_patterns(spec, ["^(?:mcp__s__delete_item|mcp__s__purge)$"])
     assert SV.hit(alt, "mcp__s__delete_item") is not None
     assert SV.hit(alt, "mcp__s__delete_item_undo") is None
     probs = SV.check({"guard": {"irreversible_tools_extra": ["delete"]}})
-    assert any("前の形" in p and "delete" in p and "道具の名" in p for p in probs), probs
+    assert any("全体の形でない" in p and "delete" in p and "道具の名" in p for p in probs), probs
 
 
 def test_字の鍵に正規表現のつもりの行を書くと名指される():
@@ -145,7 +145,7 @@ def test_問いのページの外す形は_repo_の根からの_path_の全体�
         f = r / rel
         f.parent.mkdir(parents=True, exist_ok=True)
         f.write_text("x")
-        assert (SV.hit(pats, qa_page.repo_rel(str(f)), str(f)) is not None) is want, rel
+        assert (SV.hit(pats, qa_page.repo_rel(str(f))) is not None) is want, rel
 
 
 def test_戻せない道具の足しは道具の名の全体に当てる():
@@ -153,8 +153,9 @@ def test_戻せない道具の足しは道具の名の全体に当てる():
     assert irreversible.match("mcp__s__delete_item", {}, "", vals) == "作り物の削除"
     assert irreversible.match("mcp__s__undelete_item", {}, "", vals) == ""
     assert irreversible.match("TaskDelete", {}, "", vals) == ""
-    # 1 段目: 前の形の行（錨なし）は前の読み方で止め続ける（止める側を黙って狭めない）
-    assert irreversible.match("mcp__s__undelete_item", {}, "", {"irreversible_tools_extra": ["delete"]})
+    # 全体の形でない行（錨なし）は効かないが、止める側を黙って狭めず照らせないと止める（書き直しを言う）
+    why = irreversible.match("mcp__s__undelete_item", {}, "", {"irreversible_tools_extra": ["delete"]})
+    assert "全体の形でなく照らせない" in why and "^(?:a|b)$" in why
 
 
 def test_鍵の外す形は当たった塊の全体に当てる():
@@ -191,15 +192,15 @@ def test_glob_は_path_の全体に当て星は斜線をまたがない(pat, pat
     assert codex_pack.match_any(path, [pat]) is want
 
 
-def test_顧客の物は前の読み方でも見落とさない():
+def test_顧客の物は広い読み方でも見落とさない():
     assert codex_pack.client_hit("clients/a/deep/x.py", ["clients/a/*"])
     assert not codex_pack.match_any("clients/a/deep/x.py", ["clients/a/*"])
 
 
-def test_値の表の照らしが前の形と読めない行を名指し_鍵は落とさない():
+def test_値の表の照らしが全体の形でない行と読めない行を名指し_鍵は落とさない():
     table = {"guard": {"ask_prior_lookup": ["\\bGrep\\b.*問いの表", "^Grep \\{.*\\}$", "("]}}
     probs = SV.check(table)
-    assert any("前の形" in p for p in probs) and any("その行だけ効かない" in p for p in probs), probs
+    assert any("全体の形でない" in p for p in probs) and any("その行だけ効かない" in p for p in probs), probs
     sec, _ = SV.check_section(table, "guard")[0], None
     assert "ask_prior_lookup" not in SV.check_section(table, "guard")[1]
 
@@ -237,12 +238,3 @@ def test_字の鍵に書き違いの行が混じっても正しい行は止め�
     assert paid_upstream.check(data, vals)
     probs = SV.check(json.loads(table.read_text()))
     assert any("paid_markers_extra" in p and "その行だけ効かない" in p for p in probs), probs
-
-
-def test_codex_の前の読み方でだけ当たる_path_は1段目の間は通して名指す(tmp_path, capsys):
-    import datetime as dt
-    vals = {"self_allow": ["tools/*"]}
-    assert codex_pack.resolve_dest("self", ["tools/sub/deep/x.py"], vals, dt.date(2026, 11, 20)) == "self"
-    assert "dir/**" in capsys.readouterr().err
-    with pytest.raises(codex_pack.Abort):
-        codex_pack.resolve_dest("self", ["other/x.py"], vals, dt.date(2026, 11, 20))

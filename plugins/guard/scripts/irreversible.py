@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import glob
+import json
 import os
 import re
 import shlex
@@ -205,9 +206,15 @@ def match(tool_name, tool_input, cwd, vals):
     for rx, why in _compile(_TOOLS):
         if rx.search(name):
             return why
-    row = G.SV.hit(G.patterns(vals, "irreversible_tools_extra", re.IGNORECASE), name)
+    extra = G.patterns(vals, "irreversible_tools_extra", re.IGNORECASE)
+    row = G.SV.hit(extra, name)
     if row is not None:
         return _why(row)
+    row = G.SV.unread_hit(extra, name)
+    if row is not None:
+        # 全体の形でない行は効かないが、止める側を黙って狭めない＝照らせないとして止め、書き直しを言う
+        return ("値の表 guard.irreversible_tools_extra の行 %s は全体の形でなく照らせない（道具の名の全体に当てる鍵。"
+                "^mcp__server__delete_item$ の形で、| で分けるなら ^(?:a|b)$ で書き直す）" % json.dumps(row.get("pattern") if isinstance(row, dict) else row, ensure_ascii=False))
     if name != "Bash":
         return ""
     cmd = str((tool_input or {}).get("command") or "") if isinstance(tool_input, dict) else ""

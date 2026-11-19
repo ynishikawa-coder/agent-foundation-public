@@ -147,6 +147,36 @@ def _anchored(x):
     return isinstance(x, str) and x.startswith("^") and x.endswith("$") and not re.search(r"(?<!\\)(?:\\\\)*\\\$$", x)
 
 
+def _top_alternation(x):
+    """正規表現の一番外に | が在るか（括弧・字の組 [...] の中と、エスケープした \\| は数えない）。"""
+    depth, cls, i = 0, False, 0
+    while i < len(x):
+        c = x[i]
+        if c == "\\":
+            i += 2
+            continue
+        if cls:
+            cls = c != "]"
+        elif c == "[":
+            cls = True
+            if x.startswith("]", i + 1) or x.startswith("^]", i + 1):
+                i += 1 if x[i + 1] == "]" else 2
+        elif c == "(":
+            depth += 1
+        elif c == ")":
+            depth = max(depth - 1, 0)
+        elif c == "|" and depth == 0:
+            return True
+        i += 1
+    return False
+
+
+def _whole_form(x):
+    """全体に当てる鍵の行の形: ^ で始め $ で終え、一番外に | を持たない（| で分けるなら ^(?:a|b)$）。
+    ^a|b$ は「a で始まるか b で終わる」（一部の読み方）と「a か b の全体」（全体の読み方）に割れるので全体の形と読まない。"""
+    return _anchored(x) and not _top_alternation(x)
+
+
 def bad_repo_names(v):
     """型 repo_names（owner/repo の名の全体に当てる正規表現の並び）に合わない行の並び。
     各行は ^ で始まり（エスケープしない）$ で終わり、正規表現として読める。頭だけ（^owner/）・錨なし（owner/repo）の
@@ -192,11 +222,12 @@ def bad_pattern_rows(v):
     return out
 
 
-def old_pattern_rows(spec, v):
-    """全体に当てる鍵（match whole）の、^…$ でない行（前の形＝一部に当てる読み方。1 段目は前の読み方で効かせて名指す）。"""
+def not_whole_rows(spec, v):
+    """全体に当てる鍵（match whole）の、全体の形（_whole_form）でない行。その行は効かない（照らし check が名指し、
+    止める側の鍵の道具は unread_hit で照らせないと止める）。前の読み方（一部に当てる）で効かせる受けは畳んだ。"""
     if (spec or {}).get("type") != "patterns" or spec.get("match") != "whole" or not isinstance(v, list):
         return []
-    return [x for x in v if _row_pattern(x) is not None and not _anchored(_row_pattern(x))]
+    return [x for x in v if _row_pattern(x) is not None and not _whole_form(_row_pattern(x))]
 
 
 def bad_words(v):
@@ -210,8 +241,9 @@ def key_spec(plugin, skill, key):
 
 
 def compile_patterns(spec, rows, flags=0):
-    """値の表の正規表現の並びを [(正規表現, 全体か, 元の行)] にする。読めない行は捨てる（照らし check が名指す）。
-    全体に当てる鍵（match whole）の ^…$ の行は全体に、前の形の行（^…$ でない）と一部に当てる鍵（match part）は一部に当てる。"""
+    """値の表の正規表現の並びを [(正規表現, 当て方, 元の行)] にする。当て方は "whole"（相手の全体）・"part"（相手の一部）・
+    "unread"（全体に当てる鍵の、全体の形でない行＝効かない。hit は当てず、止める側の道具だけが unread_hit で照らせないと止める）。
+    読めない行は捨てる（照らし check が名指す）。"""
     whole = (spec or {}).get("match") == "whole"
     out = []
     for x in rows if isinstance(rows, list) else []:
@@ -222,7 +254,7 @@ def compile_patterns(spec, rows, flags=0):
             rx = re.compile(p, flags)
         except re.error:
             continue
-        out.append((rx, whole and _anchored(p), x))
+        out.append((rx, ("whole" if _whole_form(p) else "unread") if whole else "part", x))
     return out
 
 
@@ -231,14 +263,24 @@ def patterns_of(plugin, skill, key, values, flags=0):
     return compile_patterns(key_spec(plugin, skill, key), (values or {}).get(key) or [], flags)
 
 
-def hit(compiled, text, old_text=None):
-    """当たった最初の行（元の行）か None。全体の行は text の全体に当てる。前の形の行（全体の鍵の ^…$ でない行）は
-    old_text（前の当てる相手。渡さなければ text）の一部に当てる。一部の鍵の行は text の一部に当てる。"""
-    for rx, whole, row in compiled:
-        if whole:
+def hit(compiled, text):
+    """当たった最初の行（元の行）か None。全体の行は text の全体に、一部の鍵の行は text の一部に当てる。
+    全体の鍵の、全体の形でない行（unread）は当てない（効かない）。"""
+    for rx, how, row in compiled:
+        if how == "whole":
             if rx.fullmatch(text):
                 return row
-        elif rx.search(text if old_text is None else old_text):
+        elif how == "part" and rx.search(text):
+            return row
+    return None
+
+
+def unread_hit(compiled, text):
+    """全体の鍵の、全体の形でない行（効かない行）のうち、text の一部に当たる最初の行か None。
+    止める側の鍵（irreversible_tools_extra）の道具が「値の表の行が照らせない」と止めるためだけに使う
+    （効かない行で止める側を黙って狭めない。通す側の鍵では使わない＝効かない行は通さない側に倒れる）。"""
+    for rx, how, row in compiled:
+        if how == "unread" and rx.search(text):
             return row
     return None
 
@@ -354,11 +396,12 @@ def _check_keys(where, node, specs, retired):
         if unread:
             out.append("%s の行 %s が型に合わない（その行だけ効かない・%s で書く%s）" % (
                 at, "・".join(json.dumps(x, ensure_ascii=False) for x in unread), TYPE_WORD[spec["type"]], _against(spec)))
-        old = old_pattern_rows(spec, v)
-        if old:
-            # 1 段目: 前の形の行は前の読み方（一部に当てる）で効かせたまま名指す（鍵は落とさない）
-            out.append("%s の行 %s は前の形（一部に当てる読み方）。この鍵は%s。^…$ で全体の形に書き直す" % (
-                at, "・".join(json.dumps(x, ensure_ascii=False) for x in old), _against(spec)))
+        nw = [x for x in not_whole_rows(spec, v) if x not in unread]
+        if nw:
+            # 全体の形でない行は効かない（鍵は落とさない）。前の読み方（一部に当てる）で効かせる受けは畳んだ
+            out.append("%s の行 %s は全体の形でない（その行だけ効かない・この鍵は%s。^ で始め $ で終え、"
+                       "| で分けるなら ^(?:a|b)$ と書く）" % (
+                           at, "・".join(json.dumps(x, ensure_ascii=False) for x in nw), _against(spec)))
         if isinstance(v, dict) and "keys" in spec:
             sub, subbad = _check_keys(at, v, {kk: _spec(vv) for kk, vv in spec["keys"].items()}, retired)
             out += sub
