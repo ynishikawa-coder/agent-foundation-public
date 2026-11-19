@@ -30,7 +30,8 @@ HELPERS = ("guard", "guard_common")
 
 def declared(path):
     """見張りの file の頭の宣言 {名: 値}（HOOKS・VALUES）を、import せず字の宣言として読む。宣言の無い名は入らない。
-    読めない file は例外を上げる（呼ぶ側がその file だけを外す）。"""
+    宣言ごとに読む＝VALUES が壊れても HOOKS は読める（壊れた宣言は入らず、試験が「VALUES が無い」で赤にする）。
+    file 自体が読めない（構文の誤り）時は例外を上げる（呼ぶ側がその file だけを外す）。"""
     with open(path, encoding="utf-8") as f:
         tree = ast.parse(f.read())
     out = {}
@@ -38,7 +39,10 @@ def declared(path):
         if isinstance(n, ast.Assign):
             for t in n.targets:
                 if isinstance(t, ast.Name) and t.id in ("HOOKS", "VALUES"):
-                    out[t.id] = ast.literal_eval(n.value)
+                    try:
+                        out[t.id] = ast.literal_eval(n.value)
+                    except ValueError:
+                        pass
     return out
 
 

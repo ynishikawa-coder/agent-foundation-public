@@ -169,3 +169,11 @@ def test_止めた文は見張りの直し方の_file_を指し_その_file_が�
     reason = json.loads(p.stdout)["hookSpecificOutput"]["permissionDecisionReason"]
     m = re.search(r"直し方と値の表の鍵: (\S+\.md)", reason)
     assert m and Path(m.group(1)).is_file() and Path(m.group(1)).stem == "spec_gate", reason
+
+
+def test_壊れた_VALUES_は自分の_HOOKS_を巻き込まず_試験は赤(copy):
+    _edit(copy / "scripts" / "spec_gate.py", "VALUES = {}", "VALUES = dict(x=1)")
+    G = _common(copy)
+    assert G.declared(str(copy / "scripts" / "spec_gate.py")).get("HOOKS") == {"pre": "check"}
+    assert any("spec_gate" in e and "VALUES" in e for e in problems(copy))
+    _common(GUARD)
