@@ -20,12 +20,15 @@ def size(text: str) -> int:
     return len(text.encode("utf-8"))
 
 
-def run(*args, project=None):
+def run(*args, project=None, home=None, stdin="", extra=None):
     env = dict(os.environ)
+    # 試験は窓の実の home（入った plugin の台帳）を読まない。新しさの見張りは作り物の home で見る。
+    env["HOME"] = str(home or (project or Path("/nonexistent-home")))
     if project is not None:
         env["CLAUDE_PROJECT_DIR"] = str(project)
+    env.update(extra or {})
     return subprocess.run([sys.executable, str(TOOL), *map(str, args)], capture_output=True, text=True,
-                          timeout=30, env=env)
+                          timeout=60, env=env, input=stdin)
 
 
 def test_核と細目と_hook_が_plugin_の中に在る():
@@ -33,6 +36,8 @@ def test_核と細目と_hook_が_plugin_の中に在る():
     hooks = json.loads((PLUGIN / "hooks" / "hooks.json").read_text(encoding="utf-8"))
     cmd = hooks["hooks"]["SessionStart"][0]["hooks"][0]["command"]
     assert "${CLAUDE_PLUGIN_ROOT}/scripts/kaku.py" in cmd and cmd.endswith(" inject")
+    cmd = hooks["hooks"]["UserPromptSubmit"][0]["hooks"][0]["command"]
+    assert "${CLAUDE_PLUGIN_ROOT}/scripts/kaku.py" in cmd and cmd.endswith(" fresh")
 
 
 def test_写しの枠が無い_repo_には核と細目の在り処を差し込む(tmp_path):
@@ -165,3 +170,102 @@ def test_核の根治は誤りが入れない形と注入の試験を持つ():
     for word in ["写す工程を無くす", "誤った物が入れない", "正しい道だけが外へ出す", "防げない物は名指しで人の関所へ", "注入の試験", "古い道は残さず"]:
         assert word in s3d, f"細目 §3 に無い: {word}"
     assert "記録で確かめる" in _節(saimoku, 7)
+
+
+# ── 古い土台で立った窓を見つける（入っている物と main の先端を比べる）。remote は作り物の git ──
+
+def _git(cwd, *a):
+    return subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@example.invalid", *a], cwd=cwd,
+                          capture_output=True, text=True, check=True).stdout.strip()
+
+
+def _commit(work, files, msg):
+    for name, body in files.items():
+        f = work / name
+        f.parent.mkdir(parents=True, exist_ok=True)
+        f.write_text(body, encoding="utf-8")
+    _git(work, "add", "-A")
+    _git(work, "commit", "-q", "-m", msg)
+    _git(work, "push", "-q", "origin", "HEAD:main")
+    return _git(work, "rev-parse", "HEAD")
+
+
+class Foundation:
+    """作り物の土台: remote（bare）・書く側の clone・窓の home（入れた時の marketplace の clone と台帳）。"""
+
+    def __init__(self, tmp):
+        self.tmp, self.remote, self.work, self.home = tmp, tmp / "remote.git", tmp / "work", tmp / "home"
+        subprocess.run(["git", "init", "-q", "--bare", "-b", "main", str(self.remote)], check=True)
+        subprocess.run(["git", "clone", "-q", str(self.remote), str(self.work)], check=True, capture_output=True)
+        self.installed = _commit(self.work, {"plugins/core/核.md": "核 1\n", "docs/a.md": "1\n"}, "始め")
+
+    def install(self, source="github"):
+        """窓が立つ時に setup script が入れた形を作る（marketplace の clone と台帳）。"""
+        loc = self.home / ".claude" / "plugins" / "marketplaces" / "agent-foundation"
+        subprocess.run(["git", "clone", "-q", str(self.remote), str(loc)], check=True, capture_output=True)
+        _git(loc, "checkout", "-q", self.installed)
+        plugins = self.home / ".claude" / "plugins"
+        (plugins / "known_marketplaces.json").write_text(json.dumps({"agent-foundation": {
+            "source": {"source": source, "repo": "o/agent-foundation-public"}, "installLocation": str(loc)}}))
+        (plugins / "installed_plugins.json").write_text(json.dumps({"version": 2, "plugins": {"core@agent-foundation": [
+            {"installPath": str(PLUGIN), "gitCommitSha": self.installed}]}}))
+
+    def hook(self, event, sid="s1"):
+        r = run(event, project=self.tmp, home=self.home, stdin=json.dumps({"session_id": sid}),
+                extra={"AF_FRESH_INTERVAL": "0"})
+        assert r.returncode == 0, r.stderr
+        return json.loads(r.stdout)["hookSpecificOutput"]["additionalContext"] if r.stdout else ""
+
+
+def test_起動の後に_plugin_が変わったら引き継いで閉じるよう知らせる(tmp_path):
+    """注入: 窓が立った後に main の先端で plugin を変える → 次の問いで引き継ぎの手順が出る。"""
+    f = Foundation(tmp_path)
+    f.install()
+    assert "土台が古い" not in f.hook("inject")
+    assert f.hook("fresh") == ""                         # まだ先端と同じ
+    _commit(f.work, {"plugins/guard/x.py": "x\n"}, "守りを変える")
+    text = f.hook("fresh")
+    assert "引き継いで閉じる" in text and "create_session" in text and "archive_session" in text
+    assert "guard" in text and "人の作業は新しい窓で止まらず続く" in text
+    assert "引き継いで閉じる" in f.hook("fresh")        # 引き継ぐまで問いのたびに知らせる
+
+
+def test_文書と試験だけの変更では窓を替えない(tmp_path):
+    f = Foundation(tmp_path)
+    f.install()
+    f.hook("inject")
+    _commit(f.work, {"docs/a.md": "2\n", "tests/test_x.py": "1\n"}, "文書だけ")
+    assert f.hook("fresh") == ""
+
+
+def test_起動の時から古い窓は引き継がず_setup_script_を直すよう知らせる(tmp_path):
+    """注入: setup script が古い物を入れた（版を指したまま）→ 立て直しても同じなので輪にしない。"""
+    f = Foundation(tmp_path)
+    _commit(f.work, {"plugins/core/核.md": "核 2\n"}, "核を変える")
+    f.install()                                          # 入れたのは 1 つ前（f.installed）
+    text = f.hook("inject")
+    assert "土台が古いまま立った窓" in text and "setup script" in text and "core" in text
+    assert "# 振る舞いの核" in text                       # 核の差し込みは止めない
+    assert f.hook("fresh") == ""
+
+
+def test_比べられない時は窓を替えない(tmp_path):
+    """手元の dir から入れた試し・remote に出られない時は、知らない値で人の作業を止めない。"""
+    f = Foundation(tmp_path)
+    f.install(source="directory")
+    f.hook("inject")
+    _commit(f.work, {"plugins/core/核.md": "核 3\n"}, "核を変える")
+    assert f.hook("fresh") == ""
+    g = Foundation(tmp_path / "g")
+    g.install()
+    g.hook("inject", sid="s2")
+    _commit(g.work, {"plugins/core/核.md": "核 3\n"}, "核を変える")
+    g.remote.rename(g.tmp / "gone.git")                 # remote に出られない
+    assert g.hook("fresh", sid="s2") == ""
+
+
+def test_起動の記録が無い窓は見に行かない(tmp_path):
+    f = Foundation(tmp_path)
+    f.install()
+    _commit(f.work, {"plugins/core/核.md": "核 4\n"}, "核を変える")
+    assert f.hook("fresh", sid="記録の無い窓") == ""

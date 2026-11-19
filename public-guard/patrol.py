@@ -3,9 +3,10 @@
 
 GitHub の設定そのものは AI には固定できない。なので「外れたら必ず見つけて知らせる」をこの 1 本で担う。
 見る相手: patrol.json の owners の公開 repo（archive 済みは除く）。各 repo の既定の枝について:
-  1. 呼び口: .github/workflows/ のどれかが土台の action `public-guard` を版の印（vX.Y.Z）で呼んでいる
-     （土台そのものは `./public-guard`）
+  1. 呼び口: .github/workflows/ のどれかが土台の action `public-guard` を main の先端（@main）で呼んでいる
+     （土台そのものは `./public-guard`）。版の印や SHA で止めた呼び口は、直した検査が届かないので外れ。
   2. 守り: 既定の枝の守り（ruleset か枝の保護）の必須の検査に `public-guard` が入っている
+     （土台そのものは、使う側と同じ入れ方で plugin を入れて起動する `plugin-smoke` も）
 
 使い方: python3 patrol.py [--owner O ...] [--report-issue]
   --report-issue: Actions の中で、この repo の issue「公開の検査の見回り」を立てる・書き替える・0 件なら閉じる。
@@ -26,10 +27,12 @@ from pathlib import Path
 API = "https://api.github.com"
 FOUNDATION = "ynishikawa-coder/agent-foundation-public"
 CHECK = "public-guard"
+# 土台は main の先端をそのまま配るので、合流の前に「使う側と同じ入れ方で入れて起動する」試験を必須にする。
+FOUNDATION_CHECKS = (CHECK, "plugin-smoke")
+REF = "main"
 ISSUE_TITLE = "公開の検査の見回り"
 CALL = re.compile(r"uses:\s*['\"]?" + re.escape(FOUNDATION) + r"/public-guard@([^\s'\"#]+)")
 LOCAL_CALL = re.compile(r"uses:\s*['\"]?\./public-guard['\"]?\s*$", re.M)
-TAG = re.compile(r"^v\d+\.\d+\.\d+$")
 
 
 class GitHub:
@@ -108,10 +111,12 @@ def inspect(gh: GitHub, repo: dict) -> list[str]:
     if not refs and not local:
         problems.append("公開の検査の呼び口が無い（public-guard/caller-template.yml を .github/workflows/ へ）")
     for ref in refs:
-        if not TAG.match(ref):
-            problems.append(f"公開の検査を版の印で固定していない（@{ref} → @vX.Y.Z）")
-    if CHECK not in required_checks(gh, full, branch):
-        problems.append(f"{branch} の守りの必須の検査に {CHECK} が無い（Settings → Rules → Rulesets）")
+        if ref != REF:
+            problems.append(f"公開の検査を main の先端で呼んでいない（@{ref} → @{REF}）")
+    have = required_checks(gh, full, branch)
+    for check in (FOUNDATION_CHECKS if full == FOUNDATION else (CHECK,)):
+        if check not in have:
+            problems.append(f"{branch} の守りの必須の検査に {check} が無い（Settings → Rules → Rulesets）")
     return problems
 
 

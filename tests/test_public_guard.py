@@ -7,6 +7,7 @@ import hashlib
 import hmac
 import json
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -236,9 +237,10 @@ def test_action_は本体を呼ぶ():
     assert "fetch-depth: 0" in text
 
 
-def test_雛形は版の印で呼び_job_の名が決まっている():
+def test_雛形は_main_の先端で呼び_job_の名が決まっている():
     text = (ROOT / "public-guard" / "caller-template.yml").read_text(encoding="utf-8")
-    assert "agent-foundation-public/public-guard@vX.Y.Z" in text
+    assert "agent-foundation-public/public-guard@main\n" in text
+    assert not re.search(r"public-guard@v\d|@vX", text), "雛形に版の印が残っている"
     assert "  public-guard:\n    name: public-guard" in text
     ci = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
     assert "  public-guard:\n    name: public-guard" in ci and "uses: ./public-guard" in ci
@@ -277,7 +279,7 @@ def _routes(full, wf_text=None, contexts=(), rules=()):
     return r
 
 
-CALLER = "    steps:\n      - uses: ynishikawa-coder/agent-foundation-public/public-guard@v0.5.0\n"
+CALLER = "    steps:\n      - uses: ynishikawa-coder/agent-foundation-public/public-guard@main\n"
 
 
 def test_見回り_呼び口と守りがあれば外れ0():
@@ -300,9 +302,11 @@ def test_見回り_守りが無ければ外れ():
     assert any("必須の検査" in p for p in found["o/x"])
 
 
-def test_見回り_版の印で固定していなければ外れ():
-    found = patrol.patrol(FakeGitHub(_routes("o/x", CALLER.replace("@v0.5.0", "@main"), rules=["public-guard"])), ["o"])
-    assert any("版の印" in p for p in found["o/x"])
+@pytest.mark.parametrize("ref", ["v0.5.0", "1ce8fa37f665eb40216d290d45c25c44de4ca320", "claude/20261119-x"])
+def test_見回り_main_の先端で呼んでいなければ外れ(ref):
+    """版の印・SHA・枝で止めた呼び口は、直した検査が届かない（注入の試験）。"""
+    found = patrol.patrol(FakeGitHub(_routes("o/x", CALLER.replace("@main", "@" + ref), rules=["public-guard"])), ["o"])
+    assert any("main の先端で呼んでいない" in p for p in found["o/x"])
 
 
 def test_見回り_非公開とarchiveは見ない():
@@ -313,8 +317,16 @@ def test_見回り_非公開とarchiveは見ない():
 
 def test_見回り_土台は自分の枝の物を呼んでよい():
     full = patrol.FOUNDATION
-    gh = FakeGitHub(_routes(full, "      - uses: ./public-guard\n", rules=["public-guard"]))
+    gh = FakeGitHub(_routes(full, "      - uses: ./public-guard\n", rules=["public-guard", "plugin-smoke"]))
     assert patrol.patrol(gh, [full.split("/")[0]]) == {}
+
+
+def test_見回り_土台は_plugin_smoke_が必須でなければ外れ():
+    """main の先端を配る代わりの守り（入れて起動する試験）が合流の必須から外れたら知らせる（注入の試験）。"""
+    full = patrol.FOUNDATION
+    found = patrol.patrol(FakeGitHub(_routes(full, "      - uses: ./public-guard\n", rules=["public-guard"])),
+                          [full.split("/")[0]])
+    assert any("plugin-smoke" in p for p in found[full])
 
 
 def test_見回り_外れはissueで知らせ_0なら閉じる():

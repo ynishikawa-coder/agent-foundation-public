@@ -1,6 +1,6 @@
 ---
 name: public-repo
-description: 公開の repo を作る・非公開の repo を公開で出し直す・外れた公開 repo を直す時の手順。綺麗な新しい repo に照らした中身を置き、土台の公開の検査（action public-guard）を版の印で呼び、secret と main の守りを持ち主に頼む。「公開の repo を作って」「public にしたい」「公開で出し直して」「見回りで外れと出た」で起動。合言葉:「公開する」「public にして」「公開の検査を付けて」。
+description: 公開の repo を作る・非公開の repo を公開で出し直す・外れた公開 repo を直す時の手順。綺麗な新しい repo に照らした中身を置き、土台の公開の検査（action public-guard）を main の先端で呼び、secret と main の守りを持ち主に頼む。「公開の repo を作って」「public にしたい」「公開で出し直して」「見回りで外れと出た」で起動。合言葉:「公開する」「public にして」「公開の検査を付けて」。
 ---
 
 # /public-repo — 公開の repo を作る
@@ -33,7 +33,7 @@ AF_DENY_BUNDLE="<顧客の語の束の環境変数>" python3 <土台>/public-gua
 ## 3. 中身を置く（AI）
 
 - 1 で照らした今の中身を、名義を noreply にした 1 commit で置く（`git -c user.email=<noreply> commit`）。元の歴史は置かない。
-- `.github/workflows/public-guard.yml` に土台の `public-guard/caller-template.yml` を写し、`@vX.Y.Z` を土台の一番新しい印にする。job の名 `public-guard` は変えない。
+- `.github/workflows/public-guard.yml` に土台の `public-guard/caller-template.yml` を写し、`@main` のまま置く（版の印や SHA で止めない）。job の名 `public-guard` は変えない。
 - その repo に置かない語の表があれば、雛形の `with:` に `deny-words-file:` を足す。
 - 置いたら手元で `guard.py --range ALL` を顧客の語の束つきで回し、当たり 0 を確かめる。
 
@@ -57,4 +57,4 @@ AF_DENY_BUNDLE="<顧客の語の束の環境変数>" python3 <土台>/public-gua
 
 ## 外れを直す
 
-見回りの issue「公開の検査の見回り」に出た外れは、その repo で直す: 呼び口が無い→3／版の印でない→`@vX.Y.Z` に／守りが無い→5 の 2。直したら `patrol` を手で回して issue が閉じるのを見る。
+見回りの issue「公開の検査の見回り」に出た外れは、その repo で直す: 呼び口が無い→3／`@main` でない→`@main` に／守りが無い→5 の 2。直したら `patrol` を手で回して issue が閉じるのを見る。
