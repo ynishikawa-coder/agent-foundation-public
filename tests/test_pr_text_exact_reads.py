@@ -131,10 +131,10 @@ def test_全体の形の行は値の表の照らしを通る(good):
 
 
 def test_説明が名の全体に当てる正規表現と書く():
-    """型の正本の説明と guard-rules の SKILL.md が、何に当てる正規表現かを書く（型だけでなく）。"""
+    """型の正本の説明と guard-rules の見張り pr_text の直し方の file が、何に当てる正規表現かを書く（型だけでなく）。"""
     schema = json.loads((ROOT / "skill-values" / "schema.json").read_text(encoding="utf-8"))
     assert "repo_names（owner/repo の名の全体に当てる正規表現の並び" in schema["_readme"]
-    md = (ROOT / "plugins" / "guard" / "skills" / "guard-rules" / "SKILL.md").read_text(encoding="utf-8")
+    md = (ROOT / "plugins" / "guard" / "skills" / "guard-rules" / "見張り" / "pr_text.md").read_text(encoding="utf-8")
     for key in REPO_KEYS:
         assert any(key in ln and "名の全体に当てる正規表現" in ln for ln in md.splitlines() if ln.startswith("- `")), key
 

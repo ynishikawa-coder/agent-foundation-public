@@ -24,7 +24,7 @@ repo の根の `config/skill-values.json` の `"guard"` に書く（鍵・型・
 - `pr_cleanup_exempt_repos` … PR 本文の整地の欄を照らさない repo（owner/repo に当てる正規表現の並び・整地を PR 本文の外に置く repo だけ）
 - `pr_words_exempt_repos` … PR の題・本文の言葉を照らさない repo（同じ形）
 - `public_repos_extra` … 手元に取り出しが無くても公開とみなす repo（同じ形）
-- 3 つとも owner/repo の名の全体に当てる正規表現の並び（型 `repo_names`・大小を問わない）。各行を `^` で始め `$` で終える（repo 1 つなら `^owner/repo$`・owner ごとなら `^owner/.*$`）。頭だけ（`^owner/`）・錨なし（`owner/repo`）の行は名の一部に当てる読み方と取り違えるので、値の表の照らしが型の違いとして名指し（起動の知らせ・`values_keys.py`・AI の書き込みは止まる）、外す側の鍵では外さず照らし、`public_repos_extra` では公開の照らしを外さない。
+- `pr_cleanup_exempt_repos`・`pr_words_exempt_repos`・`public_repos_extra`: owner/repo の名の全体に当てる正規表現の並び（型 `repo_names`・大小を問わない）。各行を `^` で始め `$` で終える（repo 1 つなら `^owner/repo$`・owner ごとなら `^owner/.*$`）。頭だけ（`^owner/`）・錨なし（`owner/repo`）の行は名の一部に当てる読み方と取り違えるので、値の表の照らしが型の違いとして名指し（起動の知らせ・`values_keys.py`・AI の書き込みは止まる）、外す側の鍵では外さず照らし、`public_repos_extra` では公開の照らしを外さない。
 
 ## 射程の外
 
