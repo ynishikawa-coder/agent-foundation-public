@@ -72,16 +72,6 @@
       "pattern": "(?m)(?:^|[「『【\\[\"'`“])[ \\t#*]*他の窓へ回す",
       "fix": "欄を「## 残り（原因の台帳の行）」にし、残りは原因の台帳に行を入れてから行の題と行き先だけを写す（土台の .github/pull_request_template.md の形）",
       "example": "## 他の窓へ回す"
-    },
-    {
-      "id": "cleanup-followup-key",
-      "what": "preimpl-cleanup の値の表の鍵 cleanup_followup（土台が畳んだ。[後片付け] は原因の台帳の行にする）",
-      "files": [
-        "config/skill-values.json"
-      ],
-      "pattern": "\"cleanup_followup\"\\s*:",
-      "fix": "鍵を消す。[後片付け] は原因の台帳の行にする（土台の dev-flow:preimpl-cleanup）",
-      "example": "      \"cleanup_followup\": \"…\""
     }
   ]
 }
