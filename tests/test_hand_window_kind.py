@@ -29,7 +29,8 @@ HAND_REPLY = ("⏳ 待ち\n目的: 作り物の設定を入れる\n手順: 作�
 
 def hand_log(tmp_path, first, title, reply=HAND_REPLY):
     rows = [
-        {"type": "user", "message": {"role": "user", "content": first}},
+        # 親窓が立てた窓の頼みの行（記録 origin.kind が人でない＝文の返し先を数える）
+        {"type": "user", "message": {"role": "user", "content": first}, "origin": {"kind": "task-notification"}},
         {"type": "assistant", "message": {"role": "assistant", "content": [
             {"type": "tool_use", "id": "t1", "name": "mcp__claude-code-remote__set_session_title",
              "input": {"session_id": "session_01HAND010000000000", "title": title}}]}},
@@ -80,7 +81,7 @@ def test_手の窓にわざと_AI_の印_を付けると_Stop_が差し戻す(tm
 def test_種類の正本は手の窓を返し先より先に見る():
     assert sw.window_kind(CHILD, "🙋⏳ 手: 作り物") == sw.HUMAN
     assert sw.window_kind(CHILD, "🤖⏳ 手: 作り物") == sw.HUMAN
-    assert sw.window_kind(CHILD, "🤖 作り物の作業") == sw.AI
+    assert sw.window_kind(CHILD, "🤖 作り物の作業", seeded=True) == sw.AI
     assert sw.window_kind("返し先=オーナー", None) == sw.HUMAN
     assert sw.window_kind("作り物を直して", None) is None
 
