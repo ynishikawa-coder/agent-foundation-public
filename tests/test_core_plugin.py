@@ -103,9 +103,9 @@ def test_核の根治は問題_原因_解決_未来の_4_段で_未来は試験�
     kaku_text = (PLUGIN / "核.md").read_text(encoding="utf-8")
     s3 = _節(kaku_text, 3)
     assert "問題→原因→解決→未来" in s3
-    assert "仕組み・設計が悪い前提" in s3 and "別の目の助手" in s3
-    assert "未来は同じ問題が起きない姿" in s3, "核 §3 の未来が直した後の姿でない"
+    assert "仕組み・設計）が悪い前提" in s3 and "別の目の助手" in s3
     s3d = _節((PLUGIN / "細目.md").read_text(encoding="utf-8"), 3)
+    assert "同じ問題と同じ原因の他の問題が起きない状態" in s3d, "細目 §3 の未来が直した後の姿でない"
     for word in ["**問題**", "**原因**", "**同じ原因の他の問題**", "**解決**", "**未来**",
                  "無理・無駄・重複", "聞かせ方", "混じって", "試験を足す段ではない"]:
         assert word in s3d, f"細目 §3 に無い: {word}"
@@ -235,8 +235,46 @@ def test_main_へは製品もオーナーに聞かずに入れ_絵と差があ�
     kaku_text = (PLUGIN / "核.md").read_text(encoding="utf-8")
     assert "本番への出荷" not in _節(kaku_text, 4), "核 §4 に「本番への出荷は聞く」が戻った"
     s7 = _節(kaku_text, 7)
-    for word in ["（製品も）オーナーに聞かずに入れる", "レビュー green", "試験が緑で衝突なし", "全体の絵", "差があれば止めて聞く", "先に絵を描き"]:
+    for word in ["（製品も）オーナーに聞かずに入れる", "レビュー green", "試験が緑で衝突なし", "全体の絵", "差がある・照らせない時は止めて聞く", "先に絵を描き"]:
         assert word in s7, f"核 §7 に無い: {word}"
     s7d = _節((PLUGIN / "細目.md").read_text(encoding="utf-8"), 7)
     assert "**main へ入れる**" in s7d and "**③の段が土台に入るまで**" in s7d
+    assert "核 §7 の「照らせない時」" in s7d, "照らす段が無い間の一言が核から読めない形に戻った"
     assert "核 §7 と細目 §7 の「main へ入れる」" in (ROOT / "CONTRIBUTING.md").read_text(encoding="utf-8")
+
+
+def test_ミスが出たらまず構造を疑い_単発と言うのは絵の上で示せた時だけ():
+    """根治の入口を「直す・作る時」だけに戻す・単発で片付ける道を戻す・規律を 2 度目まで足し続ける形を戻すと赤。"""
+    kaku_text = (PLUGIN / "核.md").read_text(encoding="utf-8")
+    s3 = _節(kaku_text, 3)
+    first = s3.split("\n- ", 1)[1]
+    assert first.startswith("ミスが出た時（画面の見た目を除く）と直す・作る時の既定は根治"), "根治の入口が直す・作る時だけに戻った"
+    for word in ["まず構造（上位の前提", "単発の誤りと言うのは全体の絵の上で構造に原因が無いと示せた時だけ",
+                 "守り（確かめ・決まり）を足さず"]:
+        assert word in s3, f"核 §3 に無い: {word}"
+    s3d = _節((PLUGIN / "細目.md").read_text(encoding="utf-8"), 3)
+    assert "**まず構造を疑う**" in s3d
+    for word in ["作業の途中・レビュー・検査・引き継ぎ", "画面の見た目の崩れだけは除く", "示した所（絵のどこを見たか）を書く",
+                 "根に届いていない合図で、原因の段へ戻る"]:
+        assert word in s3d, f"細目 §3 の「まず構造を疑う」に無い: {word}"
+    rr = (ROOT / "plugins" / "dev-flow" / "skills" / "register-rule" / "SKILL.md").read_text(encoding="utf-8")
+    assert "細目 §3「まず構造を疑う」" in rr, "register-rule が規律を足す前に原因の段へ戻さない"
+    assert "細目 §3「まず構造を疑う」" in (ROOT / "CONTRIBUTING.md").read_text(encoding="utf-8"), "red を単発の手直しで済ませる形に戻った"
+    olds = ["同じ種類の失敗が 2 度なら", "原因は仕組み・設計が悪い前提で探し"]
+    hits = []
+    for p in sorted(ROOT.rglob("*")):
+        rel = p.relative_to(ROOT)
+        if rel.parts[0] in {".git", "tests"} or p.name == "CHANGELOG.md":
+            continue
+        if p.is_file() and p.suffix in {".md", ".py", ".json", ".mjs", ".html"}:
+            text = p.read_text(encoding="utf-8")
+            hits += [f"{rel}: {o}" for o in olds if o in text]
+    assert not hits, hits
+
+
+def test_核から細目へ移した物が細目に在る():
+    """量を空けるために核から移した物が、どこにも無くならない。"""
+    saimoku = (PLUGIN / "細目.md").read_text(encoding="utf-8")
+    assert "「ほぼ終わった」と書かない" in _節(saimoku, 7)
+    s8 = _節(saimoku, 8)
+    assert "Javis は Notion と Drive" in s8 and "**またぐ連絡**" in s8
