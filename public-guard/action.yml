@@ -15,7 +15,7 @@ inputs:
     required: false
     default: ""
   pattern-skip:
-    description: 形の照らしから外す path（空白区切り・形を書いた検査の道具だけに使う。顧客の語の照らしは外さない）
+    description: 個人の形（電話・郵便番号・URL 等）の照らしから外す path（空白区切り・形を書いた検査の道具だけに使う）。鍵の形と顧客の語は外す path でも照らす（通るのは見本の印の形だけ）
     required: false
     default: ""
   checkout:

@@ -142,7 +142,8 @@ def test_outbound_題の形の見分けは_session_watch_の正本を直に呼�
     fake = tmp_path / "session_watch.py"
     fake.write_text("import re\nHAND_TITLE=re.compile('^手')\nHAND_PARTS=()\n"
                     "def title_shape(t): return ['作り物の正本が止めた']\n"
-                    "def split_title(t): return (None, None, t)\n", encoding="utf-8")
+                    "def split_title(t): return (None, None, t)\n"
+                    "def hand_lack(t): return []\n", encoding="utf-8")
     why = deny_reason(dict(env, AF_SESSION_WATCH=str(fake)), tool(SET_TITLE, session_id="s", title="🤖 作り物"))
     assert "作り物の正本が止めた" in why
 
@@ -206,7 +207,8 @@ def test_outbound_他の見分けが壊れても鍵は止まり_鍵の見分け�
     p = tool(CREATE, title="🤖 作り物の作業", prompt="この鍵で入って %s" % key)
     old = tmp_path / "session_watch.py"              # 題の形の見分けが無い古い版の正本
     old.write_text("import re\n", encoding="utf-8")
-    assert "鍵・認証情報の形" in deny_reason(dict(env, AF_SESSION_WATCH=str(old)), p)
+    why = deny_reason(dict(env, AF_SESSION_WATCH=str(old)), p)
+    assert "鍵・認証情報の形" in why and "形を照らせない" in why     # 題の正本が古くても鍵は止まり、題は照らせないと止まる
     broke = tmp_path / "broke.py"                     # 読むと壊れる正本
     broke.write_text("raise RuntimeError('作り物の故障')\n", encoding="utf-8")
     assert "鍵・認証情報の形" in deny_reason(dict(env, AF_SESSION_WATCH=str(broke)), p)
@@ -216,4 +218,4 @@ def test_outbound_他の見分けが壊れても鍵は止まり_鍵の見分け�
     table.write_text(json.dumps({"guard": {"number_request_exempt": ["(崩れた"]}}), encoding="utf-8")
     assert "鍵・認証情報の形" in deny_reason(env, p)     # number が壊れても鍵は止まる
     table.write_text(json.dumps({"guard": {"outbound_secret_allow": ["(崩れた"]}}), encoding="utf-8")
-    assert "照らせない" in deny_reason(env, p)          # 外す形が壊れたら、鍵を外さず止める
+    assert "鍵・認証情報の形" in deny_reason(env, p)     # 外す形が壊れたら、値の表の口がその鍵を既定（外さない）に倒す＝鍵で止まる

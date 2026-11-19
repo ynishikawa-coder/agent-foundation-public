@@ -10,9 +10,16 @@
 SKILL.md の「repo ごとの値」の表と鍵の一覧のずれは土台の試験（tests/test_skill_values.py）が両向きに照らす。
 
   values_keys.py [<skill-values.json>]  … 問題の鍵を並べ、在れば exit 1（使う側の CI・手元で回す口）
+値の表の path は自分で組まず、1 本の口の find（--values・SKILL_VALUES・$CLAUDE_PROJECT_DIR からの探し）で引く。
+書く手は道具の名で見ず、入力の形で見る（content を持つ＝丸ごと書く・old_string/edits を持つ＝書き換える）。
+Bash は読み手（cmd_read）の語で「どこへ書くか」を読む（paid_upstream.bash_writes）。
+
 hook（guard.py から）:
-  check(data, vals)     … PreToolUse: Write・Edit・MultiEdit で値の表を書いた後に問題の鍵が残り、
-                          書く前より減っていなければ止める（AI の書き込みだけを止める・人の手は止めない）
+  check(data, vals)     … PreToolUse: 値の表を書いた後に問題の鍵が残り、書く前より減っていなければ止める。
+                          Bash で値の表へ確かに書く形（> の的・-i の段・of= の的）は、書いた後の中身を照らせないので止め、
+                          Write・Edit で書かせる（AI の書き込みだけを止める・人の手は止めない）
+  after_bash(data, vals) … PostToolUse: 読むだけでない Bash が値の表を指した後、表に問題の鍵が在れば知らせる
+                          （python -c の open など、書くかもしれない形の受け口・止めない）
   resurface(data, vals) … SessionStart: 値の表に問題の鍵が在れば知らせる（止めない）
 """
 from __future__ import annotations
@@ -24,11 +31,12 @@ import sys
 sys.dont_write_bytecode = True
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+import cmd_read as R  # noqa: E402
 import guard_common as G  # noqa: E402
+import paid_upstream as PU  # noqa: E402  Bash が書く先の読み（bash_writes）
 
 SV = G.SV                                                # 値の表の 1 本の口（guard_common が lib/ から読む）
-WRITE_TOOLS = ("Write", "Edit", "MultiEdit")
-HOOKS = {"pre": "check", "start": "resurface"}
+HOOKS = {"pre": "check", "post": "after_bash", "start": "resurface"}
 
 
 def unknown(table):
@@ -36,18 +44,32 @@ def unknown(table):
     return SV.check(table) if isinstance(table, dict) else []
 
 
-def _is_values_path(path):
-    path = (path or "").replace("\\", "/")
-    return path.endswith("/" + SV.REL_PATH.replace(os.sep, "/")) or path == SV.REL_PATH.replace(os.sep, "/")
+def _abs(path, data):
+    path = os.path.expanduser(path or "")
+    return os.path.realpath(os.path.join(data.get("cwd") or G.project_dir(data) or os.getcwd(), path))
 
 
-def _after(tool, inp, before_text):
-    """書いた後の中身（読めなければ None）。"""
-    if tool == "Write":
-        return inp.get("content") if isinstance(inp.get("content"), str) else None
+def _is_values_path(path, data):
+    """path が値の表か: この窓が読む表（1 本の口の find）か、その場所から find が引く表（別の repo の表も）。"""
+    if not isinstance(path, str) or not path.strip():
+        return False
+    p = _abs(path, data)
+    found = SV.find(starts=G._starts(data))
+    if found and os.path.realpath(found) == p:
+        return True
+    near = SV.find(starts=[os.path.dirname(os.path.dirname(p))], env={})
+    if near and os.path.realpath(near) == p:
+        return True
+    return p.endswith(os.sep + SV.REL_PATH)                # まだ無い表を新しく書く時（find が探す場所の形）
+
+
+def _after(inp, before_text):
+    """書いた後の中身（読めなければ None）。道具の名でなく入力の形で読む: content＝丸ごと・edits／old_string＝書き換え。"""
+    if isinstance(inp.get("content"), str):
+        return inp["content"]
     if before_text is None:
         return None
-    edits = inp.get("edits") if tool == "MultiEdit" else [inp]
+    edits = inp.get("edits") if isinstance(inp.get("edits"), list) else [inp]
     text = before_text
     for e in edits or []:
         old, new = e.get("old_string"), e.get("new_string")
@@ -73,21 +95,36 @@ def _say(keys, where):
             % (where, "\n".join("  - " + k for k in keys)))
 
 
+def _bash_values(data, sure_only):
+    cmd = (data.get("tool_input") or {}).get("command") if isinstance(data.get("tool_input"), dict) else None
+    if not isinstance(cmd, str):
+        return []
+    sure, maybe = PU.bash_writes(cmd)
+    cands = sure if sure_only else sure + maybe
+    found = SV.find(starts=G._starts(data))
+    names = {os.path.basename(SV.REL_PATH)} | ({os.path.basename(found)} if found else set())
+    return [t for t in dict.fromkeys(cands) if os.path.basename(t) in names and _is_values_path(t, data)]
+
+
 def check(data, vals):
-    tool = data.get("tool_name") or ""
     inp = data.get("tool_input") or {}
-    if tool not in WRITE_TOOLS or not isinstance(inp, dict):
+    if not isinstance(inp, dict):
         return ""
-    path = inp.get("file_path") or ""
-    if not _is_values_path(path):
+    if data.get("tool_name") == "Bash":
+        hit = _bash_values(data, sure_only=True)
+        if not hit:
+            return ""
+        return ("値の表 %s へ Bash で書く形は、書いた後の中身を照らせない（土台が読まない鍵が黙って残る道）。"
+                "Write か Edit で書く（書いた後の中身を土台の鍵の一覧で照らしてから通す）。" % hit[0])
+    path = inp.get("file_path") or inp.get("path") or ""
+    if not _is_values_path(path, data):
         return ""
-    if not os.path.isabs(path):
-        path = os.path.join(data.get("cwd") or G.project_dir(data) or os.getcwd(), path)
+    path = _abs(path, data)
     before_text = None
     if os.path.isfile(path):
         with open(path, encoding="utf-8") as f:
             before_text = f.read()
-    after_text = _after(tool, inp, before_text)
+    after_text = _after(inp, before_text)
     if after_text is None:
         return ""                                        # 書き換えが当たらない＝道具の側で失敗する
     after = _load(after_text)
@@ -102,26 +139,33 @@ def check(data, vals):
     return _say(now, path)
 
 
-def resurface(data, vals):
-    path = SV.find(starts=G._starts(data))
-    if not path:
+def after_bash(data, vals):
+    """読むだけでない Bash が値の表を指した後、表に問題の鍵が残っていれば知らせる。"""
+    if data.get("tool_name") != "Bash":
         return ""
-    table, problems = SV.load(path)
-    if problems:
-        return "値の表 %s が読めない（%s）。土台の道具は止まり、守りは既定で動いている。この repo の PR で直す。" % (path, "・".join(problems))
-    keys = unknown(table)
-    return _say(keys, path) if keys else ""
+    cmd = (data.get("tool_input") or {}).get("command") if isinstance(data.get("tool_input"), dict) else None
+    if not isinstance(cmd, str) or R.inert(cmd):
+        return ""
+    for t in _bash_values(data, sure_only=False):
+        table, problems = SV.load(_abs(t, data))
+        keys = problems + unknown(table)
+        if keys:
+            return _say(keys, _abs(t, data))
+    return ""
+
+
+def resurface(data, vals):
+    path, problems = G.values_problems(data)             # 表の探し方は guard_common の 1 本の口（読む順を写さない）
+    return _say(problems, path) if problems else ""
 
 
 def main(argv):
-    path = argv[1] if len(argv) > 1 else SV.REL_PATH
-    try:
-        with open(path, encoding="utf-8") as f:
-            table = json.load(f)
-    except Exception as e:      # noqa: BLE001
-        print("値の表 %s が読めない: %s" % (path, e))
-        return 1
-    keys = unknown(table)
+    path = SV.find(explicit=argv[1] if len(argv) > 1 else None)     # --values 相当・SKILL_VALUES・$CLAUDE_PROJECT_DIR・今の dir
+    if not path:
+        print("値の表が見つからない（探した: SKILL_VALUES・$CLAUDE_PROJECT_DIR と今の dir から上の %s）＝鍵は全部既定" % SV.REL_PATH)
+        return 0
+    table, problems = SV.load(path)
+    keys = problems + unknown(table)
     if keys:
         print(_say(keys, path))
         return 1

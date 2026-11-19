@@ -180,8 +180,10 @@ _読む口 = {   # path: その file が読む値の表の枠
     **{f"plugins/guard/scripts/{p.name}": ("guard",) for p in (ROOT / "plugins/guard/scripts").glob("*.py")},
 }
 _読まない口 = {   # 値の表に触れるが鍵を読まない file: 理由
-    **{f"plugins/{p}/lib/skill_values.py": "読む口の本体（土台の skill-values/ への symlink・鍵は呼ぶ側が渡す）"
-       for p in ("dev-flow", "docs-kit", "guard")},
+    # plugin の名を手で並べず、土台の skill-values/ の正本を指す symlink の実物から読む
+    **{str(p.relative_to(ROOT)): "読む口の本体（土台の skill-values/ への symlink・鍵は呼ぶ側が渡す）"
+       for p in sorted((ROOT / "plugins").glob("*/lib/skill_values.py"))
+       if p.is_symlink() and p.resolve() == (ROOT / "skill-values" / "skill_values.py").resolve()},
 }
 _値の表に触れる = re.compile(r"skill-values|skill_values|SKILL_VALUES|guard_common|\bvals\b")
 _鍵を読む形 = [

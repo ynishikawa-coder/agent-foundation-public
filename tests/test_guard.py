@@ -141,18 +141,17 @@ def test_助手の中の問いは台帳に積まない(env):
     assert hook(env, "start", {"session_id": "s2"}) == {}
 
 
-@pytest.mark.parametrize("cmd", [DROP, "supabase db reset", "ls | xargs rm -rf", "rm -rf $HOME/x"])
+@pytest.mark.parametrize("cmd", [DROP, "supabase db reset", "ls | xargs rm -rf", "rm -rf $HOME/x",
+                                 "git push --force origin x"])
 def test_離席中は戻せない操作を止める(env, cmd):
     hook(env, "post", ask_result())
     assert denied(env, bash(cmd))
 
 
 @pytest.mark.parametrize("cmd", [
-    "ls -la", "git status", "git branch -D old",
-    # 他の守り（permissions.deny）が常に止める物は重ねない
-    "vercel deploy --prod", "git push --force origin x", "gh release create v9",
+    "ls -la", "git status", "git branch old", "vercel deploy --prod", "gh release create v9",
 ])
-def test_離席中でも戻せる操作と他が止める操作は通す(env, cmd):
+def test_離席中でも戻せる操作は通す(env, cmd):
     hook(env, "post", ask_result())
     assert not denied(env, bash(cmd))
 
@@ -509,7 +508,7 @@ def test_qa_page_型を写さない独自の問いのページは止まる(env, 
     page = tmp_path / "kakunin.html"
     page.write_text(STATE_PAGE, encoding="utf-8")
     why = deny_reason(env, publish("kakunin.html", cwd=str(tmp_path)))
-    assert "qa-html の検査を通っていない" in why and "<script> の JSON に questions／qs" in why
+    assert "qa-html の検査を通っていない" in why and "<script> の JSON に問いの形の構造" in why
     assert "型の qa:css の印が無い" in why
     assert "細目 §3「まず構造を疑う」" in why and "もう一度 publish する" not in why, "止めた文が出し直しだけを促す古い形に戻った"
 
@@ -630,8 +629,8 @@ def test_qa_page_51個目に在る問いの並びも見分ける(tmp_path):
         import qa_page
     finally:
         sys.path.pop(0)
-    rows = [{"x": i} for i in range(50)] + [{"questions": [{"q": "作り物", "options": ["甲", "乙"]}]}]
-    assert qa_page._has_question_list({"pages": rows})
+    rows = [{"x": i} for i in range(50)] + [{"questions": [{"q": "作り物はどれですか", "options": ["甲", "乙"]}]}]
+    assert qa_page.question_structure({"pages": rows})
 
 
 # ── pick_one（選択肢の画面で作業・論点・原因を 1 つだけ選ばせる問い）──

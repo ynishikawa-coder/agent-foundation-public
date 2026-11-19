@@ -37,7 +37,7 @@ sys.dont_write_bytecode = True
 
 REL_PATH = os.path.join("config", "skill-values.json")
 SCHEMA_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "schema.json")
-TYPES = ("str", "int", "bool", "list", "dict", "text", "any")
+TYPES = ("str", "int", "bool", "list", "dict", "text", "regex", "regex_why", "any")
 
 
 class ValuesError(Exception):
@@ -156,11 +156,35 @@ def _type_ok(t, v):
         return isinstance(v, dict)
     if t == "text":
         return isinstance(v, str) or (isinstance(v, list) and all(isinstance(x, str) for x in v))
+    if t == "regex":
+        return isinstance(v, list) and all(isinstance(x, str) and x and _compiles(x) for x in v)
+    if t == "regex_why":
+        return isinstance(v, list) and all(_compiles(_pat_of(x)) for x in v)
     return False
 
 
+def _compiles(pat):
+    import re
+    try:
+        re.compile(pat)
+        return True
+    except (re.error, TypeError):
+        return False
+
+
+def _pat_of(x):
+    """[正規表現, 理由] か {"pattern": 正規表現, "why": 理由} の正規表現（形が違えば None＝読めない）。"""
+    if isinstance(x, dict):
+        x = x.get("pattern")
+    elif isinstance(x, (list, tuple)) and len(x) == 2:
+        x = x[0]
+    return x if isinstance(x, str) and x else None
+
+
 TYPE_WORD = {"str": "文字列", "int": "整数", "bool": "真偽", "list": "並び [...]", "dict": "{...}",
-             "text": "文字列か文字列の並び", "any": "何でも"}
+             "text": "文字列か文字列の並び", "any": "何でも",
+             "regex": "正規表現として読める文字列の並び",
+             "regex_why": "[正規表現, 理由] か {\"pattern\": …, \"why\": …} の並び（正規表現として読める物）"}
 
 
 def _check_keys(where, node, specs, retired):

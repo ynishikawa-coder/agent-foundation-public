@@ -45,7 +45,8 @@ def test_context_stop_子の窓には返し先へ送って止まる直し方を�
 HANDOFFS = [
     ("後継の窓を立てた", use("mcp__claude-code-remote__create_session", {"prompt": "作り物の引き継ぎ"})),
     ("親の窓へ送った", use("mcp__claude-code-remote__send_message", {"message": "作り物の返し"})),
-    ("引き継ぎの file を書いた", use("Write", {"file_path": "/x/作業場/引き継ぎ.md", "content": "作り物"})),
+    ("引き継ぎの file を書いた", use("Write", {"file_path": "/x/作業場/引き継ぎ.md",
+                                    "content": "## 済んだ事\nA\n## 残り\nB\n## 次の一手\nC\n## 返し先\nオーナー"})),
 ]
 
 

@@ -57,6 +57,7 @@ jobs:
           deny-bundle: ${{ secrets.AF_DENY_BUNDLE }}
           deny-words: ${{ secrets.AF_DENY_WORDS }}
           deny-words-file: tests/data/denylist.txt
+          # 個人の形の見本を書いた検査の道具だけ外す（鍵の形は外した file でも照らす。通すのは見本の印の形だけ）
           pattern-skip: public-guard/guard.py tests/test_public_guard.py
 
   # 入れて起動する試験（scripts/plugin_smoke.py）。土台は版で止めず main の先端を配るので、合流の前に

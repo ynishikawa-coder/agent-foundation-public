@@ -241,14 +241,14 @@ def test_前提が書けない問いのデータは赤(tmp_path):
 
 @needs_node
 def test_問いのデータに外した欄があれば赤(tmp_path):
-    """差出人・連絡先の欄は外した（宛先で変えるのは宛名と会社の色だけ）＝鍵が残っていれば赤。"""
-    for k, name in [("from", "差出人"), ("contact", "連絡先")]:
+    """差出人・連絡先の欄は外した（宛先で変えるのは宛名と会社の色だけ）＝欄の正本に無い鍵は名を問わず赤。"""
+    for k in ["from", "contact", "sender", "tel"]:
         data = json.loads((DATA / "good.json").read_text(encoding="utf-8"))
         data[k] = "サンプル事務所"
         page = tmp_path / f"q_{k}.json"
         page.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
         red = run_check(page)["red"]
-        assert len(red) == 1 and red[0].startswith(f'{name}（"{k}"）は外した'), red
+        assert len(red) == 1 and red[0].startswith(f"型に無い欄「{k}」"), red
 
 
 @needs_node
@@ -431,8 +431,8 @@ MUTATIONS = [
     ('id="copybtn"', 'id="copy-button"', "qa:foot の中身が型と違う"),
     ('<p class="to">サンプル株式会社 ご担当者様</p>', '<p class="to"></p>', "宛名（header の .to）が無い"),
     # 外した欄（差出人・連絡先）が残っていれば赤
-    ('<p class="hold">', '<p class="from">サンプル事務所 担当 見本</p><p class="hold">', "差出人の欄（.from）は外した"),
-    ('<p class="hold">', '<p class="contact">このメールに返信してください</p><p class="hold">', "連絡先の欄（.contact）は外した"),
+    ('<p class="hold">', '<p class="from">サンプル事務所 担当 見本</p><p class="hold">', "型の外に class「from」"),
+    ('<p class="hold">', '<p class="contact">このメールに返信してください</p><p class="hold">', "型の外に class「contact」"),
     ('name="__版__"', 'name="__ver__"', "版"),
     ("font-size:18px;line-height:1.6", "font-size:15px;line-height:1.6", "qa:css の中身が型と違う"),
     ('<meta name="color-scheme" content="light">', '<meta name="color-scheme" content="light dark">', "暗い色の設定"),
@@ -442,15 +442,16 @@ MUTATIONS = [
     ('data-group="once"', 'data-group="rule"', "問い q3: 並びが逆"),
     ("返す期限は、どう決めますか", "返す期限と置き場所を教えてください", "問い q3: 1 問に 2 つ以上"),
     ("新しい棚が届く日は、どちらですか", "新しい棚が届く日は合っていますか", "問い q2: 「合っていますか」"),
-    ("新しい棚が届く日は、どちらですか", "新しい棚の数を教えてください", "問い q2: 数を書かせる問い"),
+    # 書かせる欄は答えの欄の形で決める（問いの語で探さない）: 判断の問い（judge）に数を打つ欄
+    ('<div class="supp"><label for="supp_q3">', '<input type="number" name="q3_n"><div class="supp"><label for="supp_q3">', "問い q3: 書かせる欄（数を打つ欄"),
     ("<b>当てはまらない</b>", '<b>ほかの日</b><small class="chg">届く日を表に入れます</small>', "問い q2: 資料の外の事実の問いに「当てはまらない」"),
     ('name="q2" value="__unknown__"', 'name="q2" value="later"', "問い q2: 「分からない・確かめてから答える」"),
     ('value="d1020" required', 'value="d1020"', "問い q2: 答えずに送れる"),
     ("<b>切り捨てる", "<b>A 切り捨てる", "問い q1: 選択肢に記号"),
     ('value="d7"', 'value="7days!"', "問い q3: 選択肢の鍵（value）"),
-    ('name="supp_q1"', 'name="note_q1"', "問い q1: ひとことの欄"),
+    ('name="supp_q1"', 'name="supp_qx"', "問い q1: ひとことの欄"),
     # 前提の 3 段（はじめの画面・まとまり・1 問の 4 欄・切り抜き・変わる事）
-    ('<p class="hold">', '<p class="note">', "答えるまでの扱いが無い"),
+    ('<p class="hold">', '<p class="lead">', "答えるまでの扱いが無い"),
     ('<li data-doc="d3" ', '<li data-doc="d-4" data-url="" data-no-url="紙で受け取った">増えた資料</li><li data-doc="d3" ', "読んだ資料の鍵（data-doc）"),
     # 根拠（資料のどこ）・実物・AI の読み・AI の今の見込み・資料のリンク・先に決めておきたい事
     ('data-url="" data-no-url="紙で受け取った"', 'data-url=""', "読んだ資料 d3 にリンク"),
@@ -464,7 +465,7 @@ MUTATIONS = [
     ("注文は 10 月 1 日と読みました → ", "注文は 10 月 1 日と読みました<br>1<br>2<br>", "問い q2: AI の読みが 4 行"),
     ("決まりません。</p>\n<div class=\"known\" data-docs=\"d2 d3\">", "決まりません。</p><p class=\"reading\">2 つ目</p>\n<div class=\"known\" data-docs=\"d2 d3\">", "問い q2: .reading が 2 つ"),
     ('data-basis="9 月までの見積り書の送料は、どれも切り捨てで書かれている"', 'data-basis=""', "問い q1: AI の今の見込みの根拠"),
-    ('<p class="estimate"', '<p class="estimate-x"', None),
+    ('<p class="estimate"', '<p class="estimate-x"', "型の外に class「estimate-x」"),
     ("答えが届くまで、この点は確定せずにお待ちします。", "今の見込みで計算し、答えが届いたら直します。", "「見込み」は AI の今の見込みの枠"),
     ("今は期限が決まっていません。", "前の問いの答えで決まります。", "「前の問」は書かない"),
     ("今は期限が決まっていません。", "この先の答えは、返す日の知らせに使います。", None),
@@ -523,9 +524,9 @@ MUTATIONS = [
     ("決まりの写しをお送りします。", "決まりの写しをお送りします。<a href=\"#\">x</a>", "「この後のこと」（.next）に書けるのは"),
     ("決まりの写しをお送りします。", '決まりの写しをお送りします。<img src="x" onerror="fetch(\'/x\')">', "「この後のこと」（.next）に書けるのは"),
     ("決まりの写しをお送りします。", "決まりの写しをお送りします。<b>x</b>", "「この後のこと」（.next）に書けるのは", '<p class="lead">', '<p class="lead"><span class="next">ok</span>'),
-    ("</body>", "<!--qa:css--><p>x</p><!--/qa:css--></body>", "型の qa:css の印が 2 回ある"),
-    ("</body>", "<!--qa:js--><p>x</p><!--/qa:js--></body>", "型の qa:js の印が 2 回ある"),
-    ("</body>", "<!--qa:foot--><p>x</p><!--/qa:foot--></body>", "型の qa:foot の印が 2 回ある"),
+    ("</form>", "<!--qa:css--><p>x</p><!--/qa:css--></form>", "型の qa:css の印が 2 回ある"),
+    ("</body>", "<!--qa:js--><div class=\"wrap\"></div><!--/qa:js--></body>", "型の qa:js の印が 2 回ある"),
+    ("</form>", "<!--qa:foot--><p>x</p><!--/qa:foot--></form>", "型の qa:foot の印が 2 回ある"),
     ("送料 1 箱 125.5 円（税別）", '<iframe srcdoc="&lt;script&gt;fetch(1)&lt;/script&gt;"></iframe>', "型の外に許していない要素 <iframe>"),
     ("送料 1 箱 125.5 円（税別）", '<iframe src="data:text/html,x"></iframe>', "型の外に許していない要素 <iframe>"),
     ("送料 1 箱 125.5 円（税別）", '<embed src="data:text/html,x">', "型の外に許していない要素 <embed>"),
@@ -826,10 +827,12 @@ def _overtime(kind, input_):
 @needs_node
 def test_資料の外にしか無い数は事実の問いの数の欄でだけ聞ける(tmp_path):
     assert _json_page(tmp_path, _overtime("fact", "number")) == []
-    # 数の欄でない・資料の外の事実でない（計算できる数を書かせる古い形）は今までどおり赤
-    for i, (kind, input_) in enumerate([("fact", "text"), ("fact", None), ("judge", "number")]):
+    # 数の欄でない・資料の外の事実でない（計算できる数を書かせる古い形）は今までどおり赤。書かせるかは答えの欄の形で決める
+    #   （字の欄・欄なしは「当てはまらない」1 つだけの選択肢が赤・判断の問いの数の欄は書かせる欄の赤）
+    for i, (kind, input_, expect) in enumerate([("fact", "text", "問い q3: 選択肢が 1 つだけ"), ("fact", None, "問い q3: 選択肢が 1 つだけ"),
+                                                ("judge", "number", "問い q3: 書かせる欄（数を打つ欄")]):
         red = _json_page(tmp_path, _overtime(kind, input_), f"q{i}.json")
-        assert any(r.startswith("問い q3: 数を書かせる問い「時間を教えて」") for r in red), (kind, input_, red)
+        assert any(r.startswith(expect) for r in red), (kind, input_, red)
 
 
 @needs_node

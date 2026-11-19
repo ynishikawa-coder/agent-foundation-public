@@ -9,12 +9,17 @@
   secret  … MCP の道具（名が mcp__ で始まる物）・Artifact・SendMessage の入力の全部の字と、Artifact で出す file の中身に、
             鍵・トークンの形がある。形の正本は公開の検査（public-guard/guard.py の SECRET_PATTERNS）。
             見つからない時は止める（照らせない物は外へ出さない）。在り処は AF_PUBLIC_GUARD → 土台の repo の根 → 市場の取り出し。
-  number  … send_message（MCP）・SendMessage の文と create_session の頼みの文に、番号（E02・#3 の形）だけで中身の
-            名の無い文がある（「#3 やって」「E02 の件」）。番号の見分けは ask_shape の中の言葉の見分け（INNER の「番号」）、
-            中身の語の見分けは ask_shape の話題の語（_words）を直に呼ぶ。
-  title   … set_session_title と create_session の title が題の形（`<種類><状態> <作業名>`）でない。手の窓の題
+  どの道具が「人や他の窓へ頼みを渡す」「窓を立てる・題を付ける」かは、道具の名の末尾の列挙でなく、guard_common の
+  1 つの読み手（read_call）が名を語に割った動詞の類（送る・投稿・作る・立てる・付ける）と、名の語が窓の類か、入力に文が
+  在るかで読む（notion-spawn-session・Slack の投稿・別の名の窓立ても同じに見る）。
+  number  … 人や他の窓へ頼みを渡す呼び出し（送る・窓を立てる）の入力の文に、番号（E02・#3 の形）だけで中身の名の無い
+            文がある（「#3 やって」「#3 を実装して」「E02 の件」）。番号の見分けは ask_shape の中の言葉の見分け（INNER の
+            「番号」）。中身の名とは、番号に添えた括弧・引用・「:」の後の説明か、番号の外の内容の語（ask_shape の語の切り方と
+            止め語で数える）が NAME_MIN 個以上ある事（物の名と中身＝2 つ）。頼みの動きの語を並べた表は持たない。
+  title   … 窓を立てる・窓に題を付ける呼び出しの title が題の形（`<種類><状態> <作業名>`）でない。手の窓の題
             （`🙋⏳ 手: <何を>`）で窓を立てるのに、頼みの文に 目的・手順・済んだ目印・済んだ後 が揃っていない。
-            形の正本は session-watch の session_watch.py（title_shape・HAND_PARTS）。見つからない時は題を照らさない。
+            形の正本は session-watch の session_watch.py（title_shape・split_title・HAND_TITLE・hand_lack）。
+            見つからない・版がずれて名が欠ける時は、題を付ける呼び出しを止める（照らせない物を黙って通さない）。
 誤って止めた時: 値の表 config/skill-values.json の "guard" の outbound_secret_allow（当たった字に当てる正規表現・
 作り物の見本だけ）・number_request_exempt（文に当てる正規表現）で外す。値の表は PR とレビューを通る＝窓の一存では外れない。
 """
@@ -28,20 +33,14 @@ import guard_common as G
 
 HOOKS = {"pre": "check"}
 
-SEND_TOOLS = ("SendMessage",)
-SEND_SUFFIX = "__send_message"
-CREATE_SUFFIX = "__create_session"
-TITLE_SUFFIX = "__set_session_title"
+SEND_TOOLS = ("SendMessage",)   # 鍵の照らしの口（mcp でない外へ渡す道具）
+SW_NAMES = ("title_shape", "split_title", "HAND_TITLE", "hand_lack")   # 題の形の正本から呼ぶ名
+NAME_MIN = 2                    # 番号の外に要る内容の語の数（物の名と中身）
 MAX_READ = 2_000_000          # Artifact で出す file を照らす上限（バイト）
 MAX_STRINGS = 2000
 
-# 頼みの動きの語（番号の横にあっても中身の名にならない）。話題の語の止め語に足して使う。
-REQUEST_WORDS = {
-    "着手", "実施", "完了", "修正", "対応", "作業", "処理", "検討", "実行", "合流", "反映", "確認", "続行", "再開", "優先",
-    "レビュー", "マージ", "チェック", "お願い", "よろしく",
-    "merge", "review", "fix", "check", "close", "done", "please", "thanks",
-}
-_SENT = re.compile(r"[^\n。．！!？?]+")
+# 番号に添えた説明（括弧・引用・「:」の後に字が在る）
+_ATTACHED = r"\s*(?:[(（「『【\[][^)）」』】\]]{2,}|[:：]\s*\S{2,})"
 
 
 # ── 正本の在り処 ──
@@ -58,8 +57,8 @@ def _session_watch():
     if not path or not os.path.isfile(path):
         return None
     sw = G.load_module("af_session_watch", path)
-    # 版がずれて正本に題の形の見分けが無い時は「読めない」と同じ扱い
-    return sw if all(hasattr(sw, n) for n in ("title_shape", "split_title", "HAND_TITLE", "HAND_PARTS")) else None
+    # 版がずれて正本に題の形の見分けが無い時は「読めない」と同じ扱い（古い語だけの照らしへ倒さない）
+    return sw if all(hasattr(sw, n) for n in SW_NAMES) else None
 
 
 # ── secret ──
@@ -144,40 +143,47 @@ def check_secret(data, vals):
 
 
 # ── number ──
+def _content_runs(text, vals):
+    """番号の外の内容の語（ask_shape の語の切り方＝漢字・カナの 2 字以上・英字 3 字以上、送り仮名を詰め、止め語を除く）と、
+    番号でない中の言葉（file 名・path・コードの字）の並び。"""
+    stop = ask_shape.STOP | {w for w in (vals.get("ask_topic_stopwords_extra") or []) if isinstance(w, str)}
+    terms = [t for n, t in ask_shape._inner_hits(text, vals) if n != "番号"]
+    body = text
+    for t in terms:
+        body = body.replace(t, " ")
+    runs = [r for r in ask_shape._RUN.findall(ask_shape._OKURI.sub("", body)) if r.lower() not in stop]
+    return runs + terms
+
+
 def number_only(text, vals):
     """番号だけで中身の名の無い文の並び。"""
     exempt = [p for p in (vals.get("number_request_exempt") or []) if isinstance(p, str) and p]
     v2 = dict(vals)
-    v2["ask_topic_stopwords_extra"] = list(vals.get("ask_topic_stopwords_extra") or []) + sorted(REQUEST_WORDS)
     v2["ask_inner_terms_extra"] = []
     out = []
-    for raw in _SENT.findall(text or ""):
+    for raw in ask_shape.sentences(text):      # 文の区切りの正本（ask_shape）を直に呼ぶ
         s = raw.strip()
         if not s or any(re.search(p, s) for p in exempt):
             continue
         nums = [tok for name, tok in ask_shape._inner_hits(s, v2) if name == "番号"]
         if not nums:
             continue
+        if any(re.search(re.escape(tok) + _ATTACHED, s) for tok in nums):
+            continue                       # 番号に説明を添えてある
         rest = ask_shape._URL.sub(" ", s)
         for tok in nums:
             rest = rest.replace(tok, " ")
-        if not ask_shape._words({"question": rest}, v2):
+        if len(_content_runs(rest, v2)) < NAME_MIN:
             out.append(s[:60])
     return out
 
 
 def check_number(data, vals):
-    name = str(data.get("tool_name") or "")
-    ti = data.get("tool_input")
-    if not isinstance(ti, dict):
+    call = G.read_call(data.get("tool_name"), data.get("tool_input"))
+    if not call.asks:
         return ""
-    if name in SEND_TOOLS or name.endswith(SEND_SUFFIX):
-        text = ti.get("message")
-    elif name.endswith(CREATE_SUFFIX):
-        text = ti.get("prompt")
-    else:
-        return ""
-    bad = number_only(text if isinstance(text, str) else "", vals)
+    text = "\n".join(t for w, t in call.texts if w != "title")    # 題の形は check_title が受け持つ
+    bad = number_only(text, vals)
     if not bad:
         return ""
     lines = ["[guard] 他の窓へ渡す頼みに、番号だけで中身の名の無い文があるので、送る前に止めた（核 §2・オーナー同意 2026-11-19・"
@@ -191,33 +197,35 @@ def check_number(data, vals):
 
 # ── title ──
 def title_findings(data, sw):
-    name = str(data.get("tool_name") or "")
-    ti = data.get("tool_input")
-    if not isinstance(ti, dict) or not (name.endswith(TITLE_SUFFIX) or name.endswith(CREATE_SUFFIX)):
-        return []
-    title = ti.get("title")
-    if not isinstance(title, str) or not title.strip():
+    call = G.read_call(data.get("tool_name"), data.get("tool_input"))
+    if call.title is None:
         return []            # 題の無い窓立ては、立った窓が自分で付ける（UserPromptSubmit の知らせが受け持つ）
-    out = list(sw.title_shape(title))
-    _, mark, work = sw.split_title(title)
-    if name.endswith(CREATE_SUFFIX) and sw.HAND_TITLE.match(work):
-        prompt = ti.get("prompt") if isinstance(ti.get("prompt"), str) else ""
-        lack = [p for p in sw.HAND_PARTS if p not in prompt]
+    out = list(sw.title_shape(call.title))
+    _, mark, work = sw.split_title(call.title)
+    if call.spawns and sw.HAND_TITLE.match(work):
+        prompt = "\n".join(t for w, t in call.texts if t is not call.title)
+        lack = sw.hand_lack(prompt)
         if lack:
             out.append("手の窓を立てる頼みの文に %s が無い（①目的 ②手順 ③済んだ目印 ④済んだ後 を書いて渡す）" % "・".join(lack))
     return out
 
 
 def check_title(data, vals):
-    name = str(data.get("tool_name") or "")
-    if not (name.endswith(TITLE_SUFFIX) or name.endswith(CREATE_SUFFIX)):
+    call = G.read_call(data.get("tool_name"), data.get("tool_input"))
+    if call.title is None:
         return ""
     try:
         sw = _session_watch()
-    except Exception:           # noqa: BLE001
-        sw = None
+    except Exception as e:      # noqa: BLE001
+        sw, err = None, "%s: %s" % (type(e).__name__, e)
+    else:
+        err = ""
     if sw is None:
-        return ""                # 題の形は窓の一覧の見え方の話＝照らせない時は通す（鍵と違い外へ漏れる物ではない）
+        return ("[guard] 窓の題と手の窓の頼みの形を照らせないので、出す前に止めた（照らせない物を黙って通さない・人の操作は"
+                "止めていない）。\n  題の形の正本 session-watch の session_watch.py が見つからない／読めない／版がずれて %s の"
+                "どれかが無い%s。\n  直し方: 土台の plugin（session-watch と guard）を市場から同じ版で入れ直す。手元の置き場が"
+                "違う時は環境変数 AF_SESSION_WATCH に session_watch.py の path を入れる。"
+                % ("・".join(SW_NAMES), (": " + err) if err else ""))
     found = title_findings(data, sw)
     if not found:
         return ""
@@ -232,7 +240,8 @@ def check_title(data, vals):
 
 def check(data, vals):
     """止めるなら理由、通すなら ""。3 つは別々に走らせる（1 つが壊れても鍵の照らしを捨てない）。
-    secret が壊れた時は止める（照らせない物は外へ出さない）。number と title が壊れた時はその見分けだけを通す。"""
+    secret が壊れた時は止める（照らせない物は外へ出さない）。title の正本が読めない時も止める（check_title）。
+    number と title の見分けそのものが壊れた（例外）時は、その見分けだけを通す。"""
     outs = []
     try:
         outs.append(check_secret(data, vals))

@@ -1,5 +1,5 @@
 {
-  "_readme": "値の表（使う側の repo の根の config/skill-values.json）の鍵の一覧と型の正本。土台の道具は同じ dir の skill_values.py でこれを直に読む（各 plugin の lib/ へは symlink で届く＝写さない）。鍵を足す・名を変える・畳む時はここだけを直し、変えた古い鍵は retired に移す（使う側の古い鍵が名指しで止まる）。型: str・int・bool・list・dict・text（文字列か文字列の並び）・any。dict は keys で中の鍵も照らす。名が _ で始まる鍵は注として読まない。土台の plugin の名でも common でもない頂の欄は、その repo 自身の物として照らさない。",
+  "_readme": "値の表（使う側の repo の根の config/skill-values.json）の鍵の一覧と型の正本。土台の道具は同じ dir の skill_values.py でこれを直に読む（各 plugin の lib/ へは symlink で届く＝写さない）。鍵を足す・名を変える・畳む時はここだけを直し、変えた古い鍵は retired に移す（使う側の古い鍵が名指しで止まる）。型: str・int・bool・list・dict・text（文字列か文字列の並び）・regex（正規表現として読める文字列の並び＝読めない形はその鍵ごと既定に倒し名指しする）・regex_why（[正規表現, 理由] の並び）・any。dict は keys で中の鍵も照らす。名が _ で始まる鍵は注として読まない。土台の plugin の名でも common でもない頂の欄は、その repo 自身の物として照らさない。",
   "sections": {
     "common": {
       "keys": {
@@ -26,7 +26,7 @@
         },
         "watch-log": {
           "keys": {
-            "reply_exempt": "list"
+            "reply_exempt": "regex"
           }
         }
       }
@@ -52,15 +52,15 @@
           "default": []
         },
         "irreversible_bash_extra": {
-          "type": "list",
+          "type": "regex_why",
           "default": []
         },
         "irreversible_tools_extra": {
-          "type": "list",
+          "type": "regex_why",
           "default": []
         },
         "qa_page_exempt": {
-          "type": "list",
+          "type": "regex",
           "default": []
         },
         "ask_question_max_chars": {
@@ -72,11 +72,11 @@
           "default": 1
         },
         "ask_inner_terms_extra": {
-          "type": "list",
+          "type": "regex",
           "default": []
         },
         "ask_term_allow": {
-          "type": "list",
+          "type": "regex",
           "default": []
         },
         "ask_topic_stopwords_extra": {
@@ -84,11 +84,11 @@
           "default": []
         },
         "ask_shape_exempt": {
-          "type": "list",
+          "type": "regex",
           "default": []
         },
         "ask_pick_one_exempt": {
-          "type": "list",
+          "type": "regex",
           "default": []
         },
         "ask_rec_notice_kinds": {
@@ -96,33 +96,33 @@
           "default": {}
         },
         "ask_rec_notice_exempt": {
-          "type": "list",
+          "type": "regex",
           "default": []
         },
         "outbound_secret_allow": {
-          "type": "list",
+          "type": "regex",
           "default": []
         },
         "number_request_exempt": {
-          "type": "list",
+          "type": "regex",
           "default": []
         },
         "pr_cleanup_exempt_repos": {
-          "type": "list",
+          "type": "regex",
           "default": []
         },
         "pr_words_exempt_repos": {
-          "type": "list",
+          "type": "regex",
           "default": []
         },
         "public_repos_extra": {
-          "type": "list",
+          "type": "regex",
           "default": []
         },
         "context_stop_max": {"type": "int", "default": 2},
-        "context_handoff": {"type": "list", "default": ["create_session\\b", "send_message\\b", "\"file_path\": \"[^\"]*(?:引き継ぎ|handoff)[^\"]*\""]},
-        "ask_prior_lookup": {"type": "list", "default": []},
-        "ask_prior_exempt": {"type": "list", "default": []}
+        "context_handoff": {"type": "regex", "default": []},
+        "ask_prior_lookup": {"type": "regex", "default": []},
+        "ask_prior_exempt": {"type": "regex", "default": []}
       }
     },
     "docs-kit": {
