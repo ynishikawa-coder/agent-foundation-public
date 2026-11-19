@@ -108,7 +108,7 @@ def test_main_より前の_commit_の窓は見ない(tmp_path):
 def test_人の枝は照らさない(tmp_path):
     repo, head = repo_with(tmp_path, [A])
     code, out = run(repo, head, body(B), branch="patch-1")
-    assert code == 0 and "照らしていない" in out
+    assert code == 3 and "照らしていない" in out
 
 
 def test_CI_の_job_check_が本文と先端を渡す():

@@ -7,7 +7,7 @@ cd "$(dirname "$0")/../.."
 branch="${GITHUB_HEAD_REF:-}"
 if [ "${GITHUB_EVENT_NAME:-}" != "pull_request" ]; then
   echo "pr_writer: 照らしていない（PR の外＝本文が無い。CI の PR で照らす）"
-  exit 0
+  exit 3   # 照らしていない（check_all は緑に数えず名指す）
 fi
 git rev-parse --verify --quiet origin/main >/dev/null || {
   echo "✗ origin/main が無い（git fetch origin main をしてから回す）"
