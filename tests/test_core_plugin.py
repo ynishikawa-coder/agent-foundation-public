@@ -262,6 +262,10 @@ def test_核から細目へ移した物が細目に在る():
     "plugins/docs-kit/skills/qa-html/check.mjs": [],
     "plugins/guard/scripts/unanswered.py": [],
     "plugins/session-watch/scripts/session_watch.py": [],
+    "plugins/guard/scripts/qa_page.py": ["が緑になってから、もう一度 publish する"],
+    "scripts/check_all.sh": ['本: ${failed[*]})"'],
+    "plugins/docs-kit/skills/blueprint/scripts/check_blueprint.py": [],
+    "plugins/docs-kit/skills/theory-mock/scripts/check_theory_mock.py": [],
 }
 
 
@@ -292,3 +296,19 @@ def test_赤を返す所は根治の入口を指し単発の手直しの形が�
         assert old not in text, f"{rel} に単発の手直しの古い形が残る: {old}"
     left = list(単発の手直しの文(text))
     assert not left, f"{rel} に単発の手直しの類が残る: {left}"
+
+
+def test_検査の入口の赤の最後の行は根治の入口を指し緑は指さない(tmp_path):
+    """check_all.sh の赤が落ちた本の名だけを返す古い形（赤を 1 つずつ潰させる）に戻すと赤。"""
+    (tmp_path / "scripts").mkdir()
+    (tmp_path / "scripts" / "check_all.sh").write_text((ROOT / "scripts" / "check_all.sh").read_text(encoding="utf-8"), encoding="utf-8")
+    (tmp_path / "tests").mkdir()
+    test = tmp_path / "tests" / "test_x.py"
+    run = lambda: subprocess.run(["bash", str(tmp_path / "scripts" / "check_all.sh")], capture_output=True, text=True)
+    test.write_text("def test_x():\n    assert False\n", encoding="utf-8")
+    red = run()
+    last = red.stdout.strip().splitlines()[-1]
+    assert red.returncode == 1 and last.startswith("check_all: 赤") and "細目 §3「まず構造を疑う」" in last
+    test.write_text("def test_x():\n    assert True\n", encoding="utf-8")
+    green = run()
+    assert green.returncode == 0 and "まず構造を疑う" not in green.stdout

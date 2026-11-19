@@ -374,6 +374,7 @@ def test_qa_page_型を写さない独自の問いのページは止まる(env, 
     why = deny_reason(env, publish("kakunin.html", cwd=str(tmp_path)))
     assert "qa-html の検査を通っていない" in why and "<script> の JSON に questions／qs" in why
     assert "型の qa:css の印が無い" in why
+    assert "細目 §3「まず構造を疑う」" in why and "もう一度 publish する" not in why, "止めた文が出し直しだけを促す古い形に戻った"
 
 
 @needs_node

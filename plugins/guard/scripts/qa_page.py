@@ -117,7 +117,7 @@ def reason(path, why, lines, chk=""):
         "直し方（skill guard:guard-rules の qa_page・docs-kit:qa-html）:\n"
         "  ① まず聞く前に引く: 決定の記録と問いの表を同じ言葉で引き、答え済み・資料で決まる・道具の都合の問いは消す（細目 §4）\n"
         "  ② オーナーへの問いなら選択肢の画面（AskUserQuestion）で聞く。ページで出すなら qa-html の型（template.html）を写して作り直す\n"
-        "  ③ node {} {} が緑になってから、もう一度 publish する"
+        "  ③ 赤の行を 1 つずつ潰して出し直すだけで済ませず、細目 §3「まず構造を疑う」で原因から直す。node {} {} が緑の物だけを publish する"
     ).format(path, why, "\n".join(lines), chk or "<qa-html の check.mjs>", path)
 
 
