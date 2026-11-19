@@ -31,8 +31,9 @@ def fake(tmp_path):
     put(r, "plugins/beta/scripts/common.py", "x = 1\n")
     put(r, "scripts/common.py", "x = 2\n")                      # plugin の外にも同じ名＝名だけでは拾わない
     put(r, "plugins/beta/notes.md", "# 文書\n")
-    put(r, "plugins/alpha/skills/s/SKILL.md", "1. 決まりの照らしは `judge.py` を回す。\n")
-    put(r, "plugins/alpha/scripts/a.py", "import common  # 外の common.py\nDOC = 'plugins/beta/notes.md'\n")
+    # 文書が文書の path を挙げるだけの物は流れでない（コードが別の plugin の file を持つ時は拡張子を問わず流れ＝test_rui82_H5）
+    put(r, "plugins/alpha/skills/s/SKILL.md", "1. 決まりの照らしは `judge.py` を回す。\n2. 詳しくは plugins/beta/notes.md。\n")
+    put(r, "plugins/alpha/scripts/a.py", "import common  # 外の common.py\n")
     git(r, "init", "-q")
     git(r, "add", "-A")
     return r

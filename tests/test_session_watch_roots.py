@@ -3,7 +3,7 @@
 - 時刻の「17時53分」の書き方・日本時間の印が別の句の時刻に掛かる形
 - 「た、」で切れた前の句の言い切りを、見込みの句に掛ける形
 - 頭が 3 字以上の英数字の固有名（COVID19・SHA256）を番号と数える形
-- 値の表の読み口（guard_common）が無い時に、返し先が別の窓の窓で黙って空の値の表で進む形
+- 値の表の読み口（lib/skill_values.py）が無い時に、返し先が別の窓の窓で黙って空の値の表で進む形
 - 手の窓が頼んだ窓へ返さずに ✅ で締める形
 """
 import copy
@@ -41,10 +41,10 @@ def test_正しい返事は差し戻さない(tmp_path, good):
 def test_値の表の読み口が無ければ返し先が別の窓の窓でも黙らない(tmp_path, monkeypatch):
     rs = set_title(rows("owner_ok.jsonl"), "🙋 作り物の続き", "🤖✅ 作り物の続き")
     rs[0]["message"]["content"] = "作り物の続きを頼む（返し先=session_PARENT01）。"
-    monkeypatch.setattr(sw, "_loaded", dict(sw._loaded, guard_common=None))
+    monkeypatch.setattr(sw, "_loaded", dict(sw._loaded, skill_values=None))
     sw.neighbor("ask_shape"); sw.neighbor("public_guard")
     found = sw.check(sw.Log(rs), owner_reply("作り物を直した。"))
-    assert [c for c, m in found if c == "neighbor" and "guard_common" in m]
+    assert [c for c, m in found if c == "neighbor" and "skill_values" in m]
 
 
 HAND_CLOSE = "\nAI がこの後やること: なし\nあなたがやること: なし。この窓は閉じて大丈夫です。"

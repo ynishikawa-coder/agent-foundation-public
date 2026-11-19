@@ -20,7 +20,9 @@ def env(tmp_path):
     proj = tmp_path / "proj"
     proj.mkdir()
     (tmp_path / "scratch").mkdir()
-    e = {k: v for k, v in os.environ.items() if not k.startswith(("AF_", "SKILL_VALUES", "CLAUDE_PROJECT_DIR"))}
+    # 窓の実物の id（CLAUDE_CODE_REMOTE_SESSION_ID）は試験を回す窓の物を持ち込まない（判定を出す窓は試験ごとに置く）
+    e = {k: v for k, v in os.environ.items()
+         if not k.startswith(("AF_", "SKILL_VALUES", "CLAUDE_PROJECT_DIR", "CLAUDE_CODE_REMOTE_SESSION_ID"))}
     e.update({"AF_GUARD_TMP": str(tmp_path / "tmp"), "AF_GUARD_STATE": str(tmp_path / "state"),
               "CLAUDE_PROJECT_DIR": str(proj), "PYTHONDONTWRITEBYTECODE": "1",
               "TMPDIR": str(tmp_path / "scratch")})

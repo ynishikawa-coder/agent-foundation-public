@@ -75,6 +75,7 @@
 - CI は `.github/workflows/ci.yml`。`main` への push と、すべての PR で走る。
 - CI の job は `check`（入口は `bash scripts/check_all.sh` の 1 本）と `public-guard`（公開の検査）と `plugin-smoke`（PR の枝を使う側と同じ入れ方で入れて窓を起動し、核の差し込み・守りの hook・skill の読み込みを見る。`scripts/plugin_smoke.py` と、本物の claude を要る試験＝印 `real_claude` の付いた試験を `pytest -m real_claude tests/` で全部）と、止めない知らせの `overlap`（開いている他の PR が同じ file の同じ行の辺りを書き換えていれば名指す・`scripts/pr_overlap.py`）。`check_all.sh` は中で pytest（`tests/`）と、`scripts/checks/*.sh` があればそれを順に走らせる（claude の命令が無い所では印 `real_claude` の試験を飛ばす。飛ばす条件は `tests/conftest.py` の 1 か所で、試験の file に書かない）。
 - 検査を足す時は `scripts/checks/<名前>.sh` を足すか、`tests/` に試験を足す。`ci.yml` と `check_all.sh` は書き換えなくてよい。
+- 標準でない python の道具を import する時は `requirements-ci.txt`（CI と見回りが入れる物の正本）に足す。workflow は `pip install -r requirements-ci.txt` だけで入れ、名を手で並べない（照らすのは `tests/test_ci_requirements.py`）。
 - `check_all.sh` の最後の行が `check_all: 緑` なら通り、`check_all: 赤 …` なら止まり。止まったら赤の行を 1 つずつ潰さず、細目 §3「まず構造を疑う」で原因から直す。
 
 ## 7. プラグインの一覧

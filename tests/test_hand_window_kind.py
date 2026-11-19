@@ -82,7 +82,8 @@ def test_種類の正本は手の窓を返し先より先に見る():
     assert sw.window_kind(CHILD, "🤖⏳ 手: 作り物") == sw.HUMAN
     assert sw.window_kind(CHILD, "🤖 作り物の作業") == sw.AI
     assert sw.window_kind("返し先=オーナー", None) == sw.HUMAN
-    assert sw.window_kind("作り物を直して", None) is None
+    assert sw.window_kind("作り物を直して", None) == sw.HUMAN   # 別の窓の id が無い＝オーナーへ返す（kind_of の決め方）
+    assert sw.window_kind("", None) is None                       # 頼みの文が無い＝決めない
 
 
 def test_手の窓でない子の窓に_人の印_を付けると今までどおり差し戻す(tmp_path):

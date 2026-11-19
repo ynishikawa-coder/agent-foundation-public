@@ -19,7 +19,7 @@ description: チェック役として、書いた窓と別の窓（レビュー�
 1. **差分を取る**: `git fetch origin main <枝> && git diff <積んだ基点 か origin/main>...origin/<枝>`（PR 本文に `積んだ基点:` があればそこから）。
 2. **点で見る**（下の表）。依頼の「やる物」・完了の条件の各行を 1 行ずつ照らし、1 行ごとに所見を書く（問題なしも 1 行）。
 3. **物差しを自分で回す**: 依頼の物差し（この repo なら `bash scripts/check_all.sh`）を PR の先端で回す。赤なら点 4 の fail（blocked ではない）。
-4. **判定を PR のコメントに残す**（下の形）。出す前に `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/verdict_form.py" <下書き> --writer <書いた窓> --head <PR の先端>` で形を見る（exit 0 で出す）。出す道具（GitHub のコメント）の前でも、守りの hook（guard の `pr_text`）が同じ道具を直に呼び、崩れていれば止める。
+4. **判定を PR のコメントに残す**（下の形）。出す前に `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/verdict_form.py" <下書き> --writer <書いた窓> --head <PR の先端>` で形を見る（exit 0 で出す）。出す窓の id は `--poster`（既定は環境の窓の id）、PR の merge でない commit の `Claude-Session:` の窓は `--other-writers` で渡すと、名乗りの字でなく実物で別の目を照らす。出す道具（GitHub のコメント）の前でも、守りの hook（guard の `pr_text`）が同じ道具を直に呼び、崩れていれば止める。
 5. **返す**: green は依頼した窓へ、red は書いた窓へ直に 1 行（`判定 <PR> <枝>@<SHA12> verdict=green|red レビューした窓=<自分> 物差し=<最後の行>`、red は末尾に `直し=細目 §3「まず構造を疑う」`）。red の所見は直す行の一覧でなく根治の入口: 書いた窓は細目 §3「まず構造を疑う」で原因から直す。
 
 ## 見る点

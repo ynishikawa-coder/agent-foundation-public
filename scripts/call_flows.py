@@ -11,7 +11,12 @@
 拾う物（道具＝plugins/<名>/ の下の .py .mjs .js .sh の file）:
   - 別の plugin の道具の file 名（その名の file が plugin の外にも在る時は path ごと書いた物だけ）
   - 別の plugin の道具の path（plugins/<名>/…/<道具の file 名>）
-  拾わない物: skill の名を文で挙げるだけの物・文書（.md）の path（道具を呼ぶ流れでない）。
+  - コード（道具の file）が持つ別の plugin の file の在り処は、拡張子を問わず拾う（雛形の .md・表の .json を読む流れも）。
+    path を割って書いた呼び方（("checker", os.path.join("scripts", "verdict_form.py")) の類）は、Python は ast で、
+    他のコードは 1 行の字の並び（引用の中）で、1 つの式の中の字を順に / でつないで、git の在る file に結べるかで見る
+    （名の字の形でなく、実物の file に結べるか）。
+  拾わない物: skill の名を文で挙げるだけの物・文書（.md 等）が文書の path を挙げるだけの物（道具を呼ぶ流れでない）。
+  残る穴: 字を実行時に組む呼び方（f 文字列・変数で plugin の名を差す）は結べない。
 絵との対応: 絵の箱のうち tab が arch で、題の頭（「（」の前）が plugin の名と同じ箱をその plugin の箱とみる。
   箱が無い plugin・2 つ在る plugin は照らせない＝赤（黙って通さない）。矢印の向きは 呼ぶ側 → 呼ばれる側。
 exit: list は 0。check は 0=全部在る／1=絵に無い流れが在る／2=照らせない（絵が読めない・箱が無い・重なる）。
@@ -40,6 +45,50 @@ def tracked(repo: Path) -> list[str]:
     return [ln for ln in r.stdout.splitlines() if ln]
 
 
+CODE_SUFFIX = TOOL_SUFFIX
+MAX_JOIN = 8          # 1 つの式の中でつなぐ字の数の上限
+_QUOTED = re.compile(r"""(['"`])((?:(?!\1).){1,300})\1""")
+
+
+def _py_groups(text: str):
+    """Python の 1 つの式（呼び出し・並び）ごとの字の並び (行, [字])。読めない file は None。"""
+    import ast
+    try:
+        tree = ast.parse(text)
+    except (SyntaxError, ValueError):
+        return None
+    out = []
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.Call, ast.Tuple, ast.List, ast.Set, ast.Dict, ast.BinOp)):
+            consts = sorted((c.lineno, c.col_offset, c.value) for c in ast.walk(node)
+                            if isinstance(c, ast.Constant) and isinstance(c.value, str) and len(c.value) < 300)
+            if len(consts) >= 2:
+                out.append((node.lineno, [v for _, _, v in consts]))
+    return out
+
+
+def _line_groups(lines):
+    """他のコードは 1 行の引用の中の字の並び。"""
+    return [(no, [m.group(2) for m in _QUOTED.finditer(ln)]) for no, ln in enumerate(lines, 1)]
+
+
+def _resolve(pieces, x: str, files_of: dict[str, set[str]]):
+    """字の並びを順に / でつなぎ、別の plugin の在る file（plugins/<y>/<rel> か <y> と <rel> の並び）に結べた (y, file 名)。"""
+    got = set()
+    pieces = [p.strip().strip("/") for p in pieces if p.strip().strip("/")]
+    for i in range(len(pieces)):
+        for j in range(i + 2, min(i + MAX_JOIN, len(pieces)) + 1):
+            joined = re.sub(r"/+", "/", "/".join(pieces[i:j]))
+            if joined.startswith("./"):
+                joined = joined[2:]
+            if joined.startswith("plugins/"):
+                joined = joined[len("plugins/"):]
+            y, _, rel = joined.partition("/")
+            if y != x and rel in files_of.get(y, ()):
+                got.add((y, rel.rsplit("/", 1)[-1]))
+    return got
+
+
 def flows(repo: Path) -> dict[tuple[str, str], list[str]]:
     """{(呼ぶ側, 呼ばれる側): [証拠 "path:行 字"]}。"""
     files = tracked(repo)
@@ -47,11 +96,14 @@ def flows(repo: Path) -> dict[tuple[str, str], list[str]]:
                       and (repo / "plugins" / f.split("/")[1] / ".claude-plugin" / "plugin.json").is_file()})
     owner: dict[str, set[str]] = defaultdict(set)      # 道具の file 名 → 持つ plugin
     outside: set[str] = set()                          # plugin の外にも同じ名の file が在る名
+    files_of: dict[str, set[str]] = defaultdict(set)   # plugin → その下の file（plugin の根からの path・拡張子を問わない）
     for f in files:
         name = f.rsplit("/", 1)[-1]
         parts = f.split("/")
-        if parts[0] == "plugins" and len(parts) >= 3 and parts[1] in plugins and f.endswith(TOOL_SUFFIX):
-            owner[name].add(parts[1])
+        if parts[0] == "plugins" and len(parts) >= 3 and parts[1] in plugins:
+            files_of[parts[1]].add("/".join(parts[2:]))
+            if f.endswith(TOOL_SUFFIX):
+                owner[name].add(parts[1])
         elif not (parts[0] == "plugins"):
             outside.add(name)
     pats = []
@@ -60,6 +112,7 @@ def flows(repo: Path) -> dict[tuple[str, str], list[str]]:
             path_pat = re.compile(r"plugins/%s/(?:[^\s'\"`)]*/)?%s(?![\w.])" % (re.escape(y), re.escape(name)))
             bare = None if (name in outside or len(ys) > 1) else re.compile(r"(?<![\w./-])%s(?![\w])" % re.escape(name))
             pats.append((y, name, path_pat, bare))
+    any_path = re.compile(r"plugins/([\w.-]+)/([^\s'\"`)\]]+)")
     out: dict[tuple[str, str], list[str]] = defaultdict(list)
     for f in files:
         parts = f.split("/")
@@ -67,16 +120,30 @@ def flows(repo: Path) -> dict[tuple[str, str], list[str]]:
             continue
         x = parts[1]
         try:
-            lines = (repo / f).read_text(encoding="utf-8").splitlines()
+            text = (repo / f).read_text(encoding="utf-8")
         except (OSError, UnicodeDecodeError):
             continue
+        lines = text.splitlines()
+        code = f.endswith(CODE_SUFFIX)
         for no, ln in enumerate(lines, 1):
             for y, name, path_pat, bare in pats:
                 if y == x:
                     continue
                 if path_pat.search(ln) or (bare and bare.search(ln)):
                     out[(x, y)].append(f"{f}:{no} {name}")
-    return dict(out)
+            if code:   # コードが持つ別の plugin の file の在り処（拡張子を問わない）
+                for m in any_path.finditer(ln):
+                    y, rel = m.group(1), m.group(2).rstrip(".,;:")
+                    if y != x and rel in files_of.get(y, ()):
+                        out[(x, y)].append(f"{f}:{no} {rel.rsplit('/', 1)[-1]}")
+        if code:
+            groups = _py_groups(text) if f.endswith(".py") else None
+            for no, pieces in groups if groups is not None else _line_groups(lines):
+                for y, name in sorted(_resolve(pieces, x, files_of)):
+                    ev = f"{f}:{no} {name}"
+                    if ev not in out[(x, y)]:
+                        out[(x, y)].append(ev)
+    return {k: v for k, v in out.items() if v}
 
 
 def plugin_boxes(pic: dict, names) -> tuple[dict[str, str], list[str]]:

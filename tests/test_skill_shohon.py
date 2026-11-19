@@ -1,11 +1,12 @@
 """skill が核・細目の中身を写して意味をずらさず、正本（核・細目）を指しているかを見る。
 
-言い回しは縛らない。見るのは形だけ:
-- 記録の既定が各社の置き場（核 §8）を指し、PR 本文・返事の中を記録の置き場にしていないか
+言い回しは縛らない。見るのは形だけ（字は照らす前に NFKC・空白を詰めて寄せ、照らす要素は正本から直に読む）:
+- 記録の既定が各社の置き場（核 §8・正本が名指す置き場）だけを指す形か（他の所を置き場にさせる文は形の外）
 - 完了の印・締めの 1 行・規律の分け方・誤りが入れない形が、正本の節を指しているか（写しの並びが残っていないか）
 各照らしは、直す前の古い形を作り物で入れて拒むこと（注入の試験）も一緒に見る。
 """
 import re
+import unicodedata
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -14,6 +15,8 @@ VERIFY = P / "dev-flow" / "skills" / "verify" / "SKILL.md"
 REGISTER = P / "dev-flow" / "skills" / "register-rule" / "SKILL.md"
 TITLE = P / "session-watch" / "skills" / "title-mark" / "SKILL.md"
 COMPOSE = P / "docs-kit" / "skills" / "compose-message" / "SKILL.md"
+KAKU = P / "core" / "核.md"
+SAIMOKU = P / "core" / "細目.md"
 
 
 def read(p):
@@ -29,37 +32,48 @@ def default_of(text, key):
     raise AssertionError("値の表に鍵 %s の行が無い" % key)
 
 
-def record_default_ok(cell):
-    """記録の既定が各社の置き場を指し、PR 本文・返事の中を置き場にしていないか。
-    （核 §8 は本文の行き先の文が指す。値の表の既定に核・細目を挙げない＝tests/test_skill_values_no_rule_copy.py）"""
-    if "各社" not in cell:
+def nf(text):
+    return unicodedata.normalize("NFKC", text)
+
+
+def flat(text):
+    """照らす前の寄せ: NFKC（全角→半角）と空白を詰める。"""
+    return re.sub(r"\s+", "", nf(text))
+
+
+def canon_records():
+    """正本（plugins/core の文書）が「各社の X に／へ／と／は」で名指す記録の置き場の名（原因の台帳・決定の記録 など）。
+    置き場の名は字で並べず、正本の文から直に読む。"""
+    names = set()
+    for p in sorted((P / "core").glob("*.md")):
+        names.update(re.findall(r"各社の([^、。()「」:=]+?)(?:に|へ|と|は)", flat(read(p))))
+    return names
+
+
+def _sentences(text):
+    """括弧の中（注）を外し、。で切った文の並び。"""
+    t = re.sub(r"\([^()]*\)", "", nf(text))
+    return [s for s in (flat(x) for x in t.split("。")) if s]
+
+
+def record_dest_ok(text):
+    """記録の行き先の文が、形として各社の置き場を指すか（言い回しの字で「PR 本文」等を探さない）:
+    - 頭の文（＝の左）は「各社の … <正本が名指す置き場>(の行)(短い結び)」の形だけ（他の置き場を並べる余地が無い）。
+    - 後に続く文は打ち消し（…ない）か、聞くで終わる物だけ（別の置き場へ書かせる文は形の外＝拒む）。"""
+    ss = _sentences(text)
+    if not ss:
         return False
-    # 「PR 本文で代わりにしない」のような打ち消しの句は置き場にしていない（言い回しは問わず、句に打ち消しが在るかで見る）。
-    placed = re.sub(r"[^。、（）]*PR 本文[^。、（）]*?(せず|しない|書かない|見える)[^。、（）]*", "", cell)
-    return "PR 本文" not in placed and "返事の中" not in placed
+    head = ss[0].split("=", 1)[0]
+    recs = "|".join(re.escape(r) for r in sorted(canon_records(), key=len, reverse=True))
+    if not recs or not re.fullmatch(r"各社の[^にへ]*?(?:%s)(?:の行)?.{0,4}" % recs, head):
+        return False
+    return all(re.search(r"(?:ない|聞く)$", s) for s in ss[1:])
 
 
-RECORD_KEYS = [(VERIFY, "learning_record"), (REGISTER, "decision_record"), (REGISTER, "learning_record")]
-
-
-def test_記録の既定は各社の置き場を指す():
-    for path, key in RECORD_KEYS:
-        cell = default_of(read(path), key)
-        assert record_default_ok(cell), "%s の %s の既定が各社の置き場を指していない: %s" % (path.parent.name, key, cell)
-
-
-def test_記録の既定の照らしは古い形を拒む():
-    assert record_default_ok("各社の決定の記録。PR 本文には書かない")   # 言い換えても通る
-    for old in ["無し（返事の中に 1 行）", "PR 本文に原文と経緯を書く", "PR 本文の「学び:」の 1 行", "PR 本文に書く（核 §8）"]:
-        assert not record_default_ok(old), "古い既定を通してしまう: %s" % old
-
-
-def test_本文の記録の行き先も返事の中や_PR_本文にしない():
-    for path, pat in [(VERIFY, r"learning_record` へ（無ければ([^）]*)）"), (REGISTER, r"decision_record`（無ければ([^）]*)）"), (REGISTER, r"learning_record` へ（無ければ([^）]*)）")]:
-        m = re.search(pat, read(path))
-        assert m, "%s に記録の行き先の文が無い" % path.parent.name
-        assert "PR 本文" not in m.group(1) and "返事の中に 1 行" not in m.group(1), m.group(0)
-        assert "核 §8" in m.group(1), "記録の行き先の文が核 §8 を指していない: " + m.group(0)
+def record_default_ok(cell):
+    """記録の既定が各社の置き場を指し、ほかの所（PR 本文・返事の中など、名は問わない）を置き場にしていないか。
+    （核 §8 は本文の行き先の文が指す。値の表の既定に核・細目を挙げない＝tests/test_skill_values_no_rule_copy.py）"""
+    return record_dest_ok(cell)
 
 
 def done_mark_ok(row):
@@ -80,16 +94,81 @@ def test_文面の後の_1_行は返事の締めを置き換えない():
     assert "直したい所あれば言ってください" in rule and "核 §5" in rule, "compose-message の 6 が返事の締め（核 §5）との違いを指していない: " + rule
 
 
+# ── 写しを字の並び（表の頭・形の名）で探さず、正本の要素を正本から直に読み、同じ所に n 個以上在るかを寄せた字で見る ──
+def _tokens(text):
+    """意味を運ぶ字（漢字 1 字ずつ・2 字以上のカタカナ）の集合。言い換え（送り仮名・助詞・語順）に揺れない。"""
+    return set(re.findall(r"[\u4e00-\u9fff]|[\u30a1-\u30ffー]{2,}", nf(text)))
+
+
+def _present(element, place):
+    """正本の要素の字の半分以上が、その所に在るか。"""
+    e = _tokens(element)
+    return bool(e) and len(e & _tokens(place)) * 2 >= len(e)
+
+
+def _section(text, num):
+    return re.search(r"^## %d\..*?(?=^## |\Z)" % num, text, flags=re.S | re.M).group(0)
+
+
+def wrong_form_canon():
+    """細目 §3 の「誤りが入れない形」の (見出しの名, 要素の名の並び)。正本の箇条の太字から読む。"""
+    lines = _section(read(SAIMOKU), 3).splitlines()
+    i = next(k for k, ln in enumerate(lines) if ln.startswith("- **") and "形" in ln and lines[k + 1].startswith("  - **"))
+    title = re.match(r"- \*\*(.+?)\*\*", lines[i]).group(1)
+    names = []
+    for ln in lines[i + 1:]:
+        if not ln.startswith(" "):
+            break
+        m = re.match(r"\s+- \*\*(.+?)\*\*", ln)
+        if m:
+            names.append(m.group(1))
+    return title, names
+
+
+def decider_canon():
+    """核 §3 の最後の項（誰が決めるかの分け方）の要素＝「、」で分けた句（AI が入れる物／オーナーの同意が要る物）。"""
+    last = [ln for ln in _section(read(KAKU), 3).splitlines() if ln.startswith("- ")][-1]
+    return [h for h in last[2:].split("、") if h.strip()]
+
+
+def places(text):
+    """同じ所の単位: 表 1 つ・箇条 1 つ（続く字下げの行を含む）・段落 1 つ。"""
+    out, cur = [], []
+    for ln in text.splitlines():
+        table = ln.startswith("|")
+        if cur and (not ln.strip() or re.match(r"(?:- |\d+\. |#)", ln)
+                    or table != cur[-1].startswith("|")):
+            out.append("\n".join(cur))
+            cur = []
+        if ln.strip():
+            cur.append(ln)
+    if cur:
+        out.append("\n".join(cur))
+    return out
+
+
+def copies(text):
+    """register-rule の Step 1（規律の分け方と根治の形を決める所）で、正本の要素を 2 つ以上並べた所（写し）の並び。"""
+    title, names = wrong_form_canon()
+    halves = decider_canon()
+    out = []
+    for pl in places(text):
+        if sum(_present(n, pl.replace(title, "")) for n in names) >= 2:
+            out.append("誤りが入れない形の写し: " + pl[:60])
+        if pl.startswith("|") and sum(_present(h, pl) for h in halves) >= 2:
+            out.append("核 §3 の分け方の写しの表: " + pl[:60])
+    return out
+
+
 def test_register_rule_は核と細目の写しを持たず指す():
     text = read(REGISTER)
     step1 = text[text.index("## Step 1"):text.index("## Step 2")]
-    assert "| 足す物 | 誰が決める |" not in step1, "核 §3 の分け方を表で写している"
-    assert "核 §3" in step1
-    form = next(ln for ln in step1.splitlines() if "誤りが入れない形のどれか" in ln)
-    assert "細目 §3「誤りが入れない形」" in form, "誤りが入れない形が正本を指していない"
-    # 4 つの形の名を並べた写しが無い（2 つ以上の名が同じ行に並べば写し）。
-    names = ["写す工程を無くす", "誤った物が入れない", "正しい道だけが", "名指しで人の関所へ"]
-    assert sum(n in form for n in names) < 2, "誤りが入れない形の 4 つを写している: " + form
+    assert "核§3" in flat(step1)
+    title, names = wrong_form_canon()
+    assert len(names) == 4 and len(decider_canon()) == 2, "正本の要素が読めない（照らす相手が空のまま緑にしない）"
+    form = next(ln for ln in step1.splitlines() if title in ln and "どれか" in ln)
+    assert "細目§3「%s」" % title in flat(form), "誤りが入れない形が正本を指していない"
+    assert copies(step1) == [], "正本の要素を並べた写し（表・箇条）が在る"
 
 
 def test_verify_は完了と根治の終わりを核と細目の節で指す():

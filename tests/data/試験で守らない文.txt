@@ -20,7 +20,6 @@ plugins/core/核.md	- 問いは前提から聞く。
 plugins/core/核.md	- 最後の 2 行は `AI がこの後やること:` と `あなたがやること:`。
 plugins/core/核.md	- 終わったかの判定は書いた窓と別の目がする。
 plugins/core/核.md	- 結論を先に。
-plugins/core/核.md	- 規律は畳む・直す・言い換え・止めずに知らせる物なら AI が入れ、新しく「止める」物と核の原則の変更はオーナーの同意を取る。
 plugins/core/核.md	- 記録は各社の決まった置き場へ。
 plugins/core/核.md	- 返事も実況も日本語で書く。
 plugins/core/核.md	- 途中確認せず、範囲が明確な頼みは一気にやる。
@@ -67,7 +66,6 @@ plugins/core/細目.md	- **聞く前に引く**（引く事は振る舞いの既
 plugins/core/細目.md	- **規律と仕組みを足す・直す・畳む** 手順は skill `register-rule`。
 plugins/core/細目.md	- **設計の相談** は skill `design-mode`。
 plugins/core/細目.md	- **試験** — 試験から有料の上流（AI の API など）を叩かない。
-plugins/core/細目.md	- **誤りが入れない形**（核 §3 の 4 つ。
 plugins/core/細目.md	- **途中確認の例** — 「進めて OK?」・中間の照合・細かい yes/no の連発。
 plugins/core/細目.md	- **重い出力** — 大きい出力・失敗の山を文脈に流さず、重い出力は助手に読ませて結論だけ受ける。
 plugins/core/細目.md	- **閉じる窓** — 🤖 の窓を閉じる時は立てた子も閉じる。

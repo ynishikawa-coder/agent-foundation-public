@@ -10,14 +10,16 @@
    - `--dest` を省くと self だけを機械が決める（全部が self_allow の中で、顧客の path に当たらない時）。
      顧客の物へ自動で決めることは一切しない。
 2. 秘密の最終関所: パックの完成全文を、書き込む **前** に再検査し、block 1 件でも出たら書かずに中止
+   （秘密の形の正本は公開の検査 public-guard/guard.py の SECRET_PATTERNS を直に読む。見つからなければ中止）
    （Write/Edit の hook に頼らない＝Bash で回しても効く）。
 3. 高エントロピーの塊（鍵らしい字・既定 32 字以上でエントロピー 4.0 以上）も既定で止める（オーナー同意 2026-11-19:
    前は件数を出して人の目に預けるだけで、鍵らしい字を含むパックが外へ出うった）。止めた文には塊の字を出さず、
    どの file の何行目か・長さ・指紋（sha256 の頭 12 字）だけを出す。誤って止まる塊（作り物の値・固定の検査値など）は
    値の表 `entropy_allow` で外す（PR とレビューを通る＝窓の一存で外れない）。止まるのは builder を回す AI だけ。
    形の推し量りは 32 字より短い鍵・字の種類の少ない鍵を通していたので、次の 3 段を足した（どれも止める・字は出さない）:
-   a. 窓が持つ秘密の値そのもの: 名が鍵らしい環境変数（KEY・TOKEN・SECRET・PASS・CRED・AUTH・PRIVATE を含む）と
-      repo の根の .env・.env.* の値（8 字以上）が、形を問わずそのまま在れば止める（形でなく値で照らす＝短い鍵も通らない）。
+   a. 窓が持つ秘密の値そのもの: 全部の環境変数のうち値が秘密の形の物（名を問わない・env_value_secret）と、名が鍵らしい
+      環境変数（KEY・TOKEN・SECRET・PASS・CRED・AUTH・PRIVATE を含む＝値の形を問わない足し前）と、repo の根の .env・.env.* の
+      値（8 字以上）が、そのまま在れば止める（形でなく値で照らす＝短い鍵も通らない）。
    b. 16 進の塊（20 字以上・数字と a-f の両方を含む）: その repo の git の物（commit などの印）でなければ止める
       （git の印と 16 進の鍵は形で見分けられない＝分かる物だけ通す）。
    c. 16〜31 字の塊: 英字と数字が混ざり、字の種類の入れ替わりが多く、字の散らばり（エントロピー）が長さの割に高く、
@@ -52,18 +54,11 @@ sys.dont_write_bytecode = True
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "lib"))
 import skill_values  # noqa: E402  値の表の 1 本の口（plugin の lib/＝土台の skill-values/ への symlink）
 
-# 書き込み前に止める秘密の形（block）。字はここで組み立てる（この file 自身が検査に当たらないため）。
-BLOCK_PATTERNS = {
-    "GitHub のトークン": r"gh[pousr]_[A-Za-z0-9]{20,}",
-    "Anthropic の鍵": r"sk-ant-[A-Za-z0-9_\-]{20,}",
-    "OpenAI 形の鍵": r"(?<![A-Za-z0-9])sk-[A-Za-z0-9]{20,}",
-    "AWS の鍵 ID": r"AKIA[0-9A-Z]{16}",
-    "Slack のトークン": r"xox[abpors]-[A-Za-z0-9-]{10,}",
-    "Google の API 鍵": r"AIza[0-9A-Za-z_\-]{30,}",
-    "文書サービスのトークン": r"\b(?:secret_|ntn_)[A-Za-z0-9]{16,}",
+# 秘密の形の正本は公開の検査 public-guard/guard.py の SECRET_PATTERNS（直に読む＝写しを持たない）。
+# ここに置くのは、外のレビュアーへ渡すパックだけで足す形（正本に無い類: JWT・Bearer・合言葉・接続文字列・代入）だけ。
+EXTRA_PATTERNS = {
     "JWT": r"eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{6,}",
     "Bearer のトークン": r"\bBearer\s+[A-Za-z0-9._\-]{16,}",
-    "秘密鍵": "-----BEGIN " + r"[A-Z ]*" + "PRIVATE KEY-----",
     "合言葉のタグ": r"<password>.+?</password>",
     ".env 形の行": r"(?m)^[A-Z_]+_(?:KEY|TOKEN|SECRET|PASSWORD)=.+",
     "接続文字列の合言葉": r"[a-z][a-z0-9+.-]*://[^\s/:@]+:[^\s/@]+@[^\s/]+",
@@ -73,6 +68,48 @@ BLOCK_PATTERNS = {
     "鍵の代入": (r"(?i)(?:api[_-]?key|client[_-]?secret|access[_-]?token)\s*[:=]\s*"
                r"(?:[\"'][A-Za-z0-9/+=_\-]{16,}|[A-Za-z0-9/+=_\-]{16,}(?![A-Za-z0-9/+=_\-$.(\[]))"),
 }
+PLUGIN_ROOT = Path(__file__).resolve().parent.parent.parent
+_PG = {}
+
+
+def public_guard_path(environ=None) -> str:
+    """秘密の形の正本（public-guard/guard.py・plugin の外）の path か ""。探す順: 環境変数 AF_PUBLIC_GUARD →
+    repo の形（plugins/dev-flow の 2 つ上が repo の根）→ 入れた形（cache/<市場>/dev-flow/<版> → marketplaces/<市場>/）。"""
+    env = os.environ if environ is None else environ
+    rel = Path("public-guard") / "guard.py"
+    market = PLUGIN_ROOT.parent.parent
+    for cand in (env.get("AF_PUBLIC_GUARD") or "", market / rel,
+                 market.parent.parent / "marketplaces" / market.name / rel):
+        if cand and Path(cand).is_file():
+            return str(cand)
+    return ""
+
+
+def public_guard():
+    """正本の module（読み込みは 1 回）。見つからない・読めない時は止める（写しの表へ黙って戻らない）。"""
+    if "mod" not in _PG:
+        path = public_guard_path()
+        if not path:
+            raise Abort("秘密の形の正本（土台の public-guard/guard.py）が見つからず照らせない。土台の marketplace を"
+                        "入れ直すか、AF_PUBLIC_GUARD で path を渡す")
+        import importlib.util
+        try:
+            spec = importlib.util.spec_from_file_location("af_codex_public_guard", path)
+            mod = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(mod)
+            mod.SECRET_PATTERNS.items()
+        except Exception as e:  # noqa: BLE001  壊れた正本は照らせない＝止める
+            raise Abort(f"秘密の形の正本（{path}）が読めない（{e.__class__.__name__}）")
+        _PG["mod"] = mod
+    return _PG["mod"]
+
+
+def secret_pattern_labels(text: str) -> list[str]:
+    """block に当たる札（正本の SECRET_PATTERNS ＋ パックだけで足す形）。"""
+    pats = {**public_guard().SECRET_PATTERNS, **EXTRA_PATTERNS}
+    return [label for label, pat in pats.items() if re.search(pat, text)]
+
+
 ADVISORY_MIN_LEN = 32
 ADVISORY_MIN_ENTROPY = 4.0
 SHORT_MIN_LEN = 16           # c. 短い塊の下限（ここより短い物は形で見分けない＝残る穴）
@@ -80,6 +117,8 @@ SHORT_MIN_SWITCHES = 6       # c. 字の種類（小文字・大文字・数字�
 SHORT_ENTROPY_SLACK = 0.8    # c. エントロピーが log2(長さ) − これ 以上なら散らばりが高い
 HEX_MIN_LEN = 20             # b. 16 進の塊の下限
 KNOWN_MIN_LEN = 8            # a. 照らす秘密の値の下限（これより短い値は他の字と取り違える）
+# a. 名が鍵らしい環境変数は値の形を問わず照らす（前からの強さ）。名で選ぶのはこの足し前だけで、
+#    名が何であれ全部の環境変数の値を値の形（env_value_secret）でも照らす（STRIPE_SK・DB_PWD・SIGNING_SALT も入る）。
 SECRET_NAME = re.compile(r"KEY|TOKEN|SECRET|PASS|CRED|AUTH|PRIVATE", re.I)
 OUTPUT_CONTRACT = [
     "Status（Completed / Partially / Blocked）",
@@ -260,11 +299,23 @@ def git_objects(root: Path | None, toks) -> set[str]:
     return out
 
 
+def env_value_secret(v: str) -> bool:
+    """環境変数の値が秘密の形か（名を見ない）。空白を含まず、正本の秘密の形に当たるか、区切り（/ _ = - . + : @ , ;）で
+    割った所が識別子・path・数・語の並び（_WORD）だけで割り切れない（字と数字の混ざった塊がある）物。
+    PATH・HOME・言語・モデルの名・時刻のような語の並びは秘密とみない＝パックに在っても止めない。"""
+    if re.search(r"\s", v):
+        return False
+    if public_guard().secret_labels(v):
+        return True
+    return not all(_WORD.match(p) for p in re.split(r"[/_=\-.+:@,;]", v))
+
+
 def known_secrets(root: Path | None, environ=None) -> list[tuple[str, str]]:
     """a. 窓が持つ秘密の値の (出所の名, 値) の並び。出所は環境変数の名か .env の file と鍵の名（値は外へ出さない）。"""
     env = os.environ if environ is None else environ
     out = [(f"環境変数 {k}", v) for k, v in env.items()
-           if SECRET_NAME.search(k) and isinstance(v, str) and len(v.strip()) >= KNOWN_MIN_LEN]
+           if isinstance(v, str) and len(v.strip()) >= KNOWN_MIN_LEN
+           and (SECRET_NAME.search(k) or env_value_secret(v.strip()))]
     if root is not None:
         for f in sorted(root.glob(".env*")):
             if not f.is_file():
@@ -327,7 +378,7 @@ def sha256_full(tok: str) -> str:
 
 
 def scan(text: str, values: dict | None = None, rels=None, root: Path | None = None, environ=None):
-    blocks = [label for label, pat in BLOCK_PATTERNS.items() if re.search(pat, text)]
+    blocks = secret_pattern_labels(text)
     fps, _ = allow_rules(values or {})
     for name, val in known_secrets(root, environ):
         if val in text and not any(sha256_full(val).startswith(p) for p in fps):

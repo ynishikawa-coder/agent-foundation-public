@@ -1,7 +1,7 @@
 # 公開の repo に置く呼び口の雛形（.github/workflows/public-guard.yml へそのまま写す）。
 # 写すのはこの呼び口だけ。検査の中身は土台の action を main の先端（@main）で呼ぶ（中身を写さない・版で止めない）。
 # 土台の直しは合流した時から全部の公開 repo に届く。誤った検査が届かないよう、土台は合流の前に CI で検査を試す。
-# job の名 public-guard を変えない（main の守りの必須の検査と、見回りがこの名で見る）。手順は土台の docs/公開の検査.md。
+# job の名 public-guard を変えない（main の守りの必須の検査がこの名で見る。見回りは名でなく、この呼び口〔uses:〕を実際に持つ job の名を必須の検査と照らす）。手順は土台の docs/公開の検査.md。
 name: public-guard
 
 on:

@@ -84,11 +84,20 @@ def test_写しを戻すと照らしが赤になる(tmp_path):
     assert copy.name == "skill_values.py" and LITERAL.search(copy.read_text(encoding="utf-8"))
 
 
+def _types():
+    """型の一覧の正本は skill_values.TYPES（試験に写さない）。"""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("sv_types", SV)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod.TYPES
+
+
 def test_鍵の一覧の型は決まった物だけ():
     def walk(where, keys):
         for k, raw in keys.items():
             spec = {"type": raw} if isinstance(raw, str) else raw
-            assert spec["type"] in ("str", "int", "bool", "list", "dict", "text", "any"), f"{where}.{k}"
+            assert spec["type"] in _types(), f"{where}.{k}"
             if "keys" in spec:
                 walk(f"{where}.{k}", spec["keys"])
     for plugin, sec in SCHEMA["sections"].items():
@@ -297,3 +306,4 @@ def test_guard_は問題の鍵だけ既定で動き守りを止めない(tmp_pat
     assert v["context_limit"] == SCHEMA["sections"]["guard"]["keys"]["context_limit"]["default"]
     assert v["ask_question_max_chars"] == 30
     assert "nazo" not in v
+

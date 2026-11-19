@@ -6,7 +6,10 @@
   2. 2 行目 `見た先端: <SHA の先頭 12 文字>`
   3. `## verdict` の次の行が green／red／red（blocked: …）で、1 行目の判定と合う
   4. `## 所見` の各行の札 `- [止める|台帳へ|直った｜<段>] …`。`[止める｜…]` か点の fail が 1 つでも在れば red、無ければ green
-  5. 別の目: 書いた窓（--writer）とレビューした窓が同じなら形の誤り（自分の PR に判定を付けない）
+  5. 別の目: 書いた窓（--writer）とレビューした窓が同じなら形の誤り（自分の PR に判定を付けない）。
+     --poster（判定を出す窓の実物の session id＝守りの hook が窓の環境から読む）を渡すと、1 行目の名乗りの字でなく
+     出す窓で照らす: 名乗りが出す窓と違えば誤り・出す窓が書いた窓か --other-writers（PR の commit の Claude-Session の窓）の
+     どれかと同じなら誤り（本文に別の字の id を名乗っても、出す窓が書いた窓なら通さない）。
   6. `## 点` に、review-pr の SKILL.md の「見る点」の表の点（番号と名）が全部 1 行ずつ在り、
      各行の値がその点に選べる値のどれか。選べる値は SKILL.md の「判定の形」の雛形の `## 点` の行
      （`- 1 依頼の充足: pass/fail`・`- 8 歯と口・注入の試験: pass/fail/N/A`・点 3 は `書いた窓 <id> ≠ この窓`）から点ごとに読む。
@@ -19,6 +22,7 @@
      「- 札は」の行から読む（ここに写さない＝札や段を足す PR がこの file の定数を触らない）。読めない時は止まる。
 
 使い方: python3 verdict_form.py <コメントのファイル> [<ファイル> …] --writer <書いた窓の session id> --head <PR の先端の SHA>
+        [--poster <判定を出す窓の session id>] [--other-writers <id>,<id>…]
   --writer と --head は欠かせない（欠けたら別の目と先端を照らさずに通さない＝exit 2）。
   助手（Agent）の判定は立てた窓の session id で書く。書いた窓が立てた助手の判定は --writer と同じになり誤り。
   ファイルは全部照らす（2 つ以上の時は誤りの頭にファイルの名）。誤りを 1 行ずつ出し、どれかに誤りがあれば exit 1。
@@ -163,7 +167,23 @@ def check_points(lines, points, reviewer=None, writer=None, values=None):
     return errs, fails
 
 
-def check(text, writer=None, head=None, points=None, cards=None, values=None):
+def form_id_lines(text):
+    """判定の形が窓の id を置く行（1 行目の名乗り・点 3 の `書いた窓 <id> ≠ この窓`）の行番号（0 始まり）の集合。
+    守りの窓の id の照らし（pr_text）が、形の欄の id を数えないために読む（形の正本はこの file＝写さない）。"""
+    lines = (text or "").splitlines()
+    out = {0} if lines and LINE1.match(lines[0].strip()) else set()
+    inside = False
+    for i, ln in enumerate(lines):
+        if ln.startswith("## "):
+            inside = ln.strip() == "## 点"
+            continue
+        m = POINT_LINE.match(ln.strip()) if inside else None
+        if m and int(m.group(1)) == 3 and OTHER_EYE.match(m.group(3).strip()):
+            out.add(i)
+    return out
+
+
+def check(text, writer=None, head=None, points=None, cards=None, poster=None, others=(), values=None):
     if points is None:
         points = load_points()
     if values is None:
@@ -181,6 +201,13 @@ def check(text, writer=None, head=None, points=None, cards=None, values=None):
     if not m2:
         errs.append("2 行目が `見た先端: <SHA12>` でない")
     reviewer, judged = (m1.group(1), m1.group(2)) if m1 else (None, None)
+    if poster:
+        # 別の目は名乗りの字でなく、判定を出す窓の実物で見る（名乗りは出す窓と合っているかだけを照らす）
+        if reviewer and reviewer != poster:
+            errs.append("1 行目の名乗り %s が判定を出す窓 %s と違う（名乗りは出す窓の session id で書く）" % (reviewer, poster))
+        reviewer = poster
+    if reviewer and reviewer in set(others or ()):
+        errs.append("判定を出す窓 %s が PR の commit を書いた窓（Claude-Session）と同じ（別の目でない）" % reviewer)
     for h in ("verdict", "点", "所見"):
         n = sum(1 for ln in lines if ln.strip() == "## " + h)
         if n > 1:
@@ -228,7 +255,7 @@ def main(argv):
     if not args:
         sys.stderr.write(__doc__)
         return 2
-    opts, paths, i = {"--writer": None, "--head": None}, [], 0
+    opts, paths, i = {"--writer": None, "--head": None, "--poster": None, "--other-writers": None}, [], 0
     while i < len(args):
         a = args[i]
         if a in opts:
@@ -256,7 +283,8 @@ def main(argv):
     bad = 0
     for path in paths:
         with open(path, encoding="utf-8") as f:
-            errs = check(f.read(), writer=opts["--writer"], head=opts["--head"])
+            errs = check(f.read(), writer=opts["--writer"], head=opts["--head"], poster=opts["--poster"],
+                         others=[x for x in (opts["--other-writers"] or "").split(",") if x])
         bad += bool(errs)
         for e in errs:
             print(("%s: %s" % (path, e)) if len(paths) > 1 else e)
