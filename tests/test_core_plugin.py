@@ -165,3 +165,27 @@ def test_核の根治は誤りが入れない形と注入の試験を持つ():
     for word in ["写す工程を無くす", "誤った物が入れない", "正しい道だけが外へ出す", "防げない物は名指しで人の関所へ", "注入の試験", "古い道は残さず"]:
         assert word in s3d, f"細目 §3 に無い: {word}"
     assert "記録で確かめる" in _節(saimoku, 7)
+
+
+def test_挙げた原因は全部台帳に行き先つきで持ち_全部済むまで終わったと言わない():
+    """原因が 5 つ挙がって 1 つしか直らない形を戻すと赤（1 つ選ぶ・一番手前から取る・どれを今回直すか）。"""
+    kaku_text = (PLUGIN / "核.md").read_text(encoding="utf-8")
+    s3 = _節(kaku_text, 3)
+    for word in ["原因の台帳", "1 行ずつ", "直す窓／直した／直さない", "オーナーが決めた理由"]:
+        assert word in s3, f"核 §3 に無い: {word}"
+    s7 = _節(kaku_text, 7)
+    assert "「直した」か「直さない」になるまで終わったと言わない" in s7 and "直す窓の行が残れば一部" in s7
+    s4 = _節(kaku_text, 4)
+    assert "1 つ選ばせる問いを出さない" in s4 and "挙がった物は全部やり" in s4
+    saimoku = (PLUGIN / "細目.md").read_text(encoding="utf-8")
+    assert "**原因の台帳**" in _節(saimoku, 3) and "**選ばせない**" in _節(saimoku, 4) and "**根治の終わり**" in _節(saimoku, 7)
+    olds = ["どれを今回直す", "一番手前の未決から取る", "どれから進めますか」と聞"]
+    hits = []
+    for p in sorted(ROOT.rglob("*")):
+        rel = p.relative_to(ROOT)
+        if rel.parts[0] in {".git", "tests"} or p.name == "CHANGELOG.md":
+            continue
+        if p.is_file() and p.suffix in {".md", ".py", ".json", ".mjs", ".html"}:
+            text = p.read_text(encoding="utf-8")
+            hits += [f"{rel}: {o}" for o in olds if o in text]
+    assert not hits, hits

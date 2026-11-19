@@ -98,3 +98,17 @@ def test_ほんまにできる表に届く先と写しの残りの行が在る()
     rows = {m.group(1).strip() for m in re.finditer(r"^\s*\|\s*([^|]+?)\s*\|", text, flags=re.M)}
     for row in ("届く先", "写しの残り"):
         assert row in rows, f"ほんまにできる表に「{row}」の行が無い"
+
+
+def test_設計の相談は論点ごとに窓を並べ_1_本の列にしない():
+    text = (PLUGIN / "skills" / "design-mode" / "SKILL.md").read_text(encoding="utf-8")
+    assert "論点ごとに窓を並べて同時に進める" in text and "1 本の列にしない" in text
+    assert "一番手前" not in text, "問いを表の一番手前の 1 つから取る形が戻った"
+
+
+def test_整地の解決は全部の原因に行き先を付ける():
+    d = PLUGIN / "skills" / "preimpl-cleanup"
+    skill, tpl = (d / "SKILL.md").read_text(encoding="utf-8"), (d / "整地受領証.template.md").read_text(encoding="utf-8")
+    assert "全部に行き先" in skill and "原因の台帳" in skill
+    assert "**行き先**" in tpl and "整地受領証: v7" in tpl
+    assert "どれを今回直す" not in skill + tpl
