@@ -115,27 +115,21 @@ def same_inject_code(repo: Path, installed_core: Path) -> bool:
         return False
 
 
-def core_problems(ctx: list[str], want: dict, expected: str | None = None) -> list[str]:
+def core_problems(ctx: list[str], want: dict, expected: str) -> list[str]:
     """起動の hook の文脈 ctx に、毎回差し込む物が正本と一字違わず届いたか。外れの名指し（空なら届いた）。
-    expected（正本の差し込む口が同じ材料で出した文脈の全体）を渡せば、核の部だけでなく文脈の全体を一字違わず比べる
-    （核の部の後ろに改行を挟んで足された文も外れ）。渡さなければ核の部を頭から比べ、その後ろは見ない。"""
+    expected（正本の差し込む口が同じ材料で出した文脈の全体）と文脈の全体を一字違わず比べる（細目の在り処だけは揃える）。
+    核の部の頭だけを比べる弱い道は持たない（核の後ろに足された節を見逃すので、expected は必ず渡す）。"""
     core = [c for c in ctx if c.startswith(KAKU_HEAD)]
     if not core:
         return ["核が起動した窓に差し込まれていない（plugin core の SessionStart の hook）"]
     pat = want["inject"]
-    if expected is None:
-        # 文脈の全体を比べられない時: 核の部が頭から一字違わず、その後ろは何も無いか次の節（`\n## `）で始まる
-        for c in core:
-            m = pat.match(c)
-            if m and (m.end() == len(c) or c.startswith("\n## ", m.end())):
-                return []
-    elif any(normalize(c, pat) == normalize(expected, pat) for c in core):
+    if any(normalize(c, pat) == normalize(expected, pat) for c in core):
         return []
     # 外れの時だけ、どの file が欠けたかを名指す（決めるのは上の全体の一致）
     lost = [name for name, text in want["injected"].items() if not any(text in c for c in core)]
     return ([f"{name} が起動した窓に差し込まれていない・中身が正本と違う（plugin core の SessionStart の hook）" for name in lost]
             or ["差し込まれた文が正本の差し込む口（kaku.py inject）の出す文と一字違わず同じでない（核・振る舞いの既定の前後か間に足された物がある）"
-                + (_first_diff(normalize(expected, pat), normalize(core[0], pat)) if expected is not None else "")])
+                + _first_diff(normalize(expected, pat), normalize(core[0], pat))])
 
 
 def _first_diff(want: str, got: str) -> str:
@@ -312,11 +306,10 @@ def smoke(source: str, repo: Path, expect_sha: str | None) -> list[str]:
                 ctx.append(json.loads(e.get("output") or "{}")["hookSpecificOutput"]["additionalContext"])
             except (ValueError, KeyError, TypeError):
                 pass
-        expect = None
         core_root = Path(rows.get("core", {}).get("installPath") or "/nonexistent")
         if not same_inject_code(repo, core_root):
             # 期待の文は、checkout の正本と一字違わず同じと確かめた入った copy の口で作る。口が違えば同じ材料でも文が違いうるので、
-            # 照らしを弱めて通さず赤にする（CI は入れる commit と同じ commit を checkout する・ci.yml の plugin-smoke）
+            # 照らしを弱めて通さず赤にする（CI は入れる commit と同じ commit を pr-head に checkout して --repo に渡す・ci.yml の plugin-smoke）
             return bad + ["入った copy の差し込む口 kaku.py が正本の checkout と一字違わず同じでない"
                           "（入れる commit と同じ commit を checkout して回す。差し込む口を書き換える誤りもここで止まる）"]
         try:

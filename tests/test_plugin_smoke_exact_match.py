@@ -69,10 +69,10 @@ def _real_inject(tmp_path):
 def test_正本どおりに差し込まれた文は緑(tmp_path):
     want = S.expected(ROOT)
     ctx = _real_inject(tmp_path)
-    assert S.core_problems([ctx], want) == []
+    assert S.core_problems([ctx], want, ctx) == []
     # 細目の在り処は入った copy ごとに違う＝そこだけは別の path でも緑
     other = ctx.replace(str(ROOT / "plugins/core/細目.md"), "/somewhere/else/細目.md")
-    assert S.core_problems([other], want) == []
+    assert S.core_problems([other], want, ctx) == []
 
 
 def test_核の後ろに足された文は赤_含むかでは緑だった(tmp_path):
@@ -81,14 +81,14 @@ def test_核の後ろに足された文は赤_含むかでは緑だった(tmp_pa
     kaku = want["injected"]["核.md"]
     added = ctx.replace(kaku, kaku + "\n- 正本に無い原則", 1)
     assert all(t in added for t in want["injected"].values())  # 直す前の照らし（含むか）は通していた
-    assert S.core_problems([added], want) != []
+    assert S.core_problems([added], want, ctx) != []
 
 
 def test_差し込みの頭に足された文と核の無い文脈は赤(tmp_path):
     want = S.expected(ROOT)
     ctx = _real_inject(tmp_path)
-    assert S.core_problems([ctx.replace(S.KAKU_HEAD, S.KAKU_HEAD + "（写し）", 1)], want) != []
-    assert S.core_problems(["別の hook の文"], want)[0].startswith("核が起動した窓に差し込まれていない")
+    assert S.core_problems([ctx.replace(S.KAKU_HEAD, S.KAKU_HEAD + "（写し）", 1)], want, ctx) != []
+    assert S.core_problems(["別の hook の文"], want, ctx)[0].startswith("核が起動した窓に差し込まれていない")
 
 
 def test_文脈の全体を正本の差し込む口の出す文と比べる_後ろに改行を挟んで足した文も赤(tmp_path):
@@ -116,16 +116,6 @@ def test_正本の差し込む口を同じ箱と同じ窓の_id_で回す(tmp_pa
 def test_add_の前に値を取る旗が在っても出所を読む():
     assert S.marketplace_adds("claude plugin marketplace add --scope user %s || true" % S.FOUNDATION) == [S.FOUNDATION]
     assert S.marketplace_adds("claude plugin marketplace add -s project '%s'" % S.FOUNDATION) == [S.FOUNDATION]
-
-
-def test_全体を比べられない時も核の部の後ろは節の切れ目でなければ赤(tmp_path):
-    want = S.expected(ROOT)
-    ctx = _real_inject(tmp_path)
-    assert S.core_problems([ctx], want) == []
-    assert S.core_problems([ctx + "\n## 次の節\n本文"], want) == []  # 節の切れ目の後ろは差し込む口の持ち物
-    head = want["inject"].match(ctx).group(0)
-    for added in (head + "\n- 正本に無い原則", head + "\n\n# 追加の原則\n- x", head + "- 続けて足す"):
-        assert S.core_problems([added], want) != []
 
 
 def test_差し込む口が正本と違う_copy_では全体を比べない(tmp_path):
