@@ -21,6 +21,7 @@ jobs:
           python-version: "3.12"
       # node（qa-html の検査 check.mjs）と playwright（型の JS を実ブラウザで動かす試験）を入れる。
       # 無いと試験が飛び、check_all が CI で飛んだ試験を赤にする（飛ばしたのに緑に数えない）。
+      # pytest の版は scripts/pytest_plugin/requirements.txt の 1 か所（違う版は check_all が CI で赤にする）。
       # python と node の playwright は同じ版に揃える。両者の版が同じでも求めるブラウザの build が違う事があるので、
       # ブラウザはそれぞれの playwright で入れる（足りなければ試験が飛び、check_all が赤にする）。
       - uses: actions/setup-node@v4
@@ -28,7 +29,7 @@ jobs:
           node-version: "22"
       - name: 試験の道具を入れる
         run: |
-          python3 -m pip install --quiet pytest playwright==1.65.1
+          python3 -m pip install --quiet -r scripts/pytest_plugin/requirements.txt playwright==1.65.1
           npm install -g --silent playwright@1.65.1
           echo "NODE_PATH=$(npm root -g)" >> "$GITHUB_ENV"
           python3 -m playwright install --with-deps chromium
@@ -41,6 +42,8 @@ jobs:
         run: bash scripts/check_all.sh
 
   # 並ぶ PR が同じ file の同じ行の辺りを書き換えていないかを知らせる（scripts/pr_overlap.py・止めない）。
+  # 見ていない時（材料が無い・他の PR を読めない）は exit 3 と注記 ::warning:: で名指す。job は止めないので step を
+  # continue-on-error で回す（step は外れの印・注記が残り、「重なりは無い」の緑と同じ印にならない）。
   overlap:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
@@ -52,6 +55,7 @@ jobs:
         with:
           persist-credentials: false
       - name: 重なる PR を知らせる
+        continue-on-error: true
         env:
           GITHUB_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
@@ -105,7 +109,7 @@ jobs:
           node-version: "22"
       - name: 道具を入れる（使う側の窓と同じ claude の命令）
         run: |
-          python3 -m pip install --quiet pytest
+          python3 -m pip install --quiet -r scripts/pytest_plugin/requirements.txt
           npm install -g --silent @anthropic-ai/claude-code
           claude --version
       - name: PR の枝（main への push は main）を使う側と同じ入れ方で入れて起動する
@@ -124,6 +128,7 @@ jobs:
           test "$(git rev-parse HEAD)" = "${MERGED_SHA}"
           git cat-file -p HEAD | grep -qx "parent ${HEAD_SHA}"
       - name: 本物の claude を要る試験（印 real_claude の試験を全部拾う。file を手で並べない・tests/conftest.py）
+        # --af-judge=real-claude: 印の試験が 1 本でも passed の外（飛ばし・xfail・外し）なら赤（scripts/pytest_plugin/af_tally.py）。
         env:
           AF_REQUIRE_CLAUDE: "1"
-        run: bash scripts/pytest.sh -q -m real_claude tests/
+        run: bash scripts/pytest.sh -q -m real_claude --af-judge=real-claude tests/

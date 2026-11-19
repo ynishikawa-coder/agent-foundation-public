@@ -14,7 +14,7 @@ import subprocess
 from pathlib import Path
 
 import pytest
-from entry_box import copy_entry
+from entry_box import box_env, copy_entry
 
 ROOT = Path(__file__).resolve().parent.parent
 REAL_CLAUDE_REASON = "claude の命令が無い所では飛ばす（CI の job plugin-smoke が -m real_claude で回す）"
@@ -33,8 +33,7 @@ def box(tmp_path, tests=None, checks=None):
 
 
 def run(root, **env):
-    e = {k: v for k, v in os.environ.items() if not k.startswith("GITHUB_")}
-    e.update(env)
+    e = box_env(**env)
     r = subprocess.run(["bash", "scripts/check_all.sh"], cwd=root, capture_output=True, text=True, env=e, timeout=300)
     return r.returncode, r.stdout.strip().splitlines()[-1], r.stdout
 
@@ -59,8 +58,7 @@ def test_注入_照らさない分岐の検査を緑に数えない(tmp_path):
     ("scripts/checks/pr_writer.sh", {"GITHUB_EVENT_NAME": "push"}),
 ])
 def test_照らさない分岐はどれも_exit_3(rel, env):
-    e = {k: v for k, v in os.environ.items() if not k.startswith("GITHUB_")}
-    e.update(env)
+    e = box_env(**env)
     r = subprocess.run(["bash", str(ROOT / rel)], capture_output=True, text=True, env=e, timeout=120)
     assert r.returncode == 3 and "照らしていない" in r.stdout, (rel, r.returncode, r.stdout)
 
@@ -90,7 +88,7 @@ def test_注入_待つ物が在るのに飛ぶと赤(tmp_path):
     body = ("import pytest\n\ndef test_s():\n    e = pytest.skip.Exception('作り物')\n"
             "    e.af_wait_path = 'here.json'\n    raise e\n")
     root = box(tmp_path, tests={"test_ok.py": "def test_ok():\n    pass\n", "test_skip.py": body})
-    (root / "tests" / "waits.txt").write_text("here.json  作り物\n", encoding="utf-8")
+    (root / "tests" / "waits.txt").write_text("here.json  tests/test_skip.py  作り物\n", encoding="utf-8")
     code, last, _ = run(root)
     assert code == 0, last  # 待つ物が無い間は名指すだけ
     (root / "here.json").write_text("{}", encoding="utf-8")

@@ -27,6 +27,7 @@ import workflow_reader as W  # noqa: E402
 
 # 作り物の箱と GitHub の道具の入力（守りの hook の入口から当てる）は test_pr_text の物を共に使う
 from test_pr_text import MAIL, PUBLIC_WORD, _fake_public_repo, deny_reason, env, gh  # noqa: E402,F401
+from entry_box import box_env
 
 F = W.FOUNDATION
 CALL = "uses: %s/public-guard@main" % F
@@ -298,10 +299,11 @@ def _local_check(tmp_path, ci_text):
     (box / "public-guard").mkdir()
     (box / ".github" / "workflows").mkdir(parents=True)
     shutil.copy(ROOT / "scripts" / "checks" / "public_guard.sh", box / "scripts" / "checks" / "public_guard.sh")
+    shutil.copy(ROOT / "scripts" / "af_unchecked.sh", box / "scripts" / "af_unchecked.sh")
     shutil.copy(ROOT / "public-guard" / "workflow_reader.py", box / "public-guard" / "workflow_reader.py")
     (box / "public-guard" / "guard.py").write_text(FAKE_GUARD, encoding="utf-8")
     (box / ".github" / "workflows" / "ci.yml").write_text(ci_text, encoding="utf-8")
-    e = {k: v for k, v in os.environ.items() if k != "GITHUB_ACTIONS"}
+    e = box_env()
     p = subprocess.run(["bash", str(box / "scripts" / "checks" / "public_guard.sh")], capture_output=True, text=True,
                        env=e, timeout=60)
     args = [json.loads(ln[5:]) for ln in p.stdout.splitlines() if ln.startswith("ARGS=")]
