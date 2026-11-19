@@ -173,8 +173,19 @@ def test_plugin_の名を写した_setup_の行が在る_repo_を名指しする
     assert "古い形（写し）" not in _ctx(run("inject", project=proj))
 
 
-def test_土台そのものに古い形が残らない():
-    r = run("olds", ROOT)
+def test_土台そのものに古い形が残らない(tmp_path):
+    """照らすのはこの commit の中身（olds は使う側の main を読むので、ROOT のままだと土台の main を照らし、古い形を消して
+    古い形の行を足す 1 段目の PR が合流まで赤になる）。HEAD の木を main に置いた作り物の repo で照らす。"""
+    import io
+    import tarfile
+    arc = subprocess.run(["git", "-C", str(ROOT), "archive", "HEAD"], capture_output=True, check=True).stdout
+    with tarfile.open(fileobj=io.BytesIO(arc)) as t:
+        t.extractall(tmp_path, filter="data")
+    g = ["git", "-C", str(tmp_path), "-c", "user.name=t", "-c", "user.email=t@example.invalid"]
+    for a in (["init", "-q", "-b", "main"], ["add", "-A"], ["commit", "-q", "-m", "x"],
+              ["update-ref", "refs/remotes/origin/main", "HEAD"]):
+        subprocess.run(g + a, capture_output=True, check=True)
+    r = run("olds", tmp_path)
     assert r.returncode == 0, r.stdout
 
 
