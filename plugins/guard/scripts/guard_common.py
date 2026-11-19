@@ -4,7 +4,7 @@
 
 値の表（在る時だけ読む・無ければ既定で動く）: config/skill-values.json の "guard"。探し方・鍵の一覧・型・既定は
   plugin の lib/skill_values.py と lib/schema.json（＝土台の skill-values/ の正本への symlink）が持つ＝ここに写さない。
-  知らない鍵・畳んだ鍵・型の違う値は、その鍵だけ既定で動き（守りを止めない）、窓の起動の時に名指しで知らせる（values_check）。
+  知らない鍵・畳んだ鍵・型の違う値は、その鍵だけ既定で動き（守りを止めない）、窓の起動の時に名指しで知らせる（values_keys）。
   鍵の意味は skill guard:guard-rules の「値の表」。
 """
 from __future__ import annotations
@@ -94,6 +94,16 @@ def values(payload=None):
         if k in DEFAULTS and v is not None:
             out[k] = v
     return out
+
+
+def table(section, payload=None):
+    """値の表の 1 つの節を dict で返す（無い・読めない時は {}）。探し方は値の表の 1 本の口（lib/skill_values.py）。他の plugin の口も使う。"""
+    try:
+        tbl, _ = SV.load(SV.find(starts=_starts(payload)))
+    except Exception:  # noqa: BLE001  見張りの故障で窓を止めない
+        return {}
+    got = tbl.get(section) if isinstance(tbl, dict) else None
+    return got if isinstance(got, dict) else {}
 
 
 def values_problems(payload=None):

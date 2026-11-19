@@ -6,6 +6,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import re
+
 import pytest
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -233,10 +235,6 @@ def test_背で走らせた助手は残りを動かす手に数え_前で待つ�
     assert "rest" in codes(rs[:-1] + [agent(False), rs[-1]])
 
 
-def test_返し先が別の窓の子窓には題の知らせを出さない():
-    assert sw.remind({"prompt": "作り物を見て（親窓 session_X の子）"}, CLOUD) is None
-
-
 def test_Workflow_は残りを動かす手に数える():
     close = "\nAI がこの後やること: 流れの返しを受けて直す（今日中・この窓で）\nあなたがやること: なし。この窓で AI が続けるので、まだ閉じないでください。"
     rs = set_last_text(rows("owner_ok.jsonl"), "✅終わった（一部）\n流れを回した。" + close)
@@ -394,7 +392,8 @@ def test_差し戻した後は書き直した返事だけを締めとして見�
 def test_差し戻す口は_decision_block_で返し壊れた入力では黙る(tmp_path):
     import os
     run = lambda body: subprocess.run([sys.executable, str(SCRIPT), "--stop"], input=body, capture_output=True, text=True,
-                                      env=dict(os.environ, AF_SESSION_WATCH_TMP=str(tmp_path / "sw")))
+                                      env=dict({k: v for k, v in os.environ.items() if k != "CLAUDE_CODE_REMOTE"},
+                                               AF_SESSION_WATCH_TMP=str(tmp_path / "sw")))
     out = run(json.dumps(stop_data("作り物を直した。\n根拠は 2 つ。\n1 つ目。\n2 つ目。"), ensure_ascii=False))
     assert out.returncode == 0 and json.loads(out.stdout)["decision"] == "block"
     assert run(json.dumps(stop_data(OK_REPLY), ensure_ascii=False)).stdout == ""

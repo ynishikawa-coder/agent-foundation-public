@@ -40,6 +40,7 @@ repo の根（`git rev-parse --show-toplevel`）の `config/skill-values.json` �
 | `docs-kit.qa-html.internal_words` | 検査が赤にする内部の言葉に会社の語を足す（文字列か `{語, 正規表現, 言い換え}`） | `check.mjs` の頭の表 `RULES` の語だけ |
 | `docs-kit.qa-html.limits` | 長さ・問いの数の上限を上書き | 下の §長さの上限 |
 | `docs-kit.qa-html.prior_check_cmd` | 作り方 0 の「聞く前に引く」を機械にする道具の命令（repo ごとの決定の記録・問いの表を引く物）。下の §前の答えを照らす口 | 無し＝作り方 0 は手で引く（検査は前の答えを見ない・今までどおり） |
+| `docs-kit.qa-html.later_lead` | 先に決めておきたい事（later）の最初のまとまりの 1 行の決まった文を替える | `check.mjs` の `RULES.later_lead` |
 | `docs-kit.qa-html.why` | なぜ聞くかの決まった文を替える（例 `{"once": "この月だけの事を確かめます"}`） | `check.mjs` の `RULES.why` |
 | `docs-kit.qa-html.later_lead` | 先に決めておきたい事（later）の最初のまとまりの 1 行 | `check.mjs` の `RULES.later_lead` |
 | `common.glossary` | 本文の語の意味 | 語の一般の意味 |

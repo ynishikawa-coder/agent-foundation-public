@@ -25,7 +25,9 @@
           "keys": {}
         },
         "watch-log": {
-          "keys": {}
+          "keys": {
+            "reply_exempt": "list"
+          }
         }
       }
     },
