@@ -35,9 +35,10 @@ def test_入口に見張りの一覧を写さない():
 
 @pytest.fixture
 def copy(tmp_path):
-    d = tmp_path / "scripts"
-    shutil.copytree(SCRIPTS, d, ignore=shutil.ignore_patterns("__pycache__"))
-    return d
+    # scripts と隣の lib（値の表の 1 本の口・正本への symlink は実体で写る＝入れた plugin と同じ形）を写す
+    shutil.copytree(SCRIPTS, tmp_path / "scripts", ignore=shutil.ignore_patterns("__pycache__"))
+    shutil.copytree(SCRIPTS.parent / "lib", tmp_path / "lib", ignore=shutil.ignore_patterns("__pycache__"))
+    return tmp_path / "scripts"
 
 
 def pre(env, scripts, cmd):
