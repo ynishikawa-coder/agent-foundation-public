@@ -297,7 +297,9 @@ def _type_ok(t, v):
         # 読めない行は道具が捨てるか照らせないと止め、照らし check は名指す（_check_keys）。
         return isinstance(v, list) and all(_row_pattern(x) is not None for x in v)
     if t == "words":
-        return isinstance(v, list) and not bad_words(v)
+        # 書き違いの行（\ を含む）は型の違いにしない（鍵ごと落とすと、止める側の鍵 paid_markers_extra の正しい行まで
+        # 黙って効かなくなる）。その行だけ words_in が捨て、照らし check が名指す（_check_keys）。型 patterns と同じ扱い。
+        return isinstance(v, list) and all(isinstance(x, str) and x for x in v)
     if t == "globs":
         return isinstance(v, list) and all(isinstance(x, str) and x for x in v)
     return False
@@ -339,7 +341,7 @@ def _check_keys(where, node, specs, retired):
         if empty(v):
             continue   # 空（""・[]・{}・null）は型を問わず「既定で動く」＝問題ではない
         if not _type_ok(spec["type"], v):
-            rows = {"repo_names": bad_repo_names, "words": bad_words}.get(spec["type"])
+            rows = {"repo_names": bad_repo_names}.get(spec["type"])
             if rows and isinstance(v, list):
                 out.append("%s の行 %s が型に合わない（%s で書く%s）" % (
                     at, "・".join(json.dumps(x, ensure_ascii=False) for x in rows(v)), TYPE_WORD[spec["type"]], _against(spec)))
@@ -347,10 +349,11 @@ def _check_keys(where, node, specs, retired):
                 out.append("%s の型が違う（%s で書く・今は %s）" % (at, TYPE_WORD[spec["type"]], type(v).__name__))
             bad.add(k)
             continue
-        unread = bad_pattern_rows(v) if spec["type"] == "patterns" else []
+        # 読めない行・書き違いの行は鍵を落とさず、その行だけが効かないと名指す（型ごとの「行の扱い」はここ 1 か所）
+        unread = {"patterns": bad_pattern_rows, "words": bad_words}.get(spec["type"], lambda _v: [])(v)
         if unread:
-            out.append("%s の行 %s が正規表現として読めない（その行は効かない）" % (
-                at, "・".join(json.dumps(x, ensure_ascii=False) for x in unread)))
+            out.append("%s の行 %s が型に合わない（その行だけ効かない・%s で書く%s）" % (
+                at, "・".join(json.dumps(x, ensure_ascii=False) for x in unread), TYPE_WORD[spec["type"]], _against(spec)))
         old = old_pattern_rows(spec, v)
         if old:
             # 1 段目: 前の形の行は前の読み方（一部に当てる）で効かせたまま名指す（鍵は落とさない）

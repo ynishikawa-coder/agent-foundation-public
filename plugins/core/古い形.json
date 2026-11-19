@@ -130,6 +130,16 @@
       "pattern": "(?s)\"(?:irreversible_tools_extra|qa_page_exempt|ask_term_allow|outbound_secret_allow|ask_prior_lookup|context_handoff)\"\\s*:\\s*\\[(?:\\s*\"(?:[^\"\\\\]|\\\\.)*\"\\s*,)*\\s*\"(?!\\^(?:[^\"\\\\]|\\\\.)*\\$\")(?:[^\"\\\\]|\\\\.)+\"",
       "fix": "型の正本 skill-values/schema.json の鍵の against（当てる相手）の全体に当たる形に書き直す（例: 道具の名なら ^mcp__server__delete_item$・path なら ^quiz/[^/]+\\.html$・道具の呼び出しなら ^Grep \\{.*問いの表.*\\}$）",
       "example": "\"guard\": {\"irreversible_tools_extra\": [\"delete\"]}"
+    },
+    {
+      "id": "codex-glob-star-crosses",
+      "what": "値の表 dev-flow.codex の self_allow の glob の行が dir/* の形（前の読み方〔fnmatch〕では * が / をまたぎ下の dir 全部に当たった。1 段目の間は前の読み方でだけ当たる path も通して builder が名指す。2 段目で受けを畳むと dir の直下だけに当たる）",
+      "files": [
+        "config/skill-values.json"
+      ],
+      "pattern": "(?s)\"self_allow\"\\s*:\\s*\\[(?:\\s*\"[^\"]*\"\\s*,)*\\s*\"[^\"]*/\\*\"",
+      "fix": "下の dir まで許すなら dir/** に、直下だけなら dir/* のままにする（どちらのつもりかを決めて書く）。clients.<名>.paths の dir/* も同じ",
+      "example": "\"codex\": {\"self_allow\": [\"tools/*\"]}"
     }
   ]
 }

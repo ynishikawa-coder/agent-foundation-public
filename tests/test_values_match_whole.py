@@ -199,7 +199,7 @@ def test_顧客の物は前の読み方でも見落とさない():
 def test_値の表の照らしが前の形と読めない行を名指し_鍵は落とさない():
     table = {"guard": {"ask_prior_lookup": ["\\bGrep\\b.*問いの表", "^Grep \\{.*\\}$", "("]}}
     probs = SV.check(table)
-    assert any("前の形" in p for p in probs) and any("読めない" in p for p in probs), probs
+    assert any("前の形" in p for p in probs) and any("その行だけ効かない" in p for p in probs), probs
     sec, _ = SV.check_section(table, "guard")[0], None
     assert "ask_prior_lookup" not in SV.check_section(table, "guard")[1]
 
@@ -224,3 +224,25 @@ def test_型_patterns_の字でない行の形も鍵を読む道具が全部受�
     monkeypatch.setenv("SKILL_VALUES", str(table))
     assert sw.reply_exempt({})[0] == ["^> "]
     assert not SV.check(json.loads(table.read_text()))
+
+
+def test_字の鍵に書き違いの行が混じっても正しい行は止め続ける(tmp_path, monkeypatch):
+    """型 words の \\ の行 1 つで鍵ごと落とすと、止める側の paid_markers_extra の正しい行まで黙って効かなくなる（赤）。"""
+    table = tmp_path / "values.json"
+    table.write_text(json.dumps({"guard": {"paid_markers_extra": ["my_paid_api", "\\bfoo\\b"]}}), encoding="utf-8")
+    monkeypatch.setenv("SKILL_VALUES", str(table))
+    vals = G.values()
+    assert "my_paid_api" in vals["paid_markers_extra"]
+    data = {"tool_name": "Write", "tool_input": {"file_path": "/r/tests/test_x.py", "content": "URL = my_paid_api"}}
+    assert paid_upstream.check(data, vals)
+    probs = SV.check(json.loads(table.read_text()))
+    assert any("paid_markers_extra" in p and "その行だけ効かない" in p for p in probs), probs
+
+
+def test_codex_の前の読み方でだけ当たる_path_は1段目の間は通して名指す(tmp_path, capsys):
+    import datetime as dt
+    vals = {"self_allow": ["tools/*"]}
+    assert codex_pack.resolve_dest("self", ["tools/sub/deep/x.py"], vals, dt.date(2026, 11, 20)) == "self"
+    assert "dir/**" in capsys.readouterr().err
+    with pytest.raises(codex_pack.Abort):
+        codex_pack.resolve_dest("self", ["other/x.py"], vals, dt.date(2026, 11, 20))

@@ -131,6 +131,18 @@ def match_any(rel: str, globs) -> bool:
     return any(skill_values.glob_match(g, rel) for g in (globs or []))
 
 
+def old_only(rels, globs) -> list[str]:
+    """前の読み方（fnmatch の * が / をまたぐ）でだけ当たる path（1 段目: 通して名指す。2 段目で畳む＝原因の台帳の行）。"""
+    return [r for r in rels if not match_any(r, globs)
+            and any(isinstance(g, str) and fnmatch.fnmatchcase(r, g) for g in (globs or []))]
+
+
+def _note_old(key: str, olds: list[str]) -> None:
+    if olds:
+        sys.stderr.write(f"[codex_pack] 値の表の {key} の glob は前の読み方（* が / をまたぐ）でだけ当たる path を通した: {olds}。"
+                         "今は通すが、下の dir まで許すなら dir/** に書き直す（* は / をまたがない読み方へ移る）\n")
+
+
 def client_hit(rel: str, globs) -> bool:
     """顧客の物の path か。glob_match に加え、前の読み方（fnmatch の * が / をまたぐ）でも当たれば顧客の物と見る
     （1 段目: 顧客の物を見落とす側へ狭めない。前の形の値〔dir/* で下の dir 全部のつもり〕は ** に書き直す）。"""
@@ -167,9 +179,11 @@ def resolve_dest(dest: str | None, rels: list[str], values: dict, today: dt.date
         allow = values.get("self_allow") or []
         if not allow:
             raise Abort("値の表に self_allow が無い（既定 deny＝何も載せない）")
-        outside = [r for r in rels if not match_any(r, allow)]
+        olds = old_only(rels, allow)
+        outside = [r for r in rels if not match_any(r, allow) and r not in olds]
         if outside:
-            raise Abort(f"self_allow の外の path が混じる: {outside}")
+            raise Abort(f"self_allow の外の path が混じる: {outside}（下の dir まで許すなら self_allow の行を dir/** で書く）")
+        _note_old("self_allow", olds)
         return "self"
     if dest.startswith("client:") and dest[len("client:"):]:
         name = dest[len("client:"):]
@@ -177,9 +191,11 @@ def resolve_dest(dest: str | None, rels: list[str], values: dict, today: dt.date
         why = client_ok(entry, today)
         if why:
             raise Abort(f"顧客 {name} へは出さない: {why}")
-        outside = [r for r in rels if not match_any(r, entry.get("paths"))]
+        olds = old_only(rels, entry.get("paths"))
+        outside = [r for r in rels if not match_any(r, entry.get("paths")) and r not in olds]
         if outside:
-            raise Abort(f"顧客 {name} の paths の外が混じる: {outside}")
+            raise Abort(f"顧客 {name} の paths の外が混じる: {outside}（下の dir まで含めるなら paths の行を dir/** で書く）")
+        _note_old(f"clients.{name}.paths", olds)
         return dest
     raise Abort("--dest は self か client:<名>")
 
