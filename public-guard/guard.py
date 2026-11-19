@@ -170,9 +170,15 @@ def in_ci() -> bool:
 
 # ---- 照らす本体（場所と札だけを返す・語は返さない） ---------------------------------
 
+def secret_labels(text: str) -> list[str]:
+    """秘密の形に当たった札の並び（値は返さない）。秘密の形の正本はここ 1 つ。
+    返事の差し戻し（plugin session-watch の Stop の hook）もこれを直に呼ぶ（写さない）。"""
+    return [label for label, pat in SECRET_PATTERNS.items() if re.search(pat, text or "")]
+
+
 def pattern_hits(where: str, text: str) -> list[str]:
     """秘密と個人の情報の形。"""
-    hits = [f"{where}: {label}" for label, pat in SECRET_PATTERNS.items() if re.search(pat, text)]
+    hits = [f"{where}: {label}" for label in secret_labels(text)]
     hits += [f"{where}: {label}" for label, pat in PERSONAL_PATTERNS.items() if re.search(pat, text)]
     if any(not SAFE_EMAIL.search(m) for m in re.findall(EMAIL, text)):
         hits.append(f"{where}: メールアドレス")
@@ -181,7 +187,8 @@ def pattern_hits(where: str, text: str) -> list[str]:
 
 def word_hits(where: str, text: str, words: list[str]) -> list[str]:
     low = text.lower()
-    return [f"{where}: 置かない語" for w in words if w.lower() in low][:1]
+    n = sum(1 for w in words if w.lower() in low)
+    return [f"{where}: 置かない語 {n} 個"] if n else []     # 語は出さない。数は出す（1 つ消して赤が残る往復をさせない）
 
 
 def customer_hits(where: str, text: str, words: list[str], bundle) -> list[str]:
@@ -375,6 +382,8 @@ def main(argv=None) -> int:
         hits = run(repo, a.rev_range, a.deny_words_file, a.pattern_skip, files_only=a.files_only)
     except subprocess.CalledProcessError as e:
         print(f"✗ git が照らす範囲を読めない（force push の後で前の commit が無い・取り出しが浅い等）: {' '.join(e.cmd[1:4])}")
+        if not in_ci():  # 手元の窓は枝だけ・浅い clone が多い。取り方を言う（照らす範囲は main からの差）
+            print("  手元の直し: `git fetch origin main`（浅い clone なら `git fetch --deepen=200 origin main` も）で main を取ってから回し直す")
         return 1
     if hits:
         print("✗ 公開の repo に置かない物:\n  " + "\n  ".join(hits))

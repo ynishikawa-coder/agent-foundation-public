@@ -74,19 +74,45 @@ def _drop_from_market(d):
 
 
 def _guard_never_denies(d):
-    f = d / "plugins" / "guard" / "scripts" / "guard.py"
+    # 止める見張りの宣言（各見張りの頭の HOOKS の "pre"）を全部消す
+    hit = 0
+    for f in (d / "plugins" / "guard" / "scripts").glob("*.py"):
+        text = f.read_text(encoding="utf-8")
+        broken = re.sub(r'"pre": "\w+",? ?', "", text)
+        if broken != text:
+            hit += 1
+            f.write_text(broken, encoding="utf-8")
+    assert hit, "見張りの HOOKS の形が変わった（この注入を合わせる）"
+
+
+def _drop_furumai_from_inject(d):
+    f = d / "plugins" / "core" / "scripts" / "kaku.py"
     text = f.read_text(encoding="utf-8")
-    broken = re.sub(r'"pre": \[[^\]]*\],', '"pre": [],', text, count=1)
-    assert broken != text, "guard.py の止める一覧の形が変わった（この注入を合わせる）"
+    broken = text.replace("return (KAKU, FURUMAI)", "return (KAKU,)")
+    assert broken != text, "kaku.py の injected() の形が変わった（この注入を合わせる）"
     f.write_text(broken, encoding="utf-8")
+
+
+def _drop_entry(d):
+    (d / "scripts" / "setup_plugins.py").unlink()
+
+
+def _entry_skips_guard(d):
+    f = d / "scripts" / "setup_plugins.py"
+    f.write_text(f.read_text(encoding="utf-8").replace("    for n in names:\n", "    for n in [x for x in names if x != \"guard\"]:\n"),
+                 encoding="utf-8")
 
 
 @pytest.mark.parametrize("breaks,want", [
     (_drop_skill, "skill docs-kit:qa-html"),
     (_break_core_hook, "核が起動した窓に差し込まれていない"),
-    (_drop_from_market, "plugin guard を入れられない"),
+    (_drop_from_market, "plugin guard が起動した窓に読み込まれていない"),
     (_guard_never_denies, "止めるべき作り物の入力を止めない"),
-], ids=["skill が欠ける", "核の hook が壊れる", "配りの器から plugin が落ちる", "守りが止めない"])
+    (_drop_furumai_from_inject, "振る舞い.md が起動した窓に差し込まれていない"),
+    (_drop_entry, "土台の入口 scripts/setup_plugins.py を通っていない"),
+    (_entry_skips_guard, "入っていない: guard"),
+], ids=["skill が欠ける", "核の hook が壊れる", "配りの器から plugin が落ちる", "守りが止めない", "振る舞いの既定が届かない",
+        "入口が無い", "入口が plugin を落とす"])
 def test_届かない物を入れた土台は赤(tmp_path, breaks, want):
     src, sha = copy_of_foundation(tmp_path, breaks)
     code, out = smoke(src, sha)
