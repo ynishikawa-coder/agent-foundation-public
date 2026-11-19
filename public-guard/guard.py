@@ -6,9 +6,10 @@
     UTF-8 で読めない字は置き換えて読む（ASCII の鍵の形は照らす）。作業の木で消した追跡のファイルは index の中身を照らす
   - 歴史: 照らす範囲の各 commit で足された行（消しても歴史に残るため。バイナリの差分も字として照らす）
   - 外側: commit の説明・名義（名とメール）と PR の題・本文
-照らしていない物は緑と言わない: 照らす物が 0（置かない語の表に語が 0・範囲の commit が 0・ファイルが 0）・手元で PR の
-event が無く PR の題・本文を照らしていない・顧客の語の照合を飛ばした・submodule の中身、のどれかが在れば、当たり 0 でも
-exit 3（照らしていない）で何を照らしていないかを名指す。CI では exit 0 でない物は皆赤。
+照らしていない物は緑と言わない: 範囲の commit が 0・ファイルが 0・手元で PR の event が無く PR の題・本文を
+照らしていない・顧客の語の照合を飛ばした・submodule の中身、のどれかが在れば、当たり 0 でも exit 3（照らしていない）で
+名指す。名指した置かない語の表に語が 0 の時は 1 段目（前の形）: 名指して ✅ とは言わず exit 0（止めない）。
+CI では exit 0 でない物は皆赤。
 照合の前の正規化は normalize() 1 つ（NFKC・書式の字〔幅の無い空白など〕を除く）。語の照合はその上で大文字と小文字を
 区別しない（fold()）。形・置かない語・顧客の語（平文と束）は皆これを通す（全角・互換の字ですり抜けない）。
 
@@ -21,8 +22,8 @@ exit 3（照らしていない）で何を照らしていないかを名指す�
       AF_DENY_WORDS（1 行 1 語）／AF_DENY_WORDS_FILE（その形のファイルの path）
     CI（GITHUB_ACTIONS=true）でどれも無い時は黙って通さず止める。手元でどれも無い時だけ飛ばす（exit 3）。
 語そのものは出力に出さない（どこに当たったかだけを出す）。
---pattern-skip に名指したファイルでも、形の照らしから外れるのは印 `public-guard: 形の見本` を書いた行の個人の情報の形
-だけ（秘密の形〔鍵・トークン〕は印の行でも外さない・印の無い行は全部照らす・置かない語と顧客の語は外さない）。
+--pattern-skip に名指したファイル: 印 `public-guard: 形の見本` が無い file は 1 段目の前の形（形を file ごと外す）。
+印が在る file は、印の行の個人の情報の形だけを外す（秘密の形は印の行でも外さない・印の無い行は全部照らす・置かない語と顧客の語は外さない）。
 
 使い方: python3 guard.py [--repo DIR] [--range REV|ALL] [--deny-words-file F] [--pattern-skip PATH ...] [--files-only]
         python3 guard.py --text <場所の名>=<file> [--text …] [--deny-words-file F]
@@ -229,7 +230,14 @@ SKIP_MARK = "public-guard: 形の見本"
 
 
 def skipped_pattern_hits(where: str, text: str) -> list[str]:
-    """--pattern-skip のファイルの形の照らし。外すのは印の行の個人の情報の形だけ（秘密の形は印の行でも照らす）。"""
+    """--pattern-skip のファイルの形の照らし（壊れる 1 段目）。
+
+    印が 1 行も無い file は前の形: 形の照らしを file ごと外す（秘密も個人の情報も）。使う側の CI をこの PR で赤にしない。
+    見つけ方は plugins/core/古い形.json の public-guard-skip-whole-file。印を 1 行でも書いた file は新しい形:
+    印の無い行は全部照らし、印の行は個人の情報の形だけ外し、秘密の形は印の行でも照らす。
+    """
+    if SKIP_MARK not in text:
+        return []
     lines = text.splitlines()
     plain = "\n".join(ln for ln in lines if SKIP_MARK not in ln)
     marked = "\n".join(ln for ln in lines if SKIP_MARK in ln)
@@ -494,8 +502,10 @@ def load_event() -> dict:
 
 
 def words_unchecked(words_file: str | None, words: list[str]) -> list[str]:
-    """名指した置かない語の表に語が 0 なら、語の照らしは何も照らしていない。"""
-    return [f"置かない語: 表 {words_file} に語が 0（照らす語が無い）"] if words_file and not words else []
+    """名指した置かない語の表に語が 0 なら、その名指し（1 段目は止めない理由。exit 3 には足さない）。"""
+    if words_file and not words:
+        return [f"置かない語: 表 {words_file} に語が 0（1 段目は止めない。語を入れるか表を外す）"]
+    return []
 
 
 def scan(repo: Path, rev_range: str | None, words_file: str | None, skip: list[str], event: dict | None = None,
@@ -504,7 +514,7 @@ def scan(repo: Path, rev_range: str | None, words_file: str | None, skip: list[s
     files_only は中身だけ（歴史を持ち越さない新しい repo へ移す前）。"""
     words = file_words(repo / words_file if words_file else None)
     guard = Guard(repo, words, set(skip), words_file)
-    guard.unchecked += words_unchecked(words_file, words)
+    # 語が 0 は 1 段目: 名指しは main がして exit 0（前の形は止めない）。exit 3 の unchecked には足さない。
     hits = guard.check_files()
     if not files_only:
         event = load_event() if event is None else event
@@ -593,10 +603,11 @@ def main(argv=None) -> int:
             return 1
         print("（手元: 顧客の語が環境に無いので、顧客の語の照合だけ飛ばす）")
     try:
-        file_words(repo / a.deny_words_file if a.deny_words_file else None)
+        named_words = file_words(repo / a.deny_words_file if a.deny_words_file else None)
     except OSError as e:   # 名指した表が無い・読めない（空の表と取り違えて 0 語で照らさない）
         print(f"✗ 置かない語の表 {a.deny_words_file} を読めない: {e.__class__.__name__}")
         return 2
+    empty_words = words_unchecked(a.deny_words_file, named_words)
     try:
         hits, unchecked, g = scan(repo, a.rev_range, a.deny_words_file, a.pattern_skip, files_only=a.files_only)
     except NoBase as e:
@@ -617,6 +628,11 @@ def main(argv=None) -> int:
         if os.environ.get("AF_CHECK_UNCHECKED"):   # 検査の入口 check_all へ訳を渡す（訳の無い 3 は赤）
             Path(os.environ["AF_CHECK_UNCHECKED"]).write_text("照らせない: " + "・".join(unchecked) + "\n", encoding="utf-8")
         return 3
+    if empty_words:
+        # 1 段目: 語が 0 の表は前の形のまま止めない（使う側の CI をこの PR で赤にしない）。✅ とは言わない。
+        # 2 段目で exit 3 にする（古い形 public-guard-empty-deny-words）。
+        print("公開の検査: 前の形（" + "／".join(empty_words) + "）。緑の印は出さない")
+        return 0
     scope = f"中身 {g.files_n} 個" + ("・歴史と外側は照らさない〔--files-only〕" if a.files_only
                                      else f"・歴史と外側 {g.commits_n} commit")
     print(f"✅ 公開の検査: 置かない物 0（{scope}）")

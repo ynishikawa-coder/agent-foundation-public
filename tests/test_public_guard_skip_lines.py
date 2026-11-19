@@ -22,14 +22,27 @@ def test_印の行の個人の情報の形だけ外れる(tmp_path):
     assert r.returncode == 0, r.stdout
 
 
+def test_1段目_印の無い_file_は前の形で形を_file_ごと外す(tmp_path):
+    """印が 1 行も無い pattern-skip の file は、前の形のまま形を外す（使う側の CI を赤にしない）。"""
+    r = _run(tmp_path, "電話 %s" % PHONE)
+    assert r.returncode == 0, r.stdout
+
+
+def test_注入_印を書いた_file_の印の無い行は赤(tmp_path):
+    """印を 1 行でも書いた file は新しい形。印の無い行の個人の情報は赤（%r は改行を字にするので、行は file に分けて書く）。"""
+    repo = make_repo(tmp_path / "r")
+    commit(repo, {"pat.py": "EXAMPLE = %r\n# %s\n" % ("電話 " + PHONE, MARK)})
+    r = cli(repo, "--range", "ALL", "--pattern-skip", "pat.py", env_extra=ENV)
+    assert r.returncode == 1 and "pat.py: 電話番号" in r.stdout and "commit" in r.stdout, r.stdout
+
+
 @pytest.mark.parametrize("line, label", [
-    ("電話 %s" % PHONE, "電話番号"),                       # 注入: 印の無い行（前の形は file ごと外れて緑）
     ("鍵 %s  # %s" % (TOKEN, MARK), "GitHub のトークン"),   # 注入: 印の行でも秘密の形は外さない
 ])
-def test_注入_印の無い行と秘密の形は_skip_の_file_でも赤(tmp_path, line, label):
+def test_注入_印の行でも秘密の形は赤(tmp_path, line, label):
     r = _run(tmp_path, line)
     assert r.returncode == 1, r.stdout
-    assert "pat.py: %s" % label in r.stdout and "commit" in r.stdout, r.stdout   # 中身と歴史の両方
+    assert "pat.py: %s" % label in r.stdout and "commit" in r.stdout, r.stdout
 
 
 def test_印の行でも顧客の語は外さない(tmp_path):

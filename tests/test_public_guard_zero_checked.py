@@ -10,11 +10,12 @@ from public_guard_box import CLEAN_CUSTOMER, TOKEN, cli, commit, git, make_repo
 ENV = {"AF_DENY_WORDS": CLEAN_CUSTOMER}
 
 
-def test_注入_置かない語の表に語が0なら緑と言わない(tmp_path):
+def test_1段目_置かない語の表に語が0でも止めず緑とは言わない(tmp_path):
+    """前の形は語が 0 でも exit 0 で ✅。1 段目は止めない（exit 0）が ✅ とは言わず名指す。2 段目で exit 3。"""
     repo = make_repo(tmp_path / "r")
     commit(repo, {"deny.txt": "# 表（語を 0 にした注入）\n\n"})
     r = cli(repo, "--range", "ALL", "--deny-words-file", "deny.txt", env_extra=ENV)
-    assert r.returncode == 3 and "語が 0" in r.stdout, r.stdout
+    assert r.returncode == 0 and "語が 0" in r.stdout and "置かない物 0" not in r.stdout, r.stdout
     commit(repo, {"deny.txt": "# 表\n作り物ノ禁句\n"})
     r = cli(repo, "--range", "ALL", "--deny-words-file", "deny.txt", env_extra=ENV)
     assert r.returncode == 0 and "置かない物 0" in r.stdout, r.stdout
