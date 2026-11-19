@@ -67,6 +67,8 @@ def check(pic):
         errs.append("form が %s でない" % FORM)
     meta = pic.get("meta") or {}
     for k in ("title", "kind", "version", "problem", "goal"):
+        if k == "version" and meta.get("kind") == "実物":
+            continue                                 # 実物は版を持たない（どの先端から描いたかは drawn_from）
         if not _text(meta.get(k)):
             errs.append("meta.%s が無い（%s）" % (k, {"problem": "解決したい問題", "goal": "完成像"}.get(k, "欄")))
     kind = meta.get("kind")
