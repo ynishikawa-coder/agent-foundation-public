@@ -6,6 +6,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 ROOT = Path(__file__).resolve().parent.parent
 PLUGIN = ROOT / "plugins" / "core"
 TOOL = PLUGIN / "scripts" / "kaku.py"
@@ -210,8 +212,8 @@ class Foundation:
         (plugins / "installed_plugins.json").write_text(json.dumps({"version": 2, "plugins": {"core@agent-foundation": [
             {"installPath": str(PLUGIN), "gitCommitSha": self.installed}]}}))
 
-    def hook(self, event, sid="s1"):
-        r = run(event, project=self.tmp, home=self.home, stdin=json.dumps({"session_id": sid}),
+    def hook(self, event, sid="s1", source="startup"):
+        r = run(event, project=self.tmp, home=self.home, stdin=json.dumps({"session_id": sid, "source": source}),
                 extra={"AF_FRESH_INTERVAL": "0"})
         assert r.returncode == 0, r.stderr
         return json.loads(r.stdout)["hookSpecificOutput"]["additionalContext"] if r.stdout else ""
@@ -230,6 +232,26 @@ def test_起動の後に_plugin_が変わったら引き継いで閉じるよう
     assert "引き継いで閉じる" in f.hook("fresh")        # 引き継ぐまで問いのたびに知らせる
 
 
+@pytest.mark.parametrize("source", ["compact", "clear", "resume"])
+def test_途中で古くなった窓は圧縮や_resume_を通っても引き継ぎが消えない(tmp_path, source):
+    """注入: 起動 → main を進める → SessionStart がもう 1 回（圧縮・/clear・resume）→ fresh は引き継ぎを出し続ける。"""
+    f = Foundation(tmp_path)
+    f.install()
+    f.hook("inject")
+    _commit(f.work, {"plugins/guard/x.py": "x\n"}, "守りを変える")
+    again = f.hook("inject", source=source)
+    assert "土台が古いまま立った窓" not in again           # 「起動の時から古い」と取り違えない
+    assert "引き継いで閉じる" in f.hook("fresh")
+
+
+def test_起動の時から古い窓は圧縮の後も同じ知らせを出す(tmp_path):
+    f = Foundation(tmp_path)
+    _commit(f.work, {"plugins/core/核.md": "核 2\n"}, "核を変える")
+    f.install()
+    f.hook("inject")
+    assert "土台が古いまま立った窓" in f.hook("inject", source="compact")
+
+
 def test_文書と試験だけの変更では窓を替えない(tmp_path):
     f = Foundation(tmp_path)
     f.install()
@@ -238,13 +260,15 @@ def test_文書と試験だけの変更では窓を替えない(tmp_path):
     assert f.hook("fresh") == ""
 
 
-def test_起動の時から古い窓は引き継がず_setup_script_を直すよう知らせる(tmp_path):
-    """注入: setup script が古い物を入れた（版を指したまま）→ 立て直しても同じなので輪にしない。"""
+def test_起動の時から古い窓は_setup_script_を直してから引き継ぐよう知らせる(tmp_path):
+    """注入: setup script が古い物を入れた（版を指したまま）→ 直してから引き継ぐ。直せない時だけ引き継がない（輪にしない）。"""
     f = Foundation(tmp_path)
     _commit(f.work, {"plugins/core/核.md": "核 2\n"}, "核を変える")
     f.install()                                          # 入れたのは 1 つ前（f.installed）
     text = f.hook("inject")
-    assert "土台が古いまま立った窓" in text and "setup script" in text and "core" in text
+    assert "土台が古いまま立った窓" in text and "core" in text
+    assert "update_environment" in text and "create_session" in text and "archive_session" in text
+    assert "直せない時" in text and "連絡板" in text
     assert "# 振る舞いの核" in text                       # 核の差し込みは止めない
     assert f.hook("fresh") == ""
 

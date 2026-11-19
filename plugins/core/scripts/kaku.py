@@ -5,7 +5,7 @@
   python3 kaku.py inject              SessionStart の hook が呼ぶ。核（同じ plugin の 核.md）を窓の文脈へ差し込み、
                                       細目（細目.md）の在り処を知らせる。開いた repo の根の CLAUDE.md に
                                       写しの枠（AF-CORE:BEGIN）がまだ在る時は、核が二重に入らないよう差し込まない。
-                                      あわせて、入った土台が main の先端と同じかを見て窓ごとに覚える（古ければ知らせる）。
+                                      あわせて、窓の最初の 1 回だけ、入った土台が main の先端と同じかを見て窓ごとに覚える（古ければ知らせる）。
   python3 kaku.py fresh               UserPromptSubmit の hook が呼ぶ。起動の後に main の先端の plugin が変わったら、
                                       この窓を新しい窓へ引き継いで閉じるよう AI に知らせる（人の作業は止めない）。
   python3 kaku.py check [--claude P]  核が上限の内かを照らす。--claude を渡すと、その CLAUDE.md（写しの枠が在れば
@@ -144,11 +144,16 @@ def _short(f: dict) -> str:
 
 
 def stale_at_start_text(f: dict) -> str:
-    return ("## 土台が古いまま立った窓\n"
-            f"この窓は main の先端より古い土台で立った（{_short(f)}）。窓を立て直しても同じ物が入るので引き継がない。"
-            "環境の setup script が版（tag）を指していないか・入れ損ねていないかを見て、土台の docs/核の届け方.md の形"
-            "（main の先端を入れる）に直す: Javis の環境は get_environment → update_environment、UTC の環境は連絡板の issue で頼む。"
-            "直るまで核と守りの hook は古い形で動く、と最初の返事でオーナーへ 1 行知らせる。\n")
+    return ("## 土台が古いまま立った窓 — setup script を直してから引き継いで閉じる\n"
+            f"この窓は main の先端より古い土台で立った（{_short(f)}）。setup script が版（tag）を指している・入れ損ねている"
+            "ので、直さずに立て直しても同じ物が入る。この返事では頼みに手を付けず次をする（人の作業は新しい窓で止まらず続く・🙋 の窓も同じ）:\n"
+            "1. 環境の setup script を土台の docs/核の届け方.md の形（main の先端を入れる）に直す: "
+            "claude-code-remote の get_environment → update_environment（直せる環境の時）。\n"
+            "2. 直せた時は、手の中の変更を push し、create_session で同じ repo・同じ環境に新しい窓を立てて引き継ぎ文"
+            "（元の頼み・済んだ事・枝と PR・未決・次の 1 手・窓の題と「古い土台の窓からの引き継ぎ」の 1 行）を渡し、"
+            "人と親の窓へ新しい窓の URL を返し、archive_session で自分の窓を閉じる。\n"
+            "3. 直せない時（他のアカウントの環境・道具が無い・この窓自身が「古い土台の窓からの引き継ぎ」で立った）は引き継がず、"
+            "UTC の環境なら連絡板の issue で setup script の直しを頼み、オーナーへ「核と守りが古い形で動いている」と 1 行知らせてから頼みを続ける。\n")
 
 
 def handover_text(f: dict) -> str:
@@ -172,13 +177,20 @@ def inject() -> int:
             parts.append(inject_text())
         except OSError as e:
             print(f"plugin core: 核.md が読めない（{e}）＝核は差し込まれていない", file=sys.stderr)
-    try:
-        f = freshness()
-    except Exception:  # noqa: BLE001  新しさの見張りが壊れても核の差し込みは止めない
-        f = None
-    if data.get("session_id"):
-        _save_state(data["session_id"], {"checked": time.time(), "stale_at_start": bool(f and f["plugins"]),
-                                         "comparable": f is not None})
+    session = data.get("session_id")
+    state = _read_json(_state_path(session)) if session else None
+    if isinstance(state, dict):
+        # 同じ窓の 2 回目（文脈の圧縮・/clear・resume）: 起動の時の記録を書き直さない（途中で古くなった窓を
+        # 「起動の時から古い」と取り違えて引き継ぎを消さない）。外へも見に行かない。
+        f = state.get("start") if state.get("stale_at_start") else None
+    else:
+        try:
+            f = freshness()
+        except Exception:  # noqa: BLE001  新しさの見張りが壊れても核の差し込みは止めない
+            f = None
+        if session:
+            _save_state(session, {"checked": time.time(), "stale_at_start": bool(f and f["plugins"]),
+                                  "comparable": f is not None, "start": f})
     if f and f["plugins"]:
         parts.append(stale_at_start_text(f))
     if parts:
@@ -190,7 +202,7 @@ def inject() -> int:
 def fresh() -> int:
     """起動の後に土台が新しくなったかを見る。新しくなっていれば、引き継いで閉じる手順を AI に知らせる。
 
-    起動の時から古かった窓（setup script が古い物を入れた）は引き継がない＝立て直しても同じなので輪にならない。"""
+    起動の時から古かった窓（setup script が古い物を入れた）はここでは扱わない（inject の知らせが setup script を直してから引き継がせる）。"""
     data = _hook_input()
     session = data.get("session_id")
     if not session:
