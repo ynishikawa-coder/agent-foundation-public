@@ -5,6 +5,8 @@ git ls-files で道具を拾う試験は git に無い file を見ないので�
 import pathlib
 import subprocess
 
+from entry_box import copy_entry
+
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 
 
@@ -14,10 +16,8 @@ def _read(rel):
 
 def _check_all_の最後の行(tmp_path, dirty):
     """check_all.sh を tmp の repo に写し、検査の中身は空にして最後の行だけを見る。"""
-    (tmp_path / "scripts").mkdir()
+    copy_entry(tmp_path)
     (tmp_path / "tests").mkdir()
-    for rel in ("scripts/check_all.sh", "scripts/pytest.sh"):
-        (tmp_path / rel).write_text(_read(rel), encoding="utf-8")
     (tmp_path / "tests/test_ok.py").write_text("def test_ok():\n    pass\n", encoding="utf-8")
     g = lambda *a: subprocess.run(["git", *a], cwd=tmp_path, check=True, capture_output=True)
     g("init", "-q")

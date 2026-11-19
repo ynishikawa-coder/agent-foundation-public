@@ -5,7 +5,9 @@
 # 同じ道で試験を絞れる物も読まない: repo 根など tests/ の外の conftest.py（--confcutdir=tests）・
 # 環境変数 PYTEST_PLUGINS・入れてある plugin の自動の読み込み（PYTEST_DISABLE_PLUGIN_AUTOLOAD）。
 # 試験を回す形は呼ぶ側の引数だけが決める（印の登録は tests/conftest.py）。
+# 結果は scripts/pytest_plugin/af_tally.py が構造で残す（AF_PYTEST_TALLY=<file> の時。check_all は文を読まずにこれを数える）。
 set -uo pipefail
 cd "$(dirname "$0")/.."
 exec env -u PYTEST_ADDOPTS -u PYTEST_PLUGINS PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 \
-  python3 -m pytest -c /dev/null --rootdir=. --confcutdir=tests "$@"
+  PYTHONPATH="$PWD/scripts/pytest_plugin${PYTHONPATH:+:$PYTHONPATH}" \
+  python3 -m pytest -c /dev/null --rootdir=. --confcutdir=tests -p af_tally "$@"

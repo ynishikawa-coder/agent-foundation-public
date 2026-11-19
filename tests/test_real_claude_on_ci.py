@@ -3,14 +3,18 @@
 前の形: 試験の file ごとに「claude が無ければ飛ばす」を書き、CI の job plugin-smoke の pytest の行に file を手で並べていた。
 並べ忘れた試験は claude の無い job check で飛ばされ、どこでも回らなかった。今の形:
 - 飛ばす条件は tests/conftest.py の 1 か所（印 real_claude の試験だけ）。試験の file は印を付けるだけ。
-- plugin-smoke は `pytest -m real_claude tests/` で印の試験を全部拾う。
+- plugin-smoke は `bash scripts/pytest.sh -m real_claude tests/` で印の試験を全部拾う。
 - 印を付け忘れた試験は飛ばされず、claude の無い job check で赤になる。
 """
+import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 from pathlib import Path
+
+from entry_box import copy_entry
 
 ROOT = Path(__file__).resolve().parent.parent
 CONFTEST = ROOT / "tests" / "conftest.py"
@@ -66,15 +70,25 @@ def test_印の試験はどれも_real_claude_の印を持つ():
 
 
 def _run_box(tmp_path, body, require):
-    (tmp_path / "conftest.py").write_text(CONFTEST.read_text(encoding="utf-8"), encoding="utf-8")
-    (tmp_path / "test_box.py").write_text(body, encoding="utf-8")
-    env = dict(os.environ, PATH=str(tmp_path / "nobin"))  # claude の無い所
+    """小箱に入口と conftest を写して回し、(exit, 結果の本数, 出力) を返す（入口を通す・本数は構造の結果で数える）。"""
+    root = copy_entry(tmp_path / "box")
+    (root / "tests").mkdir()
+    (root / "tests" / "conftest.py").write_text(CONFTEST.read_text(encoding="utf-8"), encoding="utf-8")
+    (root / "tests" / "test_box.py").write_text(body, encoding="utf-8")
+    nobin = tmp_path / "nobin"  # claude の無い所（入口が使う道具だけ置く）
+    nobin.mkdir()
+    os.symlink(sys.executable, nobin / "python3")
+    for tool in ("bash", "dirname", "env"):
+        os.symlink(shutil.which(tool), nobin / tool)
+    env = dict(os.environ, PATH=str(nobin), AF_PYTEST_TALLY=str(tmp_path / "tally.json"))
     env.pop("AF_REQUIRE_CLAUDE", None)
     if require:
         env["AF_REQUIRE_CLAUDE"] = "1"
-    r = subprocess.run([sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider", str(tmp_path)],
-                       capture_output=True, text=True, env=env, cwd=tmp_path)
-    return r.returncode, r.stdout + r.stderr
+    r = subprocess.run(["bash", "scripts/pytest.sh", "-q", "-p", "no:cacheprovider", "tests/"],
+                       capture_output=True, text=True, env=env, cwd=root)
+    data = json.loads((tmp_path / "tally.json").read_text(encoding="utf-8"))
+    outcomes = sorted(x["outcome"] for x in data["results"])
+    return r.returncode, outcomes, r.stdout + r.stderr
 
 
 MARKED = "import pytest\npytestmark = pytest.mark.real_claude\n\ndef test_a():\n    assert True\n"
@@ -82,15 +96,15 @@ UNMARKED_NEEDS = "import subprocess\n\ndef test_a():\n    subprocess.run(['clau'
 
 
 def test_claude_の無い所では印の試験だけ飛ばす(tmp_path):
-    code, out = _run_box(tmp_path, MARKED, require=False)
-    assert code == 0 and "1 skipped" in out, out
+    code, outcomes, out = _run_box(tmp_path, MARKED, require=False)
+    assert code == 0 and outcomes == ["skipped"], out
 
 
 def test_AF_REQUIRE_CLAUDE_では印の試験を飛ばさず赤(tmp_path):
-    code, out = _run_box(tmp_path, MARKED, require=True)
-    assert code != 0 and "claude の命令が無い" in out, out
+    code, outcomes, out = _run_box(tmp_path, MARKED, require=True)
+    assert code != 0 and outcomes == ["error"] and "claude の命令が無い" in out, out
 
 
 def test_印を付け忘れた試験は_claude_の無い所で赤(tmp_path):
-    code, out = _run_box(tmp_path, UNMARKED_NEEDS, require=False)
-    assert code != 0 and "1 failed" in out, out
+    code, outcomes, out = _run_box(tmp_path, UNMARKED_NEEDS, require=False)
+    assert code != 0 and outcomes == ["failed"], out
