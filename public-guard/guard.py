@@ -2,14 +2,15 @@
 """公開の検査の本体（土台に 1 つだけ置く。各公開 repo の CI は action `public-guard` を版を決めて呼ぶだけ）。
 
 公開の repo は、いつ誰に見られてもよい状態に保つ。世界に見える物を全部照らす:
-  - 中身: git の追跡するファイルの名と全行
+  - 中身: git の追跡するファイルの名と全行（UTF-8 で読めない物は readable_text で字に起こす。起こせない物は名指しして止める）
   - 歴史: 照らす範囲の各 commit で足された行（消しても歴史に残るため）
   - 外側: commit の説明・名義（名とメール）と PR の題・本文
 
 照らす物:
   - 秘密の形（鍵・トークン）と個人の情報の形（個人を指すメール・電話・郵便番号・Notion と Google の文書の URL）
   - commit の名義のメールは noreply だけ通す（GitHub の `@users.noreply.github.com`・`noreply@anthropic.com`）
-  - 置かない語（repo ごとの表。`--deny-words-file`。土台は業務の語の表を渡す）
+  - 置かない語（repo ごとの表。`--deny-words-file`。土台は業務の語の表を渡す）。語も文も 1 つの形へ寄せ（全角→半角・大小）、
+    語の間の空白・中黒を外した形でも照らす（顧客の語も同じ）
   - 顧客の語（repo に書かない。環境から渡す。どちらか・両方でよい）
       AF_DENY_BUNDLE … 語を HMAC にした束 `pct1.<鍵>.<束>`（Javis の顧客の語の束と同じ形・同じ値を貼る）
       AF_DENY_WORDS（1 行 1 語）／AF_DENY_WORDS_FILE（その形のファイルの path）
@@ -38,14 +39,16 @@ import sys
 import unicodedata
 from pathlib import Path
 
+# 秘密の形の正本（ここ 1 つ）。返事の差し戻し（session-watch）・外へ渡す入力（guard の outbound）・Codex へ渡すパック
+# （dev-flow の codex_pack）も、これを直に読む（写さない）。長さの下限は、写しが別々に持っていた中のいちばん広い物に揃えた。
 SECRET_PATTERNS = {
-    "GitHub のトークン": r"gh[pousr]_[A-Za-z0-9]{36,}|github_pat_[A-Za-z0-9_]{20,}",
+    "GitHub のトークン": r"gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}",
     "Anthropic の鍵": r"sk-ant-[A-Za-z0-9_\-]{20,}",
-    "OpenAI 形の鍵": r"sk-[A-Za-z0-9]{40,}",
+    "OpenAI 形の鍵": r"(?<![A-Za-z0-9])sk-[A-Za-z0-9]{20,}",
     "AWS の鍵 ID": r"AKIA[0-9A-Z]{16}",
     "Slack のトークン": r"xox[abpors]-[A-Za-z0-9-]{10,}",
-    "Google の鍵": r"AIza[0-9A-Za-z_\-]{35}|ya29\.[0-9A-Za-z_\-]{20,}",
-    "Notion のトークン": r"\b(?:secret_|ntn_)[A-Za-z0-9]{30,}",
+    "Google の鍵": r"AIza[0-9A-Za-z_\-]{30,}|ya29\.[0-9A-Za-z_\-]{20,}",
+    "Notion のトークン": r"\b(?:secret_|ntn_)[A-Za-z0-9]{16,}",
     "秘密鍵": r"-----BEGIN [A-Z ]*PRIVATE KEY-----",
     # 会社ごとの字を並べて追わない一般の形: 小文字の接頭辞（1〜2 段・_ か - で区切る）の後ろに、大文字・小文字・数字が
     # それぞれ 2 つ以上混ざり、語の形でない並び（数字と字の入れ違い・大文字の続き）を持つ 24 字以上の乱れた字。窓の id（session_…）は鍵でない（sk-proj-…・sk_live_…・hf_…・glpat-… など表に無い会社の鍵も同じ類）
@@ -64,12 +67,59 @@ SAFE_EMAIL = re.compile(
     r"|@example\.(com|org|net)|\.(invalid|test|example|localhost))$",
     re.IGNORECASE,
 )
+# 個人の情報の形。照らす前に字を 1 つの形へ寄せる（fold: 全角→半角・大小）ので、全角の数字・記号の言い換えは追わない。
+# 電話は区切り（空白・ハイフンの類・点・括弧）の字を並べて追わず、数字の並びとして読む（phone_hits: +81 は 0 に戻し、
+# 0 で始まる 10〜11 桁を電話とみる。区切りの無い 1 続きは携帯・IP の形〔0[5789]0〕だけ＝番号・id と取り違えない）。
+# URL は host を読み、登録の名（notion.*）・置き場の host（docs|drive|sheets|slides|forms.google.*）で見る（host の字の並びを足さない）。
 PERSONAL_PATTERNS = {
-    "電話番号": r"(?<![\d\-])0\d{1,4}-\d{1,4}-\d{4}(?![\d\-])|(?<!\d)0[789]0\d{8}(?!\d)",
-    "郵便番号": r"〒\s?\d{3}-?\d{4}",
-    "Notion のページ": r"notion\.(?:so|site)/[^\s)\]]+",
-    "Google の文書・置き場": r"(?:docs|drive|sheets)\.google\.com/[^\s)\]]+",
+    "郵便番号": r"〒\s?\d{3}\s?-?\s?\d{4}",
 }
+_SEP = r"[\s\-\u2010-\u2015\u2212\u30fc\uff70.()]"
+PHONE = re.compile(r"(?<![\w+.\-])(?:\+81%s{0,2}\(?0?\)?%s{0,2}|\(?)\d{1,11}(?:\)?%s{1,3}\d{1,5}){0,3}(?![\w\-])"
+                   % (_SEP, _SEP, _SEP))
+HOST = re.compile(r"(?<![\w.@-])((?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,})(/[^\s)\]]+)")
+DOC_HOSTS = {"notion": "Notion のページ", "google": "Google の文書・置き場"}
+GOOGLE_STORE = re.compile(r"^(?:docs|drive|sheets|slides|forms)\.google\.")
+
+
+def fold(text: str) -> str:
+    """照らす前の 1 つの形（NFKC＝全角→半角・大小をそろえる）。"""
+    return unicodedata.normalize("NFKC", text or "").casefold()
+
+
+# 語の間に挟む空白・中黒・幅の無い字（置かない語は、これを外した形でも照らす）
+_GAPS = re.compile(r"[\s・･\u200b-\u200d\u2060\ufeff]+")
+
+
+def squeeze(text: str) -> str:
+    return _GAPS.sub("", text)
+
+
+def phone_hits(text: str) -> bool:
+    for m in PHONE.finditer(text):
+        raw = m.group(0)
+        digits = re.sub(r"\D", "", raw)
+        if raw.startswith("+81"):
+            digits = "0" + digits[2:].lstrip("0")
+        if not digits.startswith("0") or len(digits) not in (10, 11):
+            continue
+        if re.fullmatch(r"\(?\d+", raw) and not re.match(r"0[5789]0", digits):
+            continue    # 区切りの無い 1 続きは携帯・IP の形だけ（番号・id の 10 桁と取り違えない）
+        return True
+    return False
+
+
+def doc_url_labels(text: str) -> set[str]:
+    out = set()
+    for host, _path in HOST.findall(text):
+        labels = host.split(".")
+        reg = labels[-3] if len(labels) >= 3 and len(labels[-2]) <= 3 and len(labels[-1]) == 2 else labels[-2]
+        if reg == "notion":
+            out.add(DOC_HOSTS["notion"])
+        elif reg == "google" and GOOGLE_STORE.match(host):
+            out.add(DOC_HOSTS["google"])
+    return out
+
 
 CUSTOMER_HINT = "repo の secret AF_DENY_BUNDLE か AF_DENY_WORDS を入れ、呼ぶ workflow から渡す（docs/公開の検査.md）"
 
@@ -188,29 +238,59 @@ def secret_labels(text: str) -> list[str]:
 def pattern_hits(where: str, text: str) -> list[str]:
     """秘密と個人の情報の形。"""
     hits = [f"{where}: {label}" for label in secret_labels(text)]
-    hits += [f"{where}: {label}" for label, pat in PERSONAL_PATTERNS.items() if re.search(pat, text)]
-    if any(not SAFE_EMAIL.search(m) for m in re.findall(EMAIL, text)):
-        hits.append(f"{where}: メールアドレス")
-    return hits
+    return hits + personal_hits(where, text)
+
+
+def personal_hits(where: str, text: str) -> list[str]:
+    """個人の情報の形（寄せた字で照らす）。"""
+    t = fold(text)
+    labels = [label for label, pat in PERSONAL_PATTERNS.items() if re.search(pat, t)]
+    labels += ["電話番号"] if phone_hits(t) else []
+    labels += sorted(doc_url_labels(t))
+    if any(not SAFE_EMAIL.search(m) for m in re.findall(EMAIL, t)):
+        labels.append("メールアドレス")
+    return [f"{where}: {label}" for label in labels]
+
+
+def sample_secret(match: str) -> bool:
+    """見本の印の形（鍵の体の英数字の続きが 3 種以下の字＝aaaa…・x0x0…）。本物の鍵はこの形にならない。"""
+    runs = re.findall(r"[A-Za-z0-9]{8,}", match)
+    return bool(runs) and len(set(max(runs, key=len))) <= 3
+
+
+def secret_hits_kept(where: str, text: str) -> list[str]:
+    """形の照らしから外す file でも鍵の形は照らす。通すのは見本の印の形だけ。"""
+    return [f"{where}: {label}" for label, pat in SECRET_PATTERNS.items()
+            if any(not sample_secret(m.group(0)) for m in re.finditer(pat, text or ""))]
+
+
+def _word_in(word: str, folded: str, squeezed: str) -> bool:
+    """語が文に在るか。両方を 1 つの形へ寄せ（fold）、語の間の空白・中黒を外した形（squeeze）でも照らす。"""
+    w = fold(word)
+    return bool(w) and (w in folded or (bool(squeeze(w)) and squeeze(w) in squeezed))
 
 
 def word_hits(where: str, text: str, words: list[str]) -> list[str]:
-    low = text.lower()
-    n = sum(1 for w in words if w.lower() in low)
+    folded = fold(text)
+    squeezed = squeeze(folded)
+    n = sum(1 for w in words if _word_in(w, folded, squeezed))
     return [f"{where}: 置かない語 {n} 個"] if n else []     # 語は出さない。数は出す（1 つ消して赤が残る往復をさせない）
 
 
 def customer_hits(where: str, text: str, words: list[str], bundle) -> list[str]:
-    low = text.lower()
-    if any(w.lower() in low for w in words):
+    folded = fold(text)
+    squeezed = squeeze(folded)
+    if any(_word_in(w, folded, squeezed) for w in words):
         return [f"{where}: 顧客の語"]
-    if bundle and any(bundle_hit(bundle, line) for line in text.splitlines() or [text]):
+    if bundle and any(bundle_hit(bundle, line) or bundle_hit(bundle, squeeze(fold(line)))
+                      for line in text.splitlines() or [text]):
         return [f"{where}: 顧客の語"]
     return []
 
 
 class Guard:
-    """1 つの repo を照らす。words＝置かない語の表、skip＝形の照らしから外す path（形を書いた所だけ）。"""
+    """1 つの repo を照らす。words＝置かない語の表、skip＝個人の形の照らしから外す path（形を書いた検査の道具だけ。
+    鍵の形は外した file でも照らし、通すのは見本の印の形＝sample_secret だけ）。"""
 
     def __init__(self, repo: Path, words: list[str], skip: set[str], words_home: str | None = None):
         self.repo = repo
@@ -227,6 +307,8 @@ class Guard:
         hits = []
         if path not in self.skip:
             hits += pattern_hits(where, text)
+        else:   # 外す file（形を書いた検査の道具）も鍵の形は照らす（通すのは見本の印の形だけ）。外すのは個人の形の見本だけ
+            hits += secret_hits_kept(where, text)
         if path != self.words_home:
             hits += word_hits(where, text, self.words)
         hits += customer_hits(where, text, self.cust_words, self.bundle)
@@ -245,14 +327,15 @@ class Guard:
             path = self.repo / rel
             if not path.is_file():
                 continue
-            try:
-                yield rel, path.read_text(encoding="utf-8")
-            except UnicodeDecodeError:
-                yield rel, ""  # 文字でないファイルも名は照らす
+            yield rel, readable_text(path.read_bytes())
 
     def check_files(self) -> list[str]:
         hits = []
         for rel, text in self.tracked_files():
+            if text is None:    # 読めない物を空と見なさない（中の秘密を照らせない＝止める）
+                hits.append(f"{self.place(rel)}: 読めないファイル（UTF-8 でも候補の符号でも文書の zip でもない。"
+                            "UTF-8 で置き直すか、中身を照らせる形にする）")
+                text = ""
             hits += self.text_hits(self.place(rel), rel + "\n" + text, rel)
         return hits
 
@@ -315,6 +398,81 @@ class Guard:
             hits += self.text_hits(f"commit {sha} の名義", f"{an}\n{cn}")
             hits += self.text_hits(f"commit {sha} の説明", body)
         return hits
+
+
+# ---- file の中身を照らせる字に起こす（UTF-8 で読めない物を空と見なさない） ------------------------
+
+# UTF-8 で読めない文字の file に試す符号（日本の文書で使う物）。字のふりをした別の物と取り違えないよう、
+# 読めた字に制御の字・私用の字（cp932 が字でない byte に当てる所）が混じる符号は採らない。
+TEXT_CODECS = ("cp932", "euc_jp", "iso2022_jp")
+_PRINTABLE = re.compile(rb"[\x20-\x7e\t]{6,}")
+_ZIP_TEXT = re.compile(r"\.(?:xml|rels|txt|csv|json|md|html?)$", re.I)
+_TAG = re.compile(r"<[^>]+>")
+
+
+def readable_text(raw: bytes) -> str | None:
+    """file の中身を照らせる字にする。読めない時は None（呼ぶ側が名指しして止める）。
+    UTF-8（BOM つき・UTF-16 の BOM も）→ 文書の zip（.docx・.xlsx・.pptx・.odt 等＝中の xml の字）→
+    文字でない物（NUL を含む・画像・PDF 等）は中の ASCII の続きと PDF の圧縮した流れを起こす → 候補の符号（Shift_JIS 等）。"""
+    if raw[:2] in (b"\xff\xfe", b"\xfe\xff"):
+        try:
+            return raw.decode("utf-16")
+        except UnicodeDecodeError:
+            return None
+    try:
+        text = raw.decode("utf-8-sig")
+        if b"\x1b$" not in raw or not text.isascii():   # ESC で切り替える 7 bit の符号（ISO-2022-JP）は候補の符号へ
+            return text
+    except UnicodeDecodeError:
+        pass
+    if raw[:4] == b"PK\x03\x04":
+        return zip_text(raw)
+    if b"\x00" in raw or raw[:5] == b"%PDF-":
+        return binary_text(raw)
+    # 候補の符号で読めた字を全部並べて照らす（どの符号か当て推量で 1 つに決めない＝取り違えた符号で語を落とさない）
+    texts = []
+    for codec in TEXT_CODECS:
+        try:
+            text = raw.decode(codec)
+        except UnicodeDecodeError:
+            continue
+        if not re.search(r"[\x00-\x08\x0b\x0e-\x1f\x7f-\x9f\ue000-\uf8ff]", text):   # 制御の字・私用の字＝字のふり
+            texts.append(text)
+    return "\n".join(texts) if texts else None
+
+
+def zip_text(raw: bytes) -> str | None:
+    """文書の zip（Office・OpenDocument）の中の字。xml の札を外して語を続ける（札で割れた語も照らす）。"""
+    import io
+    import zipfile
+    try:
+        with zipfile.ZipFile(io.BytesIO(raw)) as z:
+            parts = []
+            for info in z.infolist():
+                data = z.read(info)
+                inner = readable_text(data)
+                if inner is None:
+                    return None
+                if _ZIP_TEXT.search(info.filename):
+                    parts.append(_TAG.sub("", inner) + "\n" + _TAG.sub(" ", inner))
+                else:
+                    parts.append(inner)
+            return "\n".join(parts)
+    except (zipfile.BadZipFile, RuntimeError, OSError, ValueError):
+        return None
+
+
+def binary_text(raw: bytes) -> str:
+    """文字でない file の中に在る字（ASCII の続き。PDF は圧縮した流れも解いて）。"""
+    import zlib
+    chunks = [raw]
+    if raw[:5] == b"%PDF-":
+        for m in re.finditer(rb"stream\r?\n(.*?)\r?\nendstream", raw, re.S):
+            try:
+                chunks.append(zlib.decompress(m.group(1)))
+            except zlib.error:
+                pass
+    return "\n".join(s.decode("ascii") for c in chunks for s in _PRINTABLE.findall(c))
 
 
 UNREADABLE_PATH = "名を読めないファイル"

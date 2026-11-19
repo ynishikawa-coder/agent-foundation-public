@@ -5,8 +5,11 @@ GitHub の設定そのものは AI には固定できない。なので「外れ
 見る相手: patrol.json の owners の公開 repo（archive 済みは除く）。各 repo の既定の枝について:
   1. 呼び口: .github/workflows/ のどれかが土台の action `public-guard` を main の先端（@main）で呼んでいる
      （土台そのものは `./public-guard`）。版の印や SHA で止めた呼び口は、直した検査が届かないので外れ。
-  2. 守り: 既定の枝の守り（ruleset か枝の保護）の必須の検査に `public-guard` が入っている
-     （土台そのものは、使う側と同じ入れ方で plugin を入れて起動する `plugin-smoke` も）
+     workflow は YAML として読み（コメントは消える）、走る job の step の `uses:` の実物だけを数える
+     （`if: false` の job・step と、PR にも push にも走らない workflow は数えない）。YAML として読めない workflow は外れ。
+  2. 守り: 既定の枝の守り（ruleset か枝の保護）の必須の検査に、1 で呼び口を持つ job の検査の名（job の name、無ければ id）が入っている。
+     同じ名を呼び口の無い job も名乗る時は、その job の緑で必須を満たせてしまうので外れ（名の字でなく、名を持つ job の中身で見る）。
+     土台そのものは、使う側と同じ入れ方で plugin を入れて起動する試験（step が scripts/plugin_smoke.py を走らせる job）も。
 
 使い方: python3 patrol.py [--owner O ...] [--report-issue]
   --report-issue: Actions の中で、この repo の issue「公開の検査の見回り」を立てる・書き替える・0 件なら閉じる。
@@ -26,13 +29,14 @@ from pathlib import Path
 
 API = "https://api.github.com"
 FOUNDATION = "ynishikawa-coder/agent-foundation-public"
-CHECK = "public-guard"
-# 土台は main の先端をそのまま配るので、合流の前に「使う側と同じ入れ方で入れて起動する」試験を必須にする。
-FOUNDATION_CHECKS = (CHECK, "plugin-smoke")
+ACTION = FOUNDATION + "/public-guard"
+LOCAL_ACTION = "./public-guard"
+# 土台は main の先端をそのまま配るので、合流の前に「使う側と同じ入れ方で入れて起動する」試験を必須にする（この道具を走らせる job）。
+SMOKE_TOOL = "scripts/plugin_smoke.py"
 REF = "main"
 ISSUE_TITLE = "公開の検査の見回り"
-CALL = re.compile(r"uses:\s*['\"]?" + re.escape(FOUNDATION) + r"/public-guard@([^\s'\"#]+)")
-LOCAL_CALL = re.compile(r"uses:\s*['\"]?\./public-guard['\"]?\s*$", re.M)
+# workflow が PR の検査として走る出来事（これの無い workflow の job は必須の検査を出さない）
+RUN_EVENTS = {"pull_request", "pull_request_target", "push", "merge_group"}
 
 
 class GitHub:
@@ -79,14 +83,87 @@ def public_repos(gh: GitHub, owner: str) -> list[dict]:
             if not r.get("private") and not r.get("archived")]
 
 
-def workflow_texts(gh: GitHub, full: str, branch: str) -> list[str]:
+def workflow_texts(gh: GitHub, full: str, branch: str) -> list[tuple[str, str]]:
+    """(path, 中身) の並び。"""
     items = gh.get(f"/repos/{full}/contents/.github/workflows?ref={branch}") or []
     out = []
     for it in items if isinstance(items, list) else []:
         if it.get("type") == "file" and it["name"].endswith((".yml", ".yaml")):
             f = gh.get(f"/repos/{full}/contents/{it['path']}?ref={branch}") or {}
-            out.append(base64.b64decode(f.get("content", "")).decode("utf-8", "replace"))
+            out.append((it["path"], base64.b64decode(f.get("content", "")).decode("utf-8", "replace")))
     return out
+
+
+def _off(cond) -> bool:
+    """if: が決まって偽（false・"false"・"${{ false }}"）か。式は走るかもしれない物として数える。"""
+    if cond is False:
+        return True
+    return isinstance(cond, str) and re.fullmatch(r"\s*(?:\$\{\{\s*)?false(?:\s*\}\})?\s*", cond) is not None
+
+
+def _events(wf: dict) -> set[str]:
+    on = wf.get("on", wf.get(True))      # YAML 1.1 では on: が真偽の True として読まれる
+    if isinstance(on, str):
+        return {on}
+    if isinstance(on, list):
+        return {e for e in on if isinstance(e, str)}
+    if isinstance(on, dict):
+        return {e for e in on if isinstance(e, str)}
+    return set()
+
+
+def _uses_action(uses, local_ok: bool):
+    """step の uses: が土台の action なら ref（土台の ./public-guard は "local"）、違えば None。"""
+    if not isinstance(uses, str):
+        return None
+    u = uses.strip()
+    if local_ok and u.rstrip("/") == LOCAL_ACTION:
+        return "local"
+    path, at, ref = u.partition("@")
+    return ref if at and path.lower() == ACTION.lower() else None
+
+
+def _runs_tool(run, tool: str) -> bool:
+    if not isinstance(run, str):
+        return False
+    import shlex
+    for line in run.splitlines():
+        try:
+            words = shlex.split(line, comments=True)
+        except ValueError:
+            words = line.split()
+        if any(w == tool or w.endswith("/" + tool) for w in words):
+            return True
+    return False
+
+
+def read_jobs(texts: list[tuple[str, str]], local_ok: bool):
+    """workflow を YAML として読み、走る job を (検査の名, 呼んだ ref の並び, 煙の試験を走らせるか) で返す。
+    読めない workflow は problems に名指しする。"""
+    try:
+        import yaml
+    except ImportError:
+        raise OSError("workflow を YAML として読む道具（PyYAML）が無い")
+    jobs, problems = [], []
+    for path, text in texts:
+        try:
+            wf = yaml.safe_load(text)
+        except yaml.YAMLError:
+            problems.append(f"workflow を YAML として読めない（{path}）＝呼び口を確かめられない")
+            continue
+        if not isinstance(wf, dict) or not isinstance(wf.get("jobs"), dict):
+            continue
+        runs = bool(_events(wf) & RUN_EVENTS)
+        for jid, job in wf["jobs"].items():
+            if not isinstance(job, dict):
+                continue
+            name = job.get("name") if isinstance(job.get("name"), str) else str(jid)
+            live = runs and not _off(job.get("if"))
+            steps = [st for st in job.get("steps") or [] if isinstance(st, dict) and not _off(st.get("if"))]
+            refs = [r for st in steps for r in [_uses_action(st.get("uses"), local_ok)] if r]
+            smoke = any(_runs_tool(st.get("run"), SMOKE_TOOL) for st in steps)
+            jobs.append({"name": name, "live": live, "refs": refs if live else [], "smoke": smoke and live})
+    return jobs, problems
 
 
 def required_checks(gh: GitHub, full: str, branch: str) -> set[str]:
@@ -107,19 +184,26 @@ def required_checks(gh: GitHub, full: str, branch: str) -> set[str]:
 def inspect(gh: GitHub, repo: dict) -> list[str]:
     """1 つの公開 repo の外れ（無ければ空）。"""
     full, branch = repo["full_name"], repo.get("default_branch") or "main"
-    problems = []
-    texts = workflow_texts(gh, full, branch)
-    refs = [m for t in texts for m in CALL.findall(t)]
-    local = full == FOUNDATION and any(LOCAL_CALL.search(t) for t in texts)
-    if not refs and not local:
+    foundation = full.lower() == FOUNDATION.lower()
+    jobs, problems = read_jobs(workflow_texts(gh, full, branch), foundation)
+    callers = [j for j in jobs if j["refs"]]
+    if not callers:
         problems.append("公開の検査の呼び口が無い（public-guard/caller-template.yml を .github/workflows/ へ）")
-    for ref in refs:
-        if ref != REF:
+    for ref in sorted({r for j in callers for r in j["refs"]}):
+        if ref not in (REF, "local"):
             problems.append(f"公開の検査を main の先端で呼んでいない（@{ref} → @{REF}）")
     have = required_checks(gh, full, branch)
-    for check in (FOUNDATION_CHECKS if full == FOUNDATION else (CHECK,)):
-        if check not in have:
-            problems.append(f"{branch} の守りの必須の検査に {check} が無い（Settings → Rules → Rulesets）")
+    needs = [("公開の検査を呼ぶ job", lambda j: bool(j["refs"]), "public-guard")]
+    if foundation:
+        needs.append(("入れて起動する試験の job", lambda j: j["smoke"], "plugin-smoke"))
+    for what, is_it, hint in needs:
+        names = {j["name"] for j in jobs if is_it(j)}
+        if not names & have:
+            shown = "・".join(sorted(names)) or hint
+            problems.append(f"{branch} の守りの必須の検査に{what}（{shown}）が無い（Settings → Rules → Rulesets）")
+        for n in sorted(names & have):
+            if any(j["name"] == n and not is_it(j) for j in jobs):
+                problems.append(f"必須の検査 {n} を、{what}でない job も名乗る（その緑で必須が満ちてしまう。job の名を分ける）")
     return problems
 
 
