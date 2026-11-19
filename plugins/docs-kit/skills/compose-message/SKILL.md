@@ -20,7 +20,7 @@ description: 相手と用件を渡すと、コピペでそのまま送れる連�
 
 ## repo ごとの値（config/skill-values.json）
 
-repo の根（`git rev-parse --show-toplevel`）の `config/skill-values.json` の `docs-kit.compose-message.<鍵>` と `common.<鍵>` から読む。**鍵が無い・値が空なら右の既定で動く**。
+repo の根（`git rev-parse --show-toplevel`）の `config/skill-values.json` の `docs-kit.compose-message.<鍵>` と `common.<鍵>` から読む。**鍵が無い・値が空なら右の既定で動く**。知らない鍵・畳んだ鍵・型の違う値は黙って捨てない（道具は名指しで止まり、窓の起動の時に guard が名指しで知らせる。表の探し方と鍵の一覧の正本は土台の `skill-values/`。鍵を足す時はそこへ足す）。
 
 | 鍵 | 使う所 | 無い時の既定 |
 |---|---|---|

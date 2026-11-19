@@ -6,6 +6,7 @@
                                 ＋ ask_shape（選択肢の画面の問いの形: 題の長さ・中の言葉・話題の混ざり）
   guard.py post   … PostToolUse: unanswered の capture（答えの無い問いの台帳）＋ context_size（文脈の量）
   guard.py start  … SessionStart: unanswered の resurface（持ち越した問いの出し直し）
+                                ＋ values_check（値の表の知らない鍵・畳んだ鍵・型の違う値を名指し）
 
 止めるのは pre だけ（permissionDecision=deny）。post と start は隣に文を出すだけ。
 どの見張りも壊れた時は黙って通す（1 つの故障で他の見張りや仕事を止めない）。exit は常に 0。
@@ -35,7 +36,7 @@ def _run(module, func, data, vals):
 WATCHERS = {
     "pre": [("irreversible", "check"), ("paid_upstream", "check"), ("qa_page", "check"), ("ask_shape", "check")],
     "post": [("unanswered", "capture"), ("context_size", "check")],
-    "start": [("unanswered", "resurface")],
+    "start": [("unanswered", "resurface"), ("values_check", "check")],
 }
 
 

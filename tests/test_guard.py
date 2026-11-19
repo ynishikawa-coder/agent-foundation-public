@@ -319,9 +319,9 @@ def test_時刻は字でなく時刻で比べる(env, tmp_path):
 
 
 def test_1つの見張りが_import_で壊れても他の見張りは走る(env, tmp_path):
-    broken = tmp_path / "plugin"
     import shutil
-    shutil.copytree(PLUGIN / "scripts", broken)
+    shutil.copytree(PLUGIN, tmp_path / "plugin")   # 入れた時と同じく lib/ の symlink は実体で写る
+    broken = tmp_path / "plugin" / "scripts"
     (broken / "irreversible.py").write_text("raise ImportError('作り物の故障')\n", encoding="utf-8")
     payload = {"tool_name": "Write", "tool_input": {"file_path": "/x/tests/test_a.py", "content": "OPENAI_API_KEY"}}
     p = subprocess.run([sys.executable, str(broken / "guard.py"), "pre"], input=json.dumps(payload),
