@@ -24,6 +24,7 @@ import skill_values as SV  # noqa: E402  値の表の 1 本の口（土台の sk
 DEFAULTS = SV.defaults("guard")
 
 # 窓の種類の決まり（session-watch の title-mark と同じ線）: 最初の頼みの文の返し先が別の窓なら子の窓（文脈の知らせだけが読む）。
+# 文の返し先は手で書いた写しなので、最初の頼みの行の記録（人が打った頼みでない＝seeded_by_record）と合う時だけ数える。
 RETURN_TO_WINDOW = re.compile(r"返し先\s*[=＝:：]\s*session_[A-Za-z0-9]+")
 CHILD_OF = re.compile(r"（親窓\s*session_[A-Za-z0-9]+\s*の子）")
 
@@ -212,15 +213,46 @@ def is_owner_row(row):
             and bool(text_of(row).strip()))
 
 
-def first_owner_text(path):
+# 人が打った頼みの記録（会話ログの行の origin.kind。Claude Code が頼みを受けた口で付ける＝文の中身では変わらない）
+HUMAN_ORIGINS = ("human", "person")
+
+
+def seeded_by_record(row):
+    """頼みの行が、人が打った物でなく別の窓・仕組みから来た事を、行の記録が示すか。
+    記録: origin.kind が人の物でない（別の窓の create_session・send_message・知らせ等）か promptSource が system。
+    記録が無い・読めない時は False（文だけで子の窓と決めない）。"""
+    if not isinstance(row, dict):
+        return False
+    origin = row.get("origin")
+    if isinstance(origin, dict) and isinstance(origin.get("kind"), str) and origin["kind"]:
+        return origin["kind"] not in HUMAN_ORIGINS
+    return row.get("promptSource") == "system"
+
+
+def first_owner_row(path):
     try:
         for row in iter_rows(path):
             if is_owner_row(row):
-                return text_of(row)
+                return row
     except Exception:
-        return ""
-    return ""
+        return None
+    return None
 
 
-def is_child_prompt(text):
+def first_owner_text(path):
+    row = first_owner_row(path)
+    return text_of(row) if row else ""
+
+
+def is_child_prompt(text, seeded=False):
+    """子の窓か。頼みの文の返し先（写し）が別の窓を指し、かつ頼みの行の記録が人の打った物でない時だけ。
+    オーナーが引き継ぎの文を貼った窓（記録は人）は、文に親窓や返し先が在っても子の窓にしない。"""
+    if not seeded:
+        return False
     return bool(RETURN_TO_WINDOW.search(text or "") or CHILD_OF.search(text or ""))
+
+
+def is_child_log(path):
+    """会話ログの最初の頼みの行で子の窓かを決める（文と記録の両方を読む）。"""
+    row = first_owner_row(path)
+    return bool(row) and is_child_prompt(text_of(row), seeded_by_record(row))
