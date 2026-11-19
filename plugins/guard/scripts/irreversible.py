@@ -43,6 +43,10 @@ _REDIRECT = re.compile(r"(?:\d*(?:>>|>|<)&?|&>>?)\s*\S+")
 _SPLIT = re.compile(r"&&|\|\||;|\n|\||&")
 
 
+
+# この見張りが回る出来事と関数（guard.py がこの宣言を読んで回す＝入口の一覧に足さない）
+HOOKS = {"pre": "check"}
+
 def _compile(pairs):
     out = []
     for p in pairs:
