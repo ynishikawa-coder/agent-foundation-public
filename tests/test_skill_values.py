@@ -282,6 +282,7 @@ def test_guard_は問題の鍵だけ既定で動き守りを止めない(tmp_pat
     r = make_repo(tmp_path, {"guard": {"context_limit": "多い", "ask_question_max_chars": 30, "nazo": 1}})
     monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(r))
     monkeypatch.delenv("SKILL_VALUES", raising=False)
+    monkeypatch.setattr(sys, "dont_write_bytecode", True)   # plugin の置き場に __pycache__ を作らない
     sys.path.insert(0, str(GUARD.parent))
     try:
         import guard_common as G
