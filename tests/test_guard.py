@@ -554,6 +554,106 @@ def test_qa_page_51個目に在る問いの並びも見分ける(tmp_path):
         sys.path.pop(0)
     rows = [{"x": i} for i in range(50)] + [{"questions": [{"q": "作り物", "options": ["甲", "乙"]}]}]
     assert qa_page._has_question_list({"pages": rows})
+
+
+# ── pick_one（選択肢の画面で作業・論点・原因を 1 つだけ選ばせる問い）──
+def picked(env, payload):
+    """pick_one が止めたか（同じ pre で ask_shape も走るので、pick_one の理由の印で見分ける）。"""
+    out = hook(env, "pre", payload)
+    return out.get("permissionDecision") == "deny" and "ask_pick_one_exempt" in out.get("permissionDecisionReason", "")
+
+
+def ask(question, labels=("作り物の A（推奨）", "作り物の B", "分からない"), multi=False, sid="s1"):
+    q = {"question": question, "header": "作り物", "multiSelect": multi,
+         "options": [{"label": l, "description": "作り物"} for l in labels]}
+    return {"tool_name": "AskUserQuestion", "session_id": sid, "tool_input": {"questions": [q]}}
+
+
+@pytest.mark.parametrize("question", [
+    "作り物の論点が 3 つあります。どれを進めますか",
+    "どの論点を先に詰めますか",
+    "何から始めますか",
+    "どれを優先しますか",
+    "まずどちらに取り掛かりますか",
+    "作り物の崩れの原因はどれだと思いますか",
+    "どれが一番の原因に近いですか",
+    "何を先にやりますか",
+    "原因は何だと思いますか",
+    "次にどの作業を進めますか",
+    "どれを進めたいですか",
+    # 3 回目のレビューで挙がった「すべき」の形
+    "どれを優先すべきですか",
+    "どれから優先すべきでしょうか",
+    "どれを先にやるべきですか",
+    "どれに着手すべきですか",
+    "どれに対応すべきですか",
+])
+def test_pick_one_作業や論点や原因を1つだけ選ばせる問いを止める(env, question):
+    out = hook(env, "pre", ask(question))
+    assert out.get("permissionDecision") == "deny"
+    assert "全部" in out["permissionDecisionReason"] and "ask_pick_one_exempt" in out["permissionDecisionReason"]
+    # 推奨の印は作り方の分かれ道だけ（細目 §4）。止めた文がやり方の問いに印を勧めると、答えを寄せる問いを作り直させる。
+    assert "（推奨）」" not in out["permissionDecisionReason"] and "細目 §4「推奨の印」" in out["permissionDecisionReason"]
+
+
+@pytest.mark.parametrize("question", [
+    "作り物の置き場を A と B のどちらにしますか",
+    "この言葉はどちらの意味ですか",
+    "表とコードが食い違っています。どちらが正しいですか",
+    "作り物の PR を main へ入れてよいですか",
+    "作業は済みましたか",
+    "どの会社の話ですか",
+    "どの資料が根拠ですか",                 # 「根」は「根拠」に当たらない
+    "どちらが根拠として正しいですか",
+    "この修正の優先度は高いですか",         # 「優先度」は事実の問い
+    "優先度はどのくらいですか",
+    "何をやりたいですか",                   # 「何を」＋やる は意図の問い（順の語が無い）
+    "このPRで何を扱いますか",
+    # 2 回目のレビューで挙がった形（過去・受け身・「が」を挟む・意味・事実の問い）
+    "どの設定が優先されますか",
+    "どの資料を先に読みましたか",
+    "どちらを先に作りましたか",
+    "先にどの会社の話か教えてください",
+    "まずどちらの意味か確かめたいです。どちらの意味ですか",
+    "原因はどの資料に書いてありますか",
+    "障害の要因として何が書かれていましたか",
+    "どの原因の話ですか",
+    "どちらが根本原因として正しいですか",   # AI の見立てが合っているかを問う形（直し方 3）
+    "どの環境から始めましたか",
+])
+def test_pick_one_意図や事実を問う問いは通す(env, question):
+    assert not picked(env, ask(question))
+
+
+def test_pick_one_全部を選べる問いと全部やる道が在る問いは通す(env):
+    assert not picked(env, ask("どれを進めますか", multi=True))
+    assert not picked(env, ask("作り物の論点をどう進めますか。どれを進めますか",
+                               labels=("全部この窓で順に", "それぞれ別の窓で同時に", "分からない")))
+
+
+def test_pick_one_問いが複数でも1つでも当たれば止め当たった問いを名指す(env):
+    p = ask("この言葉はどちらの意味ですか")
+    p["tool_input"]["questions"].append(ask("どれから着手しますか")["tool_input"]["questions"][0])
+    out = hook(env, "pre", p)
+    assert out.get("permissionDecision") == "deny"
+    reason = out["permissionDecisionReason"]
+    assert "どれから着手しますか" in reason and "どちらの意味" not in reason
+
+
+def test_pick_one_誤って止まる形は値の表で外せる(env, tmp_path):
+    vals = tmp_path / "proj" / "config"
+    vals.mkdir(parents=True)
+    (vals / "skill-values.json").write_text(json.dumps({"guard": {"ask_pick_one_exempt": ["^作り物の試しの順"]}},
+                                                       ensure_ascii=False), encoding="utf-8")
+    assert not picked(env, ask("作り物の試しの順として、どれを先に詰めますか"))
+    assert picked(env, ask("どれを先に詰めますか"))
+
+
+def test_pick_one_選択肢の画面でない道具と壊れた入力は見ない(env):
+    assert not denied(env, bash("echo どれを進めますか"))
+    assert not denied(env, {"tool_name": "AskUserQuestion", "tool_input": {"questions": "こわれた"}})
+
+
 # ── ask_shape（選択肢の画面の問いの形）──
 def ask_pre(*qs):
     return {"tool_name": "AskUserQuestion", "session_id": "s1", "tool_input": {"questions": list(qs)}}
@@ -822,3 +922,11 @@ def test_同じ選択肢で物だけ違う問いを閉じず重ねもしない(e
     hook(env, "post", _ask_post(right, labels, False, "s4"))
     again = hook(env, "start", {"session_id": "s5"}).get("additionalContext", "")
     assert "2 件あります" in again and left in again and right in again
+
+
+def test_推奨の印の崩れと1つだけ選ばせる問いが両方当たれば理由を両方つないで返す(env):
+    """ask_shape の rec と pick_one は同じ pre で走る。片方の理由が他方を消すと、AI が片方だけ直して 2 度止まる。"""
+    why = deny_reason(env, ask_pre(q("どれを進めますか", header="進め方", labels=("作り物の A", "作り物の B（推奨）", "分からない"))))
+    assert "[rec]" in why and "1 つ目でない" in why, why
+    assert "ask_pick_one_exempt" in why and "細目 §4「推奨の印」" in why, why
+    assert why.strip().splitlines()[-1].endswith("細目 §3「まず構造を疑う」で探して直す"), why
