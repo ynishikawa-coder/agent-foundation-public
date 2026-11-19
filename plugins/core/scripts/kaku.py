@@ -2,13 +2,13 @@
 """核を窓の起動時に差し込む口と、常に読まれる量の上限を照らす口（plugin core の道具はこの 1 本）。
 
 使い方:
-  python3 kaku.py inject              SessionStart の hook が呼ぶ。核（同じ plugin の 核.md）を窓の文脈へ差し込み、
-                                      細目（細目.md）の在り処を知らせる。開いた repo の根の CLAUDE.md に
+  python3 kaku.py inject              SessionStart の hook が呼ぶ。核（同じ plugin の 核.md）と振る舞いの既定
+                                      （振る舞い.md）を窓の文脈へ毎回差し込み、形の細目（細目.md）の在り処を知らせる。開いた repo の根の CLAUDE.md に
                                       写しの枠（AF-CORE:BEGIN）がまだ在る時は、核が二重に入らないよう差し込まない。
                                       あわせて、窓の最初の 1 回だけ、入った土台が main の先端と同じかを見て窓ごとに覚える（古ければ知らせる）。
   python3 kaku.py fresh               UserPromptSubmit の hook が呼ぶ。起動の後に main の先端の plugin が変わったら、
                                       この窓を新しい窓へ引き継いで閉じるよう AI に知らせる（人の作業は止めない）。
-  python3 kaku.py check [--claude P]  核が上限の内かを照らす。--claude を渡すと、その CLAUDE.md（写しの枠が在れば
+  python3 kaku.py check [--claude P]  核と振る舞いの既定が在り、上限の内かを照らす。--claude を渡すと、その CLAUDE.md（写しの枠が在れば
                                       枠の外だけ）が各社固有の上限の内かも照らす。
 exit: inject と fresh は何が起きても 0（窓の起動も人の作業も止めない）。check は 0=緑 / 1=上限を越えた / 2=読めない。
 """
@@ -24,17 +24,22 @@ from pathlib import Path
 
 PLUGIN = Path(__file__).resolve().parent.parent
 KAKU = PLUGIN / "核.md"
+FURUMAI = PLUGIN / "振る舞い.md"
 SAIMOKU = PLUGIN / "細目.md"
 FRAME_BEGIN = "<!-- AF-CORE:BEGIN"
 FRAME_END = "<!-- AF-CORE:END -->"
-# 常に読まれる量の上限（バイト・UTF-8）。数はここの 1 か所だけに置く。
 # 越えた時の最後の行（中身は細目 §3 が正本＝ここは指すだけ）
 ROOT_CAUSE = "直し: 文を移して量を合わせるだけで済ませず、決まりが増えた原因を細目 §3「まず構造を疑う」で探して畳む"
-LIMITS = {"核": 4800, "各社固有": 3000}
+# 常に読まれる量の上限（バイト・UTF-8）。数はここの 1 か所だけに置く。
+LIMITS = {"核": 4800, "振る舞い": 2400, "各社固有": 3000}
 MARKET = "agent-foundation"
 # 土台の振る舞いを運ぶ path。ここが変わった時だけ「古い土台」と見る（文書・試験・CI だけの変更では窓を替えない）。
 CARRIERS = ("plugins", ".claude-plugin")
 FRESH_INTERVAL = 900  # 起動の後に main の先端を見に行く間（秒）。毎回の問いごとに外へ出ない。
+
+
+# 読めない時の類（無い・権限・UTF-8 でない中身）を 1 か所で受ける。どの読みもこれで受け、欠けを名指しする。
+UNREADABLE = (OSError, UnicodeDecodeError)
 
 
 def size(text: str) -> int:
@@ -44,7 +49,7 @@ def size(text: str) -> int:
 def has_frame(claude_md: Path) -> bool:
     try:
         return FRAME_BEGIN in claude_md.read_text(encoding="utf-8")
-    except OSError:
+    except UNREADABLE:
         return False
 
 
@@ -58,8 +63,15 @@ def outside_frame(text: str) -> str:
 
 def inject_text() -> str:
     kaku = KAKU.read_text(encoding="utf-8").rstrip("\n")
-    return (kaku + "\n\n"
-            + f"（この核は土台の plugin core が起動時に差し込んだ。細目は {SAIMOKU} の同じ番号の節。形に迷った時に Read する）\n")
+    try:
+        furumai = FURUMAI.read_text(encoding="utf-8").rstrip("\n")
+    except UNREADABLE as e:
+        # 欠けたまま黙って核だけにしない: 窓の起動は止めず、欠けた事を文脈に名指しで出す
+        print(f"plugin core: 振る舞い.md が読めない（{e}）", file=sys.stderr)
+        furumai = f"（振る舞いの既定 {FURUMAI} が読めず、差し込まれていない。最初にオーナーへ知らせる）"
+    return (kaku + "\n\n" + furumai + "\n\n"
+            + "（この核と振る舞いの既定は土台の plugin core が起動時に差し込んだ。"
+            + f"返事・問い・手の窓などの形の細目は {SAIMOKU} の同じ番号の節。その形を書く時に Read する）\n")
 
 
 # ── 土台の新しさ（入っている物と main の先端を比べる） ──
@@ -177,7 +189,7 @@ def inject() -> int:
     if not has_frame(project / "CLAUDE.md"):  # 写しの枠が在る repo は CLAUDE.md が核を持つ＝差し込まない（二重を避ける）
         try:
             parts.append(inject_text())
-        except OSError as e:
+        except UNREADABLE as e:
             print(f"plugin core: 核.md が読めない（{e}）＝核は差し込まれていない", file=sys.stderr)
     session = data.get("session_id")
     state = _read_json(_state_path(session)) if session else None
@@ -236,15 +248,22 @@ def check(claude: Path | None) -> int:
     bad = []
     try:
         n = size(KAKU.read_text(encoding="utf-8"))
-    except OSError as e:
+    except UNREADABLE as e:
         print(f"✗ 核.md が読めない: {e}")
         return 2
     if n > LIMITS["核"]:
         bad.append(f"核（{KAKU.name}）が上限を越えた: {n} > {LIMITS['核']} バイト（細目へ移す）")
+    try:
+        f = size(FURUMAI.read_text(encoding="utf-8"))
+    except UNREADABLE as e:
+        print(f"✗ 振る舞い.md が読めない: {e}")
+        return 2
+    if f > LIMITS["振る舞い"]:
+        bad.append(f"振る舞いの既定（{FURUMAI.name}）が上限を越えた: {f} > {LIMITS['振る舞い']} バイト（癖と逆を求めない物を細目へ移す）")
     if claude is not None:
         try:
             m = size(outside_frame(claude.read_text(encoding="utf-8")))
-        except OSError as e:
+        except UNREADABLE as e:
             print(f"✗ {claude} が読めない: {e}")
             return 2
         if m > LIMITS["各社固有"]:
