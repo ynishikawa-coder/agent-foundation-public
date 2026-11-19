@@ -23,8 +23,9 @@
   secret   … 返事に鍵・トークンの形が在るか。形の正本は公開の検査 public-guard/guard.py の secret_labels（直に呼ぶ）
   neighbor … 上の inner・secret の正本（隣の plugin guard・公開の検査）が見つからず照らせないか
 
-窓の種類＝「オーナーが相手の窓か」（この窓が誰に返すか）。誰が立てたか（親の窓の有無・
-parent_session_id・origin）では決めない。会話ログの最初の頼みの文に書かれた返し先だけで決める:
+窓の種類＝「オーナーが相手の窓か」。誰が立てたか（親の窓の有無・parent_session_id・origin）では決めない。
+決め方の正本は window_kind 1 つ（決まりの文 KIND_RULE を skill title-mark がそのまま載せ、細目 §4 は skill を指す。試験が照らす）:
+  手の窓（作業名が `手:` で始まる窓）は返し先によらず 🙋 ／ それ以外は最初の頼みの文に書かれた返し先で
   `返し先=オーナー` → 🙋 ／ `返し先=session_…` → 🤖 ／ `（親窓 session_… の子）` → 🤖 ／ 書いていない → 決めない。
 
 使い方:
@@ -304,14 +305,27 @@ def _norm(text):
 
 
 # ── 窓の種類と題 ──────────────────────────────────────────────
+# 窓の種類の決まりの文（skill title-mark はこの文をそのまま載せ、細目 §4 は skill を指す＝試験が照らす）。決め方は window_kind。
+KIND_RULE = ("種類の決め方は 2 段: まず手の窓（作業名が `手:` で始まる窓）は返し先によらず `🙋`（相手はオーナー）。"
+             "それ以外は窓の最初の頼みの文に書いた返し先だけで決める: `返し先=オーナー` → `🙋`／"
+             "`返し先=session_…` か `（親窓 session_… の子）` → `🤖`／どれも無い → 窓が自分で決める（点検は種類の食い違いを拾わない）。")
+
+
 def kind_of(first_prompt):
-    """最初の頼みの文に書かれた返し先で種類を決める。書いていなければ None（決めない）。"""
+    """最初の頼みの文に書かれた返し先で種類を決める。書いていなければ None（決めない）。手の窓は見ない＝window_kind を使う。"""
     m = RETURN_TO.search(first_prompt or "")
     if m:
         return HUMAN if m.group(1) == "オーナー" else AI
     if CHILD_OF.search(first_prompt or ""):
         return AI
     return None
+
+
+def window_kind(first_prompt, title=None):
+    """窓の種類の正本（KIND_RULE）。手の窓（作業名が `手:`）は返し先によらず 🙋、ほかは最初の頼みの返し先。"""
+    if HAND_TITLE.match(split_title(title)[2]):
+        return HUMAN
+    return kind_of(first_prompt)
 
 
 def split_title(title):
@@ -482,14 +496,12 @@ def hedge_hits(body):
 
 
 def ai_window(log):
-    """返し先が別の窓の窓（🤖）か。最初の頼みの返し先か、最後の題の種類で決める。"""
-    if kind_of(log.first_prompt) == AI:
-        return True
+    """返し先が別の窓の窓（🤖）か。種類の正本 window_kind（手の窓は 🙋）か、決まらなければ最後の題の種類で決める。"""
     last = None
     for k, v in log.events:
         if k == "title":
             last = v
-    return split_title(last)[0] == AI
+    return (window_kind(log.first_prompt, last) or split_title(last)[0]) == AI
 
 
 def words(log, closing, data=None):
@@ -569,7 +581,6 @@ def check(log, closing=None, data=None):
     """拾った物を [(code, 説明)] で返す。closing を渡せば、それを締めの返事として見る（Stop の hook）。
     data は hook の入力（値の表の在り処＝cwd を読む）。"""
     found = []
-    kind = kind_of(log.first_prompt)
     closing = log.closing_text() if closing is None else closing
     _, close = split_close(closing)
 
@@ -595,9 +606,11 @@ def check(log, closing=None, data=None):
                                    "（同じ題でもよい。会話ログに載れば照らせる）"))
         if title is not None:
             tk, tm, _ = split_title(title)
+            kind = window_kind(log.first_prompt, title)
             found += [("title", m) for m in title_shape(title)]
             if tk is not None and kind and tk != kind:
-                found.append(("title", "題の種類が %s だが、この窓の返し先から種類は %s（題: %s）" % (tk, kind, title)))
+                found.append(("title", "題の種類が %s だが、この窓の種類は %s（題: %s・決め方は skill title-mark の種類の決め方）"
+                              % (tk, kind, title)))
             if tm == ASKING and not open_ask and answered:
                 found.append(("title", "答えが返ったのに題に %s が残っている" % ASKING))
             # ✅ は「終わった」（核 §7）の印。AI の手が尽きた（AI がこの後やること: なし）とは結ばない。
@@ -753,7 +766,7 @@ def remind(data, env=None):
 def remind_title(log, data):
     if titled(log):
         return None
-    kind = kind_of(log.first_prompt or str(data.get("prompt") or ""))
+    kind = window_kind(log.first_prompt or str(data.get("prompt") or ""))
     if kind == AI:
         return REMIND_CHILD   # 親が create_session で付けた題は会話ログに無い＝返事の差し戻しで照らせないので、付け直させる
     which = ("%s（最初の頼みの返し先から）" % kind) if kind else (
