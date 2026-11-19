@@ -177,7 +177,7 @@ def check(data, vals):
     if not found:
         return ""
     lines = ["[guard] 選択肢の画面の問いが読みにくい形なので、画面を出す前に止めた（オーナー同意 2026-11-19・人の操作は"
-             "止めていない・画面はまだ人に出ていない）。直して出し直す。"]
+             "止めていない・画面はまだ人に出ていない）。"]
     lines += ["- [%s] %s" % (code, msg) for code, msg in found]
     lines.append("直し方:")
     for code in dict.fromkeys(c for c, _ in found):
