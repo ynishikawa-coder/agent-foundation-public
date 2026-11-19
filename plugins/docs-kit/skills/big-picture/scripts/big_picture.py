@@ -9,6 +9,7 @@
     python3 big_picture.py compare <合意した絵.json> <実物の絵.json>
     python3 big_picture.py explain <絵.json> <起きた問題の id>
     python3 big_picture.py pick    <repo の根> <PR が触った file>...
+    python3 big_picture.py sources <絵.json> <根> [<名>=<根> ...]
 
 check:   形の誤り（欄の欠け・知らない値・重なった id・行き先の無い矢印・無い箱を指す問題）は exit 1。
          合意の絵で意図が空の箱は「赤い点」として 1 行ずつ警告する（exit 0・止めない）。
@@ -20,6 +21,10 @@ pick:    PR が触った file から、照らす合意した絵を選ぶ。値�
          文字列（repo 全体で 1 枚）か、[{name, path, covers: [path の頭…]}] の並び（1 repo に製品が複数）。
          無ければ docs/全体の絵.json 1 枚。選んだ絵を 1 行ずつ「絵 <名> <在り処>」と出す（exit 0）。
          どの絵も覆わない file が 1 つでもある・値の形が誤り・絵が無い 時は exit 2（照らせない＝黙って通さない）。
+sources: 形 2 の絵の流れのタブの箱ごとの引用（src の quote）が、meta.sources.flow に挙げた手順の正本の今の文に
+         一字一句在るかを照らす（空白の違いは見ない）。全部在れば exit 0／無い引用・正本の外の引用があれば exit 1／
+         正本の file が読めない・根が渡されていない時は exit 2（照らせない）。根は 1 つなら path をそのまま、
+         複数なら「<名>=<根>」で渡し、path を「<名>:<path>」で書く。
 
 標準ライブラリだけ。
 """
@@ -30,7 +35,8 @@ import re
 import sys
 from pathlib import Path
 
-FORM = "big-picture/1"
+FORM = "big-picture/2"
+FORMS = ("big-picture/1", "big-picture/2")   # 1 は流れの引用を持たない古い形（読めるが警告する）
 TABS = {"ctx": "1. 全体の文脈", "flow": "2. ワークフロー", "arch": "3. 仕組みの構成"}
 KINDS = {"owner": "人（オーナー）", "ai": "AI の窓", "part": "部品", "store": "置き場・記録", "ext": "外の物"}
 SIDES = ("共通", "個別", "外")
@@ -41,6 +47,7 @@ ID = re.compile(r"^[A-Za-z][A-Za-z0-9_-]*$")
 TEMPLATE = Path(__file__).resolve().parent.parent / "references" / "template.html"
 SLOT = "/*__BIG_PICTURE_DATA__*/null"
 ROOT_CAUSE = "直し: 形の誤りを 1 つずつ潰して出し直すだけで済ませず、誤りが入った原因を細目 §3「まず構造を疑う」で探して直す"
+ROOT_CAUSE_SRC = "直し: 箱の文を引用に合わせて言い換えて通さず、手順の正本を読み直してその文から箱を描き直す（正本が変わったなら絵の版を上げて合意を取り直す）"
 ROOT_CAUSE_DIFF = "直し: 差は main へ入れずに止め、差を見せてオーナーに決めてもらう（実物を直す時は細目 §3「まず構造を疑う」で原因から）"
 
 
@@ -63,8 +70,8 @@ def check(pic):
         v = pic.get(key, [])
         if not isinstance(v, list) or not all(isinstance(x, dict) for x in v):
             return ["%s が object の並びでない" % key], []
-    if pic.get("form") != FORM:
-        errs.append("form が %s でない" % FORM)
+    if pic.get("form") not in FORMS:
+        errs.append("form が %s のどれでもない" % "・".join(FORMS))
     meta = pic.get("meta") or {}
     for k in ("title", "kind", "version", "problem", "goal"):
         if not _text(meta.get(k)):
@@ -119,6 +126,8 @@ def check(pic):
         elif kind == "合意" and not _text(b.get("intent")):
             reds.append("赤い点: %s ›「%s」— オーナーの意図をまだ聞いていない" % (TABS.get(b.get("tab"), "?"), b.get("t", bid)))
 
+    errs += _check_sources(pic)
+
     pairs = set()
     for a in pic.get("arrows") or []:
         f, t = a.get("from"), a.get("to")
@@ -152,6 +161,80 @@ def check(pic):
             if x not in seen:
                 errs.append("問題 %s: 箱 %s が絵に無い" % (pid, x))
     return errs, reds
+
+
+def old_form(pic):
+    """形 1 の絵で流れのタブがある時の知らせ（止めない）。無ければ None。"""
+    if pic.get("form") == FORM or not any(b.get("tab") == "flow" for b in pic.get("boxes") or [] if isinstance(b, dict)):
+        return None
+    return ("古い形: %s の流れのタブに手順の正本からの引用（src）が無い＝描いた時に正本を読んだと示せない"
+            "（新しく描く・直す時は %s で描き、sources で照らす）" % (pic.get("form"), FORM))
+
+
+def _check_sources(pic):
+    """形 2: 流れのタブの箱は手順の正本からの引用（src）を持つ。"""
+    flow = [b for b in pic.get("boxes") or [] if b.get("tab") == "flow" and isinstance(b.get("id"), str)]
+    if pic.get("form") != FORM:
+        return []
+    errs = []
+    srcs = ((pic.get("meta") or {}).get("sources") or {})
+    allowed = srcs.get("flow") if isinstance(srcs, dict) else None
+    if flow and (not isinstance(allowed, list) or not allowed or not all(_text(x) for x in allowed)):
+        errs.append("meta.sources.flow（流れのタブを描いた手順の正本の path の並び）が無い＝何を読んで描いたか言えない")
+        allowed = []
+    for b in flow:
+        src = b.get("src")
+        if not isinstance(src, list) or not src:
+            errs.append("%s: 流れの箱に src（手順の正本からの引用 {path, quote} の並び）が無い＝要約で描いた箱と見分けられない" % b["id"])
+            continue
+        for s in src:
+            if not isinstance(s, dict) or not _text(s.get("path")) or not _text(s.get("quote")):
+                errs.append("%s: src の 1 件が {path, quote} でない" % b["id"])
+            elif s["path"] not in allowed:
+                errs.append("%s: src の path %s が meta.sources.flow（手順の正本）に無い" % (b["id"], s["path"]))
+    return errs
+
+
+def _squash(t):
+    return re.sub(r"\s+", "", t)
+
+
+def sources(pic, roots):
+    """(誤り, 照らせない) を返す。roots は {名: 根の dir}（名 "" は 1 つだけの根）。"""
+    errs, _ = check(pic)
+    if errs:
+        return [], ["形の誤り: " + " / ".join(errs[:5])]
+    if pic.get("form") != FORM:
+        return [], ["%s の絵は引用を持たない＝正本を読んで描いたか照らせない（%s で描き直す）" % (pic.get("form"), FORM)]
+    cache, bad, cannot = {}, [], []
+
+    def read(path):
+        if path in cache:
+            return cache[path]
+        name, _, rel = path.partition(":") if ":" in path else ("", "", path)
+        root = roots.get(name)
+        if root is None:
+            cache[path] = None
+            cannot.append("根が渡されていない: %s（「%s=<根>」で渡す）" % (path, name) if name else "根が渡されていない: %s" % path)
+            return None
+        f = Path(root) / rel
+        try:
+            cache[path] = _squash(f.read_text(encoding="utf-8"))
+        except OSError:
+            cache[path] = None
+            cannot.append("手順の正本が読めない: %s" % path)
+        return cache[path]
+
+    for p in (pic["meta"].get("sources") or {}).get("flow") or []:
+        read(p)
+    for b in pic["boxes"]:
+        if b.get("tab") != "flow":
+            continue
+        for s in b["src"]:
+            text = read(s["path"])
+            if text is not None and _squash(s["quote"]) not in text:
+                bad.append("%s「%s」: 引用が手順の正本 %s の今の文に無い（要約・古い版・書き換え）: %s" % (b["id"], b["t"], s["path"], s["quote"][:60]))
+    return bad, cannot
 
 
 # ── 照らし（4 欄） ────────────────────────────────────────────
@@ -348,6 +431,23 @@ def main(argv):
         for name, path, mine in chosen:
             print("絵 %s %s（触った file %d）" % (name, path, len(mine)))
         return 2 if errs else 0
+    if len(argv) >= 4 and argv[1] == "sources":
+        roots = {}
+        for a in argv[3:]:
+            name, eq, d = a.partition("=")
+            roots[name if eq else ""] = d if eq else a
+        try:
+            bad, cannot = sources(load(argv[2]), roots)
+        except (ValueError, OSError, json.JSONDecodeError) as e:
+            bad, cannot = [], ["絵が読めない: %s" % e]
+        for e in cannot:
+            print("照らせない: " + e)
+        for e in bad:
+            print("誤り: " + e)
+        print("SOURCES %s 無い引用 %d・照らせない %d" % ("NG" if bad or cannot else "OK", len(bad), len(cannot)))
+        if bad or cannot:
+            print(ROOT_CAUSE_SRC)
+        return 2 if cannot else (1 if bad else 0)
     if len(argv) < 3 or argv[1] not in ("check", "render", "compare", "explain"):
         sys.stderr.write(__doc__)
         return 2
@@ -362,6 +462,9 @@ def main(argv):
                 print("誤り: " + e)
             for r in reds:
                 print(r)
+            note = old_form(load(argv[2]))
+            if note:
+                print(note)
             print("CHECK %s 誤り %d・赤い点 %d" % ("NG" if errs else "OK", len(errs), len(reds)))
             if errs:
                 print(ROOT_CAUSE)

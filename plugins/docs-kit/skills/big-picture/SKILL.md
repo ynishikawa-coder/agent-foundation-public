@@ -22,11 +22,12 @@ python3 <この skill>/scripts/big_picture.py render  <絵.json> -o <出す.html
 python3 <この skill>/scripts/big_picture.py compare <合意した絵.json> <実物の絵.json>  # 差なし 0／差あり 1／照らせない 2
 python3 <この skill>/scripts/big_picture.py explain <絵.json> <問題 id>        # 説明のチャットの文
 python3 <この skill>/scripts/big_picture.py pick    <repo の根> <触った file>...   # 照らす絵を選ぶ（覆わない file があれば exit 2）
+python3 <この skill>/scripts/big_picture.py sources <絵.json> <根> [<名>=<根>...]  # 流れの引用が手順の正本の今の文に在るか（無い 1／照らせない 2）
 ```
 
 HTML の型は `references/template.html`（手で直さない・外の物を読まない・`file://` で動く）。URL の `?tab=flow&layer=explain&p=<問題 id>` で開く所を指せる。
 
-## 絵の JSON（form `big-picture/1`）
+## 絵の JSON（form `big-picture/2`）
 
 | 欄 | 形 | 意味 |
 |---|---|---|
@@ -34,18 +35,21 @@ HTML の型は `references/template.html`（手で直さない・外の物を読
 | `meta.kind` | `合意`／`実物` | オーナーと合意した版か、レビューの窓がコードから描いた実物か |
 | `meta.version` | `YYYY-MM-DD.n` | 版。合意した絵を変える時は必ず上げる（同じ日の 2 本目は `.2`） |
 | `meta.agreed` | `{by:"owner", date, record}` | 合意の印（`合意` に要る）。`record` はオーナーの決定の在り処を名で書く（公開の repo では URL を書かない） |
+| `meta.sources.flow` | path の並び | 流れのタブを描いた手順の正本（形 2 で流れがあれば要る）。根が複数なら `<名>:<path>` |
 | `meta.drawn_from`・`meta.drawn_by` | 文字列 | 実物を描いた元（`<repo>@<SHA12>`）と描いた窓（`実物` に要る） |
 | `tabs.<ctx｜flow｜arch>` | `{w, h, lanes?, areas?}` | 1. 全体の文脈／2. ワークフロー／3. 仕組みの構成。4. 決めた事と意図 は箱から自動で表にする。`lanes`＝`[{t, y, h}]`（流れの帯）・`areas`＝`[{t, k, x, y, w, h}]`（共通と個別の点線の枠） |
 | `boxes[]` | `{id, tab, t, k, side, role?, x, y, w, h, what, why, intent}` | `k`＝`owner`（人）・`ai`（AI の窓）・`part`（部品）・`store`（置き場・記録）・`ext`（外の物）。`what`＝何か・`why`＝記録にある理由（AI の文・出所つき）・`intent`＝**オーナーの意図（聞いた物だけ・聞いていなければ `null`）** |
+| `boxes[].src` | `[{path, quote}]` | 流れのタブの箱だけ・必ず要る。`path` は `meta.sources.flow` のどれか、`quote` はその正本の文を一字一句（空白の違いだけは見ない） |
 | `arrows[]` | `{from, to, label?}` | 同じタブの箱どうし。箱の間でコードが実際に配る・呼ぶ・読む流れは全部描く（代表の 1 本で済ませない＝照らす時に実物の絵と同じ粗さにするため） |
 | `problems[]` | `{id, title, date, at[], cause, via[], origin, why_here}` | 起きた問題の層（意図とは分ける）。`at`＝起きた所の箱・`cause`＝原因の箱・`via`＝原因から起きた所までの間の箱・`origin`＝`構造`／`単発`・`why_here`＝なぜここから起きたか |
 
 - **意図は作らない**: 意図はオーナーに問うしか得られない。記録から拾った理由は `why` に置き、`intent` は `null` のまま＝**赤い点**（check が「意図をまだ聞いていない」と 1 行ずつ出す）。記録の解決策を意図として書かない。意図を問う時は核 §4 の選択肢の画面で、前提を 1〜2 文・選択肢は短く・推奨の印なし・1 画面 2〜3 問。
+- **流れは手順の正本の文から描く（要約で描かない）**: 流れのタブの箱は、先に手順の正本（その仕組みの手順を書いた 1 か所）を読み、箱ごとに正本の文を `src` に引いてから `what` を書く。覚えている設計・前に描いた絵・記録の要約から描かない（古い設計が混ざる）。`sources` が引用を正本の今の文と照らし、無い文（要約・古い版・書き換え）は止まる。止まったら箱の文を引用に寄せて通さず、正本を読み直して描き直す。形 1（`big-picture/1`）の絵は引用を持たないので照らせない（`check` が「古い形」と知らせる）＝新しく描く・直す時は形 2 で描く。
 - **単発と書くのは**、絵の上で構造に原因が無いと示せた時だけ（`why_here` にその根拠を書く）。
 
 ## 使い方
 
-1. **設計の初め**: 頼まれた仕組みの絵を描く（新しい仕組みは要件から・在る仕組みは先にコードから実物の絵を描く）。赤い点の意図を問うて埋め、`render` した HTML をオーナーに見せて OK を取る。OK が出たら `meta.kind: 合意`・`meta.agreed`・`meta.version` を付けて固定する。
+1. **設計の初め**: 頼まれた仕組みの絵を描く（新しい仕組みは要件から・在る仕組みは先にコードから実物の絵を描く。流れのタブは手順の正本の文を引いて描き、`sources` が緑になってから見せる）。赤い点の意図を問うて埋め、`render` した HTML をオーナーに見せて OK を取る。OK が出たら `meta.kind: 合意`・`meta.agreed`・`meta.version` を付けて固定する。
 2. **置き場**: 合意した絵の正は案件のページ（Javis は Notion の案件ページ）。土台（この repo）の絵だけは土台の repo の `docs/全体の絵.json`（UTC のレビューの窓も読むため）。repo ごとの置き場は値の表で指す（下）。HTML は毎回 JSON から描き直す写しで、正にしない。
 3. **作り終わり**: 書いた窓と別の目（checker の review-pr 点 13）が、コードから実物の絵を **自分で** 描いて（書いた窓の申告・PR 本文の絵は使わない）`compare` で合意した版と照らす。差なし＝green／差あり＝red で main へ入れずに止め、差を見せてオーナーに決めてもらう。
 4. **「なんでこうなるの？」と聞かれた時**: 3 つの形を全部出す。①`problems` に問題を足して `render` した絵を `?layer=explain&p=<id>` で渡す（起きた所・原因の箱に印・間の流れが光る）②`explain` の文をチャットに貼る（箱の名を挙げる）③原因の箱を押すと、その箱の意図と「なぜここから起きたか」が並ぶ（型がする）。足した問題は絵に残し、同じ箱で何度起きたかを「起きた問題」の層で見せる。
@@ -60,5 +64,5 @@ HTML の型は `references/template.html`（手で直さない・外の物を読
 
 ## 渡す前に
 
-- `check` が `CHECK OK`（exit 0）。赤い点の数を見どころに 1 行で書く（埋まっていないと言う）。
+- `check` が `CHECK OK`（exit 0）、流れのタブがあれば `sources` が `SOURCES OK`（exit 0）。赤い点の数を見どころに 1 行で書く（埋まっていないと言う）。
 - 渡す HTML は `render` で描き直した物だけ。チャットには URL 1 行と見どころ（赤い点の数・起きた問題の数）だけ。
