@@ -162,3 +162,14 @@ const { chromium } = require('playwright');
     got = out["got"]
     assert got["form"] == "qa-html/2" and got["answers"], got
     assert answer(got)["red"] == []
+
+
+@needs_node
+def test_答えの形の赤は根治の入口を指し緑なら出さない():
+    def run(obj):
+        return subprocess.run([NODE, str(CHECK), "--answer", "-"], input=json.dumps(obj, ensure_ascii=False),
+                              capture_output=True, text=True, timeout=60)
+    bad = run({"form": "qa-html/1"})
+    assert bad.returncode == 1 and "細目 §3「まず構造を疑う」" in bad.stdout.strip().splitlines()[-1]
+    good = run(GOOD)
+    assert good.returncode == 0 and "まず構造を疑う" not in good.stdout

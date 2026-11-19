@@ -807,6 +807,7 @@ export function checkPage(page, { valuesPath = null, prior = null } = {}) {
 //   値の表に命令が無く --prior も無ければ何も見ない（今までどおり）。
 // ── 答えの形（qa-html/2）。型の JS（references/template.html の payload）が作る形の正本。配る口・貼り戻しの道具はこれで照らす。
 export const ANSWER_FORM = "qa-html/2";
+const ANSWER_ROOT_CAUSE = "  直し: 赤の行を 1 つずつ潰さず、細目 §3「まず構造を疑う」で原因（答えを作る・受ける道具が形を写していないか）から直す";
 export const ANSWER_KEYS = ["form", "title", "version", "receipt", "answered_at", "answers", "labels", "supp", "free"];
 const ANSWER_KEY_RE = /^[A-Za-z0-9_]+$/;
 const isObj = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
@@ -961,6 +962,7 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
     else {
       console.log(`${res.ok ? "🟢 緑" : "🔴 赤"}  答えの形 ${ANSWER_FORM}`);
       for (const r of res.red) console.log(`  ✗ ${r}`);
+      if (!res.ok) console.log(ANSWER_ROOT_CAUSE);
     }
     process.exit(res.ok ? 0 : 1);
   }
