@@ -1,13 +1,13 @@
 # 直す人のための決まり
 
-この repo は、別々のアカウントで動く AI の窓（Javis＝ynishikawa-coder の窓と、UTC エージェント＝sharekeiri-gif の窓）が、同じ道具として一緒に使う土台です。どちらの窓も、この 1 枚の決まりで直し・試し・版を出します。
+この repo は、別々のアカウントで動く AI の窓（Javis＝ynishikawa-coder の窓と、UTC エージェント＝sharekeiri-gif の窓）が、同じ道具として一緒に使う土台です。どちらの窓も、この 1 枚の決まりで直し・試し・合流します。
 
 常時読む核の文（`plugins/core/核.md`）と、プラグインの配り方の器（`.claude-plugin/`）は別の持ち主が持ちます。ここには「直す人の手順」だけを書きます。
 
 ## 1. 枝と PR
 
 - 枝の名は `claude/<日付>-<話題>`。日付は `YYYYMMDD`（例: `claude/20261111-hone`）。
-- **1 枝 = 1 PR = 1 窓。** 1 つの窓が 1 本の枝を持ち、その枝から PR を 1 本だけ出す。他の窓の枝へは push しない。
+- **1 枝 = 1 PR = 1 窓。** 1 つの窓が 1 本の枝を持ち、その枝から PR を 1 本だけ出す。他の窓の枝へは push しない。1 本に入らなかった仕事は各社の原因の台帳の行にし、直す窓を付けて PR 本文の「残り」に書く（細目 §3）。土台を直す時は、使う側の repo に残った写しも同じ仕事の中で直し、PR 本文の「使う側の写しの残り」に書く（細目 §7「土台の直しの終わり」）。
 - PR の base は `main`。本文は `.github/pull_request_template.md` の型で書く（冒頭 5 行: 親窓・書いた窓・job・触る path・検査）。
 - **どちらの AI（Javis の窓・UTC エージェントの窓）からも、この repo へ直に PR を出してよい。**
 
@@ -30,12 +30,12 @@
 - 入れる前にオーナーへ「入れてよいですか」と聞かない。揃える物（レビュー green・試験が緑で衝突なし・実物が合意済みの全体の絵どおり）と、絵と差がある時に止めて聞く事、絵を照らす段が土台に入るまでの扱いは、核 §7 と細目 §7 の「main へ入れる」が正本。
 - 書いた窓は `main` へ push しない。自分の PR を merge しない。
 - 枝へ `main` を取り込む時は **merge**（`git merge origin/main`）。rebase と force push はしない（レビュー窓が見た SHA を消さないため）。
-- 親窓から `合流済` が届いた枝には、もう push しない。続きは新しい枝で。
+- 親窓から `合流済` が届いた枝には、もう push しない。続きは原因の台帳の行にし、新しい枝の窓をその行の直す窓にする。
 
 ### main の守りの設定（推奨・repo の持ち主が GitHub の設定で入れる）
 
 - `main` への直の push を禁止し、PR を必須にする。
-- 必須の検査に CI の `check` と `public-guard`（`.github/workflows/ci.yml`）を入れる。`public-guard` が必須でないと見回りが知らせる（`docs/公開の検査.md`）。
+- 必須の検査に CI の `check`・`public-guard`・`plugin-smoke`（`.github/workflows/ci.yml`）を入れる。土台は main の先端をそのまま全部の窓へ配るので、`plugin-smoke`（使う側と同じ入れ方で入れて起動する試験）が合流の前の守り。`public-guard` か `plugin-smoke` が必須でないと見回りが知らせる（`docs/公開の検査.md`）。
 - merge の仕方は squash だけを許す。
 - `main` の force push と削除を禁止する。
 
@@ -69,7 +69,7 @@
 ## 6. 検査の入口（CI）
 
 - CI は `.github/workflows/ci.yml`。`main` への push と、すべての PR で走る。
-- CI の job は 2 つ: `check`（入口は `bash scripts/check_all.sh` の 1 本）と `public-guard`（公開の検査）。`check_all.sh` は中で pytest（`tests/`）と、`scripts/checks/*.sh` があればそれを順に走らせる。
+- CI の job は 3 つ: `check`（入口は `bash scripts/check_all.sh` の 1 本）と `public-guard`（公開の検査）と `plugin-smoke`（PR の枝を使う側と同じ入れ方で入れて窓を起動し、核の差し込み・守りの hook・skill の読み込みを見る。`scripts/plugin_smoke.py` と、その歯の `tests/test_plugin_smoke.py`）。`check_all.sh` は中で pytest（`tests/`）と、`scripts/checks/*.sh` があればそれを順に走らせる（claude の命令が無い所では `tests/test_plugin_smoke.py` を飛ばす）。
 - 検査を足す時は `scripts/checks/<名前>.sh` を足すか、`tests/` に試験を足す。`ci.yml` と `check_all.sh` は書き換えなくてよい。
 - `check_all.sh` の最後の行が `check_all: 緑` なら通り、`check_all: 赤 …` なら止まり。止まったら赤の行を 1 つずつ潰さず、細目 §3「まず構造を疑う」で原因から直す。
 
@@ -79,6 +79,13 @@
 - 物を置く PR は、同じ PR で自分の行の `状態` を替える（`未着手` → `作業中` → `出した`）。行を足す・消す時も同じ PR で。
 - 表と実の dir が合っているかは CI が見る（`tests/test_plugins_list.py`）。
 
-## 8. 版
+## 8. 配り方と「壊れる:」変更
 
-- 版の印は main に入るたびに Actions が自動で打つ（`docs/版の出し方.md`）。版を出す PR は無い。使う側に関係する変更は `CHANGELOG.md` の先頭の「合流ごと」に、PR ごとに 1 行足す。
+- 版は無い。窓は setup script で **main の先端** を入れる（`docs/核の届け方.md`）。合流した時から、次に立つ窓に届く。版の印を打つ手・版を上げる PR は無い。立った後に土台が変わった窓は、AI が自分で新しい窓へ引き継ぐ（同じ文書の「古い土台で立った窓」）。
+- 使う側に関係する変更は、PR ごとに自分の file を `CHANGELOG.d/<日付>-<話題>.txt` に 1 つ足す（`CHANGELOG.md` へは足さない・書き方は `CHANGELOG.d/README.md`）。使う側の振る舞いが変わる物は、行の札を「壊れる」にする。
+- **「壊れる:」変更は 2 段で入れる**（main の先端は合流した時に全部の窓・全部の公開 repo へ届き、版で待ってもらえないため）:
+  1. **1 段目**: 土台は新しい形を足し、古い形も通し続ける（新旧の両方を受ける・古い形には「移ってほしい」と知らせるだけ）。断片の行の札を「壊れる（1 段目）」にし、使う側がやる事を書く。
+  2. **使う側が移る**: 土台の外の物（使う側の repo・環境の setup script・Artifact 型など）を直す。2 つのアカウントにまたがる物は連絡板の issue で頼む。
+  3. **2 段目**: 使う側が移ったのを確かめてから、古い形を畳む PR を出す。断片の行の札を「壊れる（2 段目）」にし、移ったのを確かめた所を書く。
+  - 土台の中だけで閉じる変更（使う側の物が古い形に頼っていない）は 1 段でよい。その時は行に「土台の中だけ」と書く。
+  - レビューは点 10（呼ぶ側と呼ばれる側）で、この 2 段を見る（skill `checker:review-pr`）。
