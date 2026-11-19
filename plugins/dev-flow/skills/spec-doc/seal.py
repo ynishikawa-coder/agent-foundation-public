@@ -8,6 +8,7 @@ AI が照合を飛ばしても、決定の記録と食い違う設計書が LOCK
 見る物（15_*.md の §6 の節＝見出しに「§6」「6.」か「決定照合」を持つ節。次の同じか上の段の見出しまで）:
   - 節の行（表の行〔見出しの行と区切りを除く〕か、箇条の行）を 1 行ずつ見る。
   - 扱いが「直した」「覆す」「関係なし」のどれかの行は済み。表に「扱い」の列があればその欄だけを見る。
+  - 扱いは欄（箇条なら最後の区切り → ： の後）の頭に置く。「直したいが未定」「未定（覆すか聞く）」は済みでない。
   - 「未照合」の行: 値の表に照合の口（decision_match）が在る repo では止める（口があるのに照らしていない）。
     口が無い repo では通して知らせるだけ（照らしようが無い）。
   - 扱いの無い行（「ぶつかる」のまま・未定・空）は止める。15 が無い・§6 が無い・§6 に行が 1 つも無い時も止める。
@@ -30,12 +31,14 @@ import subprocess
 import sys
 from pathlib import Path
 
-DONE_WORDS = ("直した", "覆す", "関係なし")
 UNMATCHED = "未照合"
 _HEAD = re.compile(r"^(#{1,6})\s*(.*?)\s*#*\s*$")
 _SEC6 = re.compile(r"(?:§\s*6(?!\d)|^6(?:[.．、\s]|$)|決定照合)")
 _TABLE = re.compile(r"^\s*\|")
 _TABLE_SEP = re.compile(r"^\s*\|[\s:\-|]+\|?\s*$")
+# 扱いは欄（箇条なら最後の区切りの後）の頭に 3 語のどれかを置き、その後は区切りか終わり（「直したいが未定」は済みでない）。
+_DONE = re.compile(r"^\s*(?:直した|覆す|関係なし)(?=$|[\s＝=（(。、/・:：|\-—→])")
+_LAST_SEP = re.compile(r".*(?:→|->|:|：|＝>|\|)\s*")
 _ITEM = re.compile(r"^\s*(?:[-*+]|\d+[.)])\s+\S")
 
 
@@ -62,7 +65,12 @@ def load_values(root: Path | None, path: str | None) -> dict:
         data = json.loads(p.read_text(encoding="utf-8"))
     except json.JSONDecodeError as e:
         raise Abort(f"値の表が読めない（{p.name}: {e}）")
-    return (data.get("dev-flow") or {}).get("spec-doc") or {}
+    vals = (data.get("dev-flow") or {}).get("spec-doc") if isinstance(data, dict) else None
+    if vals is None:
+        return {}
+    if not isinstance(data.get("dev-flow"), dict) or not isinstance(vals, dict):
+        raise Abort("値の表の dev-flow.spec-doc が表（JSON の object）でない")
+    return vals
 
 
 def _cells(line: str) -> list[str]:
@@ -109,7 +117,8 @@ def rows_of(body: list[tuple[int, str]]) -> list[tuple[int, str, str]]:
         else:
             header = col = None
             if _ITEM.match(ln):
-                out.append((no, ln.strip(), ln))
+                body = re.sub(r"^\s*(?:[-*+]|\d+[.)])\s+", "", ln)
+                out.append((no, ln.strip(), _LAST_SEP.sub("", body, count=1)))
     return out
 
 
@@ -127,9 +136,11 @@ def check_match(spec_dir: Path, values: dict) -> tuple[list[str], list[str]]:
     rows = rows_of(body)
     if not rows:
         return [f"{f.name} の §6 に行が 1 つも無い＝照合していない"], []
-    allow = values.get("decision_match_allow") or []
+    allow = values.get("decision_match_allow", [])
+    if not isinstance(allow, list) or not all(isinstance(p, str) and p for p in allow):
+        raise Abort("値の表の decision_match_allow は空でない字（正規表現）の並びで書く")
     try:
-        allow_re = [re.compile(p) for p in allow if isinstance(p, str) and p]
+        allow_re = [re.compile(p) for p in allow]
     except re.error as e:
         raise Abort(f"値の表の decision_match_allow に読めない正規表現（{e}）")
     has_port = bool(values.get("decision_match"))
@@ -145,7 +156,7 @@ def check_match(spec_dir: Path, values: dict) -> tuple[list[str], list[str]]:
             else:
                 notes.append(f"{f.name}:{no} 未照合（照合の口が値の表に無い repo）: {short}")
             continue
-        if not any(w in look for w in DONE_WORDS):
+        if not _DONE.match(look):
             stops.append(f"{f.name}:{no} 扱いが無い（直した／覆す／関係なし のどれでもない）: {short}")
     return stops, notes
 

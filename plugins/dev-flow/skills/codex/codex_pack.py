@@ -300,7 +300,8 @@ def main(argv=None) -> int:
         if hits:
             write_log(values, root, {**meta, "result": "中止", "block": ["高エントロピーの塊"],
                                      "fingerprints": [h[3] for h in hits]})
-            where = "\n".join(f"    - {w} の {n} 行目（{ln} 字・指紋 sha256:{fp}）" for w, n, ln, fp in hits)
+            unit = "差分の" if a.mode == "diff" else ""
+            where = "\n".join(f"    - {w} の{unit} {n} 行目（{ln} 字・指紋 sha256:{fp}）" for w, n, ln, fp in hits)
             raise Abort(
                 f"鍵らしい高エントロピーの塊が {len(hits)} 個＝書き込まない\n{where}\n"
                 "  直し方: 鍵なら file から抜いて鍵を取り替える。載せなくてよい行なら --mode diff で変えた行だけにするか、"

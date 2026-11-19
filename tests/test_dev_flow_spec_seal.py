@@ -127,3 +127,38 @@ def test_gate_の赤はそのまま返す(env):
     (repo / "型" / "check_spec_doc.py").write_text("import sys\nsys.exit(2)\n", encoding="utf-8")
     put15(spec, DONE_TABLE)
     assert seal(repo, spec).returncode == 2
+
+
+@pytest.mark.parametrize("cell", ["未定（覆すか関係なしか聞く）", "直したいが未定", "関係なしかも"])
+def test_扱いの欄に語が部分で入るだけの未定は止める(env, cell):
+    repo, spec = env
+    put15(spec, DONE_TABLE.replace("| 直した |", f"| {cell} |"))
+    res = seal(repo, spec)
+    assert res.returncode == 1 and "扱いが無い" in res.stderr, cell
+    assert not (spec / "gate_called").exists()
+
+
+@pytest.mark.parametrize("item", ["- 作り物の決定 A: 直したかは未定", "- 作り物の決定 A: ぶつかる → 覆すか聞く"])
+def test_箇条の扱いも語が部分で入るだけなら止める(env, item):
+    repo, spec = env
+    put15(spec, HEAD + "## §6 決定照合\n\n" + item + "\n")
+    assert seal(repo, spec).returncode == 1, item
+
+
+@pytest.mark.parametrize("bad", ["a.b", [""], [1], {"x": "y"}])
+def test_外す値の型が並びでない時は黙って外さず止める(env, bad):
+    repo, spec = env
+    write_values(repo, {"template_dir": "型", "decision_match_allow": bad})
+    put15(spec, HEAD + "## §6 決定照合\n\n- 作り物の決定 A: ぶつかる\n")
+    res = seal(repo, spec)
+    assert res.returncode == 1 and "decision_match_allow" in res.stderr, bad
+    assert not (spec / "gate_called").exists()
+
+
+def test_値の表の形が壊れていれば落ちずに止める(env):
+    repo, spec = env
+    (repo / "config" / "skill-values.json").write_text(
+        json.dumps({"dev-flow": {"spec-doc": ["並び"]}}), encoding="utf-8")
+    put15(spec, DONE_TABLE)
+    res = seal(repo, spec)
+    assert res.returncode == 1 and "Traceback" not in res.stderr
