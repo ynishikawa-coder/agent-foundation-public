@@ -596,9 +596,13 @@ def test_言い直してまた閉じても同じ問いを2行で持たない(env
     assert "1 件あります" in again and "どちらが良いですか" in again
 
 
-def test_決まった選択肢の組だけでは別の確かめを閉じない(env):
-    labels = ["終わった（推奨）", "うまくいかない", "分からない"]
-    hook(env, "post", _ask_post("設定の保存は終わりましたか", labels, False, "s1"))
-    hook(env, "post", _ask_post("鍵の登録は済みましたか", labels, True, "s2"))
+@pytest.mark.parametrize("left,right,labels", [
+    ("設定の保存は終わりましたか", "鍵の登録は済みましたか", ["終わった（推奨）", "うまくいかない", "分からない"]),
+    ("請求書を先方へ送ってよいですか？", "古い請求書の控えを消してよいですか？", ["はい（推奨）", "いいえ", "分からない"]),
+    ("資料の共有の範囲をどちらにしますか", "資料を社外へ送る時期をどちらにしますか", ["今週（推奨）", "来週", "分からない"]),
+])
+def test_決まった選択肢の組や語が1つ重なるだけでは別の問いを閉じない(env, left, right, labels):
+    hook(env, "post", _ask_post(left, labels, False, "s1"))
+    hook(env, "post", _ask_post(right, labels, True, "s2"))
     again = hook(env, "start", {"session_id": "s3"}).get("additionalContext", "")
-    assert "設定の保存は終わりましたか" in again
+    assert left in again

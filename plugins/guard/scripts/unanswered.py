@@ -71,6 +71,11 @@ def same_question(a, b):
 
 
 _REC = re.compile(r"[（(]\s*推奨\s*[)）]")
+# どの問いにも付く決まった答え（これだけが重なっても同じ問いとは言えない）
+GENERIC_LABELS = {"はい", "いいえ", "分からない", "わからない", "分からない・確かめてから答える", "終わった", "済んだ",
+                  "うまくいかない", "まだ", "その他", "ほかの答え", "進める", "進めない", "やる", "やらない", "よい", "だめ",
+                  "ok", "ng", "yes", "no", "入れる", "入れない", "待つ", "今は決めない"}
+OVERLAP_MIN = 0.5      # 言い直しとみなす問いの語の重なり（小さい方の語の数に対する割合）
 
 
 def label_set(opts):
@@ -80,17 +85,21 @@ def label_set(opts):
 
 
 def same_by_options(a, b):
-    """言い直した問いの見分け: 選択肢の見出しの組が同じ（2 つ以上）で、問いの文の語（2 字の並び）を共にする。
-    「終わった／うまくいかない」のような決まった組だけでは同じとみなさない（語を共にしない別の確かめを閉じない）。"""
+    """言い直した問いの見分け: 選択肢の見出しの組が同じで、決まった答えの外の見出しが 2 つ以上あり、
+    問いの文の語（2 字の並び）の半分以上を共にする。決まった答えの組（はい／いいえ・終わった／うまくいかない）や、
+    語が 1 つ重なるだけの別の問いは結ばない（片方の答えで、答えの無いもう片方を黙って降ろさない）。"""
     la, lb = label_set(a.get("options")), label_set(b.get("options"))
-    if len(la) < 2 or la != lb:
-        return False
+    if la != lb or len({x for x in la if x.lower() not in GENERIC_LABELS}) < 2:
+        return False        # 決まった答え（はい／いいえ・終わった／うまくいかない）の組では結ばない
     try:
         import ask_shape
         wa = ask_shape._words({"question": a.get("question")}, G.DEFAULTS)    # 見出しは窓ごとに同じ物が付きやすいので見ない
-        return bool(wa & ask_shape._words({"question": b.get("question")}, G.DEFAULTS))
+        wb = ask_shape._words({"question": b.get("question")}, G.DEFAULTS)
     except Exception:       # noqa: BLE001
         return False
+    if not wa or not wb:
+        return False
+    return len(wa & wb) >= OVERLAP_MIN * min(len(wa), len(wb))
 
 
 def question_payload(q):
