@@ -47,18 +47,15 @@ import subprocess
 import sys
 from pathlib import Path
 
-# 書き込み前に止める秘密の形（block）。字はここで組み立てる（この file 自身が検査に当たらないため）。
-BLOCK_PATTERNS = {
-    "GitHub のトークン": r"gh[pousr]_[A-Za-z0-9]{20,}",
-    "Anthropic の鍵": r"sk-ant-[A-Za-z0-9_\-]{20,}",
-    "OpenAI 形の鍵": r"(?<![A-Za-z0-9])sk-[A-Za-z0-9]{20,}",
-    "AWS の鍵 ID": r"AKIA[0-9A-Z]{16}",
-    "Slack のトークン": r"xox[abpors]-[A-Za-z0-9-]{10,}",
-    "Google の API 鍵": r"AIza[0-9A-Za-z_\-]{30,}",
-    "文書サービスのトークン": r"\b(?:secret_|ntn_)[A-Za-z0-9]{16,}",
+# 書き込み前に止める秘密の形（block）は 2 つを合わせた物:
+#   鍵・トークンの形 … 公開の検査の SECRET_PATTERNS（public-guard/guard.py）が正本。plugin の lib/public_guard.py
+#                      （正本への symlink。入れる時に実物へ写される）を直に読む＝ここに写さない。読めなければ止める。
+#   外の AI へ渡す時だけ足す形 … 公開の repo では止めない（試験の作り物・手元の接続先に当たる）が、外の AI へは出さない形。
+#                      正本の札と同じ名を置かない（同じ鍵の形を 2 か所に持たない＝test_codex_pack_secret_shohon が見る）。
+# 字はここで組み立てる（この file 自身が検査に当たらないため）。
+CODEX_ONLY_PATTERNS = {
     "JWT": r"eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{6,}",
     "Bearer のトークン": r"\bBearer\s+[A-Za-z0-9._\-]{16,}",
-    "秘密鍵": "-----BEGIN " + r"[A-Z ]*" + "PRIVATE KEY-----",
     "合言葉のタグ": r"<password>.+?</password>",
     ".env 形の行": r"(?m)^[A-Z_]+_(?:KEY|TOKEN|SECRET|PASSWORD)=.+",
     "接続文字列の合言葉": r"[a-z][a-z0-9+.-]*://[^\s/:@]+:[^\s/@]+@[^\s/]+",
@@ -68,6 +65,23 @@ BLOCK_PATTERNS = {
     "鍵の代入": (r"(?i)(?:api[_-]?key|client[_-]?secret|access[_-]?token)\s*[:=]\s*"
                r"(?:[\"'][A-Za-z0-9/+=_\-]{16,}|[A-Za-z0-9/+=_\-]{16,}(?![A-Za-z0-9/+=_\-$.(\[]))"),
 }
+SECRET_SHOHON = Path(__file__).resolve().parents[2] / "lib" / "public_guard.py"
+
+
+def block_patterns() -> dict:
+    """止める形の全部（正本の鍵の形＋外の AI へ渡す時だけ足す形）。正本が読めなければ Abort（照らせない物は出さない）。"""
+    try:
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("af_public_guard", SECRET_SHOHON)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        shohon = dict(mod.SECRET_PATTERNS)
+    except Exception as e:  # noqa: BLE001
+        raise Abort(f"鍵の形の正本（{SECRET_SHOHON}）が読めないので、パックを作らずに止めた（照らせない物は外へ出さない）: "
+                    f"{type(e).__name__}。土台の plugin を市場から入れ直す")
+    return {**shohon, **CODEX_ONLY_PATTERNS}
+
+
 ADVISORY_MIN_LEN = 32
 ADVISORY_MIN_ENTROPY = 4.0
 SHORT_MIN_LEN = 16           # c. 短い塊の下限（ここより短い物は形で見分けない＝残る穴）
@@ -337,7 +351,7 @@ def sha256_full(tok: str) -> str:
 
 
 def scan(text: str, values: dict | None = None, rels=None, root: Path | None = None, environ=None):
-    blocks = [label for label, pat in BLOCK_PATTERNS.items() if re.search(pat, text)]
+    blocks = [label for label, pat in block_patterns().items() if re.search(pat, text)]
     fps, _ = allow_rules(values or {})
     for name, val in known_secrets(root, environ):
         if val in text and not any(sha256_full(val).startswith(p) for p in fps):
@@ -358,8 +372,19 @@ def write_log(values: dict, root: Path, rec: dict) -> None:
         f.write(json.dumps(rec, ensure_ascii=False) + "\n")
 
 
+
+def _strict_args():
+    """印の読み方の正本（plugin の lib/strict_args.py＝土台の shared/ への symlink）。"""
+    import importlib.util
+    from pathlib import Path as _P
+    lib = _P(__file__).resolve().parents[2] / "lib" / "strict_args.py"
+    spec = importlib.util.spec_from_file_location("af_strict_args", lib)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
 def main(argv=None) -> int:
-    ap = argparse.ArgumentParser(description="Codex へ渡すパックを安全に組む")
+    ap = _strict_args().ArgumentParser(description="Codex へ渡すパックを安全に組む")
     ap.add_argument("--task", required=True)
     ap.add_argument("--dest", help="self | client:<名>（省くと self だけ自動）")
     ap.add_argument("--purpose", required=True)

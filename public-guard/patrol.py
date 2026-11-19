@@ -164,8 +164,19 @@ def report_issue(gh: GitHub, here: str, found: dict, text: str) -> None:
             gh.req(f"/repos/{here}/issues/{i['number']}", "PATCH", {"state": "closed", "state_reason": "completed"})
 
 
+
+def _strict_args():
+    """印の読み方の正本（土台の shared/strict_args.py）。"""
+    import importlib.util
+    from pathlib import Path as _P
+    lib = _P(__file__).resolve().parent.parent / "shared" / "strict_args.py"
+    spec = importlib.util.spec_from_file_location("af_strict_args", lib)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
 def main(argv=None) -> int:
-    ap = argparse.ArgumentParser(description="公開の repo の見回り")
+    ap = _strict_args().ArgumentParser(description="公開の repo の見回り")
     ap.add_argument("--owner", action="append")
     ap.add_argument("--report-issue", action="store_true")
     a = ap.parse_args(argv)

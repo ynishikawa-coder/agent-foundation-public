@@ -207,8 +207,19 @@ FIX = """直し方:
 直しは行を 1 つずつ埋めて出し直すだけで済ませず、照合が抜けた原因（照合の口を回す段を飛ばした等）を細目 §3「まず構造を疑う」で探して直す。"""
 
 
+
+def _strict_args():
+    """印の読み方の正本（plugin の lib/strict_args.py＝土台の shared/ への symlink）。"""
+    import importlib.util
+    from pathlib import Path as _P
+    lib = _P(__file__).resolve().parents[2] / "lib" / "strict_args.py"
+    spec = importlib.util.spec_from_file_location("af_strict_args", lib)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
 def main(argv=None) -> int:
-    ap = argparse.ArgumentParser(description="設計書の封の入口（決定照合を照らしてから gate --lock を呼ぶ）")
+    ap = _strict_args().ArgumentParser(description="設計書の封の入口（決定照合を照らしてから gate --lock を呼ぶ）")
     ap.add_argument("spec_dir", help="設計書の dir")
     ap.add_argument("--values", help="値の表の path（既定は今の repo の根の config/skill-values.json）")
     ap.add_argument("--match-only", action="store_true", help="決定照合だけを照らす（gate を呼ばない）")

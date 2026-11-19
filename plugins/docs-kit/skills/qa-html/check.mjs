@@ -172,7 +172,6 @@ export const RULES = {
       "言い換え": "決まりの中身を言葉で"
     }
   ],
-  "past_question_id": "Q\\d{2,4}[.\\-]\\d{1,2}-\\d+|(?<![A-Za-z0-9])Q-?\\d{1,4}(?![0-9])",
   "number_ask": "(?:額|金額|数|日数|時間|時給|単価|回数|人数)\\s*(?:を|は)?\\s*(?:教えて|書いて|ご記入|記入|入力|ご入力|打ち込|お知らせ)|何(?:日|時間|円|回|人)(?:ですか|でしたか|ありますか|働)",
   "confirm": "合っていますか|こう読みました|こう理解しています|よろしいですか",
   "two_in_one": "、また|また、|および|及び|あわせて|併せて|それぞれ[^。]*(?:と|、)|[^、。・\\s]{2,}と[^、。・\\s]{2,}(?:を|は)(?:教えて|お知らせ|ご確認|確認|決め|選)",
@@ -180,6 +179,10 @@ export const RULES = {
   "option_symbol": "^\\s*(?:案\\s*[A-Za-zＡ-Ｚ0-9０-９]|[A-Za-zＡ-Ｚａ-ｚ](?:\\s*[.．:：、)）]|\\s+)|[0-9０-９]{1,2}\\s*[.．:：、)）](?![0-9０-９])|[①-⑳])|^\\s*[(（](?:[A-Za-zＡ-Ｚ]|[0-9]{1,2})[)）]",
   "symbol_ref": "(?<![A-Za-z0-9])(?:案\\s*)?[A-DＡ-Ｄ]\\s*(?:なら|の場合|案|を選)"
 };
+// 番号の形の正本は土台の shared/number_shapes.json（plugin の lib/ に symlink。守りの ask_shape も同じ物を読む＝ここに写さない）。
+// お客さんの資料のセルの番地と同じ形の物（"確認ページ": false）は見ない。読めなければ検査を始めずに落ちる（照らせない頁を通さない）。
+const NUMBER_SHAPES = JSON.parse(readFileSync(fileURLToPath(new URL("../../lib/number_shapes.json", import.meta.url)), "utf8"))
+  .形.filter((x) => x.確認ページ).map((x) => new RegExp(x.正規表現, "u"));
 const KINDS = Object.keys(RULES.kinds);
 const GROUPS = Object.keys(RULES.groups);
 const FREE = "__自由記入__";
@@ -628,7 +631,7 @@ export function checkPage(page, { valuesPath = null, prior = null } = {}) {
       const m = w.re.exec(line);
       if (m) red.push(`内部の言葉「${m[0]}」（${w.語}→${w.言い換え ?? "先方の言葉で"}）: ${line.slice(0, 60)}`);
     }
-    const q = rx("past_question_id").exec(line);
+    const q = NUMBER_SHAPES.map((re) => re.exec(line)).find(Boolean);
     if (q) red.push(`番号「${q[0]}」で過去の問いを指している（言葉で書き直し、元の問いへのリンクを付ける）: ${line.slice(0, 60)}`);
   }
 

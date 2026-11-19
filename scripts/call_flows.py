@@ -119,8 +119,19 @@ def check(pic_path: Path, repo: Path) -> int:
     return 0
 
 
+
+def _strict_args():
+    """印の読み方の正本（土台の shared/strict_args.py）。"""
+    import importlib.util
+    from pathlib import Path as _P
+    lib = _P(__file__).resolve().parent.parent / "shared" / "strict_args.py"
+    spec = importlib.util.spec_from_file_location("af_strict_args", lib)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
 def main(argv=None) -> int:
-    ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    ap = _strict_args().ArgumentParser(description=__doc__.splitlines()[0])
     sub = ap.add_subparsers(dest="cmd", required=True)
     ls = sub.add_parser("list")
     ls.add_argument("--repo", type=Path, default=ROOT)

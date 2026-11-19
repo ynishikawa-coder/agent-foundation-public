@@ -23,15 +23,19 @@
 """
 from __future__ import annotations
 
+import json
+import os
 import re
 
 ASK_TOOL = "AskUserQuestion"
 
 _URL = re.compile(r"https?://\S+")
 # AI の中の言葉らしい字（名 → 形）。人に向けた問いに出るなら日常の言葉に替える。
-INNER = (
-    ("番号", re.compile(r"(?<![A-Za-z0-9])[A-Z]{1,5}\d{2,}(?:[-_]\d+)*(?![A-Za-z0-9])")),       # E02・Q202611-67
-    ("番号", re.compile(r"[#＃]\d+")),                                                            # #616
+# 番号の形の正本は土台の shared/number_shapes.json（plugin の lib/ に symlink。確認ページの検査 check.mjs も同じ物を読む）。
+_NUMBERS = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "lib", "number_shapes.json")
+with open(_NUMBERS, encoding="utf-8") as _f:
+    NUMBER_SHAPES = tuple(("番号", re.compile(x["正規表現"])) for x in json.load(_f)["形"])
+INNER = NUMBER_SHAPES + (
     ("版の番号", re.compile(r"(?<![A-Za-z0-9])[vV]\d+(?:\.\d+)+")),                              # v0.21.0
     ("file 名", re.compile(r"[\w\-]+\.(?:py|md|json|jsonl|mjs|cjs|js|ts|tsx|jsx|html|ya?ml|sh|txt|csv|tsv|xlsx|toml|ini|cfg)"
                           r"(?![A-Za-z0-9])", re.I)),

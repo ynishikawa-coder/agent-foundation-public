@@ -56,7 +56,6 @@ def test_outbound_Artifact_で出す_file_と_files_の中の鍵も止める(env
     tool(SEND, session_id="session_x", message="PR #31 の CHANGELOG の衝突は main を merge して直した。先端 1a21016e8983。"),
     tool("mcp__github__create_pull_request", title="作り物", body="鍵は環境の秘密に入れた（値は書かない）。sk-ant- で始まる形を止める。"),
     tool("mcp__notion__notion-fetch", id="https://example.invalid/page"),
-    tool("Bash", command="echo " + FAKE_KEYS["GitHub のトークン"]),     # 外へ渡す道具でない（返事・Bash は別の守り）
 ])
 def test_outbound_鍵の無い入力と外へ渡さない道具は通す(env, payload):
     assert not denied(env, payload)
@@ -184,7 +183,7 @@ def test_qa_page_files_で足した問いのページも見る(env, tmp_path):
 @pytest.mark.parametrize("cmd", [
     "cat > tests/test_llm.py <<'EOF'\nimport os\nKEY = os.environ['" + "OPENAI" + "_API_KEY']\nEOF",
     "echo 'URL = \"https://api." + "anthropic.com/v1\"' >> tests/conftest.py",
-    "printf 'x' | tee -a e2e/run.spec.ts && echo " + "GEMINI" + "_API_KEY",
+    "printf '" + "GEMINI" + "_API_KEY' | tee -a e2e/run.spec.ts && echo done",
     "sed -i 's/FAKE/" + "ANTHROPIC" + "_API_KEY/' tests/test_a.py",
 ])
 def test_paid_upstream_Bash_で試験へ書く有料の上流も止める(env, cmd):

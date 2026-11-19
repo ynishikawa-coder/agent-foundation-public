@@ -263,8 +263,19 @@ def self_test():
     return 0 if verdict else 1
 
 
+
+def _strict_args():
+    """印の読み方の正本（plugin の lib/strict_args.py＝土台の shared/ への symlink）。"""
+    import importlib.util
+    from pathlib import Path as _P
+    lib = _P(__file__).resolve().parents[3] / "lib" / "strict_args.py"
+    spec = importlib.util.spec_from_file_location("af_strict_args", lib)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
 def build_parser():
-    p = argparse.ArgumentParser(description="make-deck 標準プロンプトに案件値を差し込む renderer")
+    p = _strict_args().ArgumentParser(description="make-deck 標準プロンプトに案件値を差し込む renderer")
     p.add_argument("--self-test", action="store_true", help="正/負ケースの回帰ゲート")
     sub = p.add_subparsers(dest="cmd")
     r = sub.add_parser("render", help="正本テンプレ + 案件値(JSON) → 一時プロンプト")

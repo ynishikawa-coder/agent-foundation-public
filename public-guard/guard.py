@@ -35,10 +35,12 @@ import sys
 import unicodedata
 from pathlib import Path
 
+# 鍵・トークンの形の正本（外へ渡す出口は全部ここを直に読む: 公開の検査・守りの outbound・Codex へのパック）。
+# 下限は出口の中で一番広く拾う物に揃える（短く切れた鍵も止める）。直す時はここだけを直す。
 SECRET_PATTERNS = {
-    "GitHub のトークン": r"gh[pousr]_[A-Za-z0-9]{36,}|github_pat_[A-Za-z0-9_]{20,}",
+    "GitHub のトークン": r"gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}",
     "Anthropic の鍵": r"sk-ant-[A-Za-z0-9_\-]{20,}",
-    "OpenAI 形の鍵": r"sk-[A-Za-z0-9]{40,}",
+    "OpenAI 形の鍵": r"(?<![A-Za-z0-9])sk-(?:(?:proj|svcacct|admin)-[A-Za-z0-9_\-]{20,}|[A-Za-z0-9]{20,})",
     "AWS の鍵 ID": r"AKIA[0-9A-Z]{16}",
     "Slack のトークン": r"xox[abpors]-[A-Za-z0-9-]{10,}",
     "Google の鍵": r"AIza[0-9A-Za-z_\-]{35}|ya29\.[0-9A-Za-z_\-]{20,}",
@@ -352,8 +354,19 @@ def run(repo: Path, rev_range: str | None, words_file: str | None, skip: list[st
     return sorted(set(hits))
 
 
+
+def _strict_args():
+    """印の読み方の正本（土台の shared/strict_args.py）。"""
+    import importlib.util
+    from pathlib import Path as _P
+    lib = _P(__file__).resolve().parent.parent / "shared" / "strict_args.py"
+    spec = importlib.util.spec_from_file_location("af_strict_args", lib)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
 def main(argv=None) -> int:
-    ap = argparse.ArgumentParser(description="公開の検査（中身・歴史・外側）")
+    ap = _strict_args().ArgumentParser(description="公開の検査（中身・歴史・外側）")
     ap.add_argument("--repo", default=".")
     ap.add_argument("--range", dest="rev_range")
     ap.add_argument("--deny-words-file")

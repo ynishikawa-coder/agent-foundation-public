@@ -53,10 +53,6 @@ DEFAULTS = {
     "number_request_exempt": [],
 }
 
-# 窓の種類の決まり（session-watch の title-mark と同じ線）: 最初の頼みの文の返し先が別の窓なら子の窓（文脈の知らせだけが読む）。
-RETURN_TO_WINDOW = re.compile(r"返し先\s*[=＝:：]\s*session_[A-Za-z0-9]+")
-CHILD_OF = re.compile(r"（親窓\s*session_[A-Za-z0-9]+\s*の子）")
-
 
 GUARD_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -239,5 +235,25 @@ def first_owner_text(path):
     return ""
 
 
+def session_watch():
+    """窓の種類・題の形の正本 session-watch の session_watch.py を読み込んだ物か None（写さず直に呼ぶ）。
+    在り処は AF_SESSION_WATCH → 隣の plugin。読めない時は None（呼ぶ側が、照らせない時の倒し方を決める）。"""
+    path = os.environ.get("AF_SESSION_WATCH") or sibling_plugin_file("session-watch", os.path.join("scripts", "session_watch.py"))
+    if not path or not os.path.isfile(path):
+        return None
+    try:
+        return load_module("af_session_watch", path)
+    except Exception:
+        return None
+
+
 def is_child_prompt(text):
-    return bool(RETURN_TO_WINDOW.search(text or "") or CHILD_OF.search(text or ""))
+    """最初の頼みの文から、別の窓へ返す子の窓か。決まり（返し先の書き方）の正本は session_watch.kind_of。
+    正本が読めない時は子の窓と見ない（文脈の知らせを出す側へ倒す）。"""
+    sw = session_watch()
+    if sw is None:
+        return False
+    try:
+        return sw.kind_of(text or "") == sw.AI
+    except Exception:
+        return False

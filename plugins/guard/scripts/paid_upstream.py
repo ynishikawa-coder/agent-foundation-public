@@ -9,9 +9,11 @@
 逃げ道: 中身に PAID_UPSTREAM_GUARD を書く（＝環境変数 1 本で本物へ切り替える共通の関所を通す宣言。既定は録画の再生か偽物）。
 
 見る口: Write / Edit / MultiEdit / NotebookEdit と、Bash で試験らしい path へ書く形（`>`・`>>` のリダイレクト・
-  `tee`・`sed -i`／`perl -i` の的）。Bash は命令の文全体（heredoc の中身を含む）に印があるかを見る。
+  `tee`・`sed -i`／`perl -i` の的）。Bash は、その的へ実際に書く中身（heredoc の中身・echo／printf の字・tee へ流す
+  echo／printf の字・sed／perl の式）にだけ印があるかを見る（命令の文全体を見ない＝鍵名を環境に置いて試験を回し、
+  出力を試験の dir の log へ書くだけの命令は止めない）。
 射程の外（正直に書く）: 自分のサーバを経た中継（例: 手元のサーバが本物の鍵で AI へ中継する）は見えない。
-  Bash でも、書く中身が命令の外にある形（cp・mv・別の script の中で書く・python -c の中の open）は見えない。
+  Bash でも、書く中身が命令の外にある形（cp・mv・別の script の中で書く・python -c の中の open・命令の出力を書く形）は見えない。
 判定できない時は通す（1 つの不具合で書き込みを止めない）。
 """
 from __future__ import annotations
@@ -77,13 +79,67 @@ _TEE = re.compile(r"\btee\b((?:\s+-[a-zA-Z]+)*)((?:\s+[^\s;&|<>()-][^\s;&|<>()]*
 _INPLACE = re.compile(r"\b(?:sed|perl)\s+[^;&|]*?-i\S*[^;&|]*?\s([^\s;&|<>()]+)\s*(?:$|[;&|])", re.M)
 
 
+_HEREDOC = re.compile(r"<<-?\s*(['\"]?)([A-Za-z_][A-Za-z0-9_]*)\1")
+_SEP = re.compile(r"(\|\||&&|;|\||&(?!>))")
+_ASSIGN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
+_PRINTERS = ("echo", "printf")
+
+
+def _segments(cmd):
+    """命令を (区切りの前の記号, 段の字, heredoc の中身の並び) に分ける。heredoc の中身は、その << を持つ段に付ける。"""
+    lines = cmd.split("\n")
+    out, i = [], 0
+    while i < len(lines):
+        line = lines[i]
+        i += 1
+        tags = [m.group(2) for m in _HEREDOC.finditer(line)]
+        bodies = []
+        for tag in tags:
+            body = []
+            while i < len(lines) and lines[i].strip() != tag:
+                body.append(lines[i])
+                i += 1
+            i += 1
+            bodies.append("\n".join(body))
+        parts = _SEP.split(line)
+        prev = ""
+        for j in range(0, len(parts), 2):
+            seg = parts[j]
+            n = len(_HEREDOC.findall(seg))
+            own, bodies = bodies[:n], bodies[n:]
+            out.append((prev, seg, own))
+            prev = parts[j + 1] if j + 1 < len(parts) else ""
+    return out
+
+
+def _prog(seg):
+    words = [w for w in seg.split() if not _ASSIGN.match(w)]
+    return os.path.basename(words[0]) if words else ""
+
+
+def bash_writes(cmd):
+    """Bash の命令が file へ書く (的, 書く中身) の並び（推し量り）。中身の見えない書き込みは中身を空にする。"""
+    out = []
+    segs = _segments(cmd)
+    for k, (prev, seg, bodies) in enumerate(segs):
+        prog = _prog(seg)
+        own = "\n".join(bodies + ([seg] if prog in _PRINTERS else []))
+        for m in _REDIRECT.finditer(seg):
+            out.append((m.group(1), own))
+        for m in _TEE.finditer(seg):
+            fed = ""
+            if prev == "|" and k:
+                p_seg, p_bodies = segs[k - 1][1], segs[k - 1][2]
+                fed = "\n".join(p_bodies + ([p_seg] if _prog(p_seg) in _PRINTERS else []))
+            out += [(t, fed) for t in m.group(2).split()]
+        for m in _INPLACE.finditer(seg + "\n"):
+            out.append((m.group(1), seg))
+    return [(t.strip("'\""), c) for t, c in out if t.strip("'\"") not in ("/dev/null", "-")]
+
+
 def bash_targets(cmd):
     """Bash の命令が書く file の path の並び（推し量り）。"""
-    out = [m.group(1) for m in _REDIRECT.finditer(cmd)]
-    for m in _TEE.finditer(cmd):
-        out += m.group(2).split()
-    out += [m.group(1) for m in _INPLACE.finditer(cmd)]
-    return [t.strip("'\"") for t in out if t.strip("'\"") not in ("/dev/null", "-")]
+    return [t for t, _ in bash_writes(cmd)]
 
 
 def check_bash(data, vals):
@@ -91,11 +147,15 @@ def check_bash(data, vals):
     cmd = ti.get("command") if isinstance(ti, dict) else None
     if not isinstance(cmd, str) or GUARD_MARKER in cmd:
         return ""
-    tests = [t for t in bash_targets(cmd) if TEST_PATH_RE.search(t.replace(os.sep, "/"))]
-    if not tests:
-        return ""
     markers = list(PAID_MARKERS) + [m for m in vals.get("paid_markers_extra") or [] if isinstance(m, str) and m]
-    hits = [m for m in markers if m in cmd]
+    tests, hits = [], []
+    for target, content in bash_writes(cmd):
+        if not TEST_PATH_RE.search(target.replace(os.sep, "/")):
+            continue
+        found = [m for m in markers if m in content]
+        if found:
+            tests.append(target)
+            hits += [m for m in found if m not in hits]
     return reason(", ".join(tests), hits) if hits else ""
 
 

@@ -36,7 +36,7 @@ def repo(tmp_path):
 
 def run(repo, out, *args):
     cmd = [sys.executable, str(BUILDER), "--task", "t1", "--purpose", "見る", "--scope", "全部",
-           "--done", "指摘が 0", "--out-dir", str(out), "--today", TODAY, *args]
+           "--done", "指摘が 0", "--out-dir", str(out), *(() if "--today" in args else ("--today", TODAY)), *args]
     return subprocess.run(cmd, cwd=repo, capture_output=True, text=True)
 
 

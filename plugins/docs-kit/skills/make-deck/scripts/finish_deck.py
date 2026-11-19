@@ -610,8 +610,19 @@ def self_test():
     return 0 if verdict_all else 1
 
 
+
+def _strict_args():
+    """印の読み方の正本（plugin の lib/strict_args.py＝土台の shared/ への symlink）。"""
+    import importlib.util
+    from pathlib import Path as _P
+    lib = _P(__file__).resolve().parents[3] / "lib" / "strict_args.py"
+    spec = importlib.util.spec_from_file_location("af_strict_args", lib)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
 def build_parser():
-    p = argparse.ArgumentParser(description="NotebookLM デッキの仕上げ（表紙/透かし除去/綴じ）")
+    p = _strict_args().ArgumentParser(description="NotebookLM デッキの仕上げ（表紙/透かし除去/綴じ）")
     p.add_argument("--self-test", action="store_true",
                    help="実物同型ラスタ fixture + 画素不変 + mutation-killed で器の健全性を確認")
     sub = p.add_subparsers(dest="cmd")
