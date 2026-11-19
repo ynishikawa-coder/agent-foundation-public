@@ -120,7 +120,18 @@ def core_problems(ctx: list[str], want: dict, expected: str | None = None) -> li
     # 外れの時だけ、どの file が欠けたかを名指す（決めるのは上の全体の一致）
     lost = [name for name, text in want["injected"].items() if not any(text in c for c in core)]
     return ([f"{name} が起動した窓に差し込まれていない・中身が正本と違う（plugin core の SessionStart の hook）" for name in lost]
-            or ["差し込まれた文が正本の差し込む口（kaku.py inject）の出す文と一字違わず同じでない（核・振る舞いの既定の前後か間に足された物がある）"])
+            or ["差し込まれた文が正本の差し込む口（kaku.py inject）の出す文と一字違わず同じでない（核・振る舞いの既定の前後か間に足された物がある）"
+                + (_first_diff(normalize(expected, pat), normalize(core[0], pat)) if expected is not None else "")])
+
+
+def _first_diff(want: str, got: str) -> str:
+    """最初に違う行（正本の口の行／届いた行）を短く名指す。"""
+    a, b = want.splitlines(), got.splitlines()
+    for i in range(max(len(a), len(b))):
+        x, y = (a[i] if i < len(a) else "（無い）"), (b[i] if i < len(b) else "（無い）")
+        if x != y:
+            return f": {i + 1} 行目 正本の口={x[:160]!r} 届いた={y[:160]!r}"
+    return ""
 
 
 def installed_rows(table: dict) -> dict[str, dict]:
