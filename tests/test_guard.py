@@ -519,6 +519,8 @@ def test_pick_one_作業や論点や原因を1つだけ選ばせる問いを止�
     out = hook(env, "pre", ask(question))
     assert out.get("permissionDecision") == "deny"
     assert "全部" in out["permissionDecisionReason"] and "ask_pick_one_exempt" in out["permissionDecisionReason"]
+    # 推奨の印は作り方の分かれ道だけ（細目 §4）。止めた文がやり方の問いに印を勧めると、答えを寄せる問いを作り直させる。
+    assert "（推奨）」" not in out["permissionDecisionReason"] and "細目 §4「推奨の印」" in out["permissionDecisionReason"]
 
 
 @pytest.mark.parametrize("question", [
@@ -553,7 +555,7 @@ def test_pick_one_意図や事実を問う問いは通す(env, question):
 def test_pick_one_全部を選べる問いと全部やる道が在る問いは通す(env):
     assert not picked(env, ask("どれを進めますか", multi=True))
     assert not picked(env, ask("作り物の論点をどう進めますか。どれを進めますか",
-                               labels=("全部この窓で順に（推奨）", "それぞれ別の窓で同時に", "分からない")))
+                               labels=("全部この窓で順に", "それぞれ別の窓で同時に", "分からない")))
 
 
 def test_pick_one_問いが複数でも1つでも当たれば止め当たった問いを名指す(env):
