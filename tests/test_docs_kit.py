@@ -443,7 +443,7 @@ MUTATIONS = [
     ("新しい棚が届く日は、どちらですか", "新しい棚が届く日は合っていますか", "問い q2: 「合っていますか」"),
     ("新しい棚が届く日は、どちらですか", "新しい棚の数を教えてください", "問い q2: 数を書かせる問い"),
     ("<b>当てはまらない</b>", '<b>ほかの日</b><small class="chg">届く日を表に入れます</small>', "問い q2: 資料の外の事実の問いに「当てはまらない」"),
-    ('name="q2" value="__unknown__"', 'name="q2" value="later"', "問い q2: 「分からない・社内で確かめてから答える」"),
+    ('name="q2" value="__unknown__"', 'name="q2" value="later"', "問い q2: 「分からない・確かめてから答える」"),
     ('value="d1020" required', 'value="d1020"', "問い q2: 答えずに送れる"),
     ("<b>切り捨てる", "<b>A 切り捨てる", "問い q1: 選択肢に記号"),
     ('value="d7"', 'value="7days!"', "問い q3: 選択肢の鍵（value）"),
@@ -760,3 +760,89 @@ def test_緑の_1_問は根拠と読みと見込みが全部そろう():
     assert q1["reading"] and q1["estimate"]["basis"] and not any("recommended" in o for o in q1["options"])
     assert all(d.get("url") or d.get("no_url") for d in data["docs"])
     assert run_check(DATA / "good.json")["red"] == []
+
+
+# ── 決まりの無理を外した所（1 つの形に押し込めない）。古い形を戻すと赤になる注入の試験
+
+
+def _json_page(tmp_path, mutate, name="q.json"):
+    data = json.loads((DATA / "good.json").read_text(encoding="utf-8"))
+    mutate(data["questions"][-1])
+    page = tmp_path / name
+    page.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+    return run_check(page)["red"]
+
+
+def test_分からないの文は誰にでも合う_1_文で_社内の言い方は残らない():
+    from_check = re.search(r'"unknown":\s*\{[^}]*"label":\s*"([^"]+)"', CHECK.read_text(encoding="utf-8")).group(1)
+    assert from_check == "分からない・確かめてから答える"
+    for p in [QA / "SKILL.md", QA / "references" / "template.html", CHECK]:
+        assert "社内で確かめて" not in p.read_text(encoding="utf-8"), p
+
+
+@needs_node
+def test_分からないの文に社内の言い方を戻すと赤(tmp_path):
+    page = tmp_path / "確認.html"
+    page.write_text(filled_template().replace("<b>分からない・確かめてから答える</b>", "<b>分からない・社内で確かめてから答える</b>", 1), encoding="utf-8")
+    red = run_check(page)["red"]
+    assert len(red) == 1 and red[0].startswith("問い q1: 「分からない」の文は「分からない・確かめてから答える」のまま"), red
+
+
+@needs_node
+def test_2_通りに読める資料は_5_つ目のなぜ聞くかで聞ける(tmp_path):
+    assert _json_page(tmp_path, lambda q: q.update(why="ambiguous")) == []
+    page = tmp_path / "確認.html"
+    page.write_text(filled_template().replace('data-why="once">今回だけの事を確かめます<', 'data-why="ambiguous">資料の書き方が 2 通りに読めます<', 1), encoding="utf-8")
+    assert run_check(page)["red"] == []
+    # 知らない理由は今までどおり止まる・決まった文の外の文も止まる
+    red = _json_page(tmp_path, lambda q: q.update(why="two_readings"), "q2.json")
+    assert len(red) == 1 and red[0].startswith("問い q3: なぜ聞くか"), red
+    page.write_text(filled_template().replace('data-why="once">今回だけの事を確かめます<', 'data-why="ambiguous">規程が 2 通りに読めます<', 1), encoding="utf-8")
+    red = run_check(page)["red"]
+    assert len(red) == 1 and red[0].startswith("問い q3: なぜ聞くかの文は決まった文「資料の書き方が 2 通りに読めます」"), red
+
+
+COMPLETE_OPTS = [{"value": "all", "label": "これで全部", "change": "この資料だけで計算します"},
+                 {"value": "more", "label": "ほかにもある", "change": "届いた資料で計算し直します", "detail": "下のひとことに資料の名を書いてください", "supp": "need"}]
+
+
+@needs_node
+def test_資料がそろっているかは当てはまらない無しで聞ける(tmp_path):
+    def ok(q):
+        q.update(kind="complete", why="once", question="読んだ資料はこれで全部ですか", options=COMPLETE_OPTS)
+        q.pop("estimate", None)
+    assert _json_page(tmp_path, ok) == []
+    # 足りない資料を書かせる選択肢が無ければ赤（「ほかにもある」と答えても、何が足りないかが分からない）
+    def no_supp(q):
+        ok(q)
+        q["options"] = [COMPLETE_OPTS[0], {k: v for k, v in COMPLETE_OPTS[1].items() if k not in ("supp", "detail")}]
+    red = _json_page(tmp_path, no_supp, "q2.json")
+    assert len(red) == 1 and red[0].startswith("問い q3: 資料がそろっているかの問いに、足りない資料の名をひとことに書かせる選択肢"), red
+    # 古い形（資料の外の事実として聞く）に戻すと「当てはまらない」を求められる
+    def as_fact(q):
+        ok(q)
+        q["kind"] = "fact"
+    red = _json_page(tmp_path, as_fact, "q3.json")
+    assert len(red) == 1 and red[0].startswith("問い q3: 資料の外の事実の問いに「当てはまらない」"), red
+
+
+NONE_OPT = {"value": "none", "label": "当てはまらない", "detail": "10 月は残業がありません"}
+
+
+def _overtime(kind, input_):
+    def m(q):
+        q.update(kind=kind, why="missing", question="10 月の実際の残業時間を教えてください", options=[NONE_OPT],
+                 known=["作業の記録と月の報告を探しました。残業の時間はどちらにもありません。"])
+        q.pop("estimate", None)
+        if input_:
+            q["input"] = input_
+    return m
+
+
+@needs_node
+def test_資料の外にしか無い数は事実の問いの数の欄でだけ聞ける(tmp_path):
+    assert _json_page(tmp_path, _overtime("fact", "number")) == []
+    # 数の欄でない・資料の外の事実でない（計算できる数を書かせる古い形）は今までどおり赤
+    for i, (kind, input_) in enumerate([("fact", "text"), ("fact", None), ("judge", "number")]):
+        red = _json_page(tmp_path, _overtime(kind, input_), f"q{i}.json")
+        assert any(r.startswith("問い q3: 数を書かせる問い「時間を教えて」") for r in red), (kind, input_, red)
