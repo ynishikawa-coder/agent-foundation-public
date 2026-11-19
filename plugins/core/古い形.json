@@ -1,0 +1,21 @@
+{
+  "説明": "使う側に残りうる土台の古い形（写し）の一覧。plugin core の起動の hook が、開いた repo にこれが残っていれば名指しで知らせる。「壊れる（1 段目）」の PR が行を足し、使う側が移ったのを `kaku.py olds <各 checkout>` で確かめた「壊れる（2 段目）」の PR が行を消す（CONTRIBUTING.md §8）。files は git の pathspec、pattern は Python の正規表現、example は pattern に当たる作り物の 1 行。",
+  "olds": [
+    {
+      "id": "af-core-frame",
+      "what": "CLAUDE.md の核の写しの枠（AF-CORE:BEGIN … AF-CORE:END）",
+      "files": ["CLAUDE.md"],
+      "pattern": "<!-- AF-CORE:BEGIN",
+      "fix": "枠を中身ごと消す。核は plugin core が起動時に差し込む（写しは古くなっても誰も止めない）",
+      "example": "<!-- AF-CORE:BEGIN 核の写し -->"
+    },
+    {
+      "id": "plugin-name-copy",
+      "what": "土台の plugin の名を写して入れる setup の行（土台が plugin を足しても入らない・入れ損ねの見張りにも入らない）",
+      "files": ["*.sh", "*.md", "*.yml", "*.yaml"],
+      "pattern": "plugin install [\"']?[^\\s\"']*@agent-foundation",
+      "fix": "土台の docs/核の届け方.md の setup script の形（目録を足して scripts/setup_plugins.py を呼ぶ）に替える",
+      "example": "claude plugin install core@agent-foundation --scope user || true"
+    }
+  ]
+}
