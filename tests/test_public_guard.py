@@ -21,7 +21,8 @@ import patrol  # noqa: E402
 
 GUARD = ROOT / "public-guard" / "guard.py"
 OK_MAIL = "1+someone@users.noreply.github.com"
-ENV_KEYS = ("AF_DENY_WORDS", "AF_DENY_WORDS_FILE", "AF_DENY_BUNDLE", "GITHUB_ACTIONS", "GITHUB_EVENT_PATH")
+ENV_KEYS = ("AF_DENY_WORDS", "AF_DENY_WORDS_FILE", "AF_DENY_BUNDLE", "AF_DENY_SOURCE_TOKEN", "GITHUB_ACTIONS",
+            "GITHUB_EVENT_PATH", "GITHUB_REPOSITORY_OWNER", "GITHUB_STEP_SUMMARY")
 
 
 @pytest.fixture(autouse=True)
@@ -231,6 +232,123 @@ def test_顧客の語は赤の時も出力に出ない(tmp_path):
         assert "見本商事" not in out, "顧客の語が出力に出た"
 
 
+# ---- 顧客の語の正本（持ち主ごとに 1 か所・検査が直に読む） ----------------------------
+
+OWNER = "ynishikawa-coder"
+
+
+def _source(monkeypatch, text=None, error=None):
+    """正本の置き場の読み口を作り物にする（網に出ない）。読んだ置き場を返す。"""
+    seen = []
+
+    def fake(src, token):
+        seen.append((src, token))
+        if error:
+            raise error
+        return text
+
+    monkeypatch.setattr(guard, "fetch_source_text", fake)
+    return seen
+
+
+def _main(repo, capsys, *args):
+    code = guard.main(["--repo", str(repo), "--files-only", *args])
+    return code, capsys.readouterr().out
+
+
+def test_正本の鍵があれば正本の束で照らし_古い写しは使わない(tmp_path, monkeypatch, capsys):
+    """写しの secret に語が足されていなくても、正本に足した語で赤になる（注入の試験＝古い写しを置く）。"""
+    repo = _repo(tmp_path)
+    _commit(repo, {"a.md": "新しい顧客の新規商事へ行く\n"})
+    seen = _source(monkeypatch, "# 正本\n" + _bundle_of(["見本商事", "新規商事"]) + "\n")
+    monkeypatch.setenv("AF_DENY_SOURCE_TOKEN", "t")
+    monkeypatch.setenv("AF_DENY_BUNDLE", _bundle_of(["見本商事"]))  # 古い写し
+    code, out = _main(repo, capsys, "--owner", OWNER)
+    assert code == 1 and "顧客の語" in out, out
+    assert "新規商事" not in out
+    assert seen[0][0]["repo"] and seen[0][1] == "t"
+
+
+def test_正本の鍵があれば写しが無くてもCIで照らせる(tmp_path, monkeypatch, capsys):
+    repo = _repo(tmp_path)
+    _source(monkeypatch, _bundle_of(["見本商事"]))
+    for k, v in {"AF_DENY_SOURCE_TOKEN": "t", "GITHUB_ACTIONS": "true", "GITHUB_REPOSITORY_OWNER": OWNER}.items():
+        monkeypatch.setenv(k, v)
+    code, out = _main(repo, capsys)
+    assert code == 0 and "正本の置き場から直に読んだ" in out, out
+    assert "写し" not in out.split("正本")[0]
+
+
+def test_正本が読めなければ黙って通さず赤(tmp_path, monkeypatch, capsys):
+    """鍵が切れた・置き場が無い時に写しへ落ちて緑にしない（注入の試験）。"""
+    _source(monkeypatch, error=guard.SourceError("顧客の語の正本を読めない: HTTP 404"))
+    monkeypatch.setenv("AF_DENY_SOURCE_TOKEN", "t")
+    monkeypatch.setenv("AF_DENY_BUNDLE", _bundle_of(["見本商事"]))
+    code, out = _main(_repo(tmp_path), capsys, "--owner", OWNER)
+    assert code == 1 and "正本を読めない" in out, out
+
+
+def test_正本の読み口は_HTTP_の誤りを名指しの誤りにする(monkeypatch):
+    import urllib.error
+
+    def boom(req, timeout):
+        assert req.full_url.startswith(guard.API + "/repos/") and req.get_header("Authorization") == "Bearer t"
+        raise urllib.error.HTTPError(req.full_url, 401, "x", {}, None)
+
+    monkeypatch.setattr(guard.urllib.request, "urlopen", boom)
+    with pytest.raises(guard.SourceError, match="HTTP 401"):
+        guard.fetch_source_text({"repo": "o/s", "path": "b.txt", "ref": "main"}, "t")
+
+
+def test_置き場の決まりの無い持ち主は止める(tmp_path, monkeypatch, capsys):
+    _source(monkeypatch, _bundle_of(["見本商事"]))
+    monkeypatch.setenv("AF_DENY_SOURCE_TOKEN", "t")
+    code, out = _main(_repo(tmp_path), capsys, "--owner", "知らない持ち主")
+    assert code == 2 and "deny-source.json に無い" in out, out
+
+
+@pytest.mark.parametrize("text", ["", "pct1.壊れた.値", _bundle_of(["a"]) + "\n" + _bundle_of(["b"])])
+def test_正本の中身が束の1行でなければ止める(tmp_path, monkeypatch, capsys, text):
+    _source(monkeypatch, text)
+    monkeypatch.setenv("AF_DENY_SOURCE_TOKEN", "t")
+    code, out = _main(_repo(tmp_path), capsys, "--owner", OWNER)
+    assert code == 2, out
+
+
+def test_置き場の表に知らない鍵があれば止める(tmp_path, monkeypatch):
+    table = tmp_path / "s.json"
+    table.write_text(json.dumps({"owners": {"o": {"repo": "o/s", "path": "b", "branch": "x"}}}), encoding="utf-8")
+    monkeypatch.setattr(guard, "SOURCES", table)
+    with pytest.raises(guard.SourceError, match="知らない鍵"):
+        guard.source_of("o")
+
+
+def test_置き場の表は持ち主ごとに_repo_と_path_を持つ():
+    table = json.loads((ROOT / "public-guard" / "deny-source.json").read_text(encoding="utf-8"))
+    assert table["owners"], "置き場が 1 つも無い"
+    for owner, entry in table["owners"].items():
+        assert guard.source_of(owner)["repo"].startswith(owner + "/")
+
+
+def test_CIで写しだけで照らした時は名指しで知らせる(tmp_path, monkeypatch, capsys):
+    """2 段の 1 段目: 写しでも止めないが、写しである事を Actions の注記と要約に出す。"""
+    summary = tmp_path / "summary.md"
+    for k, v in {"GITHUB_ACTIONS": "true", "AF_DENY_BUNDLE": _bundle_of(["見本商事"]),
+                 "GITHUB_STEP_SUMMARY": str(summary)}.items():
+        monkeypatch.setenv(k, v)
+    code, out = _main(_repo(tmp_path), capsys)
+    assert code == 0, out
+    assert "::warning title=顧客の語が写し::" in out and "AF_DENY_SOURCE_TOKEN" in out
+    assert "写し" in summary.read_text(encoding="utf-8")
+
+
+def test_action_と雛形と土台の_ci_は正本の鍵を渡す():
+    action = (ROOT / "public-guard" / "action.yml").read_text(encoding="utf-8")
+    assert "deny-source-token:" in action and "AF_DENY_SOURCE_TOKEN: ${{ inputs.deny-source-token }}" in action
+    line = "deny-source-token: ${{ secrets.AF_DENY_SOURCE_TOKEN }}"
+    assert line in TEMPLATE_TEXT and line in CI_TEXT
+
+
 def test_action_は本体を呼ぶ():
     text = (ROOT / "public-guard" / "action.yml").read_text(encoding="utf-8")
     assert "github.action_path }}/guard.py" in text
@@ -268,18 +386,25 @@ def _wf(text):
     return {"content": base64.b64encode(text.encode()).decode()}
 
 
-def _routes(full, wf_text=None, contexts=(), rules=()):
+def _routes(full, wf_text=None, contexts=(), rules=(), name="public-guard.yml", extra=None):
     r = {f"/users/{full.split('/')[0]}/repos": [{"full_name": full, "default_branch": "main", "private": False}],
          f"/repos/{full}/branches/main": {"protection": {"required_status_checks": {"contexts": list(contexts)}}},
          f"/repos/{full}/rules/branches/main": [{"type": "required_status_checks", "parameters": {
              "required_status_checks": [{"context": c} for c in rules]}}]}
+    files = dict(extra or {})
     if wf_text is not None:
-        r[f"/repos/{full}/contents/.github/workflows?"] = [{"type": "file", "name": "g.yml", "path": ".github/workflows/g.yml"}]
-        r[f"/repos/{full}/contents/.github/workflows/g.yml"] = _wf(wf_text)
+        files[name] = wf_text
+    if files:
+        r[f"/repos/{full}/contents/.github/workflows?"] = [
+            {"type": "file", "name": n, "path": f".github/workflows/{n}"} for n in files]
+        for n, t in files.items():
+            r[f"/repos/{full}/contents/.github/workflows/{n}?"] = _wf(t)
     return r
 
 
-CALLER = "    steps:\n      - uses: ynishikawa-coder/agent-foundation-public/public-guard@main\n"
+TEMPLATE_TEXT = (ROOT / "public-guard" / "caller-template.yml").read_text(encoding="utf-8")
+CALLER = TEMPLATE_TEXT
+CI_TEXT = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
 
 
 def test_見回り_呼び口と守りがあれば外れ0():
@@ -294,7 +419,7 @@ def test_見回り_枝の保護の必須でもよい():
 
 def test_見回り_呼び口が無ければ外れ():
     found = patrol.patrol(FakeGitHub(_routes("o/x", None, rules=["public-guard"])), ["o"])
-    assert "呼び口が無い" in found["o/x"][0]
+    assert "呼び口" in found["o/x"][0] and "が無い" in found["o/x"][0]
 
 
 def test_見回り_守りが無ければ外れ():
@@ -309,6 +434,51 @@ def test_見回り_main_の先端で呼んでいなければ外れ(ref):
     assert any("main の先端で呼んでいない" in p for p in found["o/x"])
 
 
+@pytest.mark.parametrize("label, old, new", [
+    ("on の edited が落ちた", "types: [opened, edited, synchronize, reopened]", "types: [opened, synchronize, reopened]"),
+    ("permissions が広い", "contents: read", "contents: write"),
+    ("with の入力名がずれた", "deny-source-token:", "deny-token:"),
+    ("正本の鍵を渡していない（古い雛形の写し）", "          deny-source-token: ${{ secrets.AF_DENY_SOURCE_TOKEN }}\n", ""),
+    ("job の名が違う", "    name: public-guard", "    name: guard"),
+    ("行が足された", "    runs-on: ubuntu-latest", "    runs-on: ubuntu-latest\n    continue-on-error: true"),
+])
+def test_見回り_呼び口が雛形と違えば外れ(label, old, new):
+    """写した呼び口の on・permissions・with がずれたら、@main でも外れ（注入の試験）。"""
+    assert old in CALLER, label
+    found = patrol.patrol(FakeGitHub(_routes("o/x", CALLER.replace(old, new), rules=["public-guard"])), ["o"])
+    assert any("雛形と違う" in p for p in found["o/x"]), label
+
+
+def test_見回り_呼び口の注釈と行末の空白は比べない():
+    text = "# 自分の注釈\n" + CALLER.replace("name: public-guard\n", "name: public-guard   \n", 1).replace("\n", "\r\n")
+    assert patrol.patrol(FakeGitHub(_routes("o/x", text, rules=["public-guard"])), ["o"]) == {}
+
+
+def test_見回り_呼び口が決まった名のfileに無ければ外れ():
+    found = patrol.patrol(FakeGitHub(_routes("o/x", CALLER, rules=["public-guard"], name="guard.yml")), ["o"])
+    assert any("呼び口 .github/workflows/public-guard.yml が無い" in p for p in found["o/x"])
+
+
+def test_見回り_ほかの_workflow_で版の印で呼んでも外れ():
+    extra = {"other.yml": "      - uses: ynishikawa-coder/agent-foundation-public/public-guard@v0.4.2\n"}
+    found = patrol.patrol(FakeGitHub(_routes("o/x", CALLER, rules=["public-guard"], extra=extra)), ["o"])
+    assert any("@v0.4.2" in p for p in found["o/x"])
+
+
+@pytest.mark.parametrize("old, new", [
+    ("types: [opened, edited, synchronize, reopened]", "types: [opened, synchronize, reopened]"),
+    ("          deny-source-token: ${{ secrets.AF_DENY_SOURCE_TOKEN }}\n", ""),
+    ("  contents: read\n", "  contents: write\n"),
+])
+def test_見回り_土台の_ci_が雛形とずれたら外れ(old, new):
+    """土台そのものの呼び口（ci.yml）も、雛形の on・permissions・with を外れたら外れ（注入の試験）。"""
+    full = patrol.FOUNDATION
+    assert old in CI_TEXT
+    found = patrol.patrol(FakeGitHub(_routes(full, CI_TEXT.replace(old, new), rules=["public-guard", "plugin-smoke"],
+                                             name="ci.yml")), [full.split("/")[0]])
+    assert found.get(full), "外れにならない"
+
+
 def test_見回り_非公開とarchiveは見ない():
     gh = FakeGitHub({"/users/o/repos": [{"full_name": "o/p", "private": True},
                                         {"full_name": "o/a", "private": False, "archived": True}]})
@@ -317,14 +487,14 @@ def test_見回り_非公開とarchiveは見ない():
 
 def test_見回り_土台は自分の枝の物を呼んでよい():
     full = patrol.FOUNDATION
-    gh = FakeGitHub(_routes(full, "      - uses: ./public-guard\n", rules=["public-guard", "plugin-smoke"]))
+    gh = FakeGitHub(_routes(full, CI_TEXT, rules=["public-guard", "plugin-smoke"], name="ci.yml"))
     assert patrol.patrol(gh, [full.split("/")[0]]) == {}
 
 
 def test_見回り_土台は_plugin_smoke_が必須でなければ外れ():
     """main の先端を配る代わりの守り（入れて起動する試験）が合流の必須から外れたら知らせる（注入の試験）。"""
     full = patrol.FOUNDATION
-    found = patrol.patrol(FakeGitHub(_routes(full, "      - uses: ./public-guard\n", rules=["public-guard"])),
+    found = patrol.patrol(FakeGitHub(_routes(full, CI_TEXT, rules=["public-guard"], name="ci.yml")),
                           [full.split("/")[0]])
     assert any("plugin-smoke" in p for p in found[full])
 

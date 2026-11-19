@@ -49,7 +49,7 @@
 - 照らしは公開の検査（`public-guard/guard.py`・`docs/公開の検査.md`）の 1 本。CI の job `public-guard` が中身・歴史・commit と PR の外側を照らして止める。手元は `scripts/checks/public_guard.sh`。
   - **秘密と個人の情報**: 形で見る（表は `public-guard/guard.py`）。
   - **業務の語**: `tests/data/denylist.txt`。足したい語があれば、その 1 行を PR で足す。
-  - **顧客の語**: repo に書かない。repo の secret `AF_DENY_BUNDLE`（Javis の顧客の語の束 `pct1.…` と同じ値）か `AF_DENY_WORDS`（1 行 1 語）から渡す。手元は同じ名の環境変数か `AF_DENY_WORDS_FILE`。**CI でどれも無い時は赤**。手元でどれも無い時だけ飛ばす。
+  - **顧客の語**: repo に書かない。束の正本は持ち主ごとに 1 か所の非公開の repo（`public-guard/deny-source.json`）。CI は repo の secret `AF_DENY_SOURCE_TOKEN`（置き場を読むだけの鍵）でそこを直に読む。古い道の写し（secret `AF_DENY_BUNDLE`・`AF_DENY_WORDS`）は畳むまで通すが名指しで知らせる。手元は同じ名の環境変数か `AF_DENY_WORDS_FILE`。**CI でどれも無い時は赤**。手元でどれも無い時だけ飛ばす。
 
 ## 5. 試験の置き方
 

@@ -2,12 +2,16 @@ name: public-guard
 description: 公開の repo に置かない物（秘密・個人の情報・顧客の語・置かない語）を、中身・歴史・commit と PR の外側で照らして止める
 # 呼び方と守りの設定は docs/公開の検査.md。呼ぶ側は main の先端（@main）で呼ぶ（版で止めない）。
 inputs:
+  deny-source-token:
+    description: 顧客の語の正本の置き場（deny-source.json）を読むだけの鍵（呼ぶ側の secret AF_DENY_SOURCE_TOKEN を渡す）
+    required: false
+    default: ""
   deny-bundle:
-    description: 顧客の語の束 pct1.… （呼ぶ側の secret AF_DENY_BUNDLE を渡す）
+    description: 古い道（写し）。顧客の語の束 pct1.… （呼ぶ側の secret AF_DENY_BUNDLE）。正本の鍵があれば使わない
     required: false
     default: ""
   deny-words:
-    description: 顧客の語の平文（1 行 1 語・呼ぶ側の secret AF_DENY_WORDS を渡す）
+    description: 古い道（写し）。顧客の語の平文（1 行 1 語・呼ぶ側の secret AF_DENY_WORDS）。正本の鍵があれば使わない
     required: false
     default: ""
   deny-words-file:
@@ -33,6 +37,7 @@ runs:
     - name: 公開の検査
       shell: bash
       env:
+        AF_DENY_SOURCE_TOKEN: ${{ inputs.deny-source-token }}
         AF_DENY_BUNDLE: ${{ inputs.deny-bundle }}
         AF_DENY_WORDS: ${{ inputs.deny-words }}
         IN_WORDS_FILE: ${{ inputs.deny-words-file }}

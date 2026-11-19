@@ -10,16 +10,19 @@
   - 秘密の形（鍵・トークン）と個人の情報の形（個人を指すメール・電話・郵便番号・Notion と Google の文書の URL）
   - commit の名義のメールは noreply だけ通す（GitHub の `@users.noreply.github.com`・`noreply@anthropic.com`）
   - 置かない語（repo ごとの表。`--deny-words-file`。土台は業務の語の表を渡す）
-  - 顧客の語（repo に書かない。環境から渡す。どちらか・両方でよい）
-      AF_DENY_BUNDLE … 語を HMAC にした束 `pct1.<鍵>.<束>`（Javis の顧客の語の束と同じ形・同じ値を貼る）
-      AF_DENY_WORDS（1 行 1 語）／AF_DENY_WORDS_FILE（その形のファイルの path）
+  - 顧客の語（repo に書かない）。正本は持ち主ごとに 1 か所の非公開の置き場（deny-source.json）にある
+    語を HMAC にした束 `pct1.<鍵>.<束>`。検査はそこを直に読む（各 repo へ束を写さない）:
+      AF_DENY_SOURCE_TOKEN … 正本の置き場を読むだけの鍵。在れば正本を読む。読めない時は黙って通さず止める
+    古い道（写し・2 段の 1 段目として残す。CI で使った時は「写し」と名指しで知らせる）:
+      AF_DENY_BUNDLE（束の写し）／AF_DENY_WORDS（1 行 1 語）／AF_DENY_WORDS_FILE（その形のファイルの path）
     CI（GITHUB_ACTIONS=true）でどれも無い時は黙って通さず止める。手元でどれも無い時だけ飛ばす。
 語そのものは出力に出さない（どこに当たったかだけを出す）。
 
 使い方: python3 guard.py [--repo DIR] [--range REV|ALL] [--deny-words-file F] [--pattern-skip PATH ...] [--files-only]
+        [--owner 持ち主]（正本の置き場を選ぶ持ち主。既定は CI の GITHUB_REPOSITORY_OWNER・手元は origin の URL）
   --range の既定: CI では event（PR は base..head・push は before..after）、手元では origin/main..HEAD。
   ALL は全ての commit（公開の前に歴史ごと照らす時）。
-exit: 0=当たり 0 / 1=当たりあり・CI に顧客の語が無い / 2=使い方・束の形が違う
+exit: 0=当たり 0 / 1=当たりあり・CI に顧客の語が無い・正本が読めない / 2=使い方・束の形が違う・置き場の決まりの無い持ち主
 """
 from __future__ import annotations
 
@@ -33,6 +36,8 @@ import re
 import subprocess
 import sys
 import unicodedata
+import urllib.error
+import urllib.request
 from pathlib import Path
 
 SECRET_PATTERNS = {
@@ -62,7 +67,10 @@ PERSONAL_PATTERNS = {
     "Google の文書・置き場": r"(?:docs|drive|sheets)\.google\.com/[^\s)\]]+",
 }
 
-CUSTOMER_HINT = "repo の secret AF_DENY_BUNDLE か AF_DENY_WORDS を入れ、呼ぶ workflow から渡す（docs/公開の検査.md）"
+CUSTOMER_HINT = ("repo の secret AF_DENY_SOURCE_TOKEN（顧客の語の正本の置き場を読むだけの鍵）を入れ、"
+                 "呼び口を雛形 public-guard/caller-template.yml と同じにする（docs/公開の検査.md）")
+SOURCES = Path(__file__).resolve().parent / "deny-source.json"
+API = "https://api.github.com"
 
 
 # ---- 語の読み口 ----------------------------------------------------------------
@@ -138,6 +146,74 @@ def env_bundle():
     return decode_bundle(value) if value.strip() else None
 
 
+# ---- 正本の置き場（持ち主ごとに 1 か所）。束を写さず検査が直に読む ----------------------
+
+class SourceError(Exception):
+    """正本を読めない（黙って通さない）。code は exit の値。"""
+
+    def __init__(self, msg: str, code: int = 1):
+        super().__init__(msg)
+        self.code = code
+
+
+def source_of(owner: str | None) -> dict | None:
+    """持ち主の正本の置き場（repo・path・ref）。決まりが無ければ None。"""
+    table = json.loads(SOURCES.read_text(encoding="utf-8"))
+    entry = table.get("owners", {}).get(owner or "")
+    if entry is None:
+        return None
+    unknown = set(entry) - {"repo", "path", "ref"}
+    if unknown or not entry.get("repo") or not entry.get("path"):
+        raise SourceError(f"deny-source.json の {owner} の行の形が違う（知らない鍵 {sorted(unknown)}・repo と path が要る）", 2)
+    return {"ref": "main", **entry}
+
+
+def fetch_source_text(src: dict, token: str) -> str:
+    """正本の置き場から束の 1 行を読む（GitHub の contents API・読むだけの鍵）。"""
+    url = f"{API}/repos/{src['repo']}/contents/{src['path']}?ref={src['ref']}"
+    req = urllib.request.Request(url)
+    req.add_header("Accept", "application/vnd.github.raw")
+    req.add_header("User-Agent", "public-guard")
+    req.add_header("Authorization", f"Bearer {token}")
+    try:
+        with urllib.request.urlopen(req, timeout=30) as res:
+            return res.read().decode("utf-8")
+    except urllib.error.HTTPError as e:
+        raise SourceError(f"顧客の語の正本（{src['repo']} の {src['path']}）を読めない: HTTP {e.code}"
+                          "（鍵が切れた・置き場を読む許しが無い・置き場が無い）") from None
+    except (urllib.error.URLError, OSError) as e:
+        raise SourceError(f"顧客の語の正本（{src['repo']}）に届かない: {type(e).__name__}") from None
+
+
+def source_bundle(owner: str | None):
+    """(鍵, 束) か None（鍵が渡っていない）。鍵があって読めない・形が違う時は SourceError（黙って通さない）。"""
+    token = os.environ.get("AF_DENY_SOURCE_TOKEN", "").strip()
+    if not token:
+        return None
+    src = source_of(owner)
+    if src is None:
+        raise SourceError(f"持ち主 {owner or '（分からない）'} の顧客の語の正本の置き場が public-guard/deny-source.json に無い"
+                          "（--owner か GITHUB_REPOSITORY_OWNER を見る・置き場の行を土台へ PR で足す）", 2)
+    lines = [s.strip() for s in fetch_source_text(src, token).splitlines() if s.strip() and not s.strip().startswith("#")]
+    if len(lines) != 1:
+        raise SourceError(f"顧客の語の正本の中身が束の 1 行でない（{len(lines)} 行）", 2)
+    if in_ci():
+        print(f"::add-mask::{lines[0]}")
+    try:
+        return decode_bundle(lines[0])
+    except ValueError as e:
+        raise SourceError(f"顧客の語の正本の束の形が違う: {e}", 2) from None
+
+
+def default_owner(repo: Path) -> str | None:
+    """CI は GITHUB_REPOSITORY_OWNER、手元は origin の URL の持ち主。"""
+    if os.environ.get("GITHUB_REPOSITORY_OWNER"):
+        return os.environ["GITHUB_REPOSITORY_OWNER"]
+    url = subprocess.run(["git", "remote", "get-url", "origin"], cwd=repo, capture_output=True, text=True).stdout.strip()
+    m = re.search(r"github\.com[:/]([^/]+)/", url)
+    return m.group(1) if m else None
+
+
 def grams(line: str) -> set[str]:
     text = unicodedata.normalize("NFKC", line)
     out = set()
@@ -161,7 +237,9 @@ def bundle_hit(bundle, line: str) -> bool:
 
 def customer_source_missing() -> bool:
     """顧客の語がどこからも渡っていない。"""
-    return not env_deny_words() and not os.environ.get("AF_DENY_BUNDLE", "").strip()
+    return (not env_deny_words() and not os.environ.get("AF_DENY_BUNDLE", "").strip()
+            and not os.environ.get("AF_DENY_SOURCE_TOKEN", "").strip())
+
 
 
 def in_ci() -> bool:
@@ -196,13 +274,15 @@ def customer_hits(where: str, text: str, words: list[str], bundle) -> list[str]:
 class Guard:
     """1 つの repo を照らす。words＝置かない語の表、skip＝形の照らしから外す path（形を書いた所だけ）。"""
 
-    def __init__(self, repo: Path, words: list[str], skip: set[str], words_home: str | None = None):
+    def __init__(self, repo: Path, words: list[str], skip: set[str], words_home: str | None = None, bundle=None):
         self.repo = repo
         self.words = words
         self.skip = skip
         self.words_home = words_home  # 置かない語の表そのもの（語の照らしから外す）
-        self.cust_words = env_deny_words()
-        self.bundle = env_bundle()
+        if bundle is not None:  # 正本を読めた時は写しを使わない
+            self.cust_words, self.bundle = [], bundle
+        else:
+            self.cust_words, self.bundle = env_deny_words(), env_bundle()
 
     def git(self, *args: str) -> str:
         return subprocess.run(["git", *args], cwd=self.repo, capture_output=True, text=True, check=True).stdout
@@ -340,15 +420,29 @@ def load_event() -> dict:
 
 
 def run(repo: Path, rev_range: str | None, words_file: str | None, skip: list[str], event: dict | None = None,
-        files_only: bool = False) -> list[str]:
-    """words_file と skip は repo の根からの path。files_only は中身だけ（歴史を持ち越さない新しい repo へ移す前）。"""
-    guard = Guard(repo, file_words(repo / words_file if words_file else None), set(skip), words_file)
+        files_only: bool = False, bundle=None) -> list[str]:
+    """words_file と skip は repo の根からの path。files_only は中身だけ（歴史を持ち越さない新しい repo へ移す前）。
+    bundle は正本から読んだ束（None なら環境の写し）。"""
+    guard = Guard(repo, file_words(repo / words_file if words_file else None), set(skip), words_file, bundle)
     hits = guard.check_files()
     if not files_only:
         event = load_event() if event is None else event
         revs = guard.revs(rev_range, event)
         hits += guard.check_history(revs) + guard.check_meta(revs, event)
     return sorted(set(hits))
+
+
+COPY_NOTICE = ("顧客の語を repo の secret の写し（AF_DENY_BUNDLE／AF_DENY_WORDS）で照らした。写しは正本に語が足されても"
+               "古いまま残る。" + CUSTOMER_HINT + "。鍵を入れたら写しの secret は消す")
+
+
+def notice_copy() -> None:
+    """写しで照らした事を名指しで知らせる（Actions の注記と job の要約。2 段の 1 段目＝まだ止めない）。"""
+    print(f"::warning title=顧客の語が写し::{COPY_NOTICE}")
+    summary = os.environ.get("GITHUB_STEP_SUMMARY")
+    if summary:
+        with open(summary, "a", encoding="utf-8") as f:
+            f.write(f"## 公開の検査: 顧客の語が写し\n\n{COPY_NOTICE}\n")
 
 
 def main(argv=None) -> int:
@@ -358,9 +452,15 @@ def main(argv=None) -> int:
     ap.add_argument("--deny-words-file")
     ap.add_argument("--pattern-skip", nargs="*", default=[])
     ap.add_argument("--files-only", action="store_true", help="中身だけ（歴史を持ち越さない新しい repo へ移す前）")
+    ap.add_argument("--owner", help="顧客の語の正本の置き場を選ぶ持ち主（既定は CI の GITHUB_REPOSITORY_OWNER・手元は origin）")
     a = ap.parse_args(argv)
     repo = Path(subprocess.run(["git", "rev-parse", "--show-toplevel"], cwd=a.repo,
                                capture_output=True, text=True, check=True).stdout.strip())
+    try:
+        bundle = source_bundle(a.owner or default_owner(repo))
+    except SourceError as e:
+        print(f"✗ {e}")
+        return e.code
     try:
         env_bundle()
     except ValueError as e:
@@ -371,8 +471,12 @@ def main(argv=None) -> int:
             print(f"✗ 顧客の語がどこからも渡っていない（{CUSTOMER_HINT}）")
             return 1
         print("（手元: 顧客の語が環境に無いので、顧客の語の照合だけ飛ばす）")
+    elif bundle is not None:
+        print("（顧客の語は正本の置き場から直に読んだ）")
+    elif in_ci():
+        notice_copy()
     try:
-        hits = run(repo, a.rev_range, a.deny_words_file, a.pattern_skip, files_only=a.files_only)
+        hits = run(repo, a.rev_range, a.deny_words_file, a.pattern_skip, files_only=a.files_only, bundle=bundle)
     except subprocess.CalledProcessError as e:
         print(f"✗ git が照らす範囲を読めない（force push の後で前の commit が無い・取り出しが浅い等）: {' '.join(e.cmd[1:4])}")
         return 1

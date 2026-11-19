@@ -35,6 +35,7 @@ jobs:
       - uses: ./public-guard
         with:
           checkout: "false"
+          deny-source-token: ${{ secrets.AF_DENY_SOURCE_TOKEN }}
           deny-bundle: ${{ secrets.AF_DENY_BUNDLE }}
           deny-words: ${{ secrets.AF_DENY_WORDS }}
           deny-words-file: tests/data/denylist.txt

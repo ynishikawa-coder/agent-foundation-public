@@ -3,8 +3,10 @@
 
 GitHub の設定そのものは AI には固定できない。なので「外れたら必ず見つけて知らせる」をこの 1 本で担う。
 見る相手: patrol.json の owners の公開 repo（archive 済みは除く）。各 repo の既定の枝について:
-  1. 呼び口: .github/workflows/ のどれかが土台の action `public-guard` を main の先端（@main）で呼んでいる
-     （土台そのものは `./public-guard`）。版の印や SHA で止めた呼び口は、直した検査が届かないので外れ。
+  1. 呼び口: .github/workflows/public-guard.yml が雛形 caller-template.yml と同じ（注釈の行と行末の空白の外は一字も
+     違わない＝on・permissions・with の入力名・@main まで）。雛形は見回りがこの checkout の物を直に読む（写さない）。
+     ほかの workflow で土台の action を main の先端（@main）以外で呼んでいても外れ。
+     土台そのものは ci.yml の job が `./public-guard` を呼び、on・permissions と with の雛形の行を全部持つ。
   2. 守り: 既定の枝の守り（ruleset か枝の保護）の必須の検査に `public-guard` が入っている
      （土台そのものは、使う側と同じ入れ方で plugin を入れて起動する `plugin-smoke` も）
 
@@ -33,6 +35,48 @@ REF = "main"
 ISSUE_TITLE = "公開の検査の見回り"
 CALL = re.compile(r"uses:\s*['\"]?" + re.escape(FOUNDATION) + r"/public-guard@([^\s'\"#]+)")
 LOCAL_CALL = re.compile(r"uses:\s*['\"]?\./public-guard['\"]?\s*$", re.M)
+CALLER_PATH = ".github/workflows/public-guard.yml"
+TEMPLATE = Path(__file__).resolve().parent / "caller-template.yml"
+
+
+def body_lines(text: str) -> list[str]:
+    """比べる行（注釈だけの行・空の行を除き、行末の空白を落とす）。"""
+    return [ln.rstrip() for ln in text.replace("\r\n", "\n").split("\n")
+            if ln.strip() and not ln.lstrip().startswith("#")]
+
+
+def caller_drift(text: str, template: str) -> str | None:
+    """呼び口が雛形と違えば最初に違う所の説明（同じなら None）。"""
+    have, want = body_lines(text), body_lines(template)
+    for i, (h, w) in enumerate(zip(have, want), 1):
+        if h != w:
+            return f"雛形の {i} 行目（注釈を除く）が違う: 雛形は `{w.strip()}`・ここは `{h.strip()}`"
+    if len(have) != len(want):
+        return f"行の数が違う（雛形 {len(want)} 行・ここ {len(have)} 行・注釈を除く）"
+    return None
+
+
+def top_block(text: str, key: str) -> list[str]:
+    """一番外の `key:` の塊の行（注釈を除く）。"""
+    out, inside = [], False
+    for ln in body_lines(text):
+        if not ln.startswith(" "):
+            inside = ln.startswith(key + ":")
+        if inside:
+            out.append(ln)
+    return out
+
+
+def foundation_drift(ci_text: str, template: str) -> list[str]:
+    """土台の ci.yml が雛形の on・permissions と with の行を全部持つか（土台は自分の枝の action を呼ぶので全文は比べない）。"""
+    have = set(body_lines(ci_text))
+    probs = [f"{k}: が雛形と違う" for k in ("on", "permissions") if top_block(ci_text, k) != top_block(template, k)]
+    tl = body_lines(template)
+    withs = [ln.strip() for ln in tl[tl.index(next(x for x in tl if x.strip() == "with:")) + 1:]]
+    missing = [w for w in withs if not any(h.strip() == w for h in have)]
+    if missing:
+        probs.append("job public-guard に雛形の with の行が無い: " + "・".join(f"`{m.split(':')[0]}`" for m in missing))
+    return probs
 
 
 class GitHub:
@@ -76,13 +120,14 @@ def public_repos(gh: GitHub, owner: str) -> list[dict]:
             if not r.get("private") and not r.get("archived")]
 
 
-def workflow_texts(gh: GitHub, full: str, branch: str) -> list[str]:
+def workflow_texts(gh: GitHub, full: str, branch: str) -> dict[str, str]:
+    """{path: 中身}。"""
     items = gh.get(f"/repos/{full}/contents/.github/workflows?ref={branch}") or []
-    out = []
+    out = {}
     for it in items if isinstance(items, list) else []:
         if it.get("type") == "file" and it["name"].endswith((".yml", ".yaml")):
             f = gh.get(f"/repos/{full}/contents/{it['path']}?ref={branch}") or {}
-            out.append(base64.b64decode(f.get("content", "")).decode("utf-8", "replace"))
+            out[it["path"]] = base64.b64decode(f.get("content", "")).decode("utf-8", "replace")
     return out
 
 
@@ -105,14 +150,24 @@ def inspect(gh: GitHub, repo: dict) -> list[str]:
     """1 つの公開 repo の外れ（無ければ空）。"""
     full, branch = repo["full_name"], repo.get("default_branch") or "main"
     problems = []
-    texts = workflow_texts(gh, full, branch)
-    refs = [m for t in texts for m in CALL.findall(t)]
-    local = full == FOUNDATION and any(LOCAL_CALL.search(t) for t in texts)
-    if not refs and not local:
-        problems.append("公開の検査の呼び口が無い（public-guard/caller-template.yml を .github/workflows/ へ）")
+    files = workflow_texts(gh, full, branch)
+    template = TEMPLATE.read_text(encoding="utf-8")
+    refs = [m for t in files.values() for m in CALL.findall(t)]
     for ref in refs:
         if ref != REF:
             problems.append(f"公開の検査を main の先端で呼んでいない（@{ref} → @{REF}）")
+    if full == FOUNDATION:
+        local = {p: t for p, t in files.items() if LOCAL_CALL.search(t)}
+        if not local:
+            problems.append("公開の検査の呼び口が無い（ci.yml の job public-guard が ./public-guard を呼ぶ）")
+        for path, text in local.items():
+            problems += [f"{path}: {d}" for d in foundation_drift(text, template)]
+    elif CALLER_PATH not in files:
+        problems.append(f"公開の検査の呼び口 {CALLER_PATH} が無い（public-guard/caller-template.yml をそのまま写す）")
+    else:
+        drift = caller_drift(files[CALLER_PATH], template)
+        if drift:
+            problems.append(f"呼び口 {CALLER_PATH} が雛形と違う（雛形 public-guard/caller-template.yml をそのまま写し直す）: {drift}")
     have = required_checks(gh, full, branch)
     for check in (FOUNDATION_CHECKS if full == FOUNDATION else (CHECK,)):
         if check not in have:
