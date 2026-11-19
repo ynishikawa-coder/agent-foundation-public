@@ -608,3 +608,184 @@ def test_同じ選択肢で物だけ違う問いを閉じず重ねもしない(e
     hook(env, "post", _ask_post(right, labels, False, "s4"))
     again = hook(env, "start", {"session_id": "s5"}).get("additionalContext", "")
     assert "2 件あります" in again and left in again and right in again
+
+
+# ── pr_text（GitHub へ出す前の PR の文）──
+CHECKER = ROOT / "plugins" / "checker" / "scripts"
+CLEANUP_TPL = ROOT / "plugins" / "dev-flow" / "skills" / "preimpl-cleanup" / "整地受領証.template.md"
+WRITER = "session_01AAAAAAAAAAAAAAAAAAAAAAAA"
+REVIEWER = "session_01BBBBBBBBBBBBBBBBBBBBBBBB"
+STRANGER = "session_01CCCCCCCCCCCCCCCCCCCCCCCC"
+
+
+def gh(tool, owner="fake-owner", repo="fake-private", **ti):
+    return {"tool_name": "mcp__github__" + tool, "session_id": "s1",
+            "tool_input": {"owner": owner, "repo": repo, **ti}}
+
+
+def verdict_comment(judged="green", head="0123456789ab", fail=None, stop=False, line1=None):
+    """review-pr の見る点の表から組んだ判定のコメント（点を写さず、表を直に読む）。"""
+    sys.path.insert(0, str(CHECKER))
+    import verdict_form  # noqa: E402
+    points = verdict_form.load_points()
+    rows = []
+    for no, name in sorted(points.items()):
+        val = "書いた窓 %s ≠ この窓" % WRITER if no == 3 else ("fail" if no == fail else "pass")
+        rows.append("- %d %s: %s" % (no, name, val))
+    first = line1 or "レビューした窓: %s 判定: %s" % (REVIEWER, judged)
+    lines = [first] + (["見た先端: " + head] if head else []) + ["", "## verdict", judged, "", "## 点"] + rows
+    lines += ["", "## 所見", "- [止める｜実装] 作り物の欠け" if stop else "- [後の便｜実装] 作り物の後の便"]
+    return "\n".join(lines) + "\n"
+
+
+def cleanup_body(extra=""):
+    return ("親窓: %s\n書いた窓: %s\njob: 20261119-fake\n触る path: a.py\n検査: check_all: 緑 (1 本)\n\n"
+            "## 何をどう変えたか\n作り物の直し。\n\n## 整地（根治の 4 段）\n\n## 1. 問題\n作り物の問題。\n\n"
+            "## 2. 原因と同じ原因の他の問題\n**原因**: 作り物。\n\n## 3. 解決（足す物・畳む物・注入の試験と残る穴）\n**足す物**: 作り物。\n\n"
+            "## 4. 未来\n作り物の未来。\n%s" % (STRANGER, WRITER, extra))
+
+
+PR_BAD = [
+    ("判定の先端の行が無い", gh("add_issue_comment", issue_number=1, body=verdict_comment(head="")), "[verdict]", "見た先端"),
+    ("止めるが在るのに green", gh("add_issue_comment", issue_number=1, body=verdict_comment(stop=True)), "[verdict]", "判定は red"),
+    ("点に fail が在るのに green", gh("pull_request_review_write", pullNumber=1, method="create", event="COMMENT",
+                                     body=verdict_comment(fail=8)), "[verdict]", "判定は red"),
+    ("名乗りが session id でない", gh("add_issue_comment", issue_number=1,
+                                    body=verdict_comment(line1="レビューした窓: %s の中の助手 判定: green" % REVIEWER)),
+     "[verdict]", "1 行目"),
+    ("整地の欄が無い", gh("create_pull_request", title="作り物", head="b", base="main",
+                         body="親窓: x\n\n## 何をどう変えたか\n作り物。\n"), "[cleanup]", "1. 問題"),
+    ("整地の見出しが古い名", gh("create_pull_request", title="作り物", head="b", base="main",
+                              body=cleanup_body().replace("## 2. 原因と同じ原因の他の問題", "## 2. 同じ原因から起きている他の問題")),
+     "[cleanup]", "2. 原因と同じ原因の他の問題"),
+    ("雛形の〔…〕が残る", gh("update_pull_request", pullNumber=1,
+                            body=cleanup_body("\n〔直した後、同じ問題と 2 欄の他の問題が起きない姿〕\n")), "[cleanup]", "〔…〕"),
+    ("不要の訳が無い", gh("create_pull_request", title="作り物", head="b", base="main", body="## 何をどう変えたか\n誤字。\n整地: 不要\n"),
+     "[cleanup]", "1. 問題"),
+    ("不要の訳が雛形のまま", gh("create_pull_request", title="作り物", head="b", base="main",
+                              body="## 何をどう変えたか\n誤字。\n整地: 不要（<なぜ要らないか>）\n"), "[cleanup]", "1. 問題"),
+    ("見出しが注記の中だけ", gh("create_pull_request", title="作り物", head="b", base="main",
+                              body="## 何をどう変えたか\n作り物。\n<!--\n## 1. 問題\n## 2. 原因と同じ原因の他の問題\n## 3. 解決\n## 4. 未来\n"
+                                   "整地: 不要（作り物）\n-->\n"), "[cleanup]", "1. 問題"),
+    ("本文に窓の id がそのまま", gh("create_pull_request", title="作り物", head="b", base="main",
+                                  body=cleanup_body("\n- 残り — 直す窓 %s\n" % STRANGER)), "[words]", STRANGER),
+    ("題に窓の id", gh("update_pull_request", pullNumber=1, title="作り物 %s の続き" % STRANGER), "[words]", "PR の題"),
+]
+
+
+@pytest.mark.parametrize("name,payload,code,want", PR_BAD, ids=[c[0] for c in PR_BAD])
+def test_pr_text_崩れた判定と欄の欠けた本文と窓の_id_は出す前に止め直し方を返す(env, name, payload, code, want):
+    why = deny_reason(env, payload)
+    assert code in why and want in why, why
+    assert "直し方" in why and "文はまだ GitHub に出ていない" in why and "誤って止めた時" in why
+
+
+PR_GOOD = [
+    ("形の合う判定", gh("add_issue_comment", issue_number=1, body=verdict_comment())),
+    ("止めるの在る red", gh("add_issue_comment", issue_number=1, body=verdict_comment(judged="red", stop=True))),
+    ("判定でない普通のコメント", gh("add_issue_comment", issue_number=1, body="作り物の確かめを足しました。判定は後で別の窓が付けます。")),
+    ("整地の 4 欄の揃った本文", gh("create_pull_request", title="作り物", head="b", base="main", body=cleanup_body())),
+    ("見出しが ### でも", gh("create_pull_request", title="作り物", head="b", base="main",
+                           body=cleanup_body().replace("\n## 1.", "\n### 1.").replace("\n## 4.", "\n### 4."))),
+    ("整地の要らない PR は訳つきの 1 行", gh("create_pull_request", title="誤字", head="b", base="main",
+                                          body="## 何をどう変えたか\n誤字だけ。\n\n整地: 不要（振る舞いを変えない誤字の直しだけ）\n")),
+    ("題だけの書き替え", gh("update_pull_request", pullNumber=1, title="作り物の題")),
+    ("窓の id が決まった欄・URL・コードの中だけ", gh("create_pull_request", title="作り物", head="b", base="main",
+                                               body=cleanup_body("\n直す窓（https://claude.ai/code/%s）\n`%s`\n```\n%s\n```\n"
+                                                                 "session_watch.py の点検\n" % (STRANGER, STRANGER, STRANGER)))),
+    ("見ない道具", gh("create_branch", branch="b", from_branch="main")),
+]
+
+
+@pytest.mark.parametrize("name,payload", PR_GOOD, ids=[c[0] for c in PR_GOOD])
+def test_pr_text_形の合う判定と本文と普通のコメントは通す(env, name, payload):
+    assert deny_reason(env, payload) == ""
+
+
+def test_pr_text_道具の名は_MCP_の_server_の名を問わず末尾で見る(env):
+    p = gh("create_pull_request", title="作り物", head="b", base="main", body="## 何をどう変えたか\n作り物。\n")
+    p["tool_name"] = "mcp__0a1b2c3d__create_pull_request"
+    assert "[cleanup]" in deny_reason(env, p)
+    p["tool_name"] = "mcp__github__create_pull_request_review"
+    assert deny_reason(env, p) == ""
+
+
+def test_pr_text_整地の見出しは雛形を直に読む(env, tmp_path):
+    """雛形の見出しを替えると、照らす見出しも替わる（ここに見出しを写していない）。"""
+    tpl = tmp_path / "整地受領証.template.md"
+    tpl.write_text(CLEANUP_TPL.read_text(encoding="utf-8").replace("## 4. 未来", "## 4. 作り物の新しい欄"), encoding="utf-8")
+    env["AF_CLEANUP_TEMPLATE"] = str(tpl)
+    why = deny_reason(env, gh("create_pull_request", title="作り物", head="b", base="main", body=cleanup_body()))
+    assert "4. 作り物の新しい欄" in why
+    env["AF_CLEANUP_TEMPLATE"] = str(tmp_path / "無い.md")
+    why = deny_reason(env, gh("create_pull_request", title="作り物", head="b", base="main", body=cleanup_body()))
+    assert "整地の雛形" in why and "見つからず" in why
+
+
+def test_pr_text_判定の形は道具を直に呼び無ければ止める(env, tmp_path):
+    env["AF_VERDICT_FORM"] = str(tmp_path / "無い.py")
+    why = deny_reason(env, gh("add_issue_comment", issue_number=1, body=verdict_comment()))
+    assert "[verdict]" in why and "見つからず" in why
+    broken = tmp_path / "verdict_form.py"
+    broken.write_text("import sys\nsys.exit(3)\n", encoding="utf-8")
+    env["AF_VERDICT_FORM"] = str(broken)
+    assert "壊れた" in deny_reason(env, gh("add_issue_comment", issue_number=1, body=verdict_comment()))
+
+
+def test_pr_text_誤って止まる_repo_は値の表で外せる(env, tmp_path):
+    table = tmp_path / "values.json"
+    env["SKILL_VALUES"] = str(table)
+    table.write_text(json.dumps({"guard": {"pr_cleanup_exempt_repos": ["^fake-owner/fake-private$"],
+                                           "pr_words_exempt_repos": ["^fake-owner/"]}}), encoding="utf-8")
+    body = "## 何をどう変えたか\n直す窓 %s\n" % STRANGER
+    assert deny_reason(env, gh("create_pull_request", title="作り物", head="b", base="main", body=body)) == ""
+    assert "[cleanup]" in deny_reason(env, gh("create_pull_request", repo="other", title="作り物", head="b", base="main", body=body))
+    # 判定の形は外す口を持たない
+    assert "[verdict]" in deny_reason(env, gh("add_issue_comment", issue_number=1, body=verdict_comment(head="")))
+
+
+def _fake_public_repo(proj, deny_word):
+    """作り物の公開の repo の取り出し（origin が owner/repo・workflow が action public-guard を呼ぶ）。"""
+    subprocess.run(["git", "init", "-q", str(proj)], check=True)
+    subprocess.run(["git", "-C", str(proj), "remote", "add", "origin", "https://github.com/fake-owner/fake-public.git"], check=True)
+    wf = proj / ".github" / "workflows"
+    wf.mkdir(parents=True)
+    (wf / "public-guard.yml").write_text(
+        "jobs:\n  public-guard:\n    steps:\n      - uses: fake/agent-foundation-public/public-guard@v0.0.1\n"
+        "        with:\n          deny-words-file: data/deny.txt\n", encoding="utf-8")
+    (proj / "data").mkdir()
+    (proj / "data" / "deny.txt").write_text(deny_word + "\n", encoding="utf-8")
+
+
+PUBLIC_WORD = "作り物" + "ノ禁句"
+MAIL = "someone" + "@" + "gmail.com"
+
+
+def test_pr_text_公開の_repo_へは置かない物の在る文を出す前に止める(env, tmp_path):
+    _fake_public_repo(Path(env["CLAUDE_PROJECT_DIR"]), PUBLIC_WORD)
+    pub = dict(repo="fake-public")
+    why = deny_reason(env, gh("add_issue_comment", issue_number=1, body="連絡は %s へ" % MAIL, **pub))
+    assert "[public]" in why and "コメント: メールアドレス" in why and MAIL not in why.split("直し方")[0].replace("コメント: メールアドレス", "")
+    why = deny_reason(env, gh("update_pull_request", pullNumber=1, title="%s の直し" % PUBLIC_WORD, **pub))
+    assert "[public]" in why and "PR の題: 置かない語" in why and PUBLIC_WORD not in why
+    why = deny_reason(env, gh("issue_write", method="create", title="作り物", body="連絡は %s へ" % MAIL, **pub))
+    assert "issue の本文: メールアドレス" in why
+    assert deny_reason(env, gh("add_issue_comment", issue_number=1, body="作り物の確かめを足しました", **pub)) == ""
+    # 同じ文でも公開でない repo（取り出しが別の repo）は照らさない
+    assert deny_reason(env, gh("add_issue_comment", issue_number=1, body="連絡は %s へ" % MAIL)) == ""
+
+
+def test_pr_text_公開の_repo_で検査が見つからない時も止める(env, tmp_path):
+    _fake_public_repo(Path(env["CLAUDE_PROJECT_DIR"]), PUBLIC_WORD)
+    env["AF_PUBLIC_GUARD"] = str(tmp_path / "無い.py")
+    why = deny_reason(env, gh("add_issue_comment", issue_number=1, body="作り物の確かめ", repo="fake-public"))
+    assert "[public]" in why and "見つからず" in why
+
+
+def test_pr_text_手元に取り出しの無い公開の_repo_は値の表で足せる(env, tmp_path):
+    table = tmp_path / "values.json"
+    env["SKILL_VALUES"] = str(table)
+    p = gh("add_issue_comment", issue_number=1, body="連絡は %s へ" % MAIL, repo="far-public")
+    assert deny_reason(env, p) == ""
+    table.write_text(json.dumps({"guard": {"public_repos_extra": ["^fake-owner/far-public$"]}}), encoding="utf-8")
+    assert "[public]" in deny_reason(env, p)

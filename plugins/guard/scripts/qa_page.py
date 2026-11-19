@@ -18,12 +18,13 @@
 """
 from __future__ import annotations
 
-import glob
 import json
 import os
 import re
 import shutil
 import subprocess
+
+import guard_common as G
 
 PAGE_EXT = (".html", ".htm", ".json")
 TIMEOUT = 30
@@ -81,23 +82,8 @@ def why_question_page(path, raw):
 
 def find_check(guard_root=None):
     """check.mjs の path か ""。"""
-    env = os.environ.get("AF_QA_CHECK") or ""
-    if env:
-        return env if os.path.isfile(env) else ""
-    here = guard_root or os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    rel = os.path.join("skills", "qa-html", "check.mjs")
-    # repo の形: plugins/guard と plugins/docs-kit が隣
-    cand = os.path.join(os.path.dirname(here), "docs-kit", rel)
-    if os.path.isfile(cand):
-        return cand
-    # 入れた plugin の形: cache/<市場>/guard/<版> と cache/<市場>/docs-kit/<版>。同じ版を先に、無ければ新しい物
-    ver = os.path.basename(here)
-    market = os.path.dirname(os.path.dirname(here))
-    same = os.path.join(market, "docs-kit", ver, rel)
-    if os.path.isfile(same):
-        return same
-    found = sorted(glob.glob(os.path.join(market, "docs-kit", "*", rel)), key=os.path.getmtime, reverse=True)
-    return found[0] if found else ""
+    return G.find_plugin_file("docs-kit", os.path.join("skills", "qa-html", "check.mjs"), "AF_QA_CHECK",
+                              guard_root=guard_root)
 
 
 def _resolve(path, data):

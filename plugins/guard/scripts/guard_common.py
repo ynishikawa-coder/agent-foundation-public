@@ -17,9 +17,13 @@
     ask_term_allow           … 中の言葉と数えない字（見つけた字に当てる正規表現の並び・誤って止まる時だけ）
     ask_topic_stopwords_extra … 話題の語と数えない語の足し
     ask_shape_exempt         … 問いの形の見張りから外す問いの文（正規表現の並び・誤って止まる時だけ）
+    pr_cleanup_exempt_repos  … PR 本文の整地の欄を照らさない repo（owner/repo に当てる正規表現の並び・整地を PR 本文の外に置く repo だけ）
+    pr_words_exempt_repos    … PR の題・本文の言葉を照らさない repo（同じ形）
+    public_repos_extra       … 手元に取り出しが無くても公開とみなす repo（同じ形）
 """
 from __future__ import annotations
 
+import glob
 import json
 import os
 import re
@@ -41,6 +45,9 @@ DEFAULTS = {
     "ask_term_allow": [],
     "ask_topic_stopwords_extra": [],
     "ask_shape_exempt": [],
+    "pr_cleanup_exempt_repos": [],
+    "pr_words_exempt_repos": [],
+    "public_repos_extra": [],
 }
 
 # 窓の種類の決まり（session-watch の title-mark と同じ線）: 最初の頼みの文の返し先が別の窓なら子の窓（文脈の知らせだけが読む）。
@@ -108,6 +115,33 @@ def state_dir(vals, payload=None):
             return ""
         d = os.path.join(root, d)
     return d
+
+
+GUARD_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+
+def find_plugin_file(plugin, rel, env_name="", payload=None, guard_root=None):
+    """隣の plugin の file の path か ""（決まりを写さず、正本を直に読む・呼ぶための在り処）。
+
+    探す順: 環境変数 env_name → 窓の repo（payload を渡した時だけ・<repo>/plugins/<plugin>/<rel>）
+    → repo の形（plugins/guard と plugins/<plugin> が隣）→ 入れた plugin の形（cache/<市場>/<plugin>/<版>。同じ版を先に、無ければ新しい物）。
+    """
+    if env_name and os.environ.get(env_name):
+        p = os.environ[env_name]
+        return p if os.path.isfile(p) else ""
+    here = guard_root or GUARD_ROOT
+    cands = []
+    root = project_dir(payload) if payload is not None else ""
+    if root:
+        cands.append(os.path.join(root, "plugins", plugin, rel))
+    cands.append(os.path.join(os.path.dirname(here), plugin, rel))
+    market = os.path.dirname(os.path.dirname(here))
+    cands.append(os.path.join(market, plugin, os.path.basename(here), rel))
+    for c in cands:
+        if os.path.isfile(c):
+            return c
+    found = sorted(glob.glob(os.path.join(market, plugin, "*", rel)), key=os.path.getmtime, reverse=True)
+    return found[0] if found else ""
 
 
 def now_utc():

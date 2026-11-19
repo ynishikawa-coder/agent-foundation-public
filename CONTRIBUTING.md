@@ -46,7 +46,7 @@
 - **土台は特定の業務を知らない。** 業務の語（特定業務の用語・計算の決まり）は、それを使う側の repo に置く。土台には、どの業務でも使える振る舞いと道具だけを置く。
 - **個人の情報を置かない。** 個人を指すメールアドレス・電話番号・郵便番号・Notion のページや Google の文書の URL を書かない。commit の名義のメールは GitHub の noreply（`<id>+<名>@users.noreply.github.com`）か `noreply@anthropic.com` にする。
 - **public なので外側も見える。** ファイルだけでなく、commit の説明・名義と PR の題・本文も世界に見える。どれにも上の物を書かない。
-- 照らしは公開の検査（`public-guard/guard.py`・`docs/公開の検査.md`）の 1 本。CI の job `public-guard` が中身・歴史・commit と PR の外側を照らして止める。手元は `scripts/checks/public_guard.sh`。
+- 照らしは公開の検査（`public-guard/guard.py`・`docs/公開の検査.md`）の 1 本。CI の job `public-guard` が中身・歴史・commit と PR の外側を照らして止める。手元は `scripts/checks/public_guard.sh`。PR の題・本文とコメントは、窓が出す前にも守りの hook（guard の `pr_text`）が同じ本体で照らす。
   - **秘密と個人の情報**: 形で見る（表は `public-guard/guard.py`）。
   - **業務の語**: `tests/data/denylist.txt`。足したい語があれば、その 1 行を PR で足す。
   - **顧客の語**: repo に書かない。repo の secret `AF_DENY_BUNDLE`（Javis の顧客の語の束 `pct1.…` と同じ値）か `AF_DENY_WORDS`（1 行 1 語）から渡す。手元は同じ名の環境変数か `AF_DENY_WORDS_FILE`。**CI でどれも無い時は赤**。手元でどれも無い時だけ飛ばす。
