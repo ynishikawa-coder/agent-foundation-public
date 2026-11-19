@@ -22,6 +22,10 @@ jobs:
       - name: 試験の道具を入れる
         run: python3 -m pip install --quiet pytest
       - name: 検査（入口は check_all の 1 本）
+        # PR 本文と先端は外から来る値なので run に直に埋めず env で渡す（scripts/checks/pr_writer.sh が読む）。
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: bash scripts/check_all.sh
 
   # 並ぶ PR が同じ file の同じ行の辺りを書き換えていないかを知らせる（scripts/pr_overlap.py・止めない）。

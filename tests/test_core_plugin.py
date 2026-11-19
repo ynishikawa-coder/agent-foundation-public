@@ -138,7 +138,7 @@ def test_古い形の見張りは時間の上限で打ち切り_黙って一部�
     with pytest.raises(TimeoutError):
         kaku.find_olds_bounded(tmp_path / "p", budget=1, table=table)
     assert time.monotonic() - t0 < 10
-    found = kaku.find_olds_bounded(tmp_path / "p", budget=60)
+    found = kaku.find_olds_bounded(tmp_path / "p", budget=60)["found"]
     assert [(r["id"], f) for r, f in found] == [("af-core-frame", "CLAUDE.md")]
 
 
@@ -372,8 +372,9 @@ class Foundation:
         subprocess.run(["git", "clone", "-q", str(self.remote), str(self.work)], check=True, capture_output=True)
         self.installed = _commit(self.work, {"plugins/core/核.md": "核 1\n", "docs/a.md": "1\n"}, "始め")
 
-    def install(self, source="github"):
-        """窓が立つ時に setup script が入れた形を作る（marketplace の clone と台帳）。"""
+    def install(self, source="github", main_at_setup=None):
+        """窓が立つ時に setup script が入れた形を作る（marketplace の clone と台帳）。main_at_setup を渡すと、
+        入口が書く setup の時の main の先端の記録（setup.json）も置く。"""
         loc = self.home / ".claude" / "plugins" / "marketplaces" / "agent-foundation"
         subprocess.run(["git", "clone", "-q", str(self.remote), str(loc)], check=True, capture_output=True)
         _git(loc, "checkout", "-q", self.installed)
@@ -382,6 +383,10 @@ class Foundation:
             "source": {"source": source, "repo": "o/agent-foundation-public"}, "installLocation": str(loc)}}))
         (plugins / "installed_plugins.json").write_text(json.dumps({"version": 2, "plugins": {"core@agent-foundation": [
             {"installPath": str(PLUGIN), "gitCommitSha": self.installed}]}}))
+        if main_at_setup:
+            (self.home / ".claude" / "af-foundation").mkdir(parents=True, exist_ok=True)
+            (self.home / ".claude" / "af-foundation" / "setup.json").write_text(json.dumps(
+                {"entry": "scripts/setup_plugins.py", "main_at_setup": main_at_setup}))
 
     def hook(self, event, sid="s1", source="startup"):
         r = run(event, project=self.tmp, home=self.home, stdin=json.dumps({"session_id": sid, "source": source}),
@@ -417,8 +422,8 @@ def test_途中で古くなった窓は圧縮や_resume_を通っても引き継
 
 def test_起動の時から古い窓は圧縮の後も同じ知らせを出す(tmp_path):
     f = Foundation(tmp_path)
-    _commit(f.work, {"plugins/core/核.md": "核 2\n"}, "核を変える")
-    f.install()
+    tip = _commit(f.work, {"plugins/core/核.md": "核 2\n"}, "核を変える")
+    f.install(main_at_setup=tip)
     f.hook("inject")
     assert "土台が古いまま立った窓" in f.hook("inject", source="compact")
 
@@ -434,8 +439,8 @@ def test_文書と試験だけの変更では窓を替えない(tmp_path):
 def test_起動の時から古い窓は_setup_script_を直してから引き継ぐよう知らせる(tmp_path):
     """注入: setup script が古い物を入れた（版を指したまま）→ 直してから引き継ぐ。直せない時だけ引き継がない（輪にしない）。"""
     f = Foundation(tmp_path)
-    _commit(f.work, {"plugins/core/核.md": "核 2\n"}, "核を変える")
-    f.install()                                          # 入れたのは 1 つ前（f.installed）
+    tip = _commit(f.work, {"plugins/core/核.md": "核 2\n"}, "核を変える")
+    f.install(main_at_setup=tip)                         # setup の時の main は tip なのに、入れたのは 1 つ前
     text = f.hook("inject")
     assert "土台が古いまま立った窓" in text and "core" in text
     assert "update_environment" in text and "create_session" in text and "archive_session" in text
