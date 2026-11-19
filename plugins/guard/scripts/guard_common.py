@@ -12,6 +12,12 @@
     irreversible_tools_extra … 戻せない道具の名の足し [{"pattern": 正規表現, "why": 理由}]
     qa_page_exempt           … 問いのページの検査から外す file（path に当てる正規表現の並び・問いのページでない物だけ）
     ask_pick_one_exempt      … 1 つだけ選ばせる問いの見張りから外す問いの文（正規表現の並び・意図や事実を問う問いだけ）
+    ask_question_max_chars   … 選択肢の画面の問いの文の字数の上限（既定 60・0 で見ない）
+    ask_question_max_sentences … 同じく文の数の上限（既定 1・0 で見ない）
+    ask_inner_terms_extra    … AI の中の言葉とみなす字の足し（正規表現の並び）
+    ask_term_allow           … 中の言葉と数えない字（見つけた字に当てる正規表現の並び・誤って止まる時だけ）
+    ask_topic_stopwords_extra … 話題の語と数えない語の足し
+    ask_shape_exempt         … 問いの形の見張りから外す問いの文（正規表現の並び・誤って止まる時だけ）
 """
 from __future__ import annotations
 
@@ -31,6 +37,12 @@ DEFAULTS = {
     "irreversible_tools_extra": [],
     "qa_page_exempt": [],
     "ask_pick_one_exempt": [],
+    "ask_question_max_chars": 60,
+    "ask_question_max_sentences": 1,
+    "ask_inner_terms_extra": [],
+    "ask_term_allow": [],
+    "ask_topic_stopwords_extra": [],
+    "ask_shape_exempt": [],
 }
 
 # 窓の種類の決まり（session-watch の title-mark と同じ線）: 最初の頼みの文の返し先が別の窓なら子の窓（文脈の知らせだけが読む）。
