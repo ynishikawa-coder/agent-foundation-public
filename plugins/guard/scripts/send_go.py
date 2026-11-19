@@ -4,21 +4,34 @@
   求めるだけで、AI が頼まれた同じターンのうちに送っても何も止めなかった（原因の台帳: してから次への跡を照らさない）。
   社外への送信はオーナーにしか決められない（核 §4）。
 
-正本（写さない）: 送る口は各 skill の SKILL.md の頭（frontmatter）の `send-gate: <正規表現>` が宣言する。
-  式の中の `{value:<plugin>.<skill>.<鍵…>}` は repo の値の表の値（字のまま）に置き換える（送る命令が会社ごとの物）。
-  値が無い時はその宣言を使わない（送る口が無い＝送らない repo）。見張りの側は送る命令の形を持たない。
-go の跡は「送る物」と「人の答え」を結んで見る（どこかで AI が何かを言った、では見ない）:
-  - 送る物: 送る口に当たった所より後の引数のうち、在る file（読める字の file は中身・字でない file は名と書いた時刻）と、
-    空白を含む引数（命令に直に書いた文）。見分けられなければ止める。
-  - 見せた: 会話ログの AI の文が、送る物の中身を全部含む（空白の違いは見ない）。字でない file は、AI の文がその名を書き、
-    file がその文より後に書き替わっていない。
-  - go: 全部の送る物を見せた後に、人がタイプした行か答えの返った選択肢の画面が在る。人の行は人がタイプした行だけで、
-    道具の返り・差し戻し・知らせ（origin の付いた行）は数えない。
+正本（写さない）: 送る口は各 skill の SKILL.md の頭（frontmatter）の `send-gate: <送る命令の形>` が宣言する。
+  形は shell の 1 行（例 `<道具> source add`）。`{value:<plugin>.<skill>.<鍵…>}` は repo の値の表の値（字のまま）に
+  置き換える（送る命令が会社ごとの物）。値が無い時はその宣言を使わない（送る口が無い＝送らない repo）。
+  宣言を guard_common.parse_shell で読み、頭の解釈の道具（python3 など）を飛ばした最初の語が「送る道具」、その後の
+  option でない語の並びが「送る段の名」（例 source add）。
+
+送る命令かは、命令の字の並びでなく、命令を parse_shell で語に読んで決める（字の並びで決めると、並び替え・`--to=`・空白・
+  python の包み・cd &&・変数で通った＝2026-11-19 のレビュー）:
+  - 走る命令のどの位置の語でも、名（basename か拡張子を外した名）が送る道具に当たれば送る命令（読むだけの道具 READERS の
+    引数は除く）。送る段の名を宣言する口は、その並びが後ろに在る時だけ。
+  - 読み切れない形（parse_shell の unknowns・引数の位置の変数・解釈の道具に字で渡すコード・標準入力で渡すコード）は、
+    送る道具の名が命令の字に在るか、走る道具の名が読めない時に止める（既定で止める）。
+  - 試しの形は、送る道具のその単純な命令の引数に `--dry-run` が在る時だけ（`; echo --dry-run`・注の中は数えない）。
+送る物は送る命令の引数から字のまま全部決める（決められなければ止める）:
+  - option の名でない語と `--名=値` の値の全部。在る file は字の file なら中身、字でない file は絶対 path と sha256。
+  - 変数・展開・当たる glob・解けない path・dir・標準入力（パイプ・<・ヒアドキュメント）で渡す形は止める。
+  - 見せた: 会話ログの AI の文が、字の送る物を全部含む（空白の違いは見ない）。字でない file は絶対 path と sha256 の頭 12 字を
+    書く（同じ名の別の file・見せた後に書き替えた file を通さない）。
+  - go: 全部の送る物を見せた後に、人がタイプした行（guard_common.is_human_prompt＝人の行の形が全部そろう時だけ）か、
+    答えの返った選択肢の画面が在る。
   人のいない窓（値の表の unattended_env が真・返し先が別の窓の子の窓）は go を取れないので止める（返し先へ返す）。
 止まるのは AI の道具の呼び出しだけ。会話ログが読めない時も止める（go を確かめられない送信は出さない）。
 """
 from __future__ import annotations
 
+import fnmatch
+import glob
+import hashlib
 import json
 import os
 import re
@@ -32,6 +45,13 @@ HOOKS = {"pre": "check"}
 FRONT = re.compile(r"\A---\s*\n(.*?)\n---\s*\n", re.S)
 VALUE = re.compile(r"\{value:([\w.-]+)\}")
 PLUGINS = ("docs-kit", "dev-flow", "checker", "session-watch", "core")
+# 宣言の頭で飛ばす解釈の道具（その次の語が送る道具）と、引数の file を読むだけで走らせない道具
+INTERP = re.compile(r"(?:python[\d.]*|node|nodejs|deno|bun|ruby|perl|php|bash|sh|zsh|uv|pipx|npx|run)\Z")
+INLINE_CODE = re.compile(r"(?:python[\d.]*|node|nodejs|deno|bun|ruby|perl|php)\Z")
+READERS = frozenset(("cat", "head", "tail", "less", "more", "wc", "ls", "stat", "file", "grep", "egrep", "fgrep", "rg",
+                     "diff", "cmp", "sha256sum", "sha1sum", "md5sum", "echo", "printf", "test", "[", "[[", "git", "gh"))
+GLOB = re.compile(r"[*?\[]")
+HASH_SHOWN = 12
 
 
 def _table(data):
@@ -58,7 +78,6 @@ def _lookup(table, dotted):
 
 def skill_dirs(guard_root=None):
     """隣の plugin の skills/<名>/SKILL.md の path。AF_SKILLS_ROOTS（: 区切りの plugin の根）で渡せる。"""
-    import glob
     env = os.environ.get("AF_SKILLS_ROOTS") or ""
     roots = [r for r in env.split(os.pathsep) if r] if env else []
     if not roots:
@@ -72,8 +91,27 @@ def skill_dirs(guard_root=None):
     return out
 
 
+def read_gate(text):
+    """送る命令の形（shell の 1 行）を (送る道具の語, 送る段の名の並び) に。読めなければ None。"""
+    cmds, unknowns = G.parse_shell(text)
+    if unknowns or len(cmds) != 1:
+        return None
+    argv = cmds[0]
+    i = 0
+    while i < len(argv) and (INTERP.match(os.path.basename(argv[i])) or argv[i].startswith("-")):
+        i += 1
+    if i >= len(argv) or "$" in argv[i]:
+        return None
+    sub = []
+    for w in argv[i + 1:]:
+        if w.startswith("-"):
+            break
+        sub.append(w)
+    return argv[i], tuple(sub)
+
+
 def gates(data, guard_root=None):
-    """(skill の名, 正規表現) の並び。"""
+    """(skill の名, (送る道具, 送る段の名) か None〔読めない宣言〕) の並び。"""
     table = None
     out = []
     for md in skill_dirs(guard_root):
@@ -88,36 +126,160 @@ def gates(data, guard_root=None):
             k, _, v = ln.partition(":")
             if k.strip() != "send-gate":
                 continue
-            pat = v.strip()
-            if len(pat) >= 2 and pat[0] == pat[-1] == "'":     # YAML の字の囲み（{ で始まる式を囲む）
-                pat = pat[1:-1].replace("''", "'")
-            if VALUE.search(pat):
+            decl = v.strip()
+            if len(decl) >= 2 and decl[0] == decl[-1] == "'":     # YAML の字の囲み（{ で始まる式を囲む）
+                decl = decl[1:-1].replace("''", "'")
+            if VALUE.search(decl):
                 if table is None:
                     table = _table(data)
-                vals = [_lookup(table, d) for d in VALUE.findall(pat)]
+                vals = [_lookup(table, d) for d in VALUE.findall(decl)]
                 if not all(vals):
                     continue
                 it = iter(vals)
-                pat = VALUE.sub(lambda _m: re.escape(next(it)), pat)
-            try:
-                out.append((os.path.basename(os.path.dirname(md)), re.compile(pat)))
-            except re.error:
-                out.append((os.path.basename(os.path.dirname(md)), None))
+                decl = VALUE.sub(lambda _m: next(it), decl)
+            out.append((os.path.basename(os.path.dirname(md)), read_gate(decl)))
     return out
+
+
+def _is_prog(word, prog):
+    base, want = os.path.basename(word), os.path.basename(prog)
+    if base == want or os.path.splitext(base)[0] == os.path.splitext(want)[0]:
+        return True
+    return bool(GLOB.search(base)) and fnmatch.fnmatchcase(want, base)
+
+
+def _has_seq(words, seq):
+    n = len(seq)
+    return n == 0 or any(tuple(words[j:j + n]) == seq for j in range(len(words) - n + 1))
+
+
+def _stdin_fed(cmd):
+    """命令のどこかでパイプ・< の向け替え・ヒアドキュメントで標準入力を渡すか（読めなければ渡すと見る）。"""
+    try:
+        lex = shlex.shlex(cmd, posix=True, punctuation_chars=";&|()<>\n")
+        lex.whitespace, lex.whitespace_split, lex.commenters = " \t\r", True, ""
+        toks = list(lex)
+    except ValueError:
+        return True
+    for t in toks:
+        if t and set(t) <= set(";&|()<>\n") and ("<" in t or "|" in t.replace("||", "")):
+            return True
+    return False
+
+
+def find_sends(cmd, gate):
+    """命令 cmd の中の送る命令: ([(単純な命令の位置, argv, 送る道具の位置)], [止める訳])。"""
+    prog, sub = gate
+    stem = os.path.splitext(os.path.basename(prog))[0]
+    named = bool(stem) and stem in cmd and all(s in cmd for s in sub)     # 送る道具の名（と送る段の名）の字が命令に在る
+    cmds, unknowns = G.parse_shell(cmd)
+    hits, why = [], []
+    for ci, argv in enumerate(cmds):
+        reader = os.path.basename(argv[0]) in READERS
+        for k, w in enumerate(argv):
+            if (k == 0 or not reader) and _is_prog(w, prog) and _has_seq(argv[k + 1:], sub):
+                hits.append((ci, argv, k))
+                break
+    if unknowns and named:
+        why.append("命令を読み切れない（%s）" % "・".join(unknowns))
+    # 走る道具の名そのものが変数・展開（`$P`・`"$NB"`・`"$V/<道具>"`・`python3 $P`）＝どの道具が走るか読めない
+    # （parse_shell はその命令を語に返さず unknowns に書く）。送る段の名を宣言する口は、その字が命令に在る時だけ。
+    # 送る段の名の無い口は、送る道具の名の字か、値を隠せる置き換え（$(…)・`…`）が命令に在る時だけ（同じ命令の中で
+    # 字のまま代入した変数は名の字が残る。窓の外から来る環境変数だけは見えない＝残る穴）。
+    hidden = any("$(…)" in u or "`…`" in u for u in unknowns)
+    if all(s in cmd for s in sub) and (sub or named or hidden):
+        for u in unknowns:
+            interp = re.match(r"表に無い命令 (\S+) の引数に変数の展開", u)
+            if u.startswith("命令の名が変数") or (interp and INTERP.match(interp.group(1))):
+                why.append("走る道具の名が変数・展開で読めない（%s）" % u)
+    if named and not hits:
+        for argv in cmds:
+            name = os.path.basename(argv[0])
+            if name in READERS:
+                continue
+            if INLINE_CODE.match(name) and any(re.fullmatch(r"-[A-Za-z]*[ce]|--eval", a) for a in argv[1:]):
+                why.append("%s に字で渡すコードの中で送る道具の名を使う（%s）" % (name, os.path.basename(prog)))
+            elif any("$" in a for a in argv[1:]):
+                why.append("送る道具を変数で渡す（%s）" % " ".join(argv)[:120])
+            elif INTERP.match(name) and all(a.startswith("-") for a in argv[1:]) and _stdin_fed(cmd):
+                why.append("%s へ標準入力でコードを渡す" % name)
+    return hits, why
+
+
+def materials(argv, k, sub, cwd):
+    """送る命令の引数から送る物: ([(種類 "text"|"bin", 中身か絶対 path, 名, sha256)], [止める訳])。"""
+    out, why = [], []
+    words = argv[k + 1:]
+    if tuple(words[:len(sub)]) == tuple(sub):
+        words = words[len(sub):]                          # 送る段の名（並びが離れていれば、その語も送る物に数える）
+    for w in words:
+        if w == "--":
+            continue
+        if w.startswith("--"):
+            if "=" not in w:
+                continue
+            w = w.split("=", 1)[1]
+        elif w.startswith("-") and len(w) > 1 and not re.fullmatch(r"-\d+(?:\.\d+)?", w):
+            if len(w) <= 2:
+                continue
+            w = w[2:]                                     # -t値 の形（値を詰めて書く）も送る物に数える
+        if not w:
+            continue
+        if "$" in w:
+            why.append("引数に変数・展開が在る（%s）" % w[:80])
+            continue
+        p = os.path.expanduser(w)
+        if not os.path.isabs(p):
+            if cwd is None:
+                why.append("cd の先が読めず、相対の path（%s）を解けない" % w[:80])
+                continue
+            p = os.path.join(cwd, p)
+        p = os.path.normpath(p)
+        if GLOB.search(w) and glob.glob(p):
+            why.append("引数が glob で別の字に広がる（%s）" % w[:80])
+            continue
+        if os.path.isfile(p):
+            try:
+                with open(p, "rb") as f:
+                    raw = f.read()
+            except OSError as e:
+                why.append("送る file が読めない（%s: %s）" % (w[:80], e))
+                continue
+            sha = hashlib.sha256(raw).hexdigest()
+            try:
+                text = raw.decode("utf-8") if b"\0" not in raw else None
+            except UnicodeDecodeError:
+                text = None
+            if text is not None and text.strip():
+                out.append(("text", text, os.path.basename(p), sha))
+            else:
+                out.append(("bin", os.path.realpath(p), os.path.basename(p), sha))
+        elif os.path.exists(p):
+            why.append("送る物が file でない（%s）" % w[:80])
+        elif w.startswith(("/", "./", "../", "~")) or ("/" in w and "://" not in w):
+            why.append("path が解けない（%s）" % w[:80])
+        else:
+            out.append(("text", w, "命令に書いた字「%s」" % w[:40], ""))
+    return out, why
+
+
+def _cwd_before(cmds, upto, cwd):
+    """upto 番目の単純な命令の前の cd を辿った作業の dir（読めない cd があれば None）。"""
+    for argv in cmds[:upto]:
+        if os.path.basename(argv[0]) not in ("cd", "pushd"):
+            continue
+        t = argv[1] if len(argv) > 1 else ""
+        if not t or t == "-" or "$" in t or cwd is None:
+            cwd = None
+            continue
+        cwd = os.path.normpath(os.path.join(cwd, os.path.expanduser(t)))
+    return cwd
 
 
 def _answered_ask(row):
     """答えの返った選択肢の画面の行か。"""
     r = row.get("toolUseResult")
-    return isinstance(r, dict) and isinstance(r.get("answers"), dict) and bool(r["answers"])
-
-
-def _human(row):
-    """人がタイプした行か（道具の返り・差し戻し・知らせ〔origin の付いた行・system の頼み〕を除く）。"""
-    if not G.is_owner_row(row):
-        return False
-    origin = row.get("origin")
-    return not (isinstance(origin, dict) and origin.get("kind")) and row.get("promptSource") != "system"
+    return row.get("type") == "user" and isinstance(r, dict) and isinstance(r.get("answers"), dict) and bool(r["answers"])
 
 
 WS = re.compile(r"\s+")
@@ -127,49 +289,10 @@ def _norm(t):
     return WS.sub("", t or "")
 
 
-def materials(tail, cwd):
-    """送る口に当たった所より後の命令の字から送る物を取る: [(種類 "text"|"file", 中身か path, 名)]。読めなければ None。"""
-    try:
-        lex = shlex.shlex(tail, posix=True, punctuation_chars=";&|")
-        lex.whitespace_split = True
-        toks = list(lex)
-    except ValueError:
-        return None
-    out = []
-    for t in toks:
-        if t and set(t) <= set(";&|"):
-            break                                   # 次の命令（送る命令の引数の外）
-        if t.startswith("-"):
-            if "=" not in t:
-                continue
-            t = t.split("=", 1)[1]
-        p = os.path.expanduser(t)
-        if cwd and not os.path.isabs(p):
-            p = os.path.join(cwd, p)
-        if t and os.path.isfile(p):
-            try:
-                with open(p, "rb") as f:
-                    raw = f.read()
-                text = raw.decode("utf-8") if b"\0" not in raw else None
-            except (OSError, UnicodeDecodeError):
-                text = None
-            out.append(("text", text, os.path.basename(p)) if text is not None and text.strip() else ("file", p, os.path.basename(p)))
-        elif WS.search(t.strip()):
-            out.append(("text", t, "命令に書いた文"))
-    return out
-
-
 def _shown_at(rows, item):
     """送る物を見せた AI の行の位置（最初の 1 つ）か None。"""
-    kind, val, _ = item
-    if kind == "text":
-        want = _norm(val)
-    else:
-        name = os.path.basename(val)
-        try:
-            mtime = os.path.getmtime(val)
-        except OSError:
-            return None
+    kind, val, _, sha = item
+    want = _norm(val) if kind == "text" else ""
     for i, r in enumerate(rows):
         if r.get("type") != "assistant":
             continue
@@ -177,10 +300,8 @@ def _shown_at(rows, item):
         if kind == "text":
             if want and want in _norm(t):
                 return i
-        elif name in t:
-            ts = G.parse_ts(r.get("timestamp") or "")
-            if ts is not None and mtime <= ts.timestamp():
-                return i
+        elif val in t and sha[:HASH_SHOWN] in t:
+            return i
     return None
 
 
@@ -194,7 +315,7 @@ def has_go(path, items):
     if not items or any(i is None for i in at):
         return False
     after = max(at)
-    return any(_human(r) or _answered_ask(r) for r in rows[after + 1:])
+    return any(G.is_human_prompt(r) or _answered_ask(r) for r in rows[after + 1:])
 
 
 def check(data, vals):
@@ -203,43 +324,51 @@ def check(data, vals):
     cmd = (data.get("tool_input") or {}).get("command")
     if not isinstance(cmd, str) or not cmd.strip():
         return ""
-    hit, tails = [], []
-    for name, rx in gates(data):
-        if rx is None:
-            return ("skill %s の SKILL.md の send-gate（送る口の宣言）が読めない正規表現なので、送る命令かを確かめられず止めました。"
-                    "土台の plugin を入れ直すか、その skill の send-gate を直す PR を出す。" % name)
-        m = rx.search(cmd)
-        if m:
-            hit.append(name)
-            tails.append(cmd[m.end():])
+    cwd0 = data.get("cwd") or G.project_dir(data) or ""
+    hit, items, why_read = [], [], []
+    cmds = None
+    for name, gate in gates(data):
+        if gate is None:
+            return ("skill %s の SKILL.md の send-gate（送る口の宣言）が送る命令の形として読めないので、送る命令かを確かめられず"
+                    "止めました。土台の plugin を入れ直すか、その skill の send-gate（値の表の送る命令）を直す。" % name)
+        sends, why = find_sends(cmd, gate)
+        sends = [s for s in sends if "--dry-run" not in s[1][s[2] + 1:]]     # 試しの形は送る道具の引数にある時だけ
+        if not sends and not why:
+            continue
+        hit.append(name)
+        why_read += why
+        if sends and _stdin_fed(cmd):
+            why_read.append("パイプ・< の向け替え・ヒアドキュメントで送る物を標準入力から渡しうる")
+        if cmds is None:
+            cmds = G.parse_shell(cmd)[0]
+        for ci, argv, k in sends:
+            got, bad = materials(argv, k, gate[1], _cwd_before(cmds, ci, cwd0 or None))
+            items += got
+            why_read += bad
     if not hit:
         return ""
     tpath = data.get("transcript_path") or ""
     if G.unattended_by_env(vals) or G.is_child_prompt(G.first_owner_text(tpath)):
         why = "人のいない窓（返し先が別の窓・夜の自走の印）は人の go を取れない"
+    elif why_read:
+        why = "送る物（送る文面の file・命令に書いた字）を命令から字のまま決められない（%s）" % "／".join(dict.fromkeys(why_read))
     else:
-        cwd = data.get("cwd") or G.project_dir(data) or ""
-        items = []
-        for tail in tails:
-            got = materials(tail, cwd)
-            items += got or []
-            if not got:
-                items = None
-                break
         go = has_go(tpath, items) if items else False
         if go:
             return ""
         if not items:
-            why = "送る物（送る文面の file・命令に書いた文）を命令から見分けられない"
+            why = "送る物（送る文面の file・命令に書いた字）が命令に無い"
         elif go is None:
             why = "会話ログが読めず go を確かめられない"
         else:
-            names = "・".join(n for _, _, n in items)
+            names = "・".join(n for _, _, n, _ in items)
             why = "送る物（%s）を返事で見せた後の人の go が会話ログに無い" % names
     return ("外へ送る命令（skill %s の送る口）を、%sので止めました。\n"
             "直し方（skill guard:guard-rules の send_go）:\n"
             "  ① 送る文面・素材（何を・誰へ・どこへ）を返事で見せ、そのターンを締めて人の go を待つ"
-            "（選択肢の画面で「送る／直す／送らない」を聞いてもよい）。文面は送る file の中身をそのまま全部見せる"
-            "（字でない file は名を書く）。見せた後に file を書き替えたら、見せ直して go を取り直す\n"
-            "  ② go が返ってから同じ命令を打つ。文面だけ見たい時は送る命令の試しの形（--dry-run など）を使う\n"
-            "  人のいない窓は送らず、返し先へ「送る物と go の要る事」を返す。" % ("・".join(hit), why))
+            "（選択肢の画面で「送る／直す／送らない」を聞いてもよい）。文面は送る file の中身と、命令に書く字（宛先・"
+            "ノートの名など）をそのまま全部見せる。字でない file は絶対 path と sha256 の頭 %d 字を書く。見せた後に"
+            "file を書き替えたら、見せ直して go を取り直す\n"
+            "  ② go が返ってから、送る道具を直に、引数を字のまま書いた 1 つの命令で打つ（変数・$(…)・パイプ・< ・"
+            "ヒアドキュメント・包みを使わない）。文面だけ見たい時は送る道具の引数に --dry-run を付ける\n"
+            "  人のいない窓は送らず、返し先へ「送る物と go の要る事」を返す。" % ("・".join(dict.fromkeys(hit)), why, HASH_SHOWN))

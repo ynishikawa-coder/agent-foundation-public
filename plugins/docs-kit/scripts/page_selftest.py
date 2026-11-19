@@ -20,10 +20,12 @@ import html
 import os
 import re
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
 import threading
+import time
 from pathlib import Path
 
 CHROME_ENV = "CHROME"   # 明示の時だけ（既定は下の探し方）
@@ -59,9 +61,28 @@ def find_chrome() -> str | None:
 def chrome_cmd(chrome: str, prof: str, url: str, no_sandbox: bool = False) -> list[str]:
     cmd = [chrome, "--headless=new", "--disable-gpu", "--no-first-run",
            "--no-default-browser-check", f"--user-data-dir={prof}"]
-    if no_sandbox or (hasattr(os, "geteuid") and os.geteuid() == 0):
-        cmd.append("--no-sandbox")   # コンテナの root では sandbox が立たない
+    if no_sandbox:
+        cmd.append("--no-sandbox")   # sandbox が立たない機械（sandbox_blocked）か、立たずに落ちた後
     return cmd + ["--dump-dom", url]
+
+
+# sandbox が立たない機械の印（Chrome を起こして落ちるのを待たずに分かる物）: root・user namespace を閉じた kernel
+# （Ubuntu 23.10 以降の apparmor の既定＝GitHub の ubuntu-24.04 の runner）。
+USERNS_CLOSED = (("/proc/sys/kernel/apparmor_restrict_unprivileged_userns", "1"),
+                 ("/proc/sys/kernel/unprivileged_userns_clone", "0"))
+
+
+def sandbox_blocked() -> str:
+    """sandbox が立たないと前もって分かる時の訳か ""。"""
+    if hasattr(os, "geteuid") and os.geteuid() == 0:
+        return "root"
+    for path, closed in USERNS_CLOSED:
+        try:
+            if Path(path).read_text().strip() == closed:
+                return path
+        except OSError:
+            continue
+    return ""
 
 
 SOCKET_MAX = 107   # unix の socket の path の上限（バイト）
@@ -80,12 +101,26 @@ class ChromeMissing(Exception):
     """Chrome が無い・起動できない・DOM を返さない＝検査できない（exit 2）。"""
 
 
+def _deadline_left() -> float:
+    """1 回に待てる秒。呼ぶ側（guard の page_check）が環境変数 AF_CHECK_DEADLINE（epoch 秒）で全体の締めを渡した時は、
+    その残りと TIMEOUT_SEC の小さい方（上限は呼ぶ側の 1 か所で決まり、検査は締めの前に訳と時間を出して終わる）。"""
+    try:
+        left = float(os.environ.get("AF_CHECK_DEADLINE") or "") - time.time()
+    except ValueError:
+        return TIMEOUT_SEC
+    return max(1.0, min(TIMEOUT_SEC, left))
+
+
 def dump_dom(cmd: list[str]) -> tuple[str | None, str]:
-    """Chrome の --dump-dom を読む。DOM を吐いた後も Chrome が居座ることがある
-    ため、`</html>` まで読んだら Chrome を止める。返すのは (DOM か None, DOM が無い訳)。
-    訳には Chrome の落ちた行（FATAL）か stderr の末尾を入れる（黙って捨てると、別の機械で回せない訳が誰にも見えない）。"""
+    """Chrome の --dump-dom を読む。返すのは (DOM か None, DOM が無い訳と時間)。
+    Chrome は自分の session（process group）で起こし、`</html>` を読んだ時・Chrome が終わった時・時間切れの時に
+    group ごと止める。Chrome が終わっても、子（crashpad・zygote）が stdout を握ったまま残ると読み手の EOF が来ず、
+    時間切れまで待っていた（sandbox が立たずに落ちた時に CI で 50 秒を越えた訳）。終わった Chrome は待たない。
+    訳には Chrome の stderr の末尾を入れる（黙って捨てると、別の機械で回せない訳が誰にも見えない）。"""
+    limit = _deadline_left()
+    t0 = time.monotonic()
     with tempfile.TemporaryFile(mode="w+", encoding="utf-8", errors="replace") as err:
-        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=err, text=True,
+        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=err, text=True, start_new_session=True,
                                 env=dict(os.environ, TMPDIR=short_tmp()))
         buf: list[str] = []
         done = threading.Event()
@@ -99,33 +134,47 @@ def dump_dom(cmd: list[str]) -> tuple[str | None, str]:
             done.set()
 
         threading.Thread(target=reader, daemon=True).start()
-        ok = done.wait(TIMEOUT_SEC)
+        ended = False
+        while not done.wait(0.1):
+            if proc.poll() is not None:
+                ended = True
+                done.wait(1.0)            # 終わった Chrome の残りの出力だけ読む（握ったままの子は待たない）
+                break
+            if time.monotonic() - t0 >= limit:
+                break
         code = proc.poll()
-        proc.kill()
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)
+        except OSError:
+            proc.kill()
         proc.wait()
+        took = time.monotonic() - t0
         out = "".join(buf)
-        if ok and "</html>" in out:
+        if "</html>" in out:
             return out, ""
         err.seek(0)
         lines = [ln.strip() for ln in err.read().splitlines() if ln.strip()]
         loud = [ln for ln in lines if "FATAL" in ln]   # 落ちた訳の行を先に
         tail = " / ".join(loud[:4] or lines[-4:])[:600]
-    why = (f"Chrome が {TIMEOUT_SEC} 秒で DOM を返さない" if not ok
-           else f"Chrome が DOM を返さずに終わった（exit {code}）")
+    why = (f"Chrome が DOM を返さずに終わった（exit {code}・{took:.1f} 秒）" if ended or code is not None
+           else f"Chrome が {limit:.0f} 秒で DOM を返さない（{took:.1f} 秒待った）")
     return None, f"{why}＝検査できない（{cmd[0]}）" + (f" stderr: {tail}" if tail else "")
 
 
 def run_chrome(chrome: str, url: str) -> tuple[str | None, str]:
     """Chrome で url を開いて DOM を返す（(DOM か None, DOM が無い訳)）。Chrome の一時の置き場は短い path に置く。
-    sandbox が立たずに落ちた時（user namespace を閉じた Ubuntu 23.10 以降の CI 等＝root でなくても立たない。
-    2026-11-19 CI で実測）だけ、sandbox なしで開き直す。"""
-    why = ""
-    for no_sandbox in (False, True):
+    sandbox が立たないと前もって分かる機械（sandbox_blocked）は初めから sandbox なしで開く（落ちるのを待つ 1 回を省く）。
+    それ以外で sandbox が立たずに落ちた時だけ、sandbox なしで開き直す。DOM が無い時の訳には、開いた回ごとの時間を書く。"""
+    tries = (True,) if sandbox_blocked() else (False, True)
+    seen: list[str] = []
+    dom, why = None, ""
+    for no_sandbox in tries:
         with tempfile.TemporaryDirectory(prefix="af-page-chrome-", dir=short_tmp()) as prof:
             dom, why = dump_dom(chrome_cmd(chrome, prof, url, no_sandbox))
+        seen.append(("sandbox なし" if no_sandbox else "sandbox あり") + ": " + why)
         if dom is not None or "sandbox" not in why.lower():
             break
-    return dom, why
+    return dom, ("" if dom is not None else " ／ ".join(seen))
 
 
 def open_dom(target: Path, query: str) -> str:

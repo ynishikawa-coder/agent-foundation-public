@@ -20,12 +20,14 @@ import os
 import re
 import subprocess
 import sys
+import time
 
 import guard_common as G
 import qa_page
 
 PAGE_EXT = (".html", ".htm")
 TIMEOUT = 50
+MARGIN = 5          # 検査が自分で訳と時間を出して終わるための余白（秒）
 RED_SHOWN = 12
 AF_PAGE = re.compile(r"""<meta\b[^>]*\bname\s*=\s*["']af-page["'][^>]*\bcontent\s*=\s*["']([^"']*)["']""", re.I)
 # docs-kit の枠が持つ selftest の見張り（型の印を外したページもこれで拾う）
@@ -63,6 +65,10 @@ def declared_check(sdir):
         if k.strip() == "page-check":
             return v.strip().strip("'\"")
     return ""
+
+
+def _text(b):
+    return b.decode("utf-8", "replace") if isinstance(b, bytes) else (b or "")
 
 
 def reason(path, kind, lines, cmd=""):
@@ -117,11 +123,19 @@ def check_page(path, guard_root=None):
     if not os.path.isfile(chk):
         return reason(path, kind, ["  型の検査 %s が無い。plugin docs-kit を入れ直す" % chk])
     cmd = "python3 %s %s" % (chk, path)
+    t0 = time.time()
     try:
+        # 上限はここ 1 か所: 検査へ締め（AF_CHECK_DEADLINE）を渡し、検査は締めの前に訳と時間を出して exit 2 で終わる。
+        # TIMEOUT はその締めを越えて検査が戻らない時だけの止め（50 秒＝手元の実測 0.3〜0.9 秒・CI の緑の回の数秒に対し十分）。
         p = subprocess.run([sys.executable, chk, path], capture_output=True, text=True, timeout=TIMEOUT,
-                           cwd=os.path.dirname(path) or None)
+                           cwd=os.path.dirname(path) or None,
+                           env=dict(os.environ, AF_CHECK_DEADLINE="%.3f" % (t0 + TIMEOUT - MARGIN)))
+    except subprocess.TimeoutExpired as e:
+        part = [ln for ln in _text(e.stdout).splitlines() + _text(e.stderr).splitlines() if ln.strip()]
+        return reason(path, kind, ["  検査が %d 秒で戻らない（%.1f 秒待った・締めを越えた）: %s"
+                                   % (TIMEOUT, time.time() - t0, " / ".join(part[-3:]) or "出力なし")], cmd)
     except (OSError, subprocess.SubprocessError) as e:
-        return reason(path, kind, ["  検査が走らなかった: %s" % e], cmd)
+        return reason(path, kind, ["  検査が走らなかった: %s（%.1f 秒）" % (e, time.time() - t0)], cmd)
     if p.returncode == 0:
         return ""
     out = [ln for ln in (p.stdout + "\n" + p.stderr).splitlines() if ln.strip()]

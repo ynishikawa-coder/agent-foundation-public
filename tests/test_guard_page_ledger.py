@@ -344,13 +344,22 @@ def AT(t, ts=SHOWN_AT):
     return r
 
 
+NB = "/作り物/venv/bin/notebooklm"
+
+
 def cmds(m):
     return {"compose": SEND_CMD + " --text-file " + m["txt"],
-            "deck": '"$V/notebooklm" source add nb1 ' + m["pdf"]}
+            "deck": NB + " source add nb1 " + m["pdf"]}
+
+
+def sha12(p):
+    import hashlib
+    return hashlib.sha256(Path(p).read_bytes()).hexdigest()[:12]
 
 
 def show(m):
-    return AT("送る文面です。\n```\n%s\n```\n素材は %s です。送ってよいですか" % (BODY, os.path.basename(m["pdf"])))
+    return AT("グループへ送る文面です。\n```\n%s\n```\n素材は %s（sha256 %s）をノート nb1 へ入れます。送ってよいですか"
+              % (BODY, os.path.realpath(m["pdf"]), sha12(m["pdf"])))
 
 
 @pytest.mark.parametrize("which", ["compose", "deck"])
@@ -392,18 +401,18 @@ def test_send_go_見せた物と送る物が違えば止める(senv, tmp_path, m
     t = tlog(tmp_path, rows)
     Path(mat["txt"]).write_text(BODY + "\n追伸: 見せていない一文", encoding="utf-8")
     assert denied(senv, send(cmds(mat)["compose"], t))
-    os.utime(mat["pdf"], None)                 # 見せた後に書き直した素材
+    Path(mat["pdf"]).write_bytes(b"%PDF-1.4\0\x01\x02 rewritten")   # 見せた後に中身を書き直した素材（名と path は同じ）
     assert denied(senv, send(cmds(mat)["deck"], t))
     other = tmp_path / "other.pdf"
     other.write_bytes(b"%PDF-1.4\0")
     os.utime(other, (1_700_000_000, 1_700_000_000))
-    assert denied(senv, send('"$V/notebooklm" source add nb1 ' + str(other), t))
+    assert denied(senv, send(NB + " source add nb1 " + str(other), t))
 
 
 def test_send_go_命令に直に書いた文面も見せた物と結ぶ(senv, tmp_path):
     cmd = SEND_CMD + " --text '作り物の 短い 連絡です'"
     assert denied(senv, send(cmd, tlog(tmp_path, [U("連絡して"), AT("送ります"), U("go")])))
-    assert not denied(senv, send(cmd, tlog(tmp_path, [U("連絡して"), AT("文面: 作り物の 短い 連絡です"), U("go")])))
+    assert not denied(senv, send(cmd, tlog(tmp_path, [U("連絡して"), AT("グループへ 文面: 作り物の 短い 連絡です"), U("go")])))
 
 
 def test_send_go_送る物を見分けられない命令は止める(senv, tmp_path):
