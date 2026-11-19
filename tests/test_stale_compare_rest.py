@@ -12,6 +12,8 @@ import re
 import subprocess
 from pathlib import Path
 
+import pytest
+
 from test_core_plugin import PLUGIN, Foundation, _commit, _git, kaku, run
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -72,7 +74,7 @@ def test_出所に出られなければ確かめられないと名指し_消す�
 # ── 入れ方は今回の setup の記録で見る ──
 
 def _home(tmp_path, *, rec_sha=None, rec_at="2026-11-19T20:57:09+0900", updated="2026-11-19T11:57:05.000Z",
-          enabled=("core", "guard"), repo=None):
+          enabled=("core", "guard"), repo=None, main_at=None):
     home = tmp_path / "home"
     loc = home / ".claude" / "plugins" / "marketplaces" / "agent-foundation"
     (loc / ".claude-plugin").mkdir(parents=True)
@@ -89,7 +91,7 @@ def _home(tmp_path, *, rec_sha=None, rec_at="2026-11-19T20:57:09+0900", updated=
     (home / ".claude" / "af-foundation").mkdir(parents=True)
     (home / ".claude" / "af-foundation" / "setup.json").write_text(json.dumps(
         {"entry": "scripts/setup_plugins.py", "catalog_sha": rec_sha or sha, "at": rec_at, "refreshed": True,
-         "stale": []}), encoding="utf-8")
+         "stale": [], **({"main_at_setup": main_at} if main_at else {})}), encoding="utf-8")
     return home
 
 
@@ -117,6 +119,25 @@ def test_入っていても_enabled_でない_plugin_を名指す(tmp_path):
     """注入: 台帳に鍵は在るが enabled でない plugin → 入っていない物として名指す（入口の enabled() と同じ見方）。"""
     text = _setup(tmp_path, enabled=("core",))
     assert "enabled になっていない: guard" in text, text
+
+
+@pytest.mark.parametrize("kw", [{"rec_sha": "c" * 40}, {"updated": "2026-11-19T13:00:00.000Z"}])
+def test_前の_setup_の記録の_main_で起動の古さの訳を決めない(tmp_path, monkeypatch, kw):
+    """注入: 前の setup の記録（main_at_setup が今入った版と同じ）が残る箱で、入口を通らずに入れ直した
+    → その記録で「setup の後に main が進んだ」と決めず、記録が無い時と同じく見分けられないとする。"""
+    sha = "b" * 40
+    monkeypatch.setenv("HOME", str(_home(tmp_path, main_at=sha, **kw)))
+    f = {"plugins": ["guard"], "installed": sha, "main": "e" * 40}
+    assert kaku.setup_record()[0] is None
+    assert kaku.start_cause(f) == "unknown"
+    assert f"setup の時の main の先端は {sha[:12]}" not in kaku.stale_at_start_text(f)
+
+
+def test_今回の_setup_の記録の_main_で起動の古さの訳を決める(tmp_path, monkeypatch):
+    sha = "b" * 40
+    monkeypatch.setenv("HOME", str(_home(tmp_path, main_at=sha)))
+    assert kaku.start_cause({"plugins": ["guard"], "installed": sha}) == "after"
+    assert kaku.start_cause({"plugins": ["guard"], "installed": "d" * 40}) == "setup"
 
 
 # ── 目録の出所は土台の repo ──
@@ -173,33 +194,61 @@ def _fetch_tip(work):
     return _git(work, "rev-parse", "FETCH_HEAD")
 
 
-def _pr_shape(work):
-    env = dict(__import__("os").environ, GITHUB_HEAD_REF="", GITHUB_EVENT_NAME="")
-    return subprocess.run(["bash", str(work / "scripts" / "checks" / "pr_shape.sh")], cwd=work, capture_output=True,
-                          text=True, env=env)
-
-
-def test_手元の_origin_main_が古くても_main_で足された断片を枝の物と見ない(tmp_path):
-    """注入: 手元の origin/main を古く置く（main で他の PR の断片が足された後に fetch していない）→ 枝の物と見ない。"""
-    _, work = _checks_repo(tmp_path)
-    r = _pr_shape(work)
-    assert r.returncode == 0 and "20261119-hoka" not in r.stdout, r.stdout + r.stderr
-
-
-def test_出所に出られなければ_checks_は手元の_origin_main_で比べず止まる(tmp_path):
-    remote, work = _checks_repo(tmp_path)
-    remote.rename(tmp_path / "移した.git")
-    r = _pr_shape(work)
-    assert r.returncode == 2 and "出所" in (r.stdout + r.stderr), r.stdout + r.stderr
-
-
-def test_checks_の入口は出所の_main_を比べる元にする():
-    """scripts/checks/ の入口で main と比べる物は、どれも fresh_main を通る（手元の origin/main を直に読む道が無い）。"""
+def _entries():
+    """scripts/checks/ の入口のうち main と比べる物（--base か merge-base を持つ）。足した入口も自ずと入る。"""
+    out = []
     for sh in sorted((ROOT / "scripts" / "checks").glob("*.sh")):
         code = [ln for ln in sh.read_text(encoding="utf-8").splitlines() if not ln.lstrip().startswith("#")]
-        assert not any("origin/main" in ln for ln in code), sh.name
         if any("--base" in ln or "merge-base" in ln for ln in code):
-            assert any("--print-main" in ln for ln in code), sh.name
+            out.append(sh.name)
+    return out
+
+
+ENTRIES = _entries()
+
+
+def _entry(work, name):
+    """入口 name を作り物の repo に置き、比べる元を読んだ後の本体（scripts/pr_shape.py 以外）は渡された引数を出す作り物にする。
+    入口が出所に聞けない時に手元の main へ倒れて本体まで進めば、作り物が「本体に来た」と出す。"""
+    import re
+    import shutil
+    sh = work / "scripts" / "checks" / name
+    shutil.copy(ROOT / "scripts" / "checks" / name, sh)
+    stubbed = False
+    for rel in set(re.findall(r"python3 (\S+\.py)", sh.read_text(encoding="utf-8"))) - {"scripts/pr_shape.py"}:
+        (work / rel).parent.mkdir(parents=True, exist_ok=True)
+        (work / rel).write_text("import sys\nprint('本体に来た', *sys.argv[1:])\n", encoding="utf-8")
+        stubbed = True
+    env = dict(__import__("os").environ, GITHUB_EVENT_NAME="pull_request", GITHUB_HEAD_REF="claude/20261119-eda",
+               PR_BODY="", PR_HEAD_SHA="HEAD")
+    return stubbed, subprocess.run(["bash", str(sh)], cwd=work, capture_output=True, text=True, env=env)
+
+
+def test_main_と比べる_checks_の入口が揃っている():
+    assert {"pr_shape.sh", "pr_writer.sh", "kaku_growth.sh"} <= set(ENTRIES), ENTRIES
+
+
+@pytest.mark.parametrize("name", ENTRIES)
+def test_手元の_origin_main_が古くても_checks_の入口は出所の今の_main_と比べる(tmp_path, name):
+    """注入: 手元の origin/main を古く置く（main で他の PR の断片が足された後に fetch していない）→ 出所の今の main と比べる。"""
+    remote, work = _checks_repo(tmp_path)
+    tip = _git(remote, "rev-parse", "main")
+    stubbed, r = _entry(work, name)
+    out = r.stdout + r.stderr
+    if stubbed:
+        assert r.returncode == 0 and f"--base {tip}" in out, out
+    else:
+        assert r.returncode == 0 and "20261119-hoka" not in out, out
+
+
+@pytest.mark.parametrize("name", ENTRIES)
+def test_出所に出られなければ_checks_の入口は手元の_main_へ倒れず止まる(tmp_path, name):
+    """注入: 出所が無くなる → 手元の origin/main・origin/HEAD で比べて進まず、出所を名指して 2 で止まる。"""
+    remote, work = _checks_repo(tmp_path)
+    remote.rename(tmp_path / "移した.git")
+    _, r = _entry(work, name)
+    out = r.stdout + r.stderr
+    assert r.returncode == 2 and "出所" in out and "本体に来た" not in out, out
 
 
 # ── changelog は main の first-parent で入った時で並べる ──
