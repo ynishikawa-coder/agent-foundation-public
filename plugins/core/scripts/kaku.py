@@ -27,6 +27,10 @@ FRAME_END = "<!-- AF-CORE:END -->"
 LIMITS = {"核": 4800, "振る舞い": 2400, "各社固有": 3000}
 
 
+# 読めない時の類（無い・権限・UTF-8 でない中身）を 1 か所で受ける。どの読みもこれで受け、欠けを名指しする。
+UNREADABLE = (OSError, UnicodeDecodeError)
+
+
 def size(text: str) -> int:
     return len(text.encode("utf-8"))
 
@@ -34,7 +38,7 @@ def size(text: str) -> int:
 def has_frame(claude_md: Path) -> bool:
     try:
         return FRAME_BEGIN in claude_md.read_text(encoding="utf-8")
-    except OSError:
+    except UNREADABLE:
         return False
 
 
@@ -50,7 +54,7 @@ def inject_text() -> str:
     kaku = KAKU.read_text(encoding="utf-8").rstrip("\n")
     try:
         furumai = FURUMAI.read_text(encoding="utf-8").rstrip("\n")
-    except OSError as e:
+    except UNREADABLE as e:
         # 欠けたまま黙って核だけにしない: 窓の起動は止めず、欠けた事を文脈に名指しで出す
         print(f"plugin core: 振る舞い.md が読めない（{e}）", file=sys.stderr)
         furumai = f"（振る舞いの既定 {FURUMAI} が読めず、差し込まれていない。最初にオーナーへ知らせる）"
@@ -65,7 +69,7 @@ def inject() -> int:
         return 0  # 写しの枠が在る repo は CLAUDE.md が核を持つ＝差し込まない（二重を避ける）
     try:
         text = inject_text()
-    except OSError as e:
+    except UNREADABLE as e:
         print(f"plugin core: 核.md が読めない（{e}）＝核は差し込まれていない", file=sys.stderr)
         return 0
     out = {"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": text}}
@@ -77,14 +81,14 @@ def check(claude: Path | None) -> int:
     bad = []
     try:
         n = size(KAKU.read_text(encoding="utf-8"))
-    except OSError as e:
+    except UNREADABLE as e:
         print(f"✗ 核.md が読めない: {e}")
         return 2
     if n > LIMITS["核"]:
         bad.append(f"核（{KAKU.name}）が上限を越えた: {n} > {LIMITS['核']} バイト（細目へ移す）")
     try:
         f = size(FURUMAI.read_text(encoding="utf-8"))
-    except OSError as e:
+    except UNREADABLE as e:
         print(f"✗ 振る舞い.md が読めない: {e}")
         return 2
     if f > LIMITS["振る舞い"]:
@@ -92,7 +96,7 @@ def check(claude: Path | None) -> int:
     if claude is not None:
         try:
             m = size(outside_frame(claude.read_text(encoding="utf-8")))
-        except OSError as e:
+        except UNREADABLE as e:
             print(f"✗ {claude} が読めない: {e}")
             return 2
         if m > LIMITS["各社固有"]:
