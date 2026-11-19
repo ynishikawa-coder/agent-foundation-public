@@ -177,6 +177,8 @@ def test_repo_自身の欄と注は照らさない(tmp_path):
     ({"guard": {"context_limt": 1}}, "guard.context_limt は知らない鍵"),
     ({"docs-kit": {"qa-html": {"customer": {"check_cmmd": "x"}}}}, "docs-kit.qa-html.customer.check_cmmd は知らない鍵"),
     ({"common": {"save_dir": ["a"]}}, "common.save_dir の型が違う"),
+    ({"common": {"rules": {"no_confirm": "x"}}}, "common.rules は畳んだ鍵"),          # 束 B（PR #43）で畳んだ写し
+    ({"dev-flow": {"verify": {"code_done_rule": "x"}}}, "dev-flow.verify.code_done_rule は畳んだ鍵"),
 ])
 def test_知らない鍵・畳んだ鍵・型違いを名指しする(tmp_path, table, word):
     r = make_repo(tmp_path, table)
