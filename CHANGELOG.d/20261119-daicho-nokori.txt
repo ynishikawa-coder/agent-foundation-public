@@ -1,0 +1,10 @@
+- 直した: 入れて起動する試験（scripts/plugin_smoke.py）が、核.md だけでなく毎回差し込む物の全部（plugins/core/scripts/kaku.py の injected() をそのまま読む）が届くかを見る。
+- 足した: guard の spec_gate。設計書の型の gate（check_spec_doc.py）を封の入口 seal.py を通さず --lock で直に呼ぶ AI の手を止める。
+- 壊れる: spec-doc の seal.py は 15 §6 の扱いを閉じた形だけ読む（直した／覆す／覆す＝墓標へ／関係なし ちょうど＋（理由: …）か（根拠: …）の 1 つまで）。それ以外の字が付く行・理由に未定の印が在る行・§6 の中の地の文の行・扱いの列の無い表の行で止まる。
+- 直した: codex のパックの builder は、窓が持つ秘密の値そのもの（鍵らしい名の環境変数と repo の根の .env*）・その repo の git の物でない 16 進の塊・16〜31 字の鍵らしい塊も止める。
+- 壊れる: checker の verdict_form.py は --writer と --head が欠けたら exit 2。所見の札と段は review-pr の SKILL.md の「- 札は」の行から読む。書いた窓が立てた助手の判定は別の目にならない（SKILL の説明を合わせた）。
+- 足した: scripts/call_flows.py。plugin どうしの道具の呼び出しの流れを機械で拾い、全体の絵（docs/全体の絵.json が在る時）に全部在るかを試験で照らす。
+- 足した: plugins/core/scripts/copies.py。使う側の文に土台の決まりの写し（言い換えも）が無いかを字の並びの重なりで拾う。
+- 足した: scripts/pr_shape.py（CI の check）。PR で足す変更の記録の断片は枝から決まる名だけ、元から在る試験の file の試験は増やさない。scripts/pr_overlap.py（CI の overlap・止めない）は同じ行の辺りを書き換える他の PR を名指す。
+- 畳んだ: PR の型の「触る path」の行と「残り」の行き先の写し（台帳の行の URL だけ）、plugin の説明・一覧・skill の説明の見張りの数、test_core_plugin.py の CHANGELOG.md の除き。review-pr の点 2 は「触った path」（差分から取る）。
+- 壊れる: guard の入口 guard.py は見張りの一覧（WATCHERS）を持たず、各見張りの file の頭の HOOKS = {出来事: 関数} を読んで回す。見張りを足す時は自分の file に HOOKS を書くだけ（入口の 1 行へ足さない）。

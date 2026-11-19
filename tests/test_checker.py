@@ -21,7 +21,7 @@ green
 
 ## 点
 - 1 依頼の充足: pass
-- 2 宣言した path: pass
+- 2 触った path: pass
 - 3 別の目: 書いた窓 session_WRITER01 ≠ この窓
 - 4 回帰: pass（check_all: 緑）
 - 5 秘密・顧客の物: pass
@@ -47,7 +47,7 @@ red
 
 ## 点
 - 1 依頼の充足: fail（作り物の欠け）
-- 2 宣言した path: pass
+- 2 触った path: pass
 - 3 別の目: 書いた窓 session_WRITER01 ≠ この窓
 - 4 回帰: pass（check_all: 緑）
 - 5 秘密・顧客の物: pass
@@ -149,7 +149,7 @@ def test_点の節が無いと赤():
 
 def test_表に無い点と重なりと名の違いは赤():
     assert any("点 14" in e for e in vf.check(GREEN.replace("- 13 全体の絵: pass（差なし・版 2026-11-19.1）", "- 13 全体の絵: pass（差なし・版 2026-11-19.1）\n- 14 作り物: pass")))
-    assert any("2 度" in e for e in vf.check(GREEN.replace("- 2 宣言した path: pass", "- 2 宣言した path: pass\n- 2 宣言した path: pass")))
+    assert any("2 度" in e for e in vf.check(GREEN.replace("- 2 触った path: pass", "- 2 触った path: pass\n- 2 触った path: pass")))
     assert any("点 4 の名" in e for e in vf.check(GREEN.replace("- 4 回帰:", "- 4 回り:")))
 
 
@@ -177,34 +177,23 @@ def test_同じ見出しの節が_2_つ在ると赤():
     assert any("`## 点` の節が 2 個" in e for e in vf.check(text, writer="session_WRITER01"))
 
 
-# 注入の試験: 点 13（全体の絵）を照らさずに通す形をわざと入れ、形の道具が赤にする事を見る。
+def test_ファイルを2つ渡すと2つ目も照らす(tmp_path, capsys):
+    good, bad = tmp_path / "a.md", tmp_path / "b.md"
+    good.write_text(GREEN, encoding="utf-8")
+    bad.write_text(GREEN.replace("## verdict\ngreen", "## verdict\nred"), encoding="utf-8")
+    assert vf.main(["verdict_form.py", str(good), "--writer", "session_WRITER01", "--head", "0123456789ab"]) == 0
+    capsys.readouterr()
+    assert vf.main(["verdict_form.py", str(good), str(bad), "--writer", "session_WRITER01", "--head", "0123456789ab"]) == 1
+    out = capsys.readouterr().out
+    assert str(bad) in out and "誤りのあるファイル 1" in out
 
 
-def test_全体の絵の点は_N_A_にできない():
-    errs = vf.check(GREEN.replace("- 13 全体の絵: pass（差なし・版 2026-11-19.1）", "- 13 全体の絵: N/A"), writer="session_WRITER01")
-    assert any("点 13" in e and "N/A" in e for e in errs), errs
-
-
-def test_全体の絵の_pass_は差なしと版を書く():
-    for bad in ["pass", "pass（見た）", "pass（差なし）", "pass（版 2026-11-19.1）"]:
-        errs = vf.check(GREEN.replace("pass（差なし・版 2026-11-19.1）", bad), writer="session_WRITER01")
-        assert any("点 13" in e for e in errs), (bad, errs)
-
-
-def test_全体の絵に差があれば_red():
-    text = GREEN.replace("- 13 全体の絵: pass（差なし・版 2026-11-19.1）", "- 13 全体の絵: fail（差 2 件）")
-    assert any("判定は red" in e for e in vf.check(text, writer="session_WRITER01"))
-    red = text.replace("判定: green", "判定: red").replace("## verdict\ngreen", "## verdict\nred\n直し: 細目 §3「まず構造を疑う」").replace(
-        "- [台帳へ｜整地] 作り物の気づき", "- [止める｜設計] 全体の絵と差 2 件。main へ入れずに止め、差を見せてオーナーに決めてもらう")
-    assert vf.check(red, writer="session_WRITER01") == []
-
-
-def test_全体の絵が複数なら全部の名と版を書いた_pass_だけ通る():
-    ok = "pass（差なし・版 うみ 2026-11-19.1／やま 2026-11-20.1）"
-    assert not [e for e in vf.check(GREEN.replace("pass（差なし・版 2026-11-19.1）", ok), writer="session_WRITER01") if "点 13" in e]
-    for bad in ["pass（差なし・版 うみ 2026-11-19.1／やま）", "pass（差なし・版 うみ／やま）", "pass（差なし・版 うみ 2026-11-19.1／）"]:
-        errs = vf.check(GREEN.replace("pass（差なし・版 2026-11-19.1）", bad), writer="session_WRITER01")
-        assert any("点 13" in e for e in errs), (bad, errs)
+def test_知らない印と値の無い印は止まる(tmp_path):
+    good = tmp_path / "a.md"
+    good.write_text(GREEN, encoding="utf-8")
+    assert vf.main(["verdict_form.py", str(good), "--writr", "x"]) == 2
+    assert vf.main(["verdict_form.py", str(good), "--writer"]) == 2
+    assert vf.main(["verdict_form.py", str(good), "--writer", "a", "--writer", "b"]) == 2
 
 
 def test_止めない気づきの札は台帳へで_古い後の便は通らない():

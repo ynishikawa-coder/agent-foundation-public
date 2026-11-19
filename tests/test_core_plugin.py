@@ -1,4 +1,4 @@
-"""plugin core の試験: 核の差し込み（写しの枠が在れば差し込まない）と、量の上限の照らし。"""
+"""plugin core の試験: 核の差し込み（いつも正本）・使う側に残った写しと古い形の名指し・量の上限の照らし。"""
 import importlib.util
 import json
 import os
@@ -17,6 +17,21 @@ spec = importlib.util.spec_from_file_location("kaku", TOOL)
 kaku = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(kaku)
 LIMITS = kaku.LIMITS
+
+
+def old_words_left(olds):
+    """土台の文（.md .py .json .mjs .html・試験と .git を除く）に残る古い言い回しを「path: 語」で返す。
+    変更の記録は CHANGELOG.d/ の .txt（経緯として古い語を持つ）なので、拡張子で外れる＝file 名で除かない。"""
+    hits = []
+    for p in sorted(ROOT.rglob("*")):
+        rel = p.relative_to(ROOT)
+        # 古い形.json は使う側に残る古い形を見つける一覧＝古い名を持つのが役目（見つけ方の正しさは古い形の試験が照らす）
+        if rel.parts[0] in {".git", "tests"} or p == PLUGIN / "古い形.json":
+            continue
+        if p.is_file() and p.suffix in {".md", ".py", ".json", ".mjs", ".html"}:
+            text = p.read_text(encoding="utf-8")
+            hits += [f"{rel}: {o}" for o in olds if o in text]
+    return hits
 
 
 def size(text: str) -> int:
@@ -61,11 +76,134 @@ def test_CLAUDE_md_が無い_repo_にも差し込む(tmp_path):
     assert r.returncode == 0 and "additionalContext" in r.stdout
 
 
-def test_写しの枠が在る_repo_には差し込まない(tmp_path):
-    (tmp_path / "CLAUDE.md").write_text("<!-- AF-CORE:BEGIN 写し -->\n核\n<!-- AF-CORE:END -->\n固有\n",
+def _ctx(r):
+    assert r.returncode == 0, r.stderr
+    return json.loads(r.stdout)["hookSpecificOutput"]["additionalContext"]
+
+
+def test_写しの枠が在る_repo_にも正本の核を差し込み_枠を名指しする(tmp_path):
+    """注入: 使う側の CLAUDE.md に古い核の写しの枠を戻す → 写しでなく正本が差し込まれ、枠が file の名で知らされる。"""
+    (tmp_path / "CLAUDE.md").write_text("<!-- AF-CORE:BEGIN 写し -->\n古い核\n<!-- AF-CORE:END -->\n固有\n",
                                          encoding="utf-8")
-    r = run("inject", project=tmp_path)
-    assert r.returncode == 0 and r.stdout == ""
+    ctx = _ctx(run("inject", project=tmp_path))
+    assert ctx.startswith((PLUGIN / "核.md").read_text(encoding="utf-8").rstrip("\n"))
+    assert "古い形（写し）が残っている" in ctx and "CLAUDE.md: CLAUDE.md の核の写しの枠" in ctx
+
+
+def test_古い形の一覧の行は形が揃い_例が自分の形に当たる():
+    rows = kaku.olds_table()
+    assert {r["id"] for r in rows} >= {"af-core-frame", "plugin-name-copy"}
+    for r in rows:
+        assert r["re"].search(r["example"]), f"{r['id']} の例が形に当たらない（見つける力が無い）"
+
+
+@pytest.mark.parametrize("line", [
+    "claude plugin install core@agent-foundation --scope user",
+    "claude plugins install core@agent-foundation",
+    "claude plugin i core@agent-foundation",
+    "claude plugin install --scope user core@agent-foundation",
+    "claude plugin install -s user guard@agent-foundation || true",
+    'for p in core guard; do claude plugin install "$p@agent-foundation"; done',
+    # 名を変数に置く・行を継ぐ（レビューの赤）。入れ方の綴りに頼らず「土台の目録を足すのに入口を呼ばない」形でも当たる
+    'MARKET=agent-foundation\nclaude plugin install "$p@$MARKET"',
+    'AF="agent-foundation"\nfor p in core guard; do claude plugin install "${p}@${AF}"; done',
+    'claude plugin install \\\n  core@agent-foundation --scope user',
+    'claude plugin marketplace add ynishikawa-coder/agent-foundation-public --scope user\nfor p in $want; do claude plugin install "$p@$m"; done',
+])
+def test_plugin_を入れる行は綴りが違っても古い形に当たる(line):
+    """注入: 同じ意味の別の綴り（plugins・i・名の前の option）で偽の「古い形 0」にならない。"""
+    row = next(r for r in kaku.olds_table() if r["id"] == "plugin-name-copy")
+    assert row["re"].search(line), line
+
+
+def test_入口を呼ぶ_setup_は古い形に当たらない():
+    """入口 scripts/setup_plugins.py を通る形（docs の 3 行）は、目録を足していても古い形ではない。"""
+    row = next(r for r in kaku.olds_table() if r["id"] == "plugin-name-copy")
+    doc = (ROOT / "docs" / "核の届け方.md").read_text(encoding="utf-8")
+    block = re.search(r"<!-- setup-script.*?-->\s*```bash\n(.*?)\n\s*```", doc, re.S).group(1)
+    assert "marketplace add" in block and not row["re"].search(block)
+
+
+def test_古い形の見張りは時間の上限で打ち切り_黙って一部だけにしない(tmp_path):
+    """注入: 見張りの時間を使い切った形 → 当たった所までを黙って返さず TimeoutError（起動では「見張りが動かなかった」と名指し）。"""
+    import time
+    _olds_repo(tmp_path / "p", {"CLAUDE.md": "<!-- AF-CORE:BEGIN -->\n"})
+    with pytest.raises(TimeoutError):
+        kaku.find_olds(tmp_path / "p", deadline=time.monotonic() - 1)
+    assert kaku.find_olds(tmp_path / "p", deadline=time.monotonic() + 60)
+
+
+def test_古い形の一覧の欄が欠けると読めない(tmp_path):
+    bad = tmp_path / "古い形.json"
+    bad.write_text(json.dumps({"olds": [{"id": "x", "files": ["a"], "pattern": "a"}]}), encoding="utf-8")
+    with pytest.raises(ValueError):
+        kaku.olds_table(bad)
+
+
+def _olds_repo(d, files):
+    d.mkdir(parents=True, exist_ok=True)
+    for name, body in files.items():
+        (d / name).parent.mkdir(parents=True, exist_ok=True)
+        (d / name).write_text(body, encoding="utf-8")
+    subprocess.run(["git", "init", "-q", str(d)], check=True)
+    subprocess.run(["git", "-C", str(d), "add", "-A"], check=True)
+
+
+def test_plugin_の名を写した_setup_の行が在る_repo_を名指しする(tmp_path):
+    """注入: 使う側の setup script に plugin の名を写して入れる行を戻す → 起動の hook と olds が file を名指しする。"""
+    proj = tmp_path / "p"
+    _olds_repo(proj, {"scripts/env/setup.sh": 'for p in core guard; do claude plugin install "$p@agent-foundation"; done\n',
+                     "README.md": "ふつう\n"})
+    ctx = _ctx(run("inject", project=proj))
+    assert "scripts/env/setup.sh: 土台の目録を足して plugin を入れるのに" in ctx and "README.md" not in ctx
+    r = run("olds", proj)
+    assert r.returncode == 1 and "plugin-name-copy" in r.stdout
+    (proj / "scripts/env/setup.sh").write_text("python3 \"$af\" || true\n", encoding="utf-8")
+    r = run("olds", proj)
+    assert r.returncode == 0 and "古い形 0" in r.stdout
+    assert "古い形（写し）" not in _ctx(run("inject", project=proj))
+
+
+def test_土台そのものに古い形が残らない():
+    r = run("olds", ROOT)
+    assert r.returncode == 0, r.stdout
+
+
+def test_CLAUDE_md_が上限を越えた_repo_は起動の時に名指しする(tmp_path):
+    """使う側は kaku.py も LIMITS も写して持たない＝起動の hook が照らす。"""
+    (tmp_path / "CLAUDE.md").write_text("決" * (LIMITS["各社固有"] // 3 + 1), encoding="utf-8")
+    assert "量の上限を越えている" in _ctx(run("inject", project=tmp_path))
+    (tmp_path / "CLAUDE.md").write_text("決" * (LIMITS["各社固有"] // 3), encoding="utf-8")
+    assert "量の上限を越えている" not in _ctx(run("inject", project=tmp_path))
+
+
+def _installed_home(tmp_path, names, have, entry):
+    """GitHub から目録を足した窓の home（目録の clone・入った plugin の台帳・入口の印）を作る。"""
+    home = tmp_path / "home"
+    loc = home / ".claude" / "plugins" / "marketplaces" / "agent-foundation"
+    (loc / ".claude-plugin").mkdir(parents=True)
+    (loc / ".claude-plugin" / "marketplace.json").write_text(json.dumps(
+        {"name": "agent-foundation", "plugins": [{"name": n} for n in names]}), encoding="utf-8")
+    (home / ".claude" / "plugins" / "known_marketplaces.json").write_text(json.dumps({"agent-foundation": {
+        "source": {"source": "github", "repo": "o/r"}, "installLocation": str(loc)}}), encoding="utf-8")
+    (home / ".claude" / "plugins" / "installed_plugins.json").write_text(json.dumps(
+        {"version": 2, "plugins": {f"{n}@agent-foundation": [{}] for n in have}}), encoding="utf-8")
+    if entry:
+        (home / ".claude" / "af-foundation").mkdir(parents=True)
+        (home / ".claude" / "af-foundation" / "setup.json").write_text("{}", encoding="utf-8")
+    return home
+
+
+def test_古い形の_setup_script_と入っていない_plugin_を名指しする(tmp_path):
+    """注入: 土台が plugin を足したのに、名を写した古い setup script がそれを入れない → 窓の起動で名指し。"""
+    home = _installed_home(tmp_path, ["core", "guard", "new-one"], ["core", "guard"], entry=False)
+    ctx = _ctx(run("inject", project=tmp_path / "proj", home=home))
+    assert "setup script が古い形" in ctx and "入っていない: new-one" in ctx
+
+
+def test_入口で全部入った窓には入れ方の知らせを出さない(tmp_path):
+    home = _installed_home(tmp_path, ["core", "guard"], ["core", "guard"], entry=True)
+    assert "入れ方が古い" not in _ctx(run("inject", project=tmp_path / "proj", home=home))
 
 
 def test_上限の数は_1_か所で_核より各社固有が小さい():
@@ -89,11 +227,11 @@ def test_各社固有が上限を越えると赤で_上限ちょうどは緑(tmp
     assert "細目 §3「まず構造を疑う」" in r.stdout.strip().splitlines()[-1], "越えた時に文を移させるだけの古い形に戻った"
 
 
-def test_写しの枠が在れば枠の外だけを各社固有として測る(tmp_path):
+def test_写しの枠が残る_CLAUDE_md_は量の照らしで赤(tmp_path):
     claude = tmp_path / "CLAUDE.md"
-    big = "核" * (LIMITS["各社固有"] // 3 + 10)
-    claude.write_text(f"<!-- AF-CORE:BEGIN x -->\n{big}\n<!-- AF-CORE:END -->\n固有\n", encoding="utf-8")
-    assert run("check", "--claude", claude).returncode == 0
+    claude.write_text("<!-- AF-CORE:BEGIN x -->\n核\n<!-- AF-CORE:END -->\n固有\n", encoding="utf-8")
+    r = run("check", "--claude", claude)
+    assert r.returncode == 1 and "写しの枠" in r.stdout
 
 
 def test_核が上限を越えると赤(monkeypatch, tmp_path, capsys):
@@ -162,29 +300,15 @@ def test_聞き方は見せてから聞き_前提の出所を分け_推奨の印
     reminder = (ROOT / "plugins" / "guard" / "scripts" / "unanswered.py").read_text(encoding="utf-8")
     assert "この答えに頼らない作業だけを進めて" in reminder
     olds = ["答えを待つ間も止まらない", "①決めること ②なぜ今 ③材料", "推奨を 1 つ目に `(推奨)`", "「終わった（推奨）」",
-            "戻せる作業だけを推奨案で進めて", "答え待ちで推奨を採った", "質問（`Q`）は必ず推奨と", "推奨を 1 つ目・", "推奨を 1 つ目・1 画面 4 問まで"]
-    hits = []
-    for p in sorted(ROOT.rglob("*")):
-        rel = p.relative_to(ROOT)
-        if rel.parts[0] in {".git", "tests"} or p.name == "CHANGELOG.md":
-            continue
-        if p.is_file() and p.suffix in {".md", ".py", ".json", ".mjs", ".html"}:
-            text = p.read_text(encoding="utf-8")
-            hits += [f"{rel}: {o}" for o in olds if o in text]
+            "戻せる作業だけを推奨案で進めて", "答え待ちで推奨を採った", "質問（`Q`）は必ず推奨と", "推奨を 1 つ目・", "推奨を 1 つ目・1 画面 4 問まで", "推奨で決めて"]
+    hits = old_words_left(olds)
     assert not hits, hits
 
 
 def test_古い根治と聞き方の言い回しが土台に残らない():
     olds = ["根治の 4 つの問い", "①構造の原因", "いつも選択肢の画面", "返事の中で平文の問いを出さない",
             "専門用語は日常の言葉にする", "専門の語は日常の言葉に言い換え", "名前・数字など選べない答えも候補を選択肢に置き"]
-    hits = []
-    for p in sorted(ROOT.rglob("*")):
-        rel = p.relative_to(ROOT)
-        if rel.parts[0] in {".git", "tests"} or p.name == "CHANGELOG.md":
-            continue                       # 試験の中の古い語の一覧と、変更の記録の経緯は除く
-        if p.is_file() and p.suffix in {".md", ".py", ".json", ".mjs", ".html"}:
-            text = p.read_text(encoding="utf-8")
-            hits += [f"{rel}: {o}" for o in olds if o in text]
+    hits = old_words_left(olds)
     assert not hits, hits
 
 
@@ -195,14 +319,7 @@ def test_一言の返事は札と締めを省き_窓の役に決まった一覧�
     s5d = _節((PLUGIN / "細目.md").read_text(encoding="utf-8"), 5)
     assert "**一言で済む返事**" in s5d and "札を付けたら締めも付ける" in s5d
     olds = ["の 5 つだけ。他の名を足さない", "親・書く・レビュー・調べ・手 の 5 つ", "社内で確かめてから答える", "問いの形（3 つだけ）", "決まった 4 文"]
-    hits = []
-    for p in sorted(ROOT.rglob("*")):
-        rel = p.relative_to(ROOT)
-        if rel.parts[0] in {".git", "tests"} or p.name == "CHANGELOG.md":
-            continue
-        if p.is_file() and p.suffix in {".md", ".py", ".json", ".mjs", ".html"}:
-            text = p.read_text(encoding="utf-8")
-            hits += [f"{rel}: {o}" for o in olds if o in text]
+    hits = old_words_left(olds)
     assert not hits, hits
 
 
@@ -344,8 +461,11 @@ def test_挙げた原因は全部台帳に行き先つきで持ち_全部済む�
     """原因が 5 つ挙がって 1 つしか直らない形を戻すと赤（1 つ選ぶ・一番手前から取る・どれを今回直すか）。"""
     kaku_text = (PLUGIN / "核.md").read_text(encoding="utf-8")
     s3 = _節(kaku_text, 3)
-    for word in ["原因の台帳", "1 行ずつ", "直す窓／直した／直さない", "オーナーが決めた理由"]:
+    for word in ["原因の台帳", "全部", "行き先"]:
         assert word in s3, f"核 §3 に無い: {word}"
+    s3d = _節((PLUGIN / "細目.md").read_text(encoding="utf-8"), 3)
+    for word in ["1 つ 1 行", "`直す窓`", "`直した`", "`直さない`", "オーナーが決めた理由"]:
+        assert word in s3d, f"細目 §3 の原因の台帳に無い: {word}"   # 行き先の細かさは細目が正本（核は芯だけ）
     s7 = _節(kaku_text, 7)
     assert "「直した」か「直さない」になるまで終わったと言わない" in s7 and "直す窓の行が残れば一部" in s7
     s4 = _節(kaku_text, 4)
@@ -354,14 +474,7 @@ def test_挙げた原因は全部台帳に行き先つきで持ち_全部済む�
     assert "**原因の台帳**" in _節(saimoku, 3) and "**選ばせない**" in _節(saimoku, 4) and "**根治の終わり**" in _節(saimoku, 7)
     assert "1 本の列にせず" in (PLUGIN / "振る舞い.md").read_text(encoding="utf-8"), "引き継ぎの残りが番号の列に戻った"
     olds = ["どれを今回直す", "一番手前の未決から取る", "どれから進めますか」と聞"]
-    hits = []
-    for p in sorted(ROOT.rglob("*")):
-        rel = p.relative_to(ROOT)
-        if rel.parts[0] in {".git", "tests"} or p.name == "CHANGELOG.md":
-            continue
-        if p.is_file() and p.suffix in {".md", ".py", ".json", ".mjs", ".html"}:
-            text = p.read_text(encoding="utf-8")
-            hits += [f"{rel}: {o}" for o in olds if o in text]
+    hits = old_words_left(olds)
     assert not hits, hits
 
 
@@ -378,7 +491,7 @@ def test_挙げた原因は全部台帳に行き先つきで持ち_全部済む�
     ("CONTRIBUTING.md", "1 本に入らなかった仕事"),
     ("CONTRIBUTING.md", "`合流済` が届いた枝"),
     ("plugins/checker/skills/review-pr/SKILL.md", "`[台帳へ｜<段>]`"),
-    ("plugins/dev-flow/skills/codex/SKILL.md", "| `task_rule` |"),
+    # codex の値の表の `task_rule` は細目 §3 の写しなので畳んだ（受け皿は本文の 6. DEFER の行だけ）
     ("plugins/dev-flow/skills/codex/SKILL.md", "`[DEFER]`"),
     ("plugins/dev-flow/skills/codex/SKILL.md", "**RETURN_TO_DESIGN**"),
     ("plugins/dev-flow/skills/codex/SKILL.md", "6. **DEFER"),
@@ -415,14 +528,7 @@ def test_残りの受け皿は原因の台帳_1_つで_名だけの受け皿を�
     olds = ["他の窓へ回す", "後の便", "🎯箱 か PR 本文", "残りに書", "直す側へ回す", "必要になった段で足す",
             "論点として残す", "1つ選んで決めてもらう", "1 つ選んで決めてもらう", "残りを書いて引き継ぐ",
             "回す先", "cleanup_followup"]
-    hits = []
-    for p in sorted(ROOT.rglob("*")):
-        rel = p.relative_to(ROOT)
-        if rel.parts[0] in {".git", "tests"} or p.name == "CHANGELOG.md":
-            continue
-        if p.is_file() and p.suffix in {".md", ".py", ".json", ".mjs", ".html"}:
-            text = p.read_text(encoding="utf-8")
-            hits += [f"{rel}: {o}" for o in olds if o in text]
+    hits = old_words_left(olds)
     assert not hits, hits
 
 
@@ -471,14 +577,7 @@ def test_ミスが出たらまず構造を疑い_単発と言うのは絵の上�
     assert "細目 §3「まず構造を疑う」" in rr, "register-rule が規律を足す前に原因の段へ戻さない"
     assert "細目 §3「まず構造を疑う」" in (ROOT / "CONTRIBUTING.md").read_text(encoding="utf-8"), "red を単発の手直しで済ませる形に戻った"
     olds = ["同じ種類の失敗が 2 度なら", "原因は仕組み・設計が悪い前提で探し"]
-    hits = []
-    for p in sorted(ROOT.rglob("*")):
-        rel = p.relative_to(ROOT)
-        if rel.parts[0] in {".git", "tests"} or p.name == "CHANGELOG.md":
-            continue
-        if p.is_file() and p.suffix in {".md", ".py", ".json", ".mjs", ".html"}:
-            text = p.read_text(encoding="utf-8")
-            hits += [f"{rel}: {o}" for o in olds if o in text]
+    hits = old_words_left(olds)
     assert not hits, hits
 
 
@@ -648,3 +747,66 @@ def test_検査の入口の赤の最後の行は根治の入口を指し緑は�
     test.write_text("def test_x():\n    assert True\n", encoding="utf-8")
     green = run()
     assert green.returncode == 0 and "まず構造を疑う" not in green.stdout
+
+
+def _git_repo(tmp_path, text, monkeypatch):
+    """作り物の git repo に 核.md と細目.md を 1 commit で置き、核.md の path を返す。
+    grow は細目も照らす（guarded）ので、細目も作り物へ向ける（本物の作業中の細目に試験が左右されない）。"""
+    g = lambda *a: subprocess.run(["git", *a], cwd=tmp_path, check=True, capture_output=True)
+    g("init", "-q")
+    g("config", "user.email", "t@example.invalid")
+    g("config", "user.name", "t")
+    f = tmp_path / "核.md"
+    f.write_text(text, encoding="utf-8")
+    (tmp_path / "細目.md").write_text("細目\n", encoding="utf-8")
+    monkeypatch.setattr(kaku, "SAIMOKU", tmp_path / "細目.md")
+    g("add", "-A")
+    g("commit", "-q", "-m", "元")
+    return f
+
+
+def test_毎回差し込む物が元より増えると赤で_同じか減れば緑(monkeypatch, tmp_path, capsys):
+    """上限の内でも純増は赤（足すなら同じ変更で同じだけ畳む）。わざと 1 字足すと赤になる注入の試験。"""
+    f = _git_repo(tmp_path, "元の核\n", monkeypatch)
+    monkeypatch.setattr(kaku, "injected", lambda: (f,))
+    assert kaku.grow("HEAD") == 0                       # 同じ
+    f.write_text("元の核\n足\n", encoding="utf-8")
+    assert kaku.grow("HEAD") == 1                       # 1 字でも増えたら赤
+    out = capsys.readouterr().out
+    assert "増えた" in out and "同じだけ畳む" in out.strip().splitlines()[-1]
+    f.write_text("核\n", encoding="utf-8")
+    assert kaku.grow("HEAD") == 0                       # 減った
+
+
+def test_比べる元が読めないと増え方の照らしは緑にせず止まる(monkeypatch, tmp_path, capsys):
+    f = _git_repo(tmp_path, "元の核\n", monkeypatch)
+    monkeypatch.setattr(kaku, "injected", lambda: (f,))
+    assert kaku.grow("無い枝") == 2
+    new = tmp_path / "新.md"                            # 元の時に無い file
+    new.write_text("x", encoding="utf-8")
+    monkeypatch.setattr(kaku, "injected", lambda: (new,))
+    assert kaku.grow("HEAD") == 2
+    assert "照らせない" in capsys.readouterr().out
+
+
+def test_差し込む物を足すと増え方の照らしもそれを見る(monkeypatch, tmp_path, capsys):
+    """差し込む一覧と照らす一覧が別の写しに戻ると、足した物が黙って照らされず赤。"""
+    f = _git_repo(tmp_path, "元の核\n", monkeypatch)
+    third = tmp_path / "三つ目.md"
+    third.write_text("三\n", encoding="utf-8")
+    subprocess.run(["git", "add", "-A"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "commit", "-q", "-m", "三"], cwd=tmp_path, check=True)
+    monkeypatch.setattr(kaku, "injected", lambda: (f, third))
+    assert "三" in kaku.inject_text()                   # 差し込む
+    third.write_text("三\n足\n", encoding="utf-8")
+    assert kaku.grow("HEAD") == 1                       # 照らす
+    assert "三つ目.md" in capsys.readouterr().out
+
+
+def test_増え方の照らしは検査の入口から回る():
+    assert kaku.injected() == (kaku.KAKU, kaku.FURUMAI)
+    sh = (ROOT / "scripts" / "checks" / "kaku_growth.sh").read_text(encoding="utf-8")
+    assert "kaku.py grow --base" in sh and "origin/main" in sh
+    ci = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+    check_job = ci.split("public-guard:")[0]
+    assert "fetch-depth: 0" in check_job, "CI の check が origin/main を取らず、比べる元が無くなる"

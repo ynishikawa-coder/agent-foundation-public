@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""会話ログ（transcript の JSONL）だけを読む点検（手で回す・返事は止めない）。
+"""会話ログ（transcript の JSONL）だけを読む点検（手で回す点検と、返事の形の崩れだけを AI へ差し戻す Stop の hook）。
 
 拾う物（どれも会話ログの中だけで決まる＝環境の値・外の台帳・get_session の返りを見ない）:
-  title    … 窓の題の目印（`<種類><状態> <作業名>`）が決まりどおりか
+  title    … 窓の題の目印（`<種類><状態> <作業名>`）が決まりどおりか（題だけで決まる形は title_shape。
+             guard の outbound が題を付ける口・窓を立てる口でもこれを直に呼ぶ＝題の形の正本）
   close    … 返事の最後が締めの 2 行（`AI がこの後やること: …`／`あなたがやること: …`）か。あなたがやることが「なし」なら窓を閉じてよいかを、
              「なし」でなければ「これが済むまで <何> に進めません」を書いているか
   card     … 返事の 1 行目が 4 札（✅❓⏳🛑）のどれかで始まるか
@@ -25,6 +26,9 @@ parent_session_id・origin）では決めない。会話ログの最初の頼み
                                                  付けていなければ、付けるよう AI に知らせる文を隣に出す。前の返事の
                                                  あなたがやることに人の手の手順を直に書いていれば、手の窓で頼むよう
                                                  知らせる（どちらも止めない）
+  python3 session_watch.py --stop              … Stop の hook。AI が返事を締めようとした時、題の印（今の題で直せる物）・
+                                                 1 行目の札・締めの 2 行が崩れていれば、AI だけを差し戻して書き直させる
+                                                 （decision=block。人の操作は止めない。同じターンで STOP_MAX 回まで）
 読めない・壊れた記録は黙って通す。
 """
 import json
@@ -70,6 +74,7 @@ READING = re.compile(r"AI の(今の)?読み")
 # 選択肢モーダルのどの問いにも置く選択肢（細目 §4）。
 IDK = "分からない"
 CARD_LINE = re.compile(r"^[#>*\s]*(✅|❓|⏳|🛑)")
+DONE_LINE = re.compile(r"^[#>*\s]*✅(?!\s*終わった\s*[（(]\s*一部)")   # 終わった（「✅終わった（一部）」は除く・核 §7）
 # 一言で済む返事（細目 §5）の行数の上限。札で始めた返事・問いを出したターンは長さに関わらず札と締めを見る。
 SHORT_LINES = 3
 
@@ -170,6 +175,9 @@ class Log(object):
         self.cloud = False
         turn_start = 0
         for row in rows:
+            if row.get("type") == "user" and row.get("isMeta") and "toolUseResult" not in row:
+                self.events.append(("meta", ""))     # 見張りの差し戻し: ターンは続くが、締めの本文はここから数え直す
+                continue
             if is_owner_text(row):
                 if not self.first_prompt:
                     self.first_prompt = text_of(row)
@@ -209,7 +217,7 @@ class Log(object):
         """このターンの最後の道具より後ろの返事（オーナーが最後に読む締めの本文）。"""
         out = []
         for kind, val in self.turn:
-            if kind in ("tool", "title", "ask"):
+            if kind in ("tool", "title", "ask", "meta"):
                 out = []
             elif kind == "text":
                 out.append(val)
@@ -255,6 +263,25 @@ def split_title(title):
             mark, t = s, t[len(s):]
             break
     return kind, mark, t.strip()
+
+
+def title_shape(title):
+    """題そのものの形の崩れ [説明]（会話ログを見ずに題だけで決まる物）。題を付ける口・立てる口（guard の outbound）も
+    これを直に呼ぶ＝題の形の決まりの正本はここ 1 つ。"""
+    kind, mark, name = split_title(title)
+    out = []
+    if kind is None:
+        out.append("題の頭に種類（%s／%s）が無い（題: %s）" % (AI, HUMAN, title))
+    if not name:
+        out.append("題に作業名が無い（題: %s）" % title)
+    if kind == HUMAN and mark == DONE:
+        out.append("%s の窓に %s は付けない（閉じるかはオーナーが決める）" % (HUMAN, DONE))
+    if HAND_TITLE.match(name):
+        if kind != HUMAN or mark != WAITING:
+            out.append("手の窓の題は `%s%s 手: <何を>`（題: %s）" % (HUMAN, WAITING, title))
+        if not HAND_TITLE.sub("", name).strip():
+            out.append("手の窓の題の `手:` の後に何を頼むかが無い（題: %s）" % title)
+    return out
 
 
 def split_close(text):
@@ -305,11 +332,14 @@ def is_plain_question(text):
 
 
 # ── 見張り ──────────────────────────────────────────────────
-def check(log):
-    """拾った物を [(code, 説明)] で返す。"""
+ASK_BEFORE = "問いを出す前に題の状態を"   # 過ぎた事（今の題を直しても消えない）＝差し戻しには使わない
+
+
+def check(log, closing=None):
+    """拾った物を [(code, 説明)] で返す。closing を渡せば、それを締めの返事として見る（Stop の hook）。"""
     found = []
     kind = kind_of(log.first_prompt)
-    closing = log.closing_text()
+    closing = log.closing_text() if closing is None else closing
     _, close = split_close(closing)
 
     # 題（クラウドの窓＝題の道具を使える窓だけ）
@@ -323,23 +353,26 @@ def check(log):
             elif k == "ask":
                 in_turn = i >= len(log.events) - len(log.turn)
                 if in_turn and split_title(title)[1] != ASKING:
-                    found.append(("title", "問いを出す前に題の状態を %s にしていない（題: %s）" % (ASKING, title or "（無し）")))
+                    found.append(("title", ASK_BEFORE + " %s にしていない（題: %s）" % (ASKING, title or "（無し）")))
                 open_ask = True
             elif k == "answer":
                 answered |= set(v)
                 open_ask = not v
         if title is not None:
             tk, tm, _ = split_title(title)
-            if tk is None:
-                found.append(("title", "題の頭に種類（%s／%s）が無い（題: %s）" % (AI, HUMAN, title)))
-            elif kind and tk != kind:
+            found += [("title", m) for m in title_shape(title)]
+            if tk is not None and kind and tk != kind:
                 found.append(("title", "題の種類が %s だが、この窓の返し先から種類は %s（題: %s）" % (tk, kind, title)))
-            if tk == HUMAN and tm == DONE:
-                found.append(("title", "%s の窓に %s は付けない（閉じるかはオーナーが決める）" % (HUMAN, DONE)))
             if tm == ASKING and not open_ask and answered:
                 found.append(("title", "答えが返ったのに題に %s が残っている" % ASKING))
-            if (kind or tk) == AI and close and close.startswith("AI がこの後やること: なし") and tm != DONE:
-                found.append(("title", "%s の窓が AI がこの後やることなしで締めるのに、題の状態が %s でない" % (AI, DONE)))
+            # ✅ は「終わった」（核 §7）の印。AI の手が尽きた（AI がこの後やること: なし）とは結ばない。
+            first = next((ln.strip() for ln in closing.splitlines() if ln.strip()), "")
+            if (kind or tk) == AI and CARD_LINE.match(first):
+                done = bool(DONE_LINE.match(first))
+                if done and tm != DONE:
+                    found.append(("title", "%s の窓が %s終わった で報告するのに、題の状態が %s でない" % (AI, DONE, DONE)))
+                elif not done and tm == DONE:
+                    found.append(("title", "%s の窓が 終わった でない札（止まった・一部・待ち・問い）で締めるのに、題が %s" % (AI, DONE)))
             if tm == WAITING and HAND_TITLE.match(split_title(title)[2]) and closing.strip():
                 lack = [p for p in HAND_PARTS if p not in closing]
                 if lack:
@@ -406,9 +439,11 @@ def check(log):
 
 
 def watch(path):
+    """拾った物の並び。ログが読めなければ OSError を上げる（読めない＝拾う物なし＝緑、に化かさない）。"""
+    rows = read_rows(path)
     try:
-        return check(Log(read_rows(path)))
-    except (OSError, ValueError, TypeError, AttributeError):
+        return check(Log(rows))
+    except (ValueError, TypeError, AttributeError):
         return []
 
 
@@ -442,7 +477,7 @@ def last_reply(log):
             if out:
                 prev = out
             out = []
-        elif kind in ("tool", "title", "ask"):
+        elif kind in ("tool", "title", "ask", "meta"):
             out = []
         elif kind == "text":
             out.append(val)
@@ -495,13 +530,85 @@ def hook_remind(stdin):
     return 0
 
 
+# ── 差し戻す（Stop の hook・止まるのは AI だけ）────────────────
+STOP_CODES = ("title", "card", "close")   # 返事の形（題の印・1 行目の札・締めの 2 行）。ほかは手で回す点検と知らせるだけ
+STOP_MAX = 2                              # 同じターンで差し戻す回数の上限（越えたら通して届ける＝窓が回り続けない）
+STOP_OFF = "AF_SESSION_WATCH_STOP"        # 0／false で差し戻しを切る（見張りが誤った時の逃げ道）
+STOP_HEAD = ("[session-watch] 返事の形が崩れているので、まだ届けていない。下を直して、返事を頭から全部書き直す"
+             "（道具を打ったら、その後に書いた本文が届く返事になる）。形の正本は核 §4・§5（細目 §5）・skill "
+             "`session-watch:title-mark`。")
+
+
+def stop_tmp(env):
+    import tempfile
+    return env.get("AF_SESSION_WATCH_TMP") or os.path.join(tempfile.gettempdir(), "af-session-watch")
+
+
+def _count(env, sid, reset):
+    """この窓の今のターンで差し戻した回数を 1 つ進めて返す（stop_hook_active が偽＝新しい締めなら 0 から）。"""
+    d = stop_tmp(env)
+    name = "".join(c for c in str(sid or "nosid") if c.isalnum() or c in "-_")[:120] or "nosid"
+    path = os.path.join(d, name + ".stop")
+    n = 0
+    if not reset:
+        try:
+            with open(path, encoding="utf-8") as f:
+                n = int(f.read().strip() or 0)
+        except (OSError, ValueError):
+            n = 0
+    n += 1
+    try:
+        os.makedirs(d, exist_ok=True)
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(str(n))
+    except OSError:
+        pass
+    return n
+
+
+def stop(data, env=None):
+    """差し戻す理由（str）か None。今の返事（last_assistant_message・無ければ会話ログの締め）の形を見る。"""
+    env = os.environ if env is None else env
+    if str(env.get(STOP_OFF, "")).strip().lower() in ("0", "false", "off", "no"):
+        return None
+    path = data.get("transcript_path") or ""
+    log = Log(read_rows(path)) if path and os.path.exists(path) else Log([])
+    last = data.get("last_assistant_message")
+    closing = last if isinstance(last, str) and last.strip() else None
+    found = [(c, m) for c, m in check(log, closing) if c in STOP_CODES and not m.startswith(ASK_BEFORE)]
+    if not found:
+        return None
+    if _count(env, data.get("session_id"), reset=not data.get("stop_hook_active")) > STOP_MAX:
+        sys.stderr.write("[session-watch] 差し戻しが %d 回を越えたので通す\n" % STOP_MAX)
+        return None
+    return STOP_HEAD + "\n" + "\n".join("- %s: %s" % (c, m) for c, m in found) + "\n" + ROOT_CAUSE
+
+
+def hook_stop(stdin):
+    try:
+        data = json.loads(stdin.read() or "{}")
+        reason = stop(data if isinstance(data, dict) else {})
+    except Exception:          # noqa: BLE001  見張りの故障で窓を止めない
+        return 0
+    if reason:
+        print(json.dumps({"decision": "block", "reason": reason}, ensure_ascii=False))
+    return 0
+
+
 def main(argv):
     if argv[1:] == ["--remind"]:
         return hook_remind(sys.stdin)
-    if len(argv) != 2:
-        sys.stderr.write("使い方: session_watch.py <transcript.jsonl>\n")
+    if argv[1:] == ["--stop"]:
+        return hook_stop(sys.stdin)
+    # 知らない印・数の違う引数・読めないログは既定で止める（打ち間違いを「拾う物なし＝緑」にしない）
+    if len(argv) != 2 or argv[1].startswith("--"):
+        sys.stderr.write("使い方: session_watch.py <transcript.jsonl> ／ session_watch.py --remind ／ session_watch.py --stop\n")
         return 2
-    found = watch(argv[1])
+    try:
+        found = watch(argv[1])
+    except OSError as e:
+        sys.stderr.write("ログを読めない: %s（%s）\n" % (argv[1], e.strerror or e))
+        return 2
     for code, msg in found:
         print("%s: %s" % (code, msg))
     if found:

@@ -277,8 +277,9 @@ def _agreed_value(root):
     vp = Path(root) / VALUES
     if not vp.exists():
         return None
-    vals = json.loads(vp.read_text(encoding="utf-8"))
-    return ((vals.get("docs-kit") or {}).get("big-picture") or {}).get("agreed")
+    table = json.loads(vp.read_text(encoding="utf-8"))
+    values = (table.get("docs-kit") or {}).get("big-picture") or {}
+    return values.get("agreed")
 
 
 def pick(root, files):

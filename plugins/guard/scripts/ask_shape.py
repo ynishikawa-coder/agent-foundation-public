@@ -10,6 +10,13 @@
   inner  … 問い・見出し・選択肢（label と description）に、AI の中の言葉らしい字が在る
             （番号・版・file 名・path・識別子・窓の id・commit の印・`…` で囲んだ字）。足しは ask_inner_terms_extra
   topic  … 1 画面に 2 問以上あり、問いと見出しの語（漢字・カタカナ・英字の 2 字の並び）を共にしない組に分かれる
+  rec    … 推奨の印の付け方が崩れている: 見出しに推奨の語が決まりの形（見出しの末の「(推奨)」「（推奨）」「(Recommended)」）
+            以外で在る・1 問に 2 つ以上・1 つ目でない選択肢に在る・「分からない」の選択肢に在る（細目 §4「推奨の印」）。
+            どの問いに付けてよいか（作り方の分かれ道か）は字の形で見分けられないので見ない（残る穴）
+知らせるだけの物（PostToolUse・notice・止めない）:
+  rec_kind … 推奨の印が付いた問いの文が、済んだかの確認か意図・考えを聞く形に見える（印は作り方の分かれ道の問いだけ）。
+            画面は出た後なので、AI に「印を外すべきだったか」を知らせるだけ（親窓の決定 2026-11-19: 止めずに知らせる）。
+            形は値の表 ask_rec_notice_kinds（{名: [正規表現]}）で替え、ask_rec_notice_exempt（問いの文）で外す
 誤って止めた時: 値の表 ask_shape_exempt（問いの文に当てる正規表現）に当たる問いは照らさない。ask_term_allow（見つけた字に
 当てる正規表現）に当たる字は中の言葉と数えない。値の表は PR とレビューを通る＝窓の一存では外れない。
 見分けは字の形の推し量り（意味は読まない）。残る穴は SKILL（guard-rules）と PR に書く。
@@ -36,6 +43,14 @@ INNER = (
     ("commit の印", re.compile(r"(?<![A-Za-z0-9])(?=[0-9a-f]*\d)(?=[0-9a-f]*[a-f])[0-9a-f]{7,40}(?![A-Za-z0-9])")),
     ("コードの字", re.compile(r"`[^`]+`")),
 )
+# 推奨の印: 形は 1 つだけ（見出しの末の「(推奨)」「（推奨）」「(Recommended)」）。見出しに推奨の語（推奨・おすすめ・recommend…）が
+# それ以外の形で在れば、印の形の崩れとして止める（「非推奨」「推奨なし」「推奨どおり」も見出しには置かず説明へ）。
+# 形を 1 つに閉じるので、言い回しの数だけ見分けを足さない（知らない形は既定で止める）。説明（description）の文の中の語は数えない。
+_REC_WORD = re.compile(r"推奨|おすすめ|お勧め|お薦め|オススメ|おススメ|イチオシ|recommend|suggested", re.I)
+_REC_CANON = re.compile(r"\s*[(（]\s*(?:推奨|recommended)\s*[)）]\s*$", re.I)
+# 「分からない」の選択肢: 見出しの頭がそれである物だけ（「不明点を先に洗う」「unknowns を洗う」は数えない）
+_DUNNO = re.compile(r"^\s*(?:(?:よく|まだ|今は)?\s*(?:分から|わから|判ら)(?:ない|ん|ず)|(?:分かり|わかり)ません|知らない|知りません"
+                    r"|不明\s*(?:$|[(（])|unknown\s*(?:$|[(（])|(?:i\s+)?don'?t\s+know|not\s+sure)", re.I)
 _SENT = re.compile(r"[^。．？?！!]+[。．？?！!]*")
 # 送り仮名（置き場・作り物・取り扱い）を詰めて 1 語にする。助詞（の・を・が…）を挟む所は詰めない。
 _OKURI = re.compile(r"(?<=[一-龠々])(?:(?![のをがはにでともへやかよ])[ぁ-ゔ]){1,2}(?=[一-龠々])")
@@ -47,6 +62,10 @@ STOP = {
     "可能", "不要", "本当", "今日", "明日", "了解", "希望", "設定",
 }
 
+
+
+# この見張りが回る出来事と関数（guard.py がこの宣言を読んで回す＝入口の一覧に足さない）
+HOOKS = {"pre": "check", "post": "notice"}
 
 def _text(v):
     return re.sub(r"\s+", " ", str(v or "")).strip()
@@ -109,6 +128,26 @@ def topic_groups(qs, vals):
     return sorted(groups.values())
 
 
+def _rec_findings(q):
+    """推奨の印の付け方の崩れ（形・数・位置・「分からない」）。印を付けてよい問いか（作り方の分かれ道か）は見ない。"""
+    opts = [o for o in (q.get("options") or []) if isinstance(o, dict)]
+    labels = [_text(o.get("label")) for o in opts]
+    marked = [(i, lb) for i, lb in enumerate(labels) if _REC_WORD.search(lb)]
+    why = []
+    odd = [lb for _, lb in marked if not _REC_CANON.search(lb) or _REC_WORD.search(_REC_CANON.sub("", lb))]
+    if odd:
+        why.append("印の形が決まり（見出しの末の「(推奨)」）と違う（%s）" % "・".join("「%s」" % lb[:20] for lb in odd))
+    if len(marked) >= 2:
+        why.append("%d つの選択肢に在る（%s）" % (len(marked), "・".join("「%s」" % lb[:20] for _, lb in marked)))
+    late = [lb for i, lb in marked if i != 0]
+    if late:
+        why.append("1 つ目でない選択肢に在る（%s）" % "・".join("「%s」" % lb[:20] for lb in late))
+    dunno = [lb for _, lb in marked if _DUNNO.search(lb)]
+    if dunno:
+        why.append("「分からない」の選択肢に在る（%s）" % "・".join("「%s」" % lb[:20] for lb in dunno))
+    return why
+
+
 def _exempt(text, vals):
     return any(isinstance(p, str) and p and re.search(p, text) for p in (vals.get("ask_shape_exempt") or []))
 
@@ -143,6 +182,9 @@ def findings(qs, vals):
         for where, t in fields:
             for name, tok in _inner_hits(t, vals):
                 hits.append("%s の %s「%s」" % (where, name, tok[:40]))
+        rec = _rec_findings(q)
+        if rec:
+            out.append(("rec", "「%s」— 推奨の印の付け方: %s" % (short, "／".join(rec))))
         if hits:
             out.append(("inner", "「%s」— AI の中の言葉らしい字: %s" % (short, "／".join(hits[:6])
                                                                 + ("（ほか %d 件）" % (len(hits) - 6) if len(hits) > 6 else ""))))
@@ -162,7 +204,84 @@ HOW = {
              "チャットで見せ、画面には言い換えだけを出す。",
     "topic": "1 画面は 1 つの話題にする。話題ごとに画面を分けて続けて出す（どれも全部聞く・捨てない）。同じ話題なのに分かれて"
              "見えたなら、問いか見出しにその話題の語（例: 「置き場」）を入れる。",
+    "rec": "推奨の印は作り方の分かれ道の問いだけに、1 問に 1 つ、1 つ目の選択肢の見出しの末に「(推奨)」の形で付け、理由はその選択肢の説明に書く"
+           "（細目 §4「推奨の印」）。推せる案が 2 つあるなら問いを分けるか印を外す。「分からない」には付けない。"
+           "意図・考えを聞く問いと済んだかの確認には印を付けない（付いていれば外す）。見出しの中身として推奨の語"
+           "（「推奨環境に合わせる」等）を使っているなら、別の言葉に言い換えるか説明へ移す。",
 }
+
+
+# 推奨の印を付けない問いの形（既定）。字の形の推し量りなので、止めずに知らせるだけ。
+REC_NOTICE_KINDS = {
+    "済んだかの確認": [r"(?:終わり|済み|でき|入れ|完了し|設定し|保存し|押し|送り|届き|直り|動き|反映され|され)ましたか",
+                   r"(?:済んで|終わって|完了して|入って|届いて|直って|動いて|反映されて|できて)(?:い)?ますか",
+                   r"(?:終わった|済んだ|できた|入った|届いた|直った|動いた)(?:か|？|\?|$)", r"完了(?:しましたか|ですか|か)"],
+    "意図・考えを聞く問い": [r"なぜ|どうして|何のため", r"どういう(?:意図|つもり|狙い|考え)", r"意図は|意図を(?:教え|聞かせ)|つもりですか|お考え",
+                    r"どう思い|どう考え|どう感じ", r"お好み|好みは|好きな"],
+}
+
+
+def _search(pat, text, bad):
+    """値の表の正規表現が壊れていても知らせ全体を落とさない（壊れた形は bad に集めて知らせる）。"""
+    try:
+        return re.search(pat, text)
+    except re.error:
+        if pat not in bad:
+            bad.append(pat)
+        return None
+
+
+def rec_kind_notes(qs, vals, bad=None):
+    """印（推奨の語）が付いた問いのうち、済んだか・意図の形に見える物 [(問いの頭, 名)]。"""
+    bad = [] if bad is None else bad
+    kinds = vals.get("ask_rec_notice_kinds")
+    if not isinstance(kinds, dict) or not kinds:
+        kinds = REC_NOTICE_KINDS
+    exempt = [p for p in (vals.get("ask_rec_notice_exempt") or []) if isinstance(p, str) and p]
+    out = []
+    for q in qs:
+        if not isinstance(q, dict):
+            continue
+        text = _text(q.get("question"))
+        if not text or any(_search(p, text, bad) for p in exempt):
+            continue
+        labels = [_text(o.get("label")) for o in (q.get("options") or []) if isinstance(o, dict)]
+        if not any(_REC_WORD.search(lb) for lb in labels):
+            continue
+        for name, pats in kinds.items():
+            if any(isinstance(p, str) and p and _search(p, text, bad) for p in (pats if isinstance(pats, list) else [])):
+                out.append((text[:40] + ("…" if len(text) > 40 else ""), str(name)))
+                break
+    return out
+
+
+def notice(data, vals):
+    """PostToolUse: 推奨の印が済んだか・意図の問いに付いていたら知らせる（止めない）。"""
+    if str(data.get("tool_name") or "") != ASK_TOOL:
+        return ""
+    ti = data.get("tool_input")
+    qs = ti.get("questions") if isinstance(ti, dict) else None
+    if not isinstance(qs, list) or not qs:
+        tr = data.get("tool_response")
+        qs = tr.get("questions") if isinstance(tr, dict) else None
+    if not isinstance(qs, list) or not qs:
+        return ""
+    bad = []
+    notes = rec_kind_notes(qs, vals, bad)
+    if not notes and not bad:
+        return ""
+    lines = []
+    if bad:
+        lines.append("[guard] 値の表の guard.ask_rec_notice_kinds か ask_rec_notice_exempt の正規表現が壊れていて、その形は"
+                     "照らせていない（直す）: %s" % "・".join(bad[:5]))
+    if not notes:
+        return "\n".join(lines)
+    lines += ["[guard] 推奨の印が付いた問いが、印を付けない形に見える（知らせるだけ・止めていない。印は作り方の分かれ道の問い"
+             "だけ＝細目 §4「推奨の印」）:"]
+    lines += ["- 「%s」— %s に見える" % (t, n) for t, n in notes]
+    lines.append("当たっていれば: 答えが印に引かれて寄っていないかを確かめ（済んだかは AI が確かめられる所を先に確かめる）、"
+                 "次から印を外す。字の形だけ当たった誤りなら値の表の guard.ask_rec_notice_exempt（問いの文）に足す。")
+    return "\n".join(lines)
 
 
 def check(data, vals):

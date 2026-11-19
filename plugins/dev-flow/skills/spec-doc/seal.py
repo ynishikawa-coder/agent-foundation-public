@@ -7,8 +7,12 @@ AI が照合を飛ばしても、決定の記録と食い違う設計書が LOCK
 
 見る物（15_*.md の §6 の節＝見出しに「§6」「6.」か「決定照合」を持つ節。次の同じか上の段の見出しまで）:
   - 節の行（表の行〔見出しの行と区切りを除く〕か、箇条の行）を 1 行ずつ見る。
-  - 扱いが「直した」「覆す」「関係なし」のどれかの行は済み。表に「扱い」の列があればその欄だけを見る。
-  - 扱いは欄（箇条なら最後の区切り → ： の後）の頭に置く。「直したいが未定」「未定（覆すか聞く）」は済みでない。
+  - 扱いは閉じた形だけを読む（推し量らない）: 欄（表は「扱い」の列・箇条は括弧の外の最後の区切り → ： の後）が
+    `直した`／`覆す`／`覆す＝墓標へ`／`関係なし` のどれかちょうどで、後ろに置けるのは `（理由: …）` か `（根拠: …）` の
+    1 つだけ。それ以外の字が付く（「直した（まだ未定）」「直したいが未定」）・理由の中に未定の語（未定・未照合・まだ・
+    聞く・保留・TBD）が在る行は済みでない。表に「扱い」の列が無い表の行も済みでない。
+  - 節の中の地の文（表・箇条・見出し・空行・<!-- --> の注・> の注のどれでもない行）は形の決まらない行として止める
+    （照合の結果を地の文で書くと読めない＝黙って飛ばさない）。
   - 「未照合」の行: 値の表に照合の口（decision_match）が在る repo では止める（口があるのに照らしていない）。
     口が無い repo では通して知らせるだけ（照らしようが無い）。
   - 扱いの無い行（「ぶつかる」のまま・未定・空）は止める。15 が無い・§6 が無い・§6 に行が 1 つも無い時も止める。
@@ -36,11 +40,15 @@ _HEAD = re.compile(r"^(#{1,6})\s*(.*?)\s*#*\s*$")
 _SEC6 = re.compile(r"(?:§\s*6(?!\d)|^6[.．](?!\d)|決定照合)")
 _TABLE = re.compile(r"^\s*\|")
 _TABLE_SEP = re.compile(r"^\s*\|[\s:\-|]+\|?\s*$")
-# 扱いは欄（箇条なら最後の区切りの後）の頭に 3 語のどれかを置き、その後は区切りか終わり（「直したいが未定」は済みでない）。
-_DONE = re.compile(r"^\s*(?:直した|覆す|関係なし)(?=$|[\s＝=（(。])")
-_LAST_SEP = re.compile(r".*(?:→|->|:|：)\s*")
+# 扱いの閉じた形: 語ちょうど（覆すだけ ＝墓標へ を付けてよい）＋ 理由か根拠の括弧 1 つまで。ほかの字が付けば済みでない。
+_DONE = re.compile(r"^(?:直した|覆す(?:＝墓標へ)?|関係なし)(?:[（(](?:理由|根拠)\s*[:：]\s*([^（）()]+)[）)])?$")
+# 理由の中にこれが在れば、照合の中身が済んでいない印（「直した（理由: まだ未定）」）。
+_PENDING = re.compile(r"未定|未照合|まだ|聞く|保留|TBD|TODO", re.I)
+_SEP = re.compile(r"→|->|:|：")
 _PAREN = re.compile(r"（[^（）]*）|\([^()]*\)")
 _ITEM = re.compile(r"^\s*(?:[-*+]|\d+[.)])\s+\S")
+# 節の中で照合の行として読まない行（空行・見出し・注）。これ以外の地の文は形の決まらない行。
+_NOTE = re.compile(r"^\s*(?:$|#|>|<!--.*-->\s*$)")
 
 
 class Abort(Exception):
@@ -106,9 +114,19 @@ def section6(text: str) -> list[tuple[int, str]] | None:
     return [(j + 1, lines[j]) for j in range(start + 1, end)]
 
 
-def rows_of(body: list[tuple[int, str]]) -> list[tuple[int, str, str]]:
-    """節の行を (行番号, 行の字, 扱いを見る字) にする。表の見出しの行と区切りは除く。"""
-    out, header, col = [], None, None
+def _after_last_sep(body: str) -> str:
+    """括弧の外の最後の区切り（→ -> : ：）の後ろ。括弧の中の区切り（「（理由: …）」）は見ない。"""
+    masked = _PAREN.sub(lambda m: "＿" * len(m.group(0)), body)
+    cut = 0
+    for m in _SEP.finditer(masked):
+        cut = m.end()
+    return body[cut:].strip()
+
+
+def rows_of(body: list[tuple[int, str]]) -> tuple[list[tuple[int, str, str]], list[tuple[int, str]]]:
+    """節の行を (行番号, 行の字, 扱いを見る字) の並びと、形の決まらない地の文の (行番号, 行) の並びにする。
+    表の見出しの行と区切りは除く。「扱い」の列が無い表の行は扱いを見る字を空にする（済みでない）。"""
+    out, loose, header, col = [], [], None, None
     for no, ln in body:
         if _TABLE.match(ln):
             if _TABLE_SEP.match(ln):
@@ -118,14 +136,22 @@ def rows_of(body: list[tuple[int, str]]) -> list[tuple[int, str, str]]:
                 header = cells
                 col = next((k for k, c in enumerate(cells) if "扱い" in c), None)
                 continue
-            look = cells[col] if col is not None and col < len(cells) else ln
+            look = cells[col] if col is not None and col < len(cells) else ""
             out.append((no, ln.strip(), look))
         else:
             header = col = None
             if _ITEM.match(ln):
-                body = re.sub(r"^\s*(?:[-*+]|\d+[.)])\s+", "", ln)
-                out.append((no, ln.strip(), _LAST_SEP.sub("", _PAREN.sub("", body), count=1)))
-    return out
+                item = re.sub(r"^\s*(?:[-*+]|\d+[.)])\s+", "", ln)
+                out.append((no, ln.strip(), _after_last_sep(item)))
+            elif not _NOTE.match(ln):
+                loose.append((no, ln.strip()))
+    return out, loose
+
+
+def settled(look: str) -> bool:
+    """扱いが閉じた形で、理由に未定の印が無い時だけ True。"""
+    m = _DONE.match(look.strip())
+    return bool(m) and not (m.group(1) and _PENDING.search(m.group(1)))
 
 
 def check_match(spec_dir: Path, values: dict) -> tuple[list[str], list[str]]:
@@ -139,9 +165,11 @@ def check_match(spec_dir: Path, values: dict) -> tuple[list[str], list[str]]:
     body = section6(f.read_text(encoding="utf-8"))
     if body is None:
         return [f"{f.name} に §6（決定照合）の節が無い"], []
-    rows = rows_of(body)
+    rows, loose = rows_of(body)
+    early = [f"{f.name}:{no} 形の決まらない行（表・箇条でない地の文は照合の結果として読めない）: "
+             f"{ln if len(ln) <= 80 else ln[:79] + '…'}" for no, ln in loose]
     if not rows:
-        return [f"{f.name} の §6 に行が 1 つも無い＝照合していない"], []
+        return early + [f"{f.name} の §6 に行が 1 つも無い＝照合していない"], []
     allow = values.get("decision_match_allow", [])
     if not isinstance(allow, list) or not all(isinstance(p, str) and p for p in allow):
         raise Abort("値の表の decision_match_allow は空でない字（正規表現）の並びで書く")
@@ -150,7 +178,7 @@ def check_match(spec_dir: Path, values: dict) -> tuple[list[str], list[str]]:
     except re.error as e:
         raise Abort(f"値の表の decision_match_allow に読めない正規表現（{e}）")
     has_port = bool(values.get("decision_match"))
-    stops, notes = [], []
+    stops, notes = list(early), []
     for no, ln, look in rows:
         short = ln if len(ln) <= 80 else ln[:79] + "…"
         if any(r.search(ln) for r in allow_re):
@@ -162,13 +190,15 @@ def check_match(spec_dir: Path, values: dict) -> tuple[list[str], list[str]]:
             else:
                 notes.append(f"{f.name}:{no} 未照合（照合の口が値の表に無い repo）: {short}")
             continue
-        if not _DONE.match(look):
-            stops.append(f"{f.name}:{no} 扱いが無い（直した／覆す／関係なし のどれでもない）: {short}")
+        if not settled(look):
+            stops.append(f"{f.name}:{no} 扱いが無い（直した／覆す／関係なし のどれかちょうど＋（理由: …）でない・"
+                         f"理由に未定の印が在る）: {short}")
     return stops, notes
 
 
 FIX = """直し方:
-  - 扱いの無い行は、決定の記録と照らして 直した（設計書を決定に合わせた）／覆す（旧決定を墓標へ回す）／関係なし のどれかを書く。
+  - 扱いの無い行は、決定の記録と照らして 直した（設計書を決定に合わせた）／覆す（旧決定を墓標へ回す）／関係なし のどれかを
+    ちょうど書く。添えるなら （理由: …） の 1 つだけ。地の文の行は表か箇条の行に書き直す。
     決められない食い違いはオーナーに聞く（封をしてから聞かない）。
   - 未照合の行は、照合の口（値の表 decision_match）を回して結果を写す。口に届かない時は届くまで封をしない。
   - §6 が無い・空の時は、照合の口を回して「ぶつかる」「Claude が読む」を 1 行ずつ写す。

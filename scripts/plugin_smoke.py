@@ -10,7 +10,8 @@
                 試験は作り物の dir。
   --expect-sha  入った commit がこれでなければ赤（PR の先端を試したかの証明）。
   --repo        「届くべき物」の正本を読む checkout（既定はこの repo）。plugin は plugins/*/.claude-plugin/plugin.json、
-                skill は plugins/*/skills/*/SKILL.md、核は plugins/core/核.md を直に読む（写した一覧を持たない）。
+                skill は plugins/*/skills/*/SKILL.md、毎回差し込む物は plugins/core/scripts/kaku.py の injected()
+                （差し込む口そのものが読む一覧）を直に読む（写した一覧・決め打ちの file 名を持たない）。
 
 窓は鍵なしで立てる（API の行き先を閉じた口にする）。起動の時の出来事（SessionStart の hook・入った plugin と skill の一覧）は
 API を呼ぶ前に出るので、それを読んだら止める。お金はかからない。
@@ -19,9 +20,12 @@ exit: 0=緑 / 1=赤（届かない物がある）/ 2=道具が無い・起動で
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import json
 import os
+import re
 import select
+import shlex
 import shutil
 import subprocess
 import sys
@@ -39,12 +43,39 @@ GUARD_PROBE = {"tool_name": "Write", "session_id": "smoke", "tool_input": {
     "file_path": "/smoke/tests/test_probe.py", "content": 'os.environ["OPENAI_API_KEY"]'}}
 
 
+def injected_texts(repo: Path) -> dict[str, str]:
+    """毎回差し込む物 {file 名: 中身}。一覧は正本の repo の kaku.py の injected() をそのまま読む
+    （差し込む口と照らす口が同じ 1 つの一覧を見る＝差し込む物を足しても照らしから漏れない）。"""
+    path = repo / "plugins" / "core" / "scripts" / "kaku.py"
+    spec = importlib.util.spec_from_file_location("af_smoke_kaku", path)
+    if spec is None or spec.loader is None:
+        raise ValueError(f"差し込む口が読めない: {path}")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    files = tuple(mod.injected())
+    if not files:
+        raise ValueError(f"差し込む物の一覧が空: {path}")
+    return {f.name: f.read_text(encoding="utf-8").rstrip("\n") for f in files}
+
+
 def expected(repo: Path) -> dict:
     plugins = sorted(p.parent.parent.name for p in repo.glob("plugins/*/.claude-plugin/plugin.json"))
     skills = sorted(f"{s.parent.parent.parent.name}:{s.parent.name}" for s in repo.glob("plugins/*/skills/*/SKILL.md"))
     hooks = sorted(p.parent.parent.name for p in repo.glob("plugins/*/hooks/hooks.json"))
-    kaku = (repo / "plugins" / "core" / "核.md").read_text(encoding="utf-8").rstrip("\n")
-    return {"plugins": plugins, "skills": skills, "hooks": hooks, "kaku": kaku}
+    return {"plugins": plugins, "skills": skills, "hooks": hooks, "injected": injected_texts(repo)}
+
+
+DOC = "docs/核の届け方.md"
+FOUNDATION = "ynishikawa-coder/agent-foundation-public"
+
+
+def setup_block(repo: Path) -> str:
+    """使う側が貼る setup script の塊（docs/核の届け方.md の `setup-script` の印の次の bash の塊）を正本から直に読む。"""
+    text = (repo / DOC).read_text(encoding="utf-8")
+    m = re.search(r"<!-- setup-script.*?-->\s*```bash\n(.*?)\n\s*```", text, re.S)
+    if not m or FOUNDATION not in m.group(1):
+        raise ValueError(f"{DOC} に setup script の塊（印 setup-script の次の bash・{FOUNDATION} を足す行）が無い")
+    return "\n".join(line.strip() for line in m.group(1).splitlines())
 
 
 def sh(args, env, timeout=300):
@@ -108,15 +139,17 @@ def smoke(source: str, repo: Path, expect_sha: str | None) -> list[str]:
             if k in os.environ:
                 env[k] = os.environ[k]
 
-        # 1. 使う側の setup script と同じ入れ方（docs/核の届け方.md）。
-        r = sh(["claude", "plugin", "marketplace", "add", source, "--scope", "user"], env)
+        # 1. 使う側の setup script そのもの（docs/核の届け方.md の塊を、目録の repo だけ試す物に替えて、set -e の下で回す）。
+        script = setup_block(repo).replace(FOUNDATION, shlex.quote(source))
+        r = sh(["bash", "-ec", script], env, timeout=900)  # 貼る先が set -e でも抜けない
         if r.returncode != 0:
-            return [f"marketplace を足せない: {(r.stdout + r.stderr).strip()[-300:]}"]
-        for name in want["plugins"]:
-            r = sh(["claude", "plugin", "install", f"{name}@{MARKET}", "--scope", "user"], env)
-            if r.returncode != 0:
-                bad.append(f"plugin {name} を入れられない（配りの器 .claude-plugin/marketplace.json に無い・壊れている）: "
-                           f"{(r.stdout + r.stderr).strip()[-200:]}")
+            bad.append(f"setup script の塊が非 0 で抜けた（窓が起動しない）: {(r.stdout + r.stderr).strip()[-300:]}")
+        note = home / ".claude" / "CLAUDE.md"
+        for line in (note.read_text(encoding="utf-8").splitlines() if note.exists() else []):
+            if line.startswith("<!-- af-plugin-missing -->"):
+                bad.append(f"setup script が入れ損ねを知らせた: {line[len('<!-- af-plugin-missing -->'):].strip()[:300]}")
+        if not (home / ".claude" / "af-foundation" / "setup.json").is_file():
+            bad.append("setup script が土台の入口 scripts/setup_plugins.py を通っていない（入れた印が無い）")
         table = json.loads((home / ".claude" / "plugins" / "installed_plugins.json").read_text(encoding="utf-8")
                            if (home / ".claude" / "plugins" / "installed_plugins.json").exists() else "{}")
         rows = {k.split("@")[0]: v[0] for k, v in (table.get("plugins") or {}).items() if v}
@@ -140,7 +173,7 @@ def smoke(source: str, repo: Path, expect_sha: str | None) -> list[str]:
             if s not in skills:
                 bad.append(f"skill {s} が起動した窓に読み込まれていない")
 
-        # 3. 核の差し込み（SessionStart の hook の出力）。中身は正本の 核.md と一字違わず同じ。
+        # 3. 毎回差し込む物（SessionStart の hook の出力）。injected() の一覧の全部が、正本と一字違わず同じ中身で届く。
         responses = [e for e in events if e.get("subtype") == "hook_response"]
         for e in responses:
             if e.get("exit_code") not in (0, None):
@@ -151,8 +184,13 @@ def smoke(source: str, repo: Path, expect_sha: str | None) -> list[str]:
                 ctx.append(json.loads(e.get("output") or "{}")["hookSpecificOutput"]["additionalContext"])
             except (ValueError, KeyError, TypeError):
                 pass
-        if not any(c.startswith(KAKU_HEAD) and want["kaku"] in c for c in ctx):
+        core = [c for c in ctx if c.startswith(KAKU_HEAD)]
+        if not core:
             bad.append("核が起動した窓に差し込まれていない（plugin core の SessionStart の hook）")
+        else:
+            for name, text in want["injected"].items():
+                if not any(text in c for c in core):
+                    bad.append(f"{name} が起動した窓に差し込まれていない・中身が正本と違う（plugin core の SessionStart の hook）")
 
         # 4. 守りの hook: 入った copy の hooks.json に書かれた命令をそのまま回す。
         for name in want["hooks"]:
