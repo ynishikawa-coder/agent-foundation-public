@@ -57,7 +57,7 @@ repo ごとに違う値は、repo の根（`git rev-parse --show-toplevel`）の
 ## 2. 終わる前（Completion Report）
 
 1. **4 状態で機械的に判定**: Completed / Partially Completed / Stopped / Failed（定義表の正本は表の `completion_states_doc`、上位の完了判定は `completion_sop`＝在る時だけ）。Completion Criteria を 1 項目ずつ yes/no で照らす。「概ね完了」「総合的に見て」は書かない。
-2. **一時しのぎを含めば Partially**＋恒久の対応を残りに書く（当て物を含んで Completed にしない）。
+2. **一時しのぎを含めば Partially**（当て物を含んで Completed にしない）。抜け・不一致・一時しのぎは戻し・残りに書くだけで済ませず、細目 §3「まず構造を疑う」で原因を探して原因の台帳に行き先つきで持つ。
 3. **設計と実物の差分を必ず書く**（無ければ「差分なし」と項目名つきで）。差分は「[改修] <案件>: 設計は X → 実物は Y（<設計書 path/版>）」の 1 行で残りに書く。
 4. **確かめは申告でなく記録で見る**（核 §7・細目 §7）: Verification Results の各行に、真実源（§1 の表）を読んだ記録（試験の結果・正しい道の証明・取り直した出力・本番 URL の HTTP 実測）の所在を書く。記録の無い行（「確認した」「OK だった」の申告だけ）は Unverified Items へ回す。UI を変えたゴールは主要導線の実ブラウザ完走・console/network の重大エラー 0・空/エラー/読み込み中の状態・SP=375 を含む画面幅を足す（Playwright か Claude-in-Chrome）。
 5. MCP も直接の手段も無い時は人が運ぶ（逐語のコピペか原画像が記録。人の「確認 OK」の要約は申告）。

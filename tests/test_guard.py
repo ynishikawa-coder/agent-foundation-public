@@ -118,6 +118,13 @@ def test_答えの無い問いは台帳に積まれ隣に1行鳴り次の窓で�
     assert "作り物の置き場を A と B のどちらにしますか" in again and "A（推奨）" in again
 
 
+def test_出し直させる文は根治の入口を指す(env):
+    """答えの無い問いを出し直させるだけの古い形（原因を見させない）に戻すと赤。"""
+    hook(env, "post", ask_result())
+    again = hook(env, "start", {"session_id": "s2"}).get("additionalContext", "")
+    assert "細目 §3「まず構造を疑う」" in again
+
+
 def test_答えが返れば台帳から降りて冒頭に出ない(env):
     hook(env, "post", ask_result())
     assert hook(env, "post", ask_result(answered=True, sid="s2")) == {}

@@ -47,7 +47,7 @@ repo ごとに違う値は、repo の根（`git rev-parse --show-toplevel`）の
 5. **ダミーデータは実名・実額にしない**（従業員A・サンプル会社・丸めた架空の額）。会社名・人名・Drive/Sheet の ID を中身に書かない（リンクが要る時も共有前提のものだけ）。
 6. **Q 番号と画面 id は作り直しでも変えない**（貼り戻しと保存済み回答の鍵）。消す時は欠番にし、詰め直さない。`META.storageKey` も同じ題材なら変えない（前の回答が残る）。
 7. **保存** = `確認_<件名>_理論モック_<YYYYMMDD>.html`。置き場は表の `common.save_dir`（無ければ窓の scratchpad＝git の外・PR に載せない）。`common.save_dir_avoid` には置かない。
-8. **検査してから渡す** = `python3 <この skill>/scripts/check_theory_mock.py <保存した html>` で `SELFTEST OK <n> screens`（exit 0）を取る。NG なら直してから（NG 行＝画面 id と例外。飛び先の無い `data-go`・`Q` に無い番号・`LINKS` に無いキーも NG）。exit 2 は Chrome が無い／起動できない＝検査できていない（OK と言わない）。
+8. **検査してから渡す** = `python3 <この skill>/scripts/check_theory_mock.py <保存した html>` で `SELFTEST OK <n> screens`（exit 0）を取る。NG なら細目 §3「まず構造を疑う」で原因（枠の使い方・題材の組み方）から直してから（NG 行＝画面 id と例外。飛び先の無い `data-go`・`Q` に無い番号・`LINKS` に無いキーも NG）。exit 2 は Chrome が無い／起動できない＝検査できていない（OK と言わない）。
 9. **渡す** = 検査を通した html を表の `common.delivery` で渡す（無ければ Artifact で publish し非公開のまま・共有しない／`file:///…` の絶対パスでもよい）。チャットには URL 1 行と「見どころ」数行（特に答えてほしい Q・迷った画面）だけ。HTML の中身をチャットに再展開しない。
 
 ## 貼り戻しの受け方
