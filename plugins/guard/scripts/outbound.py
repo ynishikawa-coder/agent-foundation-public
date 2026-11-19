@@ -55,7 +55,9 @@ def _session_watch():
         "session-watch", os.path.join("scripts", "session_watch.py"))
     if not path or not os.path.isfile(path):
         return None
-    return G.load_module("af_session_watch", path)
+    sw = G.load_module("af_session_watch", path)
+    # 版がずれて正本に題の形の見分けが無い時は「読めない」と同じ扱い
+    return sw if all(hasattr(sw, n) for n in ("title_shape", "split_title", "HAND_TITLE", "HAND_PARTS")) else None
 
 
 # ── secret ──
@@ -227,6 +229,19 @@ def check_title(data, vals):
 
 
 def check(data, vals):
-    """止めるなら理由、通すなら ""。"""
-    outs = [f(data, vals) for f in (check_secret, check_number, check_title)]
+    """止めるなら理由、通すなら ""。3 つは別々に走らせる（1 つが壊れても鍵の照らしを捨てない）。
+    secret が壊れた時は止める（照らせない物は外へ出さない）。number と title が壊れた時はその見分けだけを通す。"""
+    outs = []
+    try:
+        outs.append(check_secret(data, vals))
+    except Exception as e:      # noqa: BLE001
+        outs.append("[guard] 外へ渡す道具の入力の鍵を照らせないので、出す前に止めた（照らせない物は外へ出さない）: %s\n"
+                    "  直し方: 値の表の guard.outbound_secret_allow の正規表現が崩れていないか見る。土台の plugin を市場から"
+                    "入れ直す。" % type(e).__name__)
+    for f in (check_number, check_title):
+        try:
+            outs.append(f(data, vals))
+        except Exception as e:  # noqa: BLE001
+            import sys
+            sys.stderr.write("[guard] outbound.%s: %s\n" % (f.__name__, e))
     return "\n\n".join(o for o in outs if o)
