@@ -83,6 +83,7 @@ def main(argv=None) -> int:
         print(f"✗ {e}")
     if errs:
         print("pr_writer: 赤")
+        print("直し: 本文の頭を直すだけで済ませず、写しが正本からずれた原因を細目 §3「まず構造を疑う」で探して直す")
         return 1
     print("pr_writer: 緑")
     return 0

@@ -13,10 +13,12 @@ printf '%s\n' "$out" | tail -n 15
 last=$(printf '%s\n' "$out" | grep -E '[0-9]+ (passed|failed|skipped|error)' | tail -n 1)
 if [ $code -ne 0 ]; then
   echo "✗ conftest を読まずに回した飛ばす条件の試験が赤（tests/conftest.py の飛ばす条件が壊れている）"
+  echo "直し: 試験を合わせて通すだけで済ませず、飛ばす条件が壊れた原因を細目 §3「まず構造を疑う」で探して直す"
   exit 1
 fi
 if ! printf '%s' "$last" | grep -qE '[1-9][0-9]* passed' || printf '%s' "$last" | grep -qE 'skipped|deselected'; then
   echo "✗ 飛ばす条件の試験が回っていない（${last:-結果の行なし}）。照らしていないのに緑と言わない"
+  echo "直し: 試験を飛ばす形になった原因を細目 §3「まず構造を疑う」で探して直す"
   exit 1
 fi
 echo "conftest_teeth: 緑（${last}）"
