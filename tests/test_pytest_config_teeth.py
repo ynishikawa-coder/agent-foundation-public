@@ -88,12 +88,13 @@ def test_注入_設定の_file_の_addopts_で減らす形も効かない(tmp_pa
     assert code != 0 and "deselected" not in out, out
 
 
-DIRECT = re.compile(r"python3? -m pytest|[\"']-m[\"'],\s*[\"']pytest[\"']|^\s*(run:\s*)?pytest\s", re.M)
+DIRECT = re.compile(r"-m pytest\b|[\"']-m[\"'],\s*[\"']pytest[\"']|pytest\.main\(|(^\s*(run:\s*)?|`)pytest\s", re.M)
 
 
 def direct_callers():
-    """入口を通らず pytest を直に呼ぶ検査・CI の定義（試験の中の小箱の回し方は除く）。"""
-    files = [*ROOT.glob("scripts/**/*.sh"), *ROOT.glob("scripts/**/*.py"), *ROOT.glob(".github/workflows/*.yml")]
+    """入口を通らず pytest を直に呼ぶ検査・CI の定義と、その呼び方を人に教える文書（試験の中の小箱の回し方は除く）。"""
+    files = [*ROOT.glob("scripts/**/*.sh"), *ROOT.glob("scripts/**/*.py"), *ROOT.glob(".github/workflows/*.yml"),
+             ROOT / "CONTRIBUTING.md"]
     return sorted(str(p.relative_to(ROOT)) for p in files
                   if p.relative_to(ROOT).as_posix() != ENTRY and DIRECT.search(p.read_text(encoding="utf-8")))
 
@@ -104,5 +105,6 @@ def test_検査と_CI_は入口を通して試験を回す():
 
 def test_注入_直に呼ぶ行を拾う():
     for text in ["out=$(python3 -m pytest -q tests/)\n", "        run: pytest -q tests/\n",
-                 "subprocess.run([sys.executable, '-m', 'pytest', 'tests'])\n"]:
+                 "subprocess.run([sys.executable, '-m', 'pytest', 'tests'])\n", '"$PY" -m pytest -q tests/\n',
+                 "pytest.main(['tests'])\n", "本物の試験を `pytest -m real_claude tests/` で全部\n"]:
         assert DIRECT.search(text), text
