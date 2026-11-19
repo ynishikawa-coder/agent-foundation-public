@@ -1,13 +1,13 @@
 {
-  "説明": "使う側に残りうる土台の古い形（写し）の一覧。plugin core の起動の hook が、開いた repo にこれが残っていれば名指しで知らせる。「壊れる（1 段目）」の PR が行を足し、使う側が移ったのを `kaku.py olds <各 checkout>` で確かめた「壊れる（2 段目）」の PR が行を消す（CONTRIBUTING.md §8）。files は git の pathspec（試験と変更の記録は経緯や作り物として古い名を持つので :(exclude) で外す）、pattern は Python の正規表現、example は pattern に当たる作り物の 1 行。files に無い拡張子の file（.py・.json 等）と、repo の外の環境の setup script は olds では見えない（環境の setup script は起動の hook が入口の印で見る）。",
+  "説明": "使う側に残りうる土台の古い形（写し）の一覧。plugin core の起動の hook が、開いた repo にこれが残っていれば名指しで知らせる。「壊れる（1 段目）」の PR が行を足し、使う側が移ったのを `kaku.py olds <各 checkout>` で確かめた「壊れる（2 段目）」の PR が行を消す（CONTRIBUTING.md §8）。files は git の pathspec（試験と変更の記録は経緯や作り物として古い名を持つので :(exclude) で外す）か、印 @memory（Claude Code が読む物＝根と下の dir の CLAUDE.md・CLAUDE.local.md・AGENTS.md と @ の取り込みを kaku.py が辿る）。行は pattern（Python の正規表現・照らす前に字を kaku.flat で寄せる・\\p{Ps} は開きの括弧の Unicode の分類）か reader（kaku.py の READERS の名＝構造で読む読み手。setup の命令は guard の cmd_read で語の並びに読み、コメント・地の文は命令でない）のどちらか 1 つ。example はその行に当たる作り物の 1 行。核の写しの枠の形の正本はこの一覧の行 af-core-frame（kaku.py の量の照らしもこの行を読む）。repo の外の環境の setup script は olds では見えない（環境の setup script は起動の hook が入口の印で見る）。",
   "olds": [
     {
       "id": "af-core-frame",
-      "what": "CLAUDE.md の核の写しの枠（AF-CORE:BEGIN … AF-CORE:END）",
+      "what": "Claude Code が読む物（CLAUDE.md・CLAUDE.local.md・AGENTS.md・その @ の取り込み・下の dir の物）の核の写しの枠（AF-CORE:BEGIN … AF-CORE:END）",
       "files": [
-        "CLAUDE.md"
+        "@memory"
       ],
-      "pattern": "<!-- AF-CORE:BEGIN",
+      "pattern": "<!--[ \\t\\r\\n]*AF-CORE:BEGIN",
       "fix": "枠を中身ごと消す。核は plugin core が起動時に差し込む（写しは古くなっても誰も止めない）",
       "example": "<!-- AF-CORE:BEGIN 核の写し -->"
     },
@@ -32,7 +32,7 @@
     },
     {
       "id": "no-marketplace-update",
-      "what": "土台の目録を足して入口 scripts/setup_plugins.py を呼ぶが、目録を取り直さない setup（前の setup の clone が残る箱では、古い名簿と古い入口のまま入る）",
+      "what": "土台の目録を足す（plugin marketplace add）が、目録を取り直す命令（plugin marketplace update）が無い setup（前の setup の clone が残る箱では、古い名簿と古い入口のまま入る。命令はシェルの語の並びで読む＝コメントや地の文の update は数えない）",
       "files": [
         "*.sh",
         "*.md",
@@ -45,19 +45,25 @@
         ":(exclude)CHANGELOG.md",
         ":(exclude)**/CHANGELOG.md"
       ],
-      "pattern": "(?s)\\A(?=.*setup_plugins\\.py)(?=.*?marketplace\\s+add\\b[^\\n]*agent-foundation)(?!.*marketplace\\s+update\\b)",
+      "reader": "setup-no-marketplace-update",
       "fix": "土台の docs/核の届け方.md の setup script の 1 行目（marketplace add の後に claude plugin marketplace update agent-foundation）に替える",
       "example": "claude plugin marketplace add o/agent-foundation-public --scope user || true; python3 \"$af/scripts/setup_plugins.py\" || true"
     },
     {
       "id": "atonobin-tag",
-      "what": "行き先の無い受け皿の札「後の便」（止めない気づきの札 [後の便｜…]・〔後の便に回した事〕など。土台は台帳へに替えた）",
+      "what": "行き先の無い受け皿の札「後の便」（開きの括弧の直後の札 [後の便｜…]・〔後の便に回した事〕・【後の便】など。土台は台帳へに替えた）",
       "files": [
-        "*.md",
+        "*",
+        ":(exclude)tests/**",
+        ":(exclude)**/tests/**",
+        ":(exclude)**/test_*.py",
         ":(exclude)CHANGELOG.md",
-        ":(exclude)**/CHANGELOG.md"
+        ":(exclude)**/CHANGELOG.md",
+        ":(exclude)CHANGELOG.d/**",
+        ":(exclude)**/CHANGELOG.d/**",
+        ":(exclude)**/古い形.json"
       ],
-      "pattern": "[\\[［〔]後の便",
+      "pattern": "\\p{Ps}[ \\t]*後の便",
       "fix": "札は [台帳へ｜…] にし、残りは各社の原因の台帳の行にする（土台の 細目.md §3「残りの受け皿は原因の台帳 1 つ」）。札を数える道具が在れば、台帳へ も読む形にする",
       "example": "- [後の便｜整地] 〜"
     },

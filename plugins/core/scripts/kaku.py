@@ -33,14 +33,17 @@ KAKU = PLUGIN / "核.md"
 FURUMAI = PLUGIN / "振る舞い.md"
 SAIMOKU = PLUGIN / "細目.md"
 OLDS = PLUGIN / "古い形.json"
-FRAME_BEGIN = "<!-- AF-CORE:BEGIN"
+# 核の写しの枠の形の正本は 古い形.json の行 af-core-frame（量の照らしも起動の見張りも、その行を直に読む＝字を 2 か所に持たない）
+FRAME_ROW = "af-core-frame"
 # 越えた時の最後の行（中身は細目 §3 が正本＝ここは指すだけ）
 ROOT_CAUSE = "直し: 文を移して量を合わせるだけで済ませず、決まりが増えた原因を細目 §3「まず構造を疑う」で探して畳む"
 # 常に読まれる量の上限（バイト・UTF-8）。数はここの 1 か所だけに置く。
 LIMITS = {"核": 4800, "振る舞い": 2400, "各社固有": 3000}
 MARKET = "agent-foundation"
-# 土台の振る舞いを運ぶ path。ここが変わった時だけ「古い土台」と見る（文書・試験・CI だけの変更では窓を替えない）。
-CARRIERS = ("plugins", ".claude-plugin")
+# 窓へ届く物は path の頭で決めず、先端の実物から読む（carriers）: 目録（.claude-plugin）・目録が名指す plugin の source・
+# その中の symlink の先（plugin の外の正本）・plugin の code が土台の根から読む file（foundation_file("…") の引数）・setup が走らせる入口。
+MANIFEST = ".claude-plugin/marketplace.json"
+ENTRY = "scripts/setup_plugins.py"
 FRESH_INTERVAL = 900  # 起動の後に main の先端を見に行く間（秒）。毎回の問いごとに外へ出ない。
 # 起動の時の古い形の見張りに使ってよい時間（秒）。越えたら打ち切って名指しする（hook の上限に当たって核の差し込みごと落ちない）。
 WATCH_BUDGET = 5
@@ -56,25 +59,145 @@ def size(text: str) -> int:
 
 # ── 使う側に残った古い形（写し）を名指しする ──
 
+def _open_punct() -> str:
+    """Unicode の分類 Ps（開きの括弧の類: [ ［ 〔 【 （ 「 …）の字の組。札の開きを括弧の字の列挙でなく分類で読む。"""
+    import unicodedata
+    chars = "".join(chr(c) for c in range(0x10000) if unicodedata.category(chr(c)) == "Ps")
+    return "[" + re.escape(chars) + "]"
+
+
 def olds_table(path: Path = OLDS) -> list[dict]:
-    """古い形の一覧。形が違えば ValueError（黙って一部だけ見ない）。"""
+    """古い形の一覧。形が違えば ValueError（黙って一部だけ見ない）。
+    行は pattern（正規表現・\\p{Ps} は開きの括弧の分類）か reader（構造で読む読み手の名＝READERS）のどちらか 1 つを持つ。"""
     data = json.loads(path.read_text(encoding="utf-8"))
     rows = data.get("olds") if isinstance(data, dict) else None
     if not isinstance(rows, list):
         raise ValueError(f"{path.name} に olds の並びが無い")
-    keys = {"id", "what", "files", "pattern", "fix", "example"}
+    base = {"id", "what", "files", "fix", "example"}
     for r in rows:
-        if not isinstance(r, dict) or set(r) != keys or not isinstance(r["files"], list) or not r["files"]:
-            raise ValueError(f"{path.name} の行の欄が {sorted(keys)} でない: {r!r}")
-        r["re"] = re.compile(r["pattern"])
+        if (not isinstance(r, dict) or set(r) not in (base | {"pattern"}, base | {"reader"})
+                or not isinstance(r["files"], list) or not r["files"]):
+            raise ValueError(f"{path.name} の行の欄が {sorted(base)} と pattern か reader の 1 つでない: {r!r}")
+        if "reader" in r:
+            if r["reader"] not in READERS:
+                raise ValueError(f"{path.name} の行 {r['id']} の reader「{r['reader']}」を知らない（読める物: {'・'.join(READERS)}）")
+            r["re"] = READERS[r["reader"]]()
+        else:
+            r["re"] = re.compile(r["pattern"].replace("\\p{Ps}", _open_punct()))
     return rows
 
 
+def olds_row(rid: str, path: Path = OLDS) -> dict:
+    """一覧の 1 行（無ければ ValueError＝正本が欠けたまま黙って見ない）。"""
+    for r in olds_table(path):
+        if r["id"] == rid:
+            return r
+    raise ValueError(f"{path.name} に行 {rid} が無い")
+
+
+# 起動の見張りが Claude Code の読む物（CLAUDE.md の類）を辿って見る印（git の pathspec でない）
+MEMORY = "@memory"
+
+
 def _tracked(project: Path, specs: list[str]) -> list[Path]:
+    mem = [project / m for m in memory_files(project)["all"]] if MEMORY in specs else []
+    specs = [s for s in specs if s != MEMORY]
+    if not specs:
+        return mem
     out = _git(str(project), "ls-files", "-z", "--", *specs, timeout=10)
     if out is not None:
-        return [project / n for n in out.split("\0") if n][:2000]
-    return [project / s for s in specs if "*" not in s]  # git でない dir は、名で書いた file だけ見る
+        got = [project / n for n in out.split("\0") if n][:2000]
+    else:
+        got = [project / s for s in specs if "*" not in s]  # git でない dir は、名で書いた file だけ見る
+    return mem + [g for g in got if g not in mem]
+
+
+# ── Claude Code が実際に読む物（量の上限と写しの枠はここを辿って見る＝根の 1 file の字で見ない） ──
+# いつも読む物: 根の CLAUDE.md・.claude/CLAUDE.md・CLAUDE.local.md・AGENTS.md と、その @ の取り込み（5 段まで）。
+# 下の dir の物（CLAUDE.md・CLAUDE.local.md・AGENTS.md）は、その dir の file を読む時に足して読まれる。
+ALWAYS = ("CLAUDE.md", ".claude/CLAUDE.md", "CLAUDE.local.md", "AGENTS.md")
+MEMORY_NAMES = ("CLAUDE.md", "CLAUDE.local.md", "AGENTS.md")
+IMPORT_DEPTH = 5
+_IMPORT = re.compile(r"(?<![\w`@])@((?:~/|\.{0,2}/)?[^\s`'\"<>()\[\]]+)")
+
+
+def _imports(path: Path) -> list[Path]:
+    """@ の取り込み（code の塊と `…` の中は取り込みでない＝Claude Code と同じ）。在る file だけ。"""
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return []
+    text = re.sub(r"(?ms)^[ \t]*(```|~~~).*?^[ \t]*\1[^\n]*$", "", text)
+    text = re.sub(r"`[^`\n]*`", "", text)
+    out = []
+    for m in _IMPORT.finditer(text):
+        raw = m.group(1).rstrip(".,;:、。")
+        cand = Path(raw).expanduser() if raw.startswith("~/") else (path.parent / raw)
+        if cand.is_file():
+            out.append(cand.resolve())
+    return out
+
+
+def _with_imports(starts: list[Path]) -> list[Path]:
+    seen: list[Path] = []
+    todo = [(p.resolve(), 0) for p in starts if p.is_file()]
+    while todo:
+        p, depth = todo.pop(0)
+        if p in seen:
+            continue
+        seen.append(p)
+        if depth < IMPORT_DEPTH:
+            todo += [(q, depth + 1) for q in _imports(p)]
+    return seen
+
+
+def memory_files(project: Path, root_md: Path | None = None) -> dict:
+    """{always: [path…], subdirs: {dir: [path…]}, all: [相対 path…]}（Claude Code が読む物・取り込みを辿った実物）。"""
+    project = project.resolve()
+    always = _with_imports(([root_md] if root_md else []) + [project / n for n in ALWAYS])
+    names = _git(str(project), "ls-files", "-z", "--cached", "--others", "--",
+                 *[f"**/{n}" for n in MEMORY_NAMES], timeout=10)
+    if names is not None:
+        found = [project / n for n in names.split("\0") if n]
+    else:
+        found = [p for n in MEMORY_NAMES for p in project.rglob(n) if ".git" not in p.parts]
+    subdirs: dict[Path, list[Path]] = {}
+    for f in found:
+        if f.parent.resolve() != project and f.is_file():
+            subdirs.setdefault(f.parent.resolve(), []).append(f)
+    subdirs = {d: _with_imports(fs) for d, fs in subdirs.items()}
+    rel = []
+    for p in always + [q for fs in subdirs.values() for q in fs]:
+        try:
+            r = str(p.relative_to(project))
+        except ValueError:
+            r = str(p)
+        if r not in rel:
+            rel.append(r)
+    return {"always": always, "subdirs": subdirs, "all": rel}
+
+
+def memory_load(project: Path, root_md: Path | None = None) -> tuple[int, list[Path]]:
+    """一番多く読まれる時の量（バイト）とその時の file。いつも読む物＋下の dir で読む物（その dir と上の dir の物）。"""
+    mem = memory_files(project, root_md)
+    best = (0, [])
+    chains = [[]] + [[d] for d in mem["subdirs"]]
+    for chain in chains:
+        files = list(mem["always"])
+        if chain:
+            d = chain[0]
+            for sd, fs in mem["subdirs"].items():
+                if sd == d or sd in d.parents:
+                    files += [f for f in fs if f not in files]
+        n = 0
+        for f in files:
+            try:
+                n += size(f.read_text(encoding="utf-8"))
+            except UNREADABLE:
+                n += f.stat().st_size if f.exists() else 0
+        if n > best[0]:
+            best = (n, files)
+    return best
 
 
 def flat(text: str) -> str:
@@ -85,9 +208,82 @@ def flat(text: str) -> str:
     return re.sub(r"(?<=[^\s'\"])['\"]+(?=[^\s'\"])|(?<=\s)['\"]+(?=[^\s'\"][^\s]*['\"]?[^\s'\"])", "", t)
 
 
-def olds_hit(row: dict, text: str) -> bool:
-    """古い形の行が字に当たるか（元の字と、寄せた字の両方で照らす）。"""
+def olds_hit(row: dict, text: str, name: str = "") -> bool:
+    """古い形の行が字に当たるか。pattern の行は元の字と寄せた字の両方で、reader の行は構造で読む（name は file の名＝読み方を決める）。"""
+    if "reader" in row:
+        return bool(row["re"].search(text, name))
     return bool(row["re"].search(text) or row["re"].search(flat(text)))
+
+
+# ── 構造で読む古い形（reader）: setup の命令をシェルの語の並びで読む（コメント・地の文は命令でない） ──
+
+def _cmd_read():
+    """guard の命令の読み手 cmd_read（写さず直に読む）。repo の形 plugins/guard と、入れた形 cache/<市場>/guard/<同じ版>。
+    無ければ ValueError（読めない物は黙って緑にしない＝起動の見張りが名指す）。"""
+    cands = [PLUGIN.parent / "guard" / "scripts" / "cmd_read.py",
+             PLUGIN.parent.parent / "guard" / PLUGIN.name / "scripts" / "cmd_read.py"]
+    if "af_cmd_read" in sys.modules:
+        return sys.modules["af_cmd_read"]
+    for c in cands:
+        if c.is_file():
+            import importlib.util
+            spec = importlib.util.spec_from_file_location("af_cmd_read", c)
+            mod = importlib.util.module_from_spec(spec)
+            sys.modules["af_cmd_read"] = mod
+            spec.loader.exec_module(mod)
+            return mod
+    raise ValueError("命令の読み手（plugin guard の scripts/cmd_read.py）が見つからない＝setup の命令を読めない。土台の plugin を同じ版で入れ直す")
+
+
+def _shell_texts(text: str, name: str) -> list[str]:
+    """file の中の命令の文。.md は code の塊だけ（地の文は命令でない）・.py は文字の定数（並びは 1 つの命令）・ほかは全体。"""
+    if name.endswith(".md"):
+        return [m.group(2) for m in re.finditer(r"(?ms)^[ \t]*(```|~~~)[^\n]*\n(.*?)^[ \t]*\1", text)]
+    if name.endswith(".py"):
+        import ast
+        try:
+            tree = ast.parse(text)
+        except SyntaxError:
+            return [text]
+        out = []
+        for n in ast.walk(tree):
+            if isinstance(n, (ast.List, ast.Tuple)) and n.elts and all(isinstance(e, ast.Constant) and isinstance(e.value, str) for e in n.elts):
+                import shlex
+                out.append(" ".join(shlex.quote(e.value) for e in n.elts))
+            elif isinstance(n, ast.Constant) and isinstance(n.value, str):
+                out.append(n.value)
+        return out
+    return [text]
+
+
+def _market_cmds(text: str, name: str) -> dict:
+    """{add, update}: 土台の目録を足す命令・取り直す命令が在るか（plugin marketplace add|update の語の並び）。"""
+    cr = _cmd_read()
+    got = {"add": False, "update": False}
+    for t in _shell_texts(text, name):
+        for seg in cr.read(t).segments:
+            words = [w.text for w in seg]
+            for i in range(len(words) - 2):
+                if words[i] not in ("plugin", "plugins") or words[i + 1] != "marketplace" or words[i + 2] not in got:
+                    continue
+                args = [w for w in seg[i + 3:] if not w.text.startswith("-")]
+                ours = any(MARKET in w.text or w.opaque for w in args)   # 解けない名は土台の目録とみる（知らせる側）
+                if words[i + 2] == "add" and ours:
+                    got["add"] = True
+                if words[i + 2] == "update" and (ours or not args):      # 名なしの update は全部の目録を取り直す
+                    got["update"] = True
+    return got
+
+
+class _NoMarketUpdate:
+    """土台の目録を足す（marketplace add）のに、取り直す（marketplace update）命令が無い setup。"""
+
+    def search(self, text: str, name: str = "") -> bool:
+        got = _market_cmds(text, name)
+        return got["add"] and not got["update"]
+
+
+READERS = {"setup-no-marketplace-update": _NoMarketUpdate}
 
 
 def find_olds(project: Path, rows: list[dict] | None = None) -> list[tuple[dict, str]]:
@@ -96,8 +292,12 @@ def find_olds(project: Path, rows: list[dict] | None = None) -> list[tuple[dict,
     for r in rows if rows is not None else olds_table():
         for f in _tracked(project, r["files"]):
             try:
-                if f.is_file() and f.stat().st_size <= 1_000_000 and olds_hit(r, f.read_text(encoding="utf-8", errors="replace")):
-                    found.append((r, str(f.relative_to(project))))
+                if f.is_file() and f.stat().st_size <= 1_000_000 and olds_hit(r, f.read_text(encoding="utf-8", errors="replace"), f.name):
+                    try:
+                        rel = str(f.relative_to(project))
+                    except ValueError:
+                        rel = str(f)
+                    found.append((r, rel))
             except OSError:
                 pass
     return found
@@ -126,16 +326,22 @@ def olds_text(found: list[tuple[dict, str]], project: Path) -> str:
 
 
 def claude_md_text(project: Path) -> str | None:
-    """開いた repo の根の CLAUDE.md が各社固有の上限を越えていれば知らせる文。"""
-    try:
-        n = size((project / "CLAUDE.md").read_text(encoding="utf-8"))
-    except UNREADABLE:
-        return None
+    """開いた repo で Claude Code が読む物（根の CLAUDE.md・その @ の取り込み・CLAUDE.local.md・AGENTS.md・下の dir の物）の
+    一番多く読まれる時の量が各社固有の上限を越えていれば知らせる文。"""
+    n, files = memory_load(project)
     if n <= LIMITS["各社固有"]:
         return None
+    names = "・".join(_rel(f, project) for f in files)
     return (f"## この repo の CLAUDE.md が常に読まれる量の上限を越えている\n"
-            f"{n} > {LIMITS['各社固有']} バイト（数は土台の plugin core の LIMITS の 1 か所・写さない）。"
-            "その repo に固有の決まりだけを残し、細かい手順はその repo の文書へ移して指す 1 行にする。\n")
+            f"{n} > {LIMITS['各社固有']} バイト（読まれる物: {names}・数は土台の plugin core の LIMITS の 1 か所・写さない）。"
+            "その repo に固有の決まりだけを残し、細かい手順はその repo の文書へ移して指す 1 行にする（@ の取り込み・下の dir へ移しても量は同じ）。\n")
+
+
+def _rel(f: Path, project: Path) -> str:
+    try:
+        return str(f.resolve().relative_to(project.resolve()))
+    except ValueError:
+        return str(f)
 
 
 def setup_text() -> str | None:
@@ -234,13 +440,60 @@ def freshness() -> dict | None:
         return None
     if tip == have:
         return {"installed": have, "main": tip, "plugins": []}
-    names = _git(loc, "diff", "--name-only", have, tip, "--", *CARRIERS)
+    carry = carriers(loc, tip)   # 読めない（None）時は path で絞らない＝どの変更も届くとみる（既定で知らせる側）
+    names = _git(loc, "diff", "--name-only", have, tip, "--", *(carry or []))
     if names is None:      # 入った commit が clone に無い＝比べられないが先端とは違う。古いと見る（既定で知らせる側）
         plugins = ["（どれか分からない）"]
     else:
         plugins = sorted({n.split("/")[1] if n.startswith("plugins/") and n.count("/") >= 2 else n.split("/")[0]
                           for n in names.splitlines() if n})
     return {"installed": have, "main": tip, "plugins": plugins}
+
+
+def carriers(loc: str, tip: str) -> list[str] | None:
+    """先端（tip）で窓へ届く物の path（git の pathspec）。読めなければ None（呼ぶ側が全部の変更を届くとみる）。
+    目録の plugin の source・その中の symlink の先・plugin の code が土台の根から読む file・目録そのもの・setup の入口。"""
+    raw = _git(loc, "show", f"{tip}:{MANIFEST}")
+    try:
+        plugins = json.loads(raw)["plugins"] if raw is not None else None
+        sources = [os.path.normpath(p["source"]) for p in plugins if isinstance(p.get("source"), str)]
+    except (ValueError, KeyError, TypeError, AttributeError):
+        return None
+    if not sources:
+        return None
+    out = [MANIFEST.split("/")[0], ENTRY, *sources]
+    tree = _git(loc, "ls-tree", "-r", "-z", tip, "--", *sources)
+    if tree is None:
+        return None
+    import ast
+    import posixpath
+    for ent in tree.split("\0"):
+        if not ent:
+            continue
+        meta, path = ent.split("\t", 1)
+        mode, _, blob = meta.split()
+        if mode == "120000":               # symlink の先（plugin の外の正本）
+            target = _git(loc, "cat-file", "-p", blob)
+            if target:
+                out.append(posixpath.normpath(posixpath.join(posixpath.dirname(path), target)))
+        elif path.endswith(".py"):         # plugin の code が土台の根から読む file（foundation_file("…") の引数）
+            text = _git(loc, "cat-file", "-p", blob)
+            if not text or "foundation_file" not in text:
+                continue
+            try:
+                tree_py = ast.parse(text)
+            except SyntaxError:
+                return None
+            for n in ast.walk(tree_py):
+                f = getattr(n, "func", None)
+                if isinstance(n, ast.Call) and (getattr(f, "id", None) or getattr(f, "attr", None)) == "foundation_file" and n.args:
+                    a = n.args[0]
+                    parts = a.args if isinstance(a, ast.Call) and getattr(a.func, "attr", None) == "join" else [a]
+                    if all(isinstance(x, ast.Constant) and isinstance(x.value, str) for x in parts):
+                        out.append(posixpath.join(*(x.value for x in parts)))
+                    else:                  # 字で書いていない引数＝届く物が読めない
+                        return None
+    return sorted({p for p in out if p and not p.startswith("..")})
 
 
 def _state_path(session: str) -> Path:
@@ -381,15 +634,24 @@ def check(claude: Path | None) -> int:
         bad.append(f"振る舞いの既定（{FURUMAI.name}）が上限を越えた: {f} > {LIMITS['振る舞い']} バイト（癖と逆を求めない物を細目へ移す）")
     if claude is not None:
         try:
-            text = claude.read_text(encoding="utf-8")
-        except UNREADABLE as e:
-            print(f"✗ {claude} が読めない: {e}")
+            claude.read_text(encoding="utf-8")
+            frame = olds_row(FRAME_ROW)
+        except (*UNREADABLE, ValueError) as e:
+            print(f"✗ {claude} か古い形の一覧が読めない: {e}")
             return 2
-        m = size(text)
-        if FRAME_BEGIN in text:
-            bad.append(f"{claude} に核の写しの枠が残っている（枠を中身ごと消す・核は plugin core が差し込む）")
+        project = claude.resolve().parent
+        m, files = memory_load(project, claude)
+        mem = memory_files(project, claude)
+        for md in mem["always"] + [q for fs in mem["subdirs"].values() for q in fs]:
+            try:
+                if olds_hit(frame, md.read_text(encoding="utf-8", errors="replace"), md.name):
+                    bad.append(f"{md} に核の写しの枠が残っている（枠を中身ごと消す・核は plugin core が差し込む）")
+            except OSError as e:
+                print(f"✗ {md} が読めない: {e}")
+                return 2
         if m > LIMITS["各社固有"]:
-            bad.append(f"各社固有（{claude}）が上限を越えた: {m} > {LIMITS['各社固有']} バイト（その repo の文書へ移す）")
+            bad.append(f"各社固有（{claude} と Claude Code が一緒に読む物: {'・'.join(_rel(f, project) for f in files)}）が上限を越えた: "
+                       f"{m} > {LIMITS['各社固有']} バイト（その repo の文書へ移す）")
     for b in bad:
         print(f"✗ {b}")
     if bad:

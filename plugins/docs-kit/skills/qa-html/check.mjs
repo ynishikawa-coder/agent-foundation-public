@@ -6,7 +6,8 @@
 //   型: 宛先の印（data-dest＝send・copy・artifact）が無い／qa:css・qa:js・qa:foot が型（references/template.html）と違う
 //     （qa:foot は「この後のこと」だけ差してよい）／型の外に許す物の表（ALLOW）に無い要素・属性・URL を書いた
 //     （script・style・iframe・on… の属性・javascript:・外のリソースなど）／暗い色の設定／会社の色（--brand）が body の style の外・白地で読めない濃さ／
-//     宛名が無い／差出人・連絡先の欄が残っている（外した欄）／版（__版__）が無い／送る前の確認と受付の部品が無い
+//     宛名が無い／型に無い欄（型の外の class・body・.wrap・header・form・fieldset.q のじかの子が型に無い形・JSON の知らない鍵＝
+//     差出人・連絡先などの外した欄もこれで止まる）／版（__版__）が無い／送る前の確認と受付の部品が無い
 //   前提（3 段）: 読んだ資料の一覧（.docs の li[data-doc]）・答えるまでの扱い（.hold）が無い／資料にリンク（data-url）も
 //     リンクが無い訳（data-no-url）も無い／まとまりの 1 行（.glead）が
 //     各まとまりの最初の問いに 1 つでない／1 問の 4 欄（何について .about・見つけた事 .known と data-docs・なぜ聞くか .why・
@@ -18,8 +19,8 @@
 //     根拠（data-basis）が空・選択肢より前／見込みの言葉を見込みの枠の外で使う／「前の問い」など、ほかの問いに頼る言い方
 //   問い: 問いの形（data-kind）が 5 つ以外／並び（data-group）が 会社の決まり→人ごとの事実→今回だけの事→先に決めておきたい事 でない／
 //     先に決めておきたい事（later）の 1 行が決まった文でない／
-//     内部の言葉／番号で過去の問いを指す／数を書かせる問い（資料の外の事実で数を打つ欄の時を除く）／長さ・問いの数の上限超え／選択肢が 1 つだけ／
-//     選択肢に A・B などの記号／選択肢の鍵（value）の形・重なり／「分からない」（__unknown__）が無い・最後でない／
+//     内部の言葉／番号で過去の問いを指す／書かせる欄（数・字・日付）が資料の外の事実（fact）の外に在る／長さ・問いの数の上限超え／選択肢が 1 つだけ／
+//     選択肢に A・B・ア．・①などの記号（字の形で読む）／問いの頭の番号（その問いの順の数か、数の直後の区切り）／選択肢の鍵（value）の形・重なり／「分からない」（__unknown__）が無い・最後でない／
 //     答えずに送れる（required が無い）／1 問に 2 つ以上／「合っていますか」を食い違いの外で使う／
 //     資料の外の事実に「当てはまらない」が無い／資料がそろっているかの問いに足りない資料を書かせる選択肢が無い／ひとこと（supp_鍵）が無い／鍵の重なり
 //   前の答え: 引いた結果（--prior・ページの隣の <名>.prior.json）の answered に在る鍵が問いに残っている／引いた結果が読めない・
@@ -44,8 +45,18 @@ import { fileURLToPath } from "node:url";
 
 // ── 問いの決まりの表（1 か所）。会社ごとに足す語は config/skill-values.json の docs-kit.qa-html.internal_words
 //    （文字列か {語, 正規表現, 言い換え}）、上限は docs-kit.qa-html.limits で上書きする。
-// 外した欄（差出人・連絡先の欄は要らない）。HTML の class と JSON の鍵が同じ名。
-const DROPPED = [["from", "差出人"], ["contact", "連絡先"]];
+// 問いのデータ（JSON）の欄の正本（SKILL.md §問いのデータ）。ここに無い鍵は赤＝外した欄（差出人 from・連絡先 contact など）を名で探さない
+const JSON_KEYS = {
+  page: ["dest", "version", "brand", "to", "title", "lead", "due", "next", "hold", "docs", "questions"],
+  doc: ["key", "name", "received", "url", "no_url"],
+  question: ["key", "label", "kind", "group", "glabel", "glead", "about", "who", "why", "question", "reading", "known", "docs", "evidence",
+    "table", "clips", "options", "estimate", "input", "more", "supp"],
+  option: ["value", "label", "detail", "change", "supp", "recommended"],
+};
+// 型の外の箱のうちページの欄を置く所（じかの子は型の正本 references/template.html と同じ形〔要素と class〕だけ＝型に無い欄は全部赤）
+const CLOSED = ["body", "div.wrap", "header.top"];
+// 照らす前に字を 1 つの形へ寄せる（全角→半角など＝kaku.flat と同じ考え）
+const flat = (s) => String(s ?? "").normalize("NFKC");
 const ROOT_CAUSE = "  直し: 赤の行を 1 つずつ潰さず、細目 §3「まず構造を疑う」で原因（問いの元の表・前提の写し方）から直す";
 
 export const RULES = {
@@ -185,11 +196,9 @@ export const RULES = {
     }
   ],
   "past_question_id": "Q\\d{2,4}[.\\-]\\d{1,2}-\\d+|(?<![A-Za-z0-9])Q-?\\d{1,4}(?![0-9])",
-  "number_ask": "(?:額|金額|数|日数|時間|時給|単価|回数|人数)\\s*(?:を|は)?\\s*(?:教えて|書いて|ご記入|記入|入力|ご入力|打ち込|お知らせ)|何(?:日|時間|円|回|人)(?:ですか|でしたか|ありますか|働)",
   "confirm": "合っていますか|こう読みました|こう理解しています|よろしいですか",
   "two_in_one": "、また|また、|および|及び|あわせて|併せて|それぞれ[^。]*(?:と|、)|[^、。・\\s]{2,}と[^、。・\\s]{2,}(?:を|は)(?:教えて|お知らせ|ご確認|確認|決め|選)",
   "question_end": "ですか|ますか|でしょうか|ください|[？?]",
-  "option_symbol": "^\\s*(?:案\\s*[A-Za-zＡ-Ｚ0-9０-９]|[A-Za-zＡ-Ｚａ-ｚ](?:\\s*[.．:：、)）]|\\s+)|[0-9０-９]{1,2}\\s*[.．:：、)）](?![0-9０-９])|[①-⑳])|^\\s*[(（](?:[A-Za-zＡ-Ｚ]|[0-9]{1,2})[)）]",
   "symbol_ref": "(?<![A-Za-z0-9])(?:案\\s*)?[A-DＡ-Ｄ]\\s*(?:なら|の場合|案|を選)"
 };
 const KINDS = Object.keys(RULES.kinds);
@@ -293,27 +302,57 @@ const templateRegions = () =>
     return Object.fromEntries(FIXED.map((n) => [n, region(t, n)]));
   })());
 
-// 型の外で使える class＝型が型の外（qa:css・qa:js・qa:foot と注の外）で使っている class と、推奨の印の rec だけ（正本は型 1 つ）。
-//   型の CSS・JS が知っているのに型の外で使わない class（step・err・bar・pg・big など＝見せ方を切り替える物）を付けて選択肢を隠させない
-//   （CSS・JS の知らない class は見せ方を変えないので通す）
-let outsideClassCache = null;
-const templateOutsideClasses = () =>
-  (outsideClassCache ??= (() => {
+// 型の外で使える class と、箱（CLOSED）のじかの子の形＝型が型の外（qa:css・qa:js・qa:foot と注の外）で使っている物だけ（正本は型 1 つ）。
+//   型に無い class・型に無い子の形は赤＝悪い名（差出人の from・連絡先の contact・見せ方を切り替える step など）を探さず、型に在る物だけを通す
+const sig = (tag) => {
+  const name = /^<([A-Za-z][A-Za-z0-9-]*)/.exec(tag)[1].toLowerCase();
+  const cls = (attr(tag, "class") ?? "").split(/[ \t\n\f\r]+/).filter(Boolean).sort();
+  return cls.length ? `${name}.${cls.join(".")}` : name;
+};
+// 子の形の木: 開きタグの並びを読んで { 親の形: Set(子の形) }（VOID は閉じない・崩れた木は別の赤が見る）
+function childShapes(rest) {
+  const kids = new Map();
+  const stack = [];
+  for (const m of rest.matchAll(/<(\/?)([A-Za-z][A-Za-z0-9-]*)\b(?:"[^"]*"|'[^']*'|[^'">])*>/g)) {
+    const name = m[2].toLowerCase();
+    if (m[1]) {
+      const at = stack.map((x) => x.name).lastIndexOf(name);
+      if (at >= 0) stack.length = at;
+      continue;
+    }
+    const me = sig(m[0]);
+    const parent = stack[stack.length - 1]?.sig ?? "";
+    if (!kids.has(parent)) kids.set(parent, []);
+    kids.get(parent).push({ sig: me, show: m[0].slice(0, 50) });
+    if (!VOID.has(name) && !/\/>$/.test(m[0])) stack.push({ name, sig: me });
+  }
+  return kids;
+}
+const stripFixed = (t) => FIXED.reduce((x, n) => x.replace(new RegExp(`<!--${n}-->[\\s\\S]*?<!--/${n}-->`), " "), t);
+let outsideCache = null;
+const templateOutside = () =>
+  (outsideCache ??= (() => {
     let t = readFileSync(TEMPLATE, "utf8");
     t = t.slice(t.indexOf("-->") + 3);
-    for (const n of FIXED) t = t.replace(new RegExp(`<!--${n}-->[\\s\\S]*?<!--/${n}-->`), " ");
-    t = t.replace(/<!--[\s\S]*?-->/g, " ");
-    const set = new Set(["rec", "next"]);   // next＝qa:foot の「この後のこと」（差してよい所・別の赤が中身を見る）
-    for (const m of t.matchAll(/\bclass="([^"]*)"/g)) for (const c of m[1].split(/[ \t\n\f\r]+/)) if (c) set.add(c);
-    // 型の CSS・JS が知っている語（見せ方を切り替えうる class の候補）
-    const full = readFileSync(TEMPLATE, "utf8");
-    const known = new Set();
-    for (const n of FIXED) {
-      const r = new RegExp(`<!--${n}-->([\\s\\S]*?)<!--/${n}-->`).exec(full)?.[1] ?? "";
-      for (const w of r.matchAll(/[A-Za-z_][A-Za-z0-9_-]*/g)) known.add(w[0]);
-    }
-    return { allowed: set, known };
+    t = stripFixed(t).replace(/<!--[\s\S]*?-->/g, " ");
+    const allowed = new Set(["rec", "next"]);   // rec＝推奨の印（注にだけ書いた形）・next＝qa:foot の「この後のこと」（差してよい所・別の赤が中身を見る）
+    for (const m of t.matchAll(/\bclass="([^"]*)"/g)) for (const c of m[1].split(/[ \t\n\f\r]+/)) if (c) allowed.add(c);
+    const shapes = new Map([...childShapes(t)].map(([k, v]) => [k, new Set(v.map((x) => x.sig))]));
+    return { allowed, shapes };
   })());
+// 箱（CLOSED）のじかの子が型に無い形なら赤（型の外に欄を足させない）
+function closedReds(rest) {
+  const red = [];
+  const { shapes, allowed } = templateOutside();
+  for (const [parent, kids] of childShapes(rest)) {
+    if (!CLOSED.includes(parent)) continue;
+    const ok = shapes.get(parent) ?? new Set();
+    // 許していない要素・型に無い class は別の赤が名指す（同じ物を 2 度赤にしない）
+    const named = (k) => !ALLOW.elements.includes(k.sig.split(".")[0]) || k.sig.split(".").slice(1).some((c) => !allowed.has(c));
+    for (const k of kids) if (!ok.has(k.sig) && !named(k)) { red.push(`型に無い欄 <${k.sig}> を ${parent} の中に置かない（型の正本 references/template.html に在る欄だけ＝差出人・連絡先などは置かない）: ${k.show}`); break; }
+  }
+  return red;
+}
 
 // 白地に対する色の濃さ（WCAG の比）
 function contrastOnWhite(hex) {
@@ -509,9 +548,9 @@ function allowlistReds(outside) {
       else fors.push([attrs.for, show]);
     }
     if ("class" in attrs) {
-      const { allowed, known } = templateOutsideClasses();
+      const { allowed } = templateOutside();
       for (const c of attrs.class.split(/[ \t\n\f\r]+/).filter(Boolean))
-        if (known.has(c) && !allowed.has(c)) { red.push(`型の外に class「${c}」を付けない（型の CSS・JS が見せ方を切り替える class で選択肢を隠させない）: ${show}`); break; }
+        if (!allowed.has(c)) { red.push(`型の外に class「${c}」を付けない（型の正本 references/template.html に在る class だけ＝型に無い欄〔差出人・連絡先など〕や見せ方を切り替える class を置かない）: ${show}`); break; }
     }
     // id はひとことの欄（textarea#supp_鍵）だけ（型の CSS・JS が使う id〔qa-print など〕で隠させない）
     if ("id" in attrs && !/^supp_[A-Za-z0-9_]+$/.test(attrs.id) && !(tag === "input" && /^(?:radio|checkbox)$/i.test(attrs.type ?? ""))) red.push(`型の外の id はひとことの欄の supp_問いの鍵 だけ（今 ${attrs.id}）: ${show}`);
@@ -556,7 +595,7 @@ export function readHtml(raw) {
   // 型の外（動かない 3 か所は上で型と突き合わせた＝ここでは見ない）
   //   外すのは突き合わせた最初の 1 つの間だけ（2 つ目の印の間は外さない＝照らしに入る）
   //   コメントを伏せずに生の文字で見る（ブラウザと検査でコメントの閉じ方が違っても、隠した物を見逃さない）
-  const outside = FIXED.reduce((t, n) => t.replace(new RegExp(`<!--${n}-->[\\s\\S]*?<!--/${n}-->`), " "), raw);
+  const outside = stripFixed(raw);
   for (const [tag, n] of [["style", 1], ["script", 1]]) {
     const got = (raw.match(new RegExp(`<${tag}\\b`, "gi")) ?? []).length;
     if (got !== n) shape.push(`<${tag}> はページ全体でちょうど ${n} つ（型の中の 1 つ・今 ${got}）`);
@@ -564,6 +603,7 @@ export function readHtml(raw) {
   if (/--!>|<!--->|<!-->/.test(raw)) shape.push("崩れたコメント（--!> ・<!--> ・<!--->）がある（ブラウザと読み方が食い違う）");
   if (/<link\b[^>]*rel\s*=\s*["']?stylesheet/i.test(outside)) shape.push("外の見た目（link stylesheet）を読んでいる");
   for (const r of allowlistReds(outside)) shape.push(r);
+  for (const r of closedReds(outside.replace(/<!--[\s\S]*?-->/g, " "))) shape.push(r);
   if (/prefers-color-scheme\s*:\s*dark|color-scheme\s*:\s*[^;"'}]*dark|<meta\b(?=[^>]*\bname\s*=\s*["']color-scheme["'])[^>]*\bcontent\s*=\s*["'][^"']*dark/i.test(raw))
     shape.push("暗い色の設定がある（明るい色で固定）");
   const bodyStyle = attr(body, "style");
@@ -578,7 +618,6 @@ export function readHtml(raw) {
   const header = /<header\b[^>]*>[\s\S]*?<\/header\s*>/i.exec(html)?.[0] ?? "";
   const toEl = byClass(header, "to")[0];
   if (!toEl || !text(toEl.inner)) shape.push("宛名（header の .to）が無い");
-  for (const [cls, name] of DROPPED) if (byClass(html, cls).length) shape.push(`${name}の欄（.${cls}）は外した（宛先で変えるのは宛名と会社の色だけ・名乗りは配る人の送る文で）`);
   // 前提 ①: 読んだ資料の一覧と答えるまでの扱い
   const docsEl = byClass(header, "docs")[0];
   // 資料のリンク: li の data-url（リンクが無い資料は data-url="" と data-no-url="訳"）。リンクは li の中の <a href> と同じ物
@@ -742,7 +781,18 @@ export function readJson(data) {
   for (const [k, name] of [["to", "宛名"], ["title", "件名"], ["next", "この後のこと"]]) {
     if (!String(data?.[k] ?? "").trim()) shape.push(`${name}（"${k}"）が無い`);
   }
-  for (const [k, name] of DROPPED) if (data && Object.hasOwn(data, k)) shape.push(`${name}（"${k}"）は外した（宛先で変えるのは宛名と会社の色だけ）`);
+  // 欄の正本（JSON_KEYS）に無い鍵は赤（外した欄〔from・contact〕も、知らない欄も同じ 1 つの決まりで止める）
+  const unknownKeys = (obj, kind, where) => {
+    if (obj && typeof obj === "object" && !Array.isArray(obj))
+      for (const k of Object.keys(obj)) if (!JSON_KEYS[kind].includes(k)) shape.push(`${where}型に無い欄「${k}」（欄の正本 SKILL.md §問いのデータ: ${JSON_KEYS[kind].join("・")}＝差出人・連絡先などは置かない）`);
+  };
+  unknownKeys(data, "page", "");
+  for (const d of Array.isArray(data?.docs) ? data.docs : []) unknownKeys(d, "doc", `読んだ資料 ${d?.key ?? ""}: `);
+  for (const q of Array.isArray(data?.questions) ? data.questions : []) {
+    if (q?.key === FREE) continue;
+    unknownKeys(q, "question", `問い ${q?.key ?? ""}: `);
+    for (const o of Array.isArray(q?.options) ? q.options : []) unknownKeys(o, "option", `問い ${q?.key ?? ""}: 選択肢の`);
+  }
   const version = data?.version;
   if (version == null || !String(version).trim()) shape.push('版（"version"）が無い');
   else if (!/^[0-9A-Za-z._-]+$/.test(String(version))) shape.push(`版は半角英数字と . _ - だけ（今 ${version}）`);
@@ -810,6 +860,23 @@ export function readJson(data) {
   const estTexts = qsIn.flatMap((q) => (q?.estimate ? [q.estimate.value, q.estimate.basis] : [])).flatMap((x) => lines(x));
   const holes = [...new Set(JSON.stringify(data ?? {}).match(/\{\{[^}]*\}\}/g) ?? [])];
   return { format: "json", version: version == null ? null : String(version), dest: data?.dest ?? null, holes, shape, brand: data?.brand ?? null, docs, hold: String(data?.hold ?? "").trim(), texts, estTexts, questions };
+}
+
+// 選択肢の記号＝見出しの頭の、中身の無い 1 字（か 1〜2 桁の数）と区切り（. : 、 ) ］）・頭の囲み字（Unicode の分類 No・So: ①・⑴・㋐ など）・
+//   1 字の英字と空白。字を寄せて（全角→半角）形で読む＝記号の字（A・ア・イ…）を列挙しない
+function optionSymbol(head) {
+  const raw = String(head ?? "");
+  if (/^\s*[\p{No}\p{So}]/u.test(raw)) return true;
+  const t = flat(raw);
+  return /^\s*[(\[]?(?:[^\s\d.:、,)\](\[]|\d{1,2})[.:、)\]](?!\d)/u.test(t) || /^\s*[A-Za-z](?:\s|$)/.test(t);
+}
+// 問いの頭の番号＝頭の札（3 字までの字＋数＋2 字までの字）の数がその問いの順と同じか、数の直後が区切り（. : ) ］）
+//   （「第1問」「Q1:」「問 3」「3.」の綴りを列挙しない）
+function headNumber(question, position) {
+  const t = flat(question);
+  if (/^\s*[^\s\d]{0,3}\s?\d{1,3}[.:)\]](?!\d)/u.test(t)) return true;
+  const m = /^\s*[^\s\d]{0,3}\s?(\d{1,3})[^\s\d]{0,2}?(?:[\s、,]|$)/u.exec(t);
+  return !!m && Number(m[1]) === position;
 }
 
 // ── 推奨の印（RULES.rec）: オーナー宛ての作り方の分かれ道の問いだけ・1 問に 1 つ・1 つ目・「分からない」に付けない・理由つき
@@ -982,16 +1049,16 @@ export function checkPage(page, { valuesPath = null, valuesStarts = [], values =
     if (len(qtext) > limits.question_chars) red.push(`${id}: 問いが ${len(qtext)} 字（${limits.question_chars} 字まで）: ${qtext}`);
     const ends = qtext.match(new RegExp(RULES.question_end, "gu")) ?? [];
     if (ends.length > 1 || rx("two_in_one").test(qtext)) red.push(`${id}: 1 問に 2 つ以上を聞いている（1 問 1 つに分ける）: ${qtext}`);
-    if (/^\s*(?:[A-Za-z]?-?\d+[.．]|問\s*\d+)/.test(qtext)) red.push(`${id}: 問いの頭に番号を付けない（進み具合は型が出す）: ${qtext}`);
+    if (headNumber(qtext, qs.indexOf(q) + 1)) red.push(`${id}: 問いの頭に番号を付けない（進み具合は型が出す）: ${qtext}`);
 
     if (q.known.length > limits.known_lines) red.push(`${id}: 見つけた事が ${q.known.length} 行（${limits.known_lines} 行まで・数字は表に・残りは「くわしく」へ）`);
     for (const l of q.known) if (len(l) > limits.known_line_chars) red.push(`${id}: 見つけた事の 1 行が ${len(l)} 字（1 行 ${limits.known_line_chars} 字まで）: ${l.slice(0, 30)}…`);
     if (q.tableRows > limits.known_table_rows) red.push(`${id}: 数字の表が ${q.tableRows} 行（見出しを入れて ${limits.known_table_rows} 行まで）`);
     const asked = [qtext, ...q.known].join(" ");
-    // 数を書かせてよいのは資料の外にしか無い数だけ（資料の外の事実 fact の問いで、数を打つ欄 number の時）。計算できる数は候補に出す
-    const num = rx("number_ask").exec(asked);
-    if (num && !(q.kind === "fact" && q.numberInput))
-      red.push(`${id}: 数を書かせる問い「${num[0]}」（資料から計算できる数は候補を並べて「どちらが正しいですか」にする・資料の外にしか無い数だけ data-kind="fact" と数を打つ欄 type="number" で聞く）`);
+    // 書かせてよいのは資料の外にしか無い事だけ＝書かせる欄（数・字・日付）は資料の外の事実（fact）の問いだけ。計算できる数は候補に出す
+    //   （「数を書かせる問い」を問いの語の並びで探さず、答えの欄の形〔構造〕で決める）
+    if (q.freeInput && q.kind !== "fact")
+      red.push(`${id}: 書かせる欄（${q.numberInput ? "数を打つ欄 type=\"number\"" : "字・日付の欄"}）は資料の外の事実（data-kind="fact"）の問いだけ（資料から計算できる数は候補を並べて「どちらが正しいですか」にする）`);
     const conf = rx("confirm").exec(asked);
     if (conf && q.kind !== "mismatch") red.push(`${id}: 「${conf[0]}」は資料どうしが食い違う時だけ（data-kind="mismatch"）`);
     const sym = rx("symbol_ref").exec(asked);
@@ -1015,7 +1082,7 @@ export function checkPage(page, { valuesPath = null, valuesStarts = [], values =
       if (o.suppBad) red.push(`${id}: 選択肢「${o.head.slice(0, 20)}」の ${page.format === "html" ? "data-supp" : '"supp"'} は "need" だけ（今 ${o.suppBad}）`);
       else if (((RULES.free_options.other ?? []).includes(o.head) || RULES.supp_ask.test(`${o.head} ${o.detail} ${o.change}`)) && !o.needSupp)
         red.push(`${id}: ひとことに書かせる選択肢「${o.head.slice(0, 20)}」に ${page.format === "html" ? 'data-supp="need"' : '"supp": "need"'} が無い（欄が「なくても大丈夫です」のままで、書かずに送れる）`);
-      if (rx("option_symbol").test(o.head)) red.push(`${id}: 選択肢に記号を付けない（中身の見出しで書く）: ${o.head.slice(0, 30)}`);
+      if (optionSymbol(o.head)) red.push(`${id}: 選択肢に記号を付けない（中身の見出しで書く）: ${o.head.slice(0, 30)}`);
       if (o.value == null || !/^[A-Za-z0-9_]+$/.test(o.value) || o.value.startsWith("__")) red.push(`${id}: 選択肢の鍵（value）は半角英数字と _ だけ（__ で始めない）: ${o.head.slice(0, 20)}（今 ${o.value ?? "無し"}）`);
       vals.push(o.value);
     }

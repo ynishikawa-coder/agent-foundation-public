@@ -89,7 +89,7 @@ def test_写しの枠が在る_repo_にも正本の核を差し込み_枠を名�
                                          encoding="utf-8")
     ctx = _ctx(run("inject", project=tmp_path))
     assert ctx.startswith((PLUGIN / "核.md").read_text(encoding="utf-8").rstrip("\n"))
-    assert "古い形（写し）が残っている" in ctx and "CLAUDE.md: CLAUDE.md の核の写しの枠" in ctx
+    assert "古い形（写し）が残っている" in ctx and "CLAUDE.md: Claude Code が読む物" in ctx and "核の写しの枠" in ctx
 
 
 def test_古い形の一覧の行は形が揃い_例が自分の形に当たる():
@@ -370,7 +370,10 @@ class Foundation:
         self.tmp, self.remote, self.work, self.home = tmp, tmp / "remote.git", tmp / "work", tmp / "home"
         subprocess.run(["git", "init", "-q", "--bare", "-b", "main", str(self.remote)], check=True)
         subprocess.run(["git", "clone", "-q", str(self.remote), str(self.work)], check=True, capture_output=True)
-        self.installed = _commit(self.work, {"plugins/core/核.md": "核 1\n", "docs/a.md": "1\n"}, "始め")
+        manifest = json.dumps({"name": "agent-foundation", "plugins": [
+            {"name": n, "source": f"./plugins/{n}"} for n in ("core", "guard")]})
+        self.installed = _commit(self.work, {"plugins/core/核.md": "核 1\n", "docs/a.md": "1\n",
+                                             ".claude-plugin/marketplace.json": manifest}, "始め")
 
     def install(self, source="github"):
         """窓が立つ時に setup script が入れた形を作る（marketplace の clone と台帳）。"""
