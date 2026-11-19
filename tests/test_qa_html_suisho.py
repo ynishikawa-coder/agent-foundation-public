@@ -140,6 +140,11 @@ REC_HIDE = [
     ("問いの fieldset に disabled", lambda r: _mark(0)(r).replace('data-kind="judge"', 'data-kind="judge" disabled', 1), "disabled の属性を付けない"),
     ("印の選択肢をリンクで包む", lambda r: _mark(0)(r).replace('<label class="opt">', '<a href="#x"><label class="opt">', 1).replace("</label>", "</label></a>", 1), "選択肢の枠（label.opt）を <a>・<summary> の中に置かない"),
     ("印の選択肢の中のリンク", lambda r: _mark(0)(r).replace(REC, '<a href="#x">x</a>' + REC, 1), "選択肢の枠（label.opt）の中に <a> を置かない"),
+    ("印の選択肢に step の class", lambda r: _mark(0)(r).replace('<label class="opt">', '<label class="opt step">', 1), "型の外に class「step」を付けない"),
+    ("印の選択肢を div.step で包む", lambda r: _mark(0)(r).replace('<label class="opt">', '<div class="step"><label class="opt">', 1).replace("</label>", "</label></div>", 1), "型の外に class「step」を付けない"),
+    ("印の選択肢を div.err で包む", lambda r: _mark(0)(r).replace('<label class="opt">', '<div class="err"><label class="opt">', 1).replace("</label>", "</label></div>", 1), "型の外に class「err」を付けない"),
+    ("印の選択肢の中の span.err", lambda r: _mark(0)(r).replace('<label class="opt"><input type="radio" name="q3" value="d7" required><span>', '<label class="opt"><input type="radio" name="q3" value="d7" required><span class="err">', 1), "型の外に class「err」を付けない"),
+    ("印の選択肢を id で隠す", lambda r: _mark(0)(r).replace('<label class="opt">', '<div id="qa-print"><label class="opt">', 1).replace("</label>", "</label></div>", 1), "型の外の id はひとことの欄"),
     ("閉じタグの中の空白で選択肢の切り方をずらす", lambda r: _mark(1)(r).replace("</label>", "</label >", 1), "検査が読めない < の書き方"),
     ("</ と空白の崩れたタグ", lambda r: _mark(0)(r).replace(REC, '</ x <!-- >' + REC + '<!-- -->', 1), "検査が読めない < の書き方"),
 ]

@@ -286,6 +286,28 @@ const templateRegions = () =>
     return Object.fromEntries(FIXED.map((n) => [n, region(t, n)]));
   })());
 
+// 型の外で使える class＝型が型の外（qa:css・qa:js・qa:foot と注の外）で使っている class と、推奨の印の rec だけ（正本は型 1 つ）。
+//   型の CSS・JS が知っているのに型の外で使わない class（step・err・bar・pg・big など＝見せ方を切り替える物）を付けて選択肢を隠させない
+//   （CSS・JS の知らない class は見せ方を変えないので通す）
+let outsideClassCache = null;
+const templateOutsideClasses = () =>
+  (outsideClassCache ??= (() => {
+    let t = readFileSync(TEMPLATE, "utf8");
+    t = t.slice(t.indexOf("-->") + 3);
+    for (const n of FIXED) t = t.replace(new RegExp(`<!--${n}-->[\\s\\S]*?<!--/${n}-->`), " ");
+    t = t.replace(/<!--[\s\S]*?-->/g, " ");
+    const set = new Set(["rec", "next"]);   // next＝qa:foot の「この後のこと」（差してよい所・別の赤が中身を見る）
+    for (const m of t.matchAll(/\bclass="([^"]*)"/g)) for (const c of m[1].split(/[ \t\n\f\r]+/)) if (c) set.add(c);
+    // 型の CSS・JS が知っている語（見せ方を切り替えうる class の候補）
+    const full = readFileSync(TEMPLATE, "utf8");
+    const known = new Set();
+    for (const n of FIXED) {
+      const r = new RegExp(`<!--${n}-->([\\s\\S]*?)<!--/${n}-->`).exec(full)?.[1] ?? "";
+      for (const w of r.matchAll(/[A-Za-z_][A-Za-z0-9_-]*/g)) known.add(w[0]);
+    }
+    return { allowed: set, known };
+  })());
+
 // 白地に対する色の濃さ（WCAG の比）
 function contrastOnWhite(hex) {
   const n = parseInt(hex.slice(1), 16);
@@ -457,6 +479,13 @@ function allowlistReds(outside) {
       if (tag !== "label" || !/^supp_[A-Za-z0-9_]+$/.test(attrs.for)) red.push(`for はひとことの欄を指す label だけ（for="supp_問いの鍵"）＝選択肢の label に付けると押した時に選ばれる欄がずれる: ${show}`);
       else fors.push([attrs.for, show]);
     }
+    if ("class" in attrs) {
+      const { allowed, known } = templateOutsideClasses();
+      for (const c of attrs.class.split(/[ \t\n\f\r]+/).filter(Boolean))
+        if (known.has(c) && !allowed.has(c)) { red.push(`型の外に class「${c}」を付けない（型の CSS・JS が見せ方を切り替える class で選択肢を隠させない）: ${show}`); break; }
+    }
+    // id はひとことの欄（textarea#supp_鍵）だけ（型の CSS・JS が使う id〔qa-print など〕で隠させない）
+    if ("id" in attrs && !/^supp_[A-Za-z0-9_]+$/.test(attrs.id) && !(tag === "input" && /^(?:radio|checkbox)$/i.test(attrs.type ?? ""))) red.push(`型の外の id はひとことの欄の supp_問いの鍵 だけ（今 ${attrs.id}）: ${show}`);
     if ("id" in attrs) {
       if (ids.has(attrs.id)) red.push(`id「${attrs.id}」が 2 つある: ${show}`);
       ids.set(attrs.id, tag);
