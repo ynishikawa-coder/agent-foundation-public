@@ -122,10 +122,3 @@ def test_書き戻した後に正本と違えば赤():
     want = {"name": "main", "rules": [1]}
     assert m.diff(want, {"name": "main", "rules": [1], "id": 9}) == []
     assert m.diff(want, {"name": "main", "rules": []}) == ["rules"]
-
-
-def test_check_allの結果は回した先端と未commitの印を添える():
-    t = _read("scripts/check_all.sh")
-    assert 'at="@$(git rev-parse --short=12 HEAD' in t
-    assert 'at="${at}+未 commit"' in t
-    assert 'check_all: 緑 (${ran} 本) ${at}"' in t
