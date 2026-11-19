@@ -17,6 +17,9 @@
 語そのものは出力に出さない（どこに当たったかだけを出す）。
 
 使い方: python3 guard.py [--repo DIR] [--range REV|ALL] [--deny-words-file F] [--pattern-skip PATH ...] [--files-only]
+        python3 guard.py --text <場所の名>=<file> [--text …] [--deny-words-file F]
+  --text は、GitHub へ出す前の文（PR の題・本文・コメント）だけを同じ表で照らす（中身・歴史は見ない）。
+  守りの hook（plugin guard の pr_text）が出す前に呼ぶ。手元で顧客の語が無い時は顧客の語だけ飛ばす（CI でも止めない）。
   --range の既定: CI では event（PR は base..head・push は before..after）、手元では origin/main..HEAD。
   ALL は全ての commit（公開の前に歴史ごと照らす時）。
 exit: 0=当たり 0 / 1=当たりあり・CI に顧客の語が無い / 2=使い方・束の形が違う
@@ -358,6 +361,43 @@ def run(repo: Path, rev_range: str | None, words_file: str | None, skip: list[st
     return sorted(set(hits))
 
 
+def check_texts(texts: list[tuple[str, str]], words_file: str | None) -> list[str]:
+    """出す前の文（場所の名, 中身）を照らす。words_file は path（相対なら今の dir から）。"""
+    # words_home は表そのものの path（中身の照らしで表を外すための物）。文には path が無いので、None と取り違えない値を渡す
+    guard = Guard(Path("."), file_words(words_file), set(), words_home=words_file or "")
+    hits = []
+    for where, text in texts:
+        hits += guard.text_hits(where, text)
+    return sorted(set(hits))
+
+
+def main_text(specs: list[str], words_file: str | None) -> int:
+    texts = []
+    for spec in specs:
+        where, sep, path = spec.partition("=")
+        if not sep or not where or not path:
+            print(f"✗ --text は <場所の名>=<file> の形: {spec}")
+            return 2
+        try:
+            texts.append((where, Path(path).read_text(encoding="utf-8")))
+        except OSError as e:
+            print(f"✗ 文の file を読めない: {e.__class__.__name__}")
+            return 2
+    try:
+        env_bundle()
+    except ValueError as e:
+        print(f"✗ AF_DENY_BUNDLE の形が違う（pct1.<鍵>.<束> の 1 行）: {e}")
+        return 2
+    if customer_source_missing():
+        print("（顧客の語が環境に無いので、顧客の語の照合だけ飛ばす）")
+    hits = check_texts(texts, words_file)
+    if hits:
+        print("✗ 公開の repo に置かない物:\n  " + "\n  ".join(hits))
+        return 1
+    print("✅ 公開の検査: 置かない物 0（出す前の文）")
+    return 0
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description="公開の検査（中身・歴史・外側）")
     ap.add_argument("--repo", default=".")
@@ -365,7 +405,11 @@ def main(argv=None) -> int:
     ap.add_argument("--deny-words-file")
     ap.add_argument("--pattern-skip", nargs="*", default=[])
     ap.add_argument("--files-only", action="store_true", help="中身だけ（歴史を持ち越さない新しい repo へ移す前）")
+    ap.add_argument("--text", action="append", default=[], metavar="場所の名=FILE",
+                    help="GitHub へ出す前の文だけを照らす（中身・歴史は見ない）")
     a = ap.parse_args(argv)
+    if a.text:
+        return main_text(a.text, a.deny_words_file)
     repo = Path(subprocess.run(["git", "rev-parse", "--show-toplevel"], cwd=a.repo,
                                capture_output=True, text=True, check=True).stdout.strip())
     try:
