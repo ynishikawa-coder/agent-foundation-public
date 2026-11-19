@@ -28,6 +28,7 @@ ROOT = Path(__file__).resolve().parent.parent
 MANIFEST = ROOT / ".claude-plugin" / "marketplace.json"
 MARK = "<!-- af-plugin-missing -->"
 STATE = "setup.json"  # plugin core の kaku.py が読む印の file 名（~/.claude/af-foundation/ の下）
+ROOT_CAUSE = "直し: 入らない plugin を 1 つずつ入れ直すだけで済ませず、入らない形になった原因を細目 §3「まず構造を疑う」で探して直す"
 
 
 def home() -> Path:
@@ -94,7 +95,7 @@ def main() -> int:
         market, names = catalog()
     except ValueError as e:
         notice(f"土台の plugin を入れられなかった: {e}。核と守りの hook がこの窓で効いていない。最初にオーナーへ知らせる。")
-        print(f"✗ {e}")
+        print(f"✗ {e} {ROOT_CAUSE}")
         return 2
     for n in names:
         claude("plugin", "install", f"{n}@{market}", "--scope", "user")
@@ -108,7 +109,7 @@ def main() -> int:
         notice(None)
     save_state({"entry": "scripts/setup_plugins.py", "market": market, "plugins": names, "missing": lack,
                 "at": time.strftime("%Y-%m-%dT%H:%M:%S%z")})
-    print(("✗ 入っていない: " + " ".join(lack)) if lack else f"✅ 土台の plugin {len(names)} 本が入った")
+    print(("✗ 入っていない: " + " ".join(lack) + " " + ROOT_CAUSE) if lack else f"✅ 土台の plugin {len(names)} 本が入った")
     return 1 if lack else 0
 
 
