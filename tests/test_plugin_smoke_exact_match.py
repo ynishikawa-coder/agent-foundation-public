@@ -108,8 +108,8 @@ def test_文脈の全体を正本の差し込む口の出す文と比べる_後�
 def test_正本の差し込む口を同じ箱と同じ窓の_id_で回す(tmp_path):
     env = dict(os.environ, HOME=str(tmp_path / "home"), CLAUDE_PROJECT_DIR=str(tmp_path))
     (tmp_path / "home").mkdir()
-    a = S.expected_context(ROOT, env, tmp_path, "smoke-same")
-    b = S.expected_context(ROOT, env, tmp_path, "smoke-same")
+    a = S.expected_context(ROOT / "plugins" / "core", env, tmp_path, "smoke-same")
+    b = S.expected_context(ROOT / "plugins" / "core", env, tmp_path, "smoke-same")
     assert a == b and a.startswith(S.KAKU_HEAD)
 
 
