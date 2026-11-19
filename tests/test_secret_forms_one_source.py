@@ -28,7 +28,8 @@ FAKE = {
     "Stripe の本番の鍵 (sk)": "s" + "k_live_" + "Ab0" * 8,
     "OpenAI の project の鍵": "sk-" + "proj-" + "Ab0_" * 9,
     "AWS の一時の鍵 ID": "AS" + "IA" + "AB0C" * 4,
-    "サービスアカウントの鍵の JSON": '{"type": "service_account", "private' + '_key": "x"}',
+    # サービスアカウントの鍵の JSON は値に PEM の頭の行を持つ＝「秘密鍵」の形が拾う（欄の名の形は足さない）
+    "サービスアカウントの鍵の JSON": '{"type": "service_account", "private' + '_key": "-----BEGIN ' + 'PRIVATE KEY-----\\nMIIE"}',
 }
 
 
@@ -42,6 +43,11 @@ def test_正本が足りなかった形を拾う(label):
     "sk-proj- の形を説明する",
     "ASIA は地域の名",
     'd.get("private_key_id")',                  # 欄の名の一部
+    '{"private' + '_key": os.environ["SA_KEY"]}',      # 鍵の無い欄の名（値は環境から）
+    'The "private' + '_key": field holds the PEM.',    # 欄の名を説明する文
+    '{"private' + '_key": ""}',
+    "EASTASIAPACIFICSUMMIT2026",                 # 大文字の語の中の ASIA
+    "XAKIAABCDEFGHIJKLMNOP",                     # 語の中の AKIA
 ])
 def test_形の説明や似た字は拾わない(text):
     assert not PG.secret_labels(text), text
