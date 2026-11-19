@@ -6,6 +6,8 @@
   直す物は無く、引き継ぐと窓を立て替えるだけ（系譜が深くなる）＝知らせだけで頼みを続ける。
 見分けは入口 scripts/setup_plugins.py が書く印（~/.claude/af-foundation/setup.json の refreshed・catalog_sha・fetched）と、
 入った commit から先端までの合流の時。remote は作り物の git、合流の時は GIT_COMMITTER_DATE で決める。
+見張りの時間（深く取る fetch を含む git の全部）は 1 つの区切りの内で、越えても核の差し込みは止めない。
+遅い・数える git は PATH の前に置いた作り物の git（本物の git へ渡し、決めた形の fetch だけ眠る）で作る。
 """
 import json
 import os
@@ -15,7 +17,7 @@ import time
 
 import pytest
 
-from test_core_plugin import Foundation
+from test_core_plugin import Foundation, run
 from test_setup_plugins import foundation, run as run_entry
 
 HANDOFF = ("create_session", "archive_session", "update_environment")
@@ -178,3 +180,106 @@ def test_知らせだけの窓も起動の後に入った_plugin_の変更では
     assert "引き継いで閉じる" in text and all(w in text for w in ("create_session", "archive_session", "core")), text
     assert "取り直しの後に入った差" in f.hook("inject", source="compact")
     assert "引き継いで閉じる" in f.hook("fresh")
+
+
+# ── 見張りの時間の区切りと、深く取る fetch を走らせる所 ──
+
+DEEP = "--depth=50"
+
+
+def _shim(tmp_path, sleep_on=None, secs=30):
+    """本物の git へ渡す作り物の git を作る。全ての呼びの引数を log へ 1 行ずつ書き、sleep_on を含む呼びは secs 秒眠る
+    （exec で眠る＝時間切れで殺せば終わる）。返すのは (PATH に足す dir, log の path)。"""
+    d = tmp_path / "shim"
+    d.mkdir()
+    log = tmp_path / "git.log"
+    real = shutil.which("git")
+    body = f'#!/bin/sh\nprintf \'%s\\n\' "$*" >> "{log}"\n'
+    if sleep_on:
+        body += f'case "$*" in *"{sleep_on}"*) exec sleep {secs};; esac\n'
+    body += f'exec "{real}" "$@"\n'
+    (d / "git").write_text(body, encoding="utf-8")
+    (d / "git").chmod(0o755)
+    return d, log
+
+
+def _hook(f, event, shim, sid="s1", **env):
+    extra = {"AF_FRESH_INTERVAL": "0", "PATH": f"{shim}{os.pathsep}{os.environ['PATH']}", **env}
+    t = time.monotonic()
+    r = run(event, project=f.tmp, home=f.home, stdin=json.dumps({"session_id": sid, "source": "startup"}), extra=extra)
+    took = time.monotonic() - t
+    assert r.returncode == 0, r.stderr
+    return (json.loads(r.stdout)["hookSpecificOutput"]["additionalContext"] if r.stdout else ""), took
+
+
+def test_深く取る_fetch_が遅くても見張りは区切りの内で終わり核を差し込む(tmp_path):
+    """注入: 正しい形の印＋浅い clone（合流の時を読むのに深く取る）＋深く取る fetch が 30 秒眠る、区切り 3 秒 →
+    hook は区切りの内で終わり、核を差し込み、合流の時は読めない＝形の誤りの側（引き継ぎ）に倒れる。"""
+    f = _merges(tmp_path, [NOW - 600 + 3], shallow=True)
+    shim, log = _shim(tmp_path, sleep_on=DEEP)
+    text, took = _hook(f, "inject", shim, AF_FRESH_BUDGET="3")
+    assert DEEP in log.read_text(encoding="utf-8")         # 眠る fetch まで届いた（作り物が効いた）
+    assert took < 3 + 5, took
+    assert "# 振る舞いの核" in text
+    assert "土台が古いまま立った窓" in text and "取り直しの後に入った差" not in text
+
+
+def test_先端を取る_fetch_が遅くても区切りの内で終わり核を差し込む(tmp_path):
+    """注入: 先端を浅く取る fetch が 30 秒眠る、区切り 3 秒 → 区切りの内で比べられない（何も言わない）で終わり、核は差し込む。"""
+    f = _merges(tmp_path, [NOW - 600 + 3], shallow=True)
+    shim, _ = _shim(tmp_path, sleep_on="--depth=1")
+    text, took = _hook(f, "inject", shim, AF_FRESH_BUDGET="3")
+    assert took < 3 + 5, took
+    assert "# 振る舞いの核" in text and "土台が古い" not in text
+
+
+def test_見張りが上限を越えても核は先に差し込む(tmp_path):
+    """注入: 見張りの区切りを 60 秒に広げ、fetch を 30 秒眠らせ、hook が待つ上限を 1 秒にする → 見張りを待たずに
+    核と「時間内に終わらなかった」の知らせを出す（見張りの結果に核の差し込みが頼らない）。"""
+    f = _merges(tmp_path, [NOW - 600 + 3], shallow=True)
+    shim, _ = _shim(tmp_path, sleep_on="fetch")
+    text, took = _hook(f, "inject", shim, AF_FRESH_BUDGET="60", AF_INJECT_LIMIT="1")
+    assert took < 1 + 5, took
+    assert "# 振る舞いの核" in text and "時間内に終わらなかった" in text
+
+
+def test_問いのたびの見張りは深く取らない(tmp_path):
+    """注入: 起動の時は先端と同じ窓 → main で plugin が変わる → fresh は引き継ぎを出すが、深く取る fetch も合流の時の
+    log も走らせない（fresh は合流の時を使わない）。"""
+    f = Foundation(tmp_path)
+    f.install()
+    _shallow(f)
+    _mark(f)
+    shim, log = _shim(tmp_path)
+    assert "土台が古い" not in _hook(f, "inject", shim)[0]
+    _merge(f, {"plugins/guard/x.py": "x\n"}, NOW)
+    log.write_text("", encoding="utf-8")
+    text, _ = _hook(f, "fresh", shim)
+    assert "引き継いで閉じる" in text
+    calls = log.read_text(encoding="utf-8")
+    assert "fetch" in calls and DEEP not in calls and "--first-parent" not in calls, calls
+
+
+@pytest.mark.parametrize("why, kw", [
+    ("入口の印が無い（古い形）", {"mark": False}),
+    ("取り直せなかった", {"refreshed": False}),
+    ("目録が版を指す", {"source": {"ref": "v0.4.18"}}),
+])
+def test_形の誤りの印の窓は合流の時を読みに行かない(tmp_path, why, kw):
+    """注入: 印が正しい形と言わない窓 → 引き継ぎの知らせは出し、深く取る fetch も合流の時の log も走らせない。"""
+    f = Foundation(tmp_path)
+    f.install()
+    _shallow(f)
+    if kw.pop("mark", True):
+        _mark(f, **{k: v for k, v in kw.items() if k != "source"})
+    if "source" in kw:
+        p = f.home / ".claude" / "plugins" / "known_marketplaces.json"
+        m = json.loads(p.read_text(encoding="utf-8"))
+        m["agent-foundation"]["source"].update(kw["source"])
+        p.write_text(json.dumps(m), encoding="utf-8")
+    _merge(f, {"plugins/guard/x.py": "x\n"}, NOW - 600 + 3)
+    shim, log = _shim(tmp_path)
+    text, _ = _hook(f, "inject", shim)
+    assert "土台が古いまま立った窓" in text, why
+    calls = log.read_text(encoding="utf-8")
+    assert DEEP not in calls and "--first-parent" not in calls, (why, calls)

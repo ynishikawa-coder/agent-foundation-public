@@ -26,6 +26,7 @@ import os
 import re
 import subprocess
 import sys
+import threading
 import time
 from pathlib import Path
 
@@ -50,6 +51,12 @@ DEEPEN = (50, 500)
 FRESH_INTERVAL = 900  # 起動の後に main の先端を見に行く間（秒）。毎回の問いごとに外へ出ない。
 # 起動の時の古い形の見張りに使ってよい時間（秒）。越えたら打ち切って名指しする（hook の上限に当たって核の差し込みごと落ちない）。
 WATCH_BUDGET = 5
+# 新しさの見張り（先端を取る・比べる・合流の時を読むために深く取る）の git の全部で分け合う時間（秒）。1 回の見張りに
+# 1 つの区切りを掛け、どの git もその残りの内で走る。越えたら先端が取れなければ比べられない・合流の時は読めない＝形の誤りの側。
+FRESH_BUDGET = 20
+# 起動の hook が見張りの全部を待つ上限（秒）。核は見張りの前に組み、この時を越えたら見張りを待たずに核を出す
+# （Claude Code の command の hook の上限に当たって核の差し込みごと落ちない）。
+INJECT_LIMIT = WATCH_BUDGET + FRESH_BUDGET + 5
 
 
 # 読めない時の類（無い・権限・UTF-8 でない中身）を 1 か所で受ける。どの読みもこれで受け、欠けを名指しする。
@@ -192,7 +199,17 @@ def _read_json(path: Path):
         return None
 
 
-def _git(loc: str, *args: str, timeout: int = 20) -> str | None:
+def _fresh_deadline() -> float:
+    """新しさの見張り 1 回の区切り（time.monotonic の時）。AF_FRESH_BUDGET で秒を差し替えられる（試験）。"""
+    return time.monotonic() + float(os.environ.get("AF_FRESH_BUDGET") or FRESH_BUDGET)
+
+
+def _git(loc: str, *args: str, timeout: float = 20, deadline: float | None = None) -> str | None:
+    """git を走らせて標準出力を返す。失敗・時間切れは None。deadline を渡すと、その残りの内でだけ走る（残りが無ければ走らせない）。"""
+    if deadline is not None:
+        timeout = min(timeout, deadline - time.monotonic())
+        if timeout <= 0:
+            return None
     try:
         p = subprocess.run(["git", "-c", "core.quotepath=off", "-C", loc, *args], capture_output=True, text=True, timeout=timeout)
     except (OSError, subprocess.SubprocessError):
@@ -210,45 +227,55 @@ def installed_sha() -> str | None:
     return rows[0].get("gitCommitSha") if len(rows) == 1 else None
 
 
-def freshness(base: str | None = None) -> dict | None:
-    """{installed, main, plugins, landed}（plugins が空でなければ古い）。比べられない時は None。
-
-    GitHub から入れた時だけ見る（手元の dir から入れた試し・CI は main の先端と比べる物が無い）。
-    main の先端は、入れた時の marketplace の clone へ main だけを取って来て比べる（鍵は要らない・public）。
-    base を渡すと、入った commit の代わりに base（起動の時に数えた先端）と先端の間を比べ、合流の時は読まない。
-    landed は入った commit から先端までの main への合流の時（epoch 秒）の全部。全部を読めない時は None（形の誤りの側）。"""
+def _market_loc() -> str | None:
+    """GitHub から入れた目録の clone の場所（手元の dir から入れた試し・CI は None）。"""
     m = (_read_json(_home() / "plugins" / "known_marketplaces.json") or {}).get(MARKET) or {}
     loc = m.get("installLocation")
-    if (m.get("source") or {}).get("source") != "github" or not loc:
+    return loc if (m.get("source") or {}).get("source") == "github" and loc else None
+
+
+def freshness(base: str | None = None, deadline: float | None = None) -> dict | None:
+    """{installed, main, plugins}（plugins が空でなければ古い）。比べられない時は None。
+
+    GitHub から入れた時だけ見る（手元の dir から入れた試し・CI は main の先端と比べる物が無い）。
+    main の先端は、入れた時の marketplace の clone へ main だけを浅く取って来て比べる（鍵は要らない・public）。
+    base を渡すと、入った commit の代わりに base（起動の時に数えた先端）と先端の間を比べる。
+    合流の時はここでは読まない（深く取る fetch は landed_after_fetch が入口の印を全部見た後にだけ走る）。
+    git は全部 deadline（見張り 1 回の区切り）の残りの内で走り、越えたら比べられない（None）。"""
+    loc = _market_loc()
+    if not loc:
         return None
+    deadline = deadline if deadline is not None else _fresh_deadline()
     have = installed_sha()
-    if not have or _git(loc, "fetch", "--quiet", "--depth=1", "origin", "main") is None:
+    if not have or _git(loc, "fetch", "--quiet", "--depth=1", "origin", "main", deadline=deadline) is None:
         return None
-    tip = _git(loc, "rev-parse", "FETCH_HEAD")
+    tip = _git(loc, "rev-parse", "FETCH_HEAD", deadline=deadline)
     if not tip:
         return None
     ref = base or have
     if tip == ref:
-        return {"installed": have, "main": tip, "plugins": [], "landed": []}
-    names = _git(loc, "diff", "--name-only", ref, tip, "--", *CARRIERS)
+        return {"installed": have, "main": tip, "plugins": []}
+    names = _git(loc, "diff", "--name-only", ref, tip, "--", *CARRIERS, deadline=deadline)
     if names is None:      # 比べる commit が clone に無い＝比べられないが先端とは違う。古いと見る（既定で知らせる側）
         plugins = ["（どれか分からない）"]
     else:
         plugins = sorted({n.split("/")[1] if n.startswith("plugins/") and n.count("/") >= 2 else n.split("/")[0]
                           for n in names.splitlines() if n})
-    landed = None if base or not plugins else landed_times(loc, have, tip)
-    return {"installed": have, "main": tip, "plugins": plugins, "landed": landed}
+    return {"installed": have, "main": tip, "plugins": plugins}
 
 
-def landed_times(loc: str, have: str, tip: str) -> list[int] | None:
+def landed_times(loc: str, have: str, tip: str, deadline: float) -> list[int] | None:
     """入った commit から先端までの main への合流の時（first-parent の commit の committer の時）を全部返す。
 
     先端は浅く取るので、先端から first-parent を辿って入った commit に着くまで main を深く取り直す（DEEPEN の段まで）。
-    着けない（間が読めない・入った commit が main の first-parent に無い）時は None＝全部は読めない。"""
+    着けない（間が読めない・入った commit が main の first-parent に無い・deadline の残りで読み終わらない）時は
+    None＝全部は読めない。"""
     for depth in (None, *DEEPEN):
-        if depth and _git(loc, "fetch", "--quiet", f"--depth={depth}", "origin", "main", timeout=60) is None:
+        if depth and _git(loc, "fetch", "--quiet", f"--depth={depth}", "origin", "main", timeout=60, deadline=deadline) is None:
             return None
-        out = _git(loc, "log", "--first-parent", "--format=%H %ct", f"--max-count={DEEPEN[-1] + 1}", tip)
+        out = _git(loc, "log", "--first-parent", "--format=%H %ct", f"--max-count={DEEPEN[-1] + 1}", tip, deadline=deadline)
+        if out is None:
+            return None
         times = []
         for line in (out or "").splitlines():
             sha, _, at = line.partition(" ")
@@ -260,13 +287,15 @@ def landed_times(loc: str, have: str, tip: str) -> list[int] | None:
     return None
 
 
-def landed_after_fetch(f: dict) -> bool:
+def landed_after_fetch(f: dict, deadline: float | None = None) -> bool:
     """古さが「setup script は正しい形で、目録を取り直した後に main へ合流した差」だけかを見る（既定は False＝形の誤り）。
 
     正しい形の印が全部揃う時だけ True: 入口の印（setup.json）が在り・取り直せた・入れ損ね/版の揃わない物が無い・
     入った commit が取り直した名簿の版と同じ・目録が版（tag・枝・SHA）を指していない・入った commit から先端までの
     main への合流を全部読めて（landed_times）、その全部が取り直しの時より後（時計のずれ LATE_SKEW の内）。
-    どれかが分からない時（合流の時が 1 つでも読めない時を含む）は形の誤りと見る（引き継ぎの手順を残す）。"""
+    合流の時（深く取る fetch）は、ほかの印が全部正しい形と言う時にだけ、deadline（見張り 1 回の区切り）の残りの内で読む
+    （古い形の窓では外へ取りに行かない）。どれかが分からない時（合流の時が 1 つでも読めない・時間切れを含む）は
+    形の誤りと見る（引き継ぎの手順を残す）。"""
     state = _read_json(_home() / "af-foundation" / "setup.json")
     m = (_read_json(_home() / "plugins" / "known_marketplaces.json") or {}).get(MARKET) or {}
     src = m.get("source") or {}
@@ -276,10 +305,11 @@ def landed_after_fetch(f: dict) -> bool:
         return False  # 版を指した目録は取り直しても先端へ進まない
     if not f.get("installed") or state.get("catalog_sha") != f["installed"]:
         return False
-    fetched, landed = state.get("fetched"), f.get("landed")
-    if not isinstance(fetched, (int, float)) or isinstance(fetched, bool) or not landed:
+    fetched, loc = state.get("fetched"), _market_loc()
+    if not isinstance(fetched, (int, float)) or isinstance(fetched, bool) or not loc or not f.get("main"):
         return False
-    return min(landed) > fetched - LATE_SKEW
+    landed = landed_times(loc, f["installed"], f["main"], deadline if deadline is not None else _fresh_deadline())
+    return bool(landed) and min(landed) > fetched - LATE_SKEW
 
 
 def _state_path(session: str) -> Path:
@@ -341,14 +371,8 @@ def handover_text(f: dict) -> str:
             "窓を立てる道具が無い時（手元の CLI 等）は、人へ「土台が新しくなった・新しい窓で続けてほしい」と 1 行知らせてから頼みを続ける。\n")
 
 
-def inject() -> int:
-    data = _hook_input()
-    project = Path(os.environ.get("CLAUDE_PROJECT_DIR") or os.getcwd())
-    parts = []
-    try:  # 核はいつも正本を差し込む（使う側の写しの枠が在っても、写しでなく正本が効く）
-        parts.append(inject_text())
-    except UNREADABLE as e:
-        print(f"plugin core: 核.md が読めない（{e}）＝核は差し込まれていない", file=sys.stderr)
+def watch(data: dict, project: Path, parts: list[str]) -> None:
+    """起動の時の見張り（古い形・CLAUDE.md の量・入れ方・土台の新しさ）。知らせを parts へ足す（核の後ろ）。"""
     for name, make in (("古い形", lambda: (lambda f: olds_text(f, project) if f else None)(find_olds_bounded(project))),
                        ("CLAUDE.md の量", lambda: claude_md_text(project)), ("入れ方", setup_text)):
         try:
@@ -364,14 +388,15 @@ def inject() -> int:
         # 「起動の時から古い」と取り違えて引き継ぎを消さない）。外へも見に行かない。
         f = state.get("start") if state.get("stale_at_start") or state.get("late") else None
     else:
+        deadline = _fresh_deadline()  # 先端を取る・比べる・合流の時を読む git の全部でこの 1 つの区切りを分け合う
         try:
-            f = freshness()
+            f = freshness(deadline=deadline)
         except Exception:  # noqa: BLE001  新しさの見張りが壊れても核の差し込みは止めない
             f = None
         late = False
         if f and f["plugins"]:
             try:
-                late = landed_after_fetch(f)
+                late = landed_after_fetch(f, deadline)
             except Exception:  # noqa: BLE001  見分けが壊れたら形の誤りと見る（引き継ぎの手順を残す）
                 late = False
         if session:
@@ -384,9 +409,29 @@ def inject() -> int:
         # 取り直しの後に入った差は知らせだけ（窓を替えない）。2 回目の SessionStart も起動の時の見分けを使う
         late_now = state.get("late") if isinstance(state, dict) else late
         parts.append(late_text(f) if late_now else stale_at_start_text(f))
-    if parts:
-        out = {"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": "\n".join(parts)}}
+
+
+def inject() -> int:
+    """核を先に組み、見張りは別の thread で INJECT_LIMIT 秒まで待つ。越えたら見張りを待たずに核（と出来た知らせ）を出す。"""
+    data = _hook_input()
+    project = Path(os.environ.get("CLAUDE_PROJECT_DIR") or os.getcwd())
+    parts: list[str] = []
+    try:  # 核はいつも正本を差し込む（使う側の写しの枠が在っても、写しでなく正本が効く）。見張りより前に組む
+        parts.append(inject_text())
+    except UNREADABLE as e:
+        print(f"plugin core: 核.md が読めない（{e}）＝核は差し込まれていない", file=sys.stderr)
+    worker = threading.Thread(target=watch, args=(data, project, parts), daemon=True)
+    worker.start()
+    limit = float(os.environ.get("AF_INJECT_LIMIT") or INJECT_LIMIT)  # 差し替えは試験だけ
+    worker.join(limit)
+    out_parts = list(parts)
+    if worker.is_alive():
+        out_parts.append(f"## 土台の見張りが時間内に終わらなかった\n{limit:g} 秒で待つのをやめ、核とそれまでに出来た知らせだけを差し込んだ"
+                         "（土台が main の先端と同じかは見ていない）。土台の plugin core の不具合として親の窓へ知らせる。\n")
+    if out_parts:
+        out = {"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": "\n".join(out_parts)}}
         sys.stdout.write(json.dumps(out, ensure_ascii=False))
+        sys.stdout.flush()
     return 0
 
 
@@ -410,7 +455,7 @@ def fresh() -> int:
         if time.time() - float(state.get("checked") or 0) < interval:
             return 0
         try:
-            got = freshness(base=state.get("base")) if state.get("late") else freshness()
+            got = freshness(base=state.get("base") if state.get("late") else None)  # 合流の時は読まない（深く取らない）
         except Exception:  # noqa: BLE001
             got = None
         state["checked"] = time.time()
