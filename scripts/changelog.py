@@ -1,0 +1,96 @@
+#!/usr/bin/env python3
+"""変更の記録（CHANGELOG.d/ の断片）を照らす・束ねて見せる。
+
+決まりの正本は CHANGELOG.d/README.md。PR ごとに自分の file を 1 つ足すだけにし、
+全部の PR が同じ所（CHANGELOG.md の先頭）へ行を足して互いに衝突する形を無くす。
+
+  python3 scripts/changelog.py check   # 形を照らす（赤なら 1 で終わる）
+  python3 scripts/changelog.py         # 全部を新しい物が上で見せる（git の履歴で並べる）
+"""
+from __future__ import annotations
+
+import re
+import subprocess
+import sys
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+DIR_NAME = "CHANGELOG.d"
+# 断片へ移す前の記録（そのまま移した経緯・札の形を照らさない）。
+OLD_FILE = "00000000-断片へ移す前.txt"
+NAME_RE = re.compile(r"^\d{8}-[0-9A-Za-z][0-9A-Za-z._-]*\.txt$")
+LINE_RE = re.compile(r"^- (壊れる|足した|直した|畳んだ)(（[^）\n]+）)?: \S")
+JST = timezone(timedelta(hours=9))
+
+
+def check(root: Path = ROOT) -> list[str]:
+    """形の誤りを全部返す（空なら緑）。"""
+    errs: list[str] = []
+    main = root / "CHANGELOG.md"
+    if not main.is_file():
+        errs.append("CHANGELOG.md が無い")
+    else:
+        for n, line in enumerate(main.read_text(encoding="utf-8").splitlines(), 1):
+            if re.match(r"^\s*[-*+] |^\s*\d+\. ", line):
+                errs.append(f"CHANGELOG.md:{n}: 記録の行を CHANGELOG.md へ直に足している。"
+                            f"自分の枝の {DIR_NAME}/<日付>-<話題>.txt へ移す（{DIR_NAME}/README.md）")
+    d = root / DIR_NAME
+    if not d.is_dir():
+        errs.append(f"{DIR_NAME}/ が無い")
+        return errs
+    if not (d / OLD_FILE).is_file():
+        errs.append(f"{DIR_NAME}/{OLD_FILE} が無い（移す前の記録を消さない）")
+    for p in sorted(d.iterdir()):
+        if p.name == "README.md":
+            continue
+        if p.is_dir() or (p.name != OLD_FILE and not NAME_RE.match(p.name)):
+            errs.append(f"{DIR_NAME}/{p.name}: 名は <YYYYMMDD>-<話題>.txt（枝 claude/<日付>-<話題> と同じ・英数と . _ -）")
+            continue
+        text = p.read_text(encoding="utf-8")
+        lines = [l for l in text.splitlines() if l.strip()]
+        if not lines:
+            errs.append(f"{DIR_NAME}/{p.name}: 中身が無い")
+        if p.name == OLD_FILE:
+            continue
+        for n, line in enumerate(text.splitlines(), 1):
+            if line.strip() and not LINE_RE.match(line):
+                errs.append(f"{DIR_NAME}/{p.name}:{n}: 行は「- 壊れる: …」「- 足した: …」「- 直した: …」「- 畳んだ: …」の形"
+                            "（札の後に（…）を添えてよい）。1 項は 1 行")
+    return errs
+
+
+def _git(root: Path, *args: str) -> str:
+    return subprocess.run(["git", "-C", str(root), *args], check=True, capture_output=True, text=True).stdout
+
+
+def entries(root: Path = ROOT) -> list[tuple[str, str, str]]:
+    """(名, 入った時, 中身) を新しい物が上で返す。入った時は、その file を足した最初の commit の時刻。
+    まだ commit されていない断片は一番上。履歴が浅い（shallow）時は並べられないので止まる。"""
+    if _git(root, "rev-parse", "--is-shallow-repository").strip() == "true":
+        raise SystemExit("履歴が浅いので並べられない: git fetch --unshallow をしてから回す")
+    rows = []
+    for p in sorted((root / DIR_NAME).glob("*.txt")):
+        out = _git(root, "log", "--diff-filter=A", "--format=%ct", "--", str(p.relative_to(root))).split()
+        ts = int(out[-1]) if out else None
+        when = (datetime.fromtimestamp(ts, JST).strftime("%Y-%m-%d %H:%M 日本時間") if ts else "まだ入っていない")
+        key = ts if ts is not None else float("inf")
+        rows.append((key, p.name, when, p.read_text(encoding="utf-8").strip()))
+    rows.sort(key=lambda r: (r[0], r[1]), reverse=True)
+    return [(name, when, body) for _, name, when, body in rows]
+
+
+def main(argv: list[str]) -> int:
+    if argv[1:2] == ["check"]:
+        errs = check()
+        for e in errs:
+            print(e)
+        print("changelog: 赤" if errs else "changelog: 緑")
+        return 1 if errs else 0
+    for name, when, body in entries():
+        print(f"## {name.removesuffix('.txt')}（{when}）\n\n{body}\n")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))
