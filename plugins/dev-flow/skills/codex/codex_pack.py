@@ -10,12 +10,18 @@
    - `--dest` を省くと self だけを機械が決める（全部が self_allow の中で、顧客の path に当たらない時）。
      顧客の物へ自動で決めることは一切しない。
 2. 秘密の最終関所: パックの完成全文を、書き込む **前** に再検査し、block 1 件でも出たら書かずに中止
-   （Write/Edit の hook に頼らない＝Bash で回しても効く）。高エントロピーの塊は advisory として要約に出す。
+   （Write/Edit の hook に頼らない＝Bash で回しても効く）。
+3. 高エントロピーの塊（鍵らしい字・既定 32 字以上でエントロピー 4.0 以上）も既定で止める（オーナー同意 2026-11-19:
+   前は件数を出して人の目に預けるだけで、鍵らしい字を含むパックが外へ出うった）。止めた文には塊の字を出さず、
+   どの file の何行目か・長さ・指紋（sha256 の頭 12 字）だけを出す。誤って止まる塊（作り物の値・固定の検査値など）は
+   値の表 `entropy_allow` で外す（PR とレビューを通る＝窓の一存で外れない）。止まるのは builder を回す AI だけ。
 
 値の表: repo の根の config/skill-values.json の `dev-flow.codex`（在る時だけ）。
   pack_dir（パックの置き場）・self_allow（[glob]）・clients（{名: {opt_in, no_training_tier, expires, paths}}）
   egress_log（送り出しの記録の jsonl の path。在る時だけ 1 行足す。本文・秘密は書かず、時刻・task・送り先・
   file の path・結果・件数・パックの sha256 だけ）
+  entropy_allow（止めない高エントロピーの塊の並び。"sha256:<指紋 12 字以上>" は塊の sha256 の頭に当て、
+  それ以外は塊の全体に当てる正規表現）
 
 exit: 0=パックを作った（--dry-run は判定だけ）／1=中止（秘密・送り先の不許可・入力の不正）。
 """
@@ -197,11 +203,54 @@ def entropy(s: str) -> float:
     return -sum(c / n * math.log2(c / n) for c in (s.count(ch) for ch in set(s)))
 
 
-def scan(text: str):
+_CHUNK = re.compile(r"[A-Za-z0-9+/=_\-]{%d,}" % ADVISORY_MIN_LEN)
+
+
+def allow_rules(values: dict):
+    """値の表の entropy_allow を (指紋の頭の並び, 正規表現の並び) にする。読めない物は止める。"""
+    fps, regs = [], []
+    for item in values.get("entropy_allow") or []:
+        if not isinstance(item, str) or not item:
+            raise Abort("値の表の entropy_allow に字でない・空の物がある")
+        if item.startswith("sha256:"):
+            fp = item[len("sha256:"):].lower()
+            if not re.fullmatch(r"[0-9a-f]{12,64}", fp):
+                raise Abort(f"値の表の entropy_allow の指紋は 16 進 12 字以上: {item}")
+            fps.append(fp)
+        else:
+            try:
+                regs.append(re.compile(item))
+            except re.error as e:
+                raise Abort(f"値の表の entropy_allow に読めない正規表現（{e}）")
+    return fps, regs
+
+
+def entropy_hits(text: str, values: dict | None = None, rels=None):
+    """高エントロピーの塊を (どこ, 行, 長さ, 指紋) の並びで返す。塊の字そのものは返さない。"""
+    fps, regs = allow_rules(values or {})
+    hits, where, base = [], "（パックの見出し）", 0
+    for no, ln in enumerate(text.splitlines(), 1):
+        if ln.startswith("### ") and (rels is None or ln[4:] in rels):
+            where, base = ln[4:], no + 1   # 次の行は ```` の囲み＝その次が file の 1 行目
+            continue
+        for tok in _CHUNK.findall(ln):
+            if entropy(tok) < ADVISORY_MIN_ENTROPY:
+                continue
+            full = sha256_full(tok)
+            fp = full[:12]
+            if any(full.startswith(p) for p in fps) or any(r.fullmatch(tok) for r in regs):
+                continue
+            hits.append((where, no - base if where != "（パックの見出し）" else no, len(tok), fp))
+    return hits
+
+
+def sha256_full(tok: str) -> str:
+    return hashlib.sha256(tok.encode("utf-8")).hexdigest()
+
+
+def scan(text: str, values: dict | None = None, rels=None):
     blocks = [label for label, pat in BLOCK_PATTERNS.items() if re.search(pat, text)]
-    advis = [t for t in re.findall(r"[A-Za-z0-9+/=_\-]{%d,}" % ADVISORY_MIN_LEN, text)
-             if entropy(t) >= ADVISORY_MIN_ENTROPY]
-    return blocks, len(advis)
+    return blocks, entropy_hits(text, values, rels)
 
 
 def write_log(values: dict, root: Path, rec: dict) -> None:
@@ -242,15 +291,25 @@ def main(argv=None) -> int:
         rels = [rel_of(root, f) for f in a.file]
         dest = resolve_dest(a.dest, rels, values, today)
         text = build_pack(a, rels, dest, root)
-        blocks, advis = scan(text)
+        blocks, hits = scan(text, values, set(rels))
         meta = {"task": a.task, "dest": dest, "files": rels, "mode": a.mode,
-                "advisory": advis, "dry_run": a.dry_run}
+                "entropy": len(hits), "dry_run": a.dry_run}
         if blocks:
             write_log(values, root, {**meta, "result": "中止", "block": blocks})
             raise Abort(f"秘密の形を検出（{', '.join(blocks)}）＝書き込まない")
+        if hits:
+            write_log(values, root, {**meta, "result": "中止", "block": ["高エントロピーの塊"],
+                                     "fingerprints": [h[3] for h in hits]})
+            where = "\n".join(f"    - {w} の {n} 行目（{ln} 字・指紋 sha256:{fp}）" for w, n, ln, fp in hits)
+            raise Abort(
+                f"鍵らしい高エントロピーの塊が {len(hits)} 個＝書き込まない\n{where}\n"
+                "  直し方: 鍵なら file から抜いて鍵を取り替える。載せなくてよい行なら --mode diff で変えた行だけにするか、"
+                "その行の無い file に分けて載せる。\n"
+                "  誤って止まった時（作り物の値・固定の検査値など秘密でないと確かめた塊）: repo の値の表 "
+                "dev-flow.codex.entropy_allow に上の \"sha256:<指紋>\" を足す PR を出す（PR とレビューを通る）。")
         print(f"  dest       : {dest}")
         print(f"  files      : {len(rels)}")
-        print(f"  secret     : block 0 / advisory {advis}" + ("（送る前に人の目で差分を見る）" if advis else ""))
+        print("  secret     : block 0 / 高エントロピーの塊 0")
         if a.dry_run:
             print("codex_pack: dry-run（書かない）")
             return 0
