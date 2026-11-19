@@ -32,6 +32,7 @@ green
 - 10 退役・迂回・呼ぶ側: N/A
 - 11 言語ごとの点: N/A
 - 12 既定で止まる: N/A
+- 13 跡の残らない手順: N/A
 
 ## 所見
 - [台帳へ｜整地] 作り物の気づき
@@ -57,6 +58,7 @@ red
 - 10 退役・迂回・呼ぶ側: N/A
 - 11 言語ごとの点: N/A
 - 12 既定で止まる: N/A
+- 13 跡の残らない手順: N/A
 
 ## 所見
 - [止める｜実装] plugins/x.py — 作り物の欠け
@@ -146,7 +148,7 @@ def test_点の節が無いと赤():
 
 
 def test_表に無い点と重なりと名の違いは赤():
-    assert any("点 13" in e for e in vf.check(GREEN.replace("- 12 既定で止まる: N/A", "- 12 既定で止まる: N/A\n- 13 作り物: pass")))
+    assert any("点 14" in e for e in vf.check(GREEN.replace("- 13 跡の残らない手順: N/A", "- 13 跡の残らない手順: N/A\n- 14 作り物: pass")))
     assert any("2 度" in e for e in vf.check(GREEN.replace("- 2 触った path: pass", "- 2 触った path: pass\n- 2 触った path: pass")))
     assert any("点 4 の名" in e for e in vf.check(GREEN.replace("- 4 回帰:", "- 4 回り:")))
 
