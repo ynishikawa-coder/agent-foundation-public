@@ -16,6 +16,7 @@ import pytest
 
 ROOT = Path(__file__).resolve().parent.parent
 ENTRY = ROOT / "scripts" / "setup_plugins.py"
+KAKU = ROOT / "plugins" / "core" / "scripts" / "kaku.py"
 DOC = ROOT / "docs" / "核の届け方.md"
 URL = "https://example.invalid/o/agent-foundation-public.git"
 
@@ -50,6 +51,8 @@ def test_古い目録が残った箱で塊を回すと先端に揃う(tmp_path, 
     up = tmp_path / "up"
     (up / "scripts").mkdir(parents=True)
     (up / ".claude-plugin").mkdir()
+    (up / "plugins" / "core" / "scripts").mkdir(parents=True)
+    shutil.copy2(KAKU, up / "plugins" / "core" / "scripts" / "kaku.py")  # 入口が読む比べ方の正本（本物の出所は repo 全体）
     if old_entry:
         assert OLD_ENTRY != ENTRY.read_text(encoding="utf-8")
         (up / "scripts" / "setup_plugins.py").write_text(OLD_ENTRY, encoding="utf-8")
