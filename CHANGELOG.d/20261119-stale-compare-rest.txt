@@ -1,6 +1,6 @@
 - 直した: 古い形の照らし（plugin core の kaku.py の起動の hook と olds）が、手元の refs/remotes/origin/*（fetch しない・origin/HEAD は既定の枝と限らない）でなく、出所へ既定の枝と先端を聞いて取った今の main を読む。出所に出られない・取れない時は、手元の main を読んだ事と同じか分からない事を名指し、消す・直ったと言い切らない（olds は照らせないで 2）。
 - 直した: 起動の hook の入れ方の照らしが、~/.claude/af-foundation/setup.json が在るかでなく、今の土台を入れた setup の記録か（名簿の版が入った plugin core の commit と同じ・記録の後に入れ直していない）で入口を通ったかを見る。setup の時の main の記録もその時だけ読む。入っていない plugin は user scope で enabled かで見る（入口と同じ見方）。
 - 直した: 起動の hook が、目録 agent-foundation の出所が GitHub かだけでなく土台の repo かを見る。同じ名の fork・別の git から入った目録は名指し、その main を正として古さ・引き継ぎを決めない。
-- 直した: 検査の入口 scripts/checks/kaku_growth.sh・pr_shape.sh が、手元の origin/main でなく出所の今の main（scripts/pr_shape.py --print-main。手元が古ければ取り直す）と比べる。出所に聞けない・揃わない時は比べずに照らせないで止める。
+- 直した: 検査の入口 scripts/checks/kaku_growth.sh・pr_shape.sh・pr_writer.sh が、手元の origin/main でなく出所の今の main（scripts/pr_shape.py --print-main。手元が古ければ取り直す）と比べる。出所に聞けない・揃わない時は比べずに照らせないで止める。
 - 直した: scripts/changelog.py が、今の HEAD の履歴で断片を足した時でなく、main（出所の今の main・出所の無い repo は main の枝）の first-parent で入った時で並べ、main に無い断片は「まだ入っていない」と出す。
 - 直した: plugin session-watch が隣の正本（guard の道具・公開の検査）を探す時、版の合う物が無ければ mtime の新しい版も版の違う市場の写しも拾わず、無いと名指す。

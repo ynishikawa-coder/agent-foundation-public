@@ -193,11 +193,13 @@ def test_出所に出られなければ_checks_は手元の_origin_main_で比�
     assert r.returncode == 2 and "出所" in (r.stdout + r.stderr), r.stdout + r.stderr
 
 
-def test_kaku_growth_は出所の_main_を比べる元にする():
-    """kaku_growth.sh の比べる元は fresh_main（手元の origin/main を直に読む道が無い）。"""
-    sh = (ROOT / "scripts" / "checks" / "kaku_growth.sh").read_text(encoding="utf-8")
-    code = [ln for ln in sh.splitlines() if not ln.lstrip().startswith("#")]
-    assert any("--print-main" in ln for ln in code) and not any("origin/main" in ln for ln in code), sh
+def test_checks_の入口は出所の_main_を比べる元にする():
+    """scripts/checks/ の入口で main と比べる物は、どれも fresh_main を通る（手元の origin/main を直に読む道が無い）。"""
+    for sh in sorted((ROOT / "scripts" / "checks").glob("*.sh")):
+        code = [ln for ln in sh.read_text(encoding="utf-8").splitlines() if not ln.lstrip().startswith("#")]
+        assert not any("origin/main" in ln for ln in code), sh.name
+        if any("--base" in ln or "merge-base" in ln for ln in code):
+            assert any("--print-main" in ln for ln in code), sh.name
 
 
 # ── changelog は main の first-parent で入った時で並べる ──

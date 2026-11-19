@@ -9,11 +9,9 @@ if [ "${GITHUB_EVENT_NAME:-}" != "pull_request" ]; then
   echo "pr_writer: 照らしていない（PR の外＝本文が無い。CI の PR で照らす）"
   exit 0
 fi
-git rev-parse --verify --quiet origin/main >/dev/null || {
-  echo "✗ origin/main が無い（git fetch origin main をしてから回す）"
-  exit 2
-}
+# 比べる元は出所の今の main（手元の origin/main が古ければ取り直す。聞けなければ止める＝scripts/pr_shape.py の fresh_main）。
+main=$(python3 scripts/pr_shape.py --print-main) || exit 2
 body=$(mktemp)
 trap 'rm -f "$body"' EXIT
 printf '%s' "${PR_BODY:-}" > "$body"
-exec python3 scripts/pr_writer.py --branch "$branch" --head "${PR_HEAD_SHA:-HEAD}" --base origin/main --body-file "$body"
+exec python3 scripts/pr_writer.py --branch "$branch" --head "${PR_HEAD_SHA:-HEAD}" --base "$main" --body-file "$body"
