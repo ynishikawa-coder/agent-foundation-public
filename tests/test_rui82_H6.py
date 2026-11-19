@@ -100,7 +100,7 @@ HALF = "決" * (LIMIT // 6 + 1)
 
 @pytest.mark.parametrize("files", [
     {"CLAUDE.md": "固有\n@docs/rules.md\n", "docs/rules.md": BIG},                       # @ の取り込みへ移した
-    {"CLAUDE.md": "固有\n@a.md\n", "a.md": "@b.md\n", "b.md": BIG},                       # 取り込みの取り込み
+    {"CLAUDE.md": "固有\n" "@a.md\n", "a.md": "@b.md\n", "b.md": BIG},                       # 取り込みの取り込み
     {"CLAUDE.md": HALF, "CLAUDE.local.md": HALF},                                        # CLAUDE.local.md へ半分
     {"CLAUDE.md": HALF, "AGENTS.md": HALF},                                              # AGENTS.md へ半分
     {"CLAUDE.md": HALF, "pkg/CLAUDE.md": HALF},                                          # 下の dir の CLAUDE.md へ半分
@@ -271,9 +271,9 @@ def _one(old, new):
 @needs_node
 @pytest.mark.parametrize("new, expect", [
     ('<p class="sender">サンプル事務所</p><p class="hold">', "型の外に class「sender」"),
-    ('<p class="tel">03-0000-0000</p><p class="hold">', "型の外に class「tel」"),
+    ('<p class="tel">作り物の連絡先</p><p class="hold">', "型の外に class「tel」"),
     ('<p>差出人: サンプル事務所</p><p class="hold">', "型に無い欄 <p> を header.top"),      # class なしの欄
-    ('<div>連絡先: 03-0000-0000</div><p class="hold">', "型に無い欄 <div> を header.top"),
+    ('<div>連絡先: 作り物</div><p class="hold">', "型に無い欄 <div> を header.top"),
 ])
 def test_型に無い欄は名を問わず赤(tmp_path, new, expect):
     red = _page(tmp_path, _one('<p class="hold">', new))
