@@ -13,7 +13,8 @@
   - 別の plugin の道具の path（plugins/<名>/…/<道具の file 名>、または手順の文で plugin の根を `<名>/…` と置いた形）
   - plugin の外の土台の部品（repo の根の dir のうち OUTSIDE_SKIP に無い物・例 public-guard）の道具の path（<dir>/…/<file 名>）。
     部品の名は dir の名。plugin が土台の file を借りる流れも、plugin どうしと同じく絵に要る（拾わないと人の目で漏れる）。
-  拾わない物: skill の名を文で挙げるだけの物・文書（.md）の path（道具を呼ぶ流れでない）。
+  拾わない物: skill の名を文で挙げるだけの物・文書（.md）の path（道具を呼ぶ流れでない）・
+    plugin の外の実体を指す symlink（例: lib/skill_values.py → skill-values/。中身は実体の部品の文で、置いた plugin の物でない）。
 絵との対応: 絵の箱のうち tab が arch で、題の頭（「（」の前）が plugin（部品）の名と同じ箱をその箱とみる。
   箱が無い plugin・2 つ在る plugin は照らせない＝赤（黙って通さない）。箱が無い部品は「絵に無い箱」＝赤。矢印の向きは 呼ぶ側 → 呼ばれる側。
 exit: list は 0。check は 0=全部在る／1=絵に無い流れが在る／2=照らせない（絵が読めない・箱が無い・重なる）。
@@ -43,11 +44,24 @@ def tracked(repo: Path) -> list[str]:
     return [ln for ln in r.stdout.splitlines() if ln]
 
 
+def borrowed_link(repo: Path, f: str) -> bool:
+    """plugins/<名>/ の下の symlink で、実体がその plugin の外（例: 土台の skill-values/）に在る物。
+    中身は実体の部品の物で、symlink を置いた plugin が書いた文でも持つ道具でもない（plugin を入れる時に写るだけ）。"""
+    parts = f.split("/")
+    p = repo / f
+    if parts[0] != "plugins" or len(parts) < 3 or not p.is_symlink():
+        return False
+    home = (repo / "plugins" / parts[1]).resolve()
+    real = p.resolve()
+    return home != real and home not in real.parents
+
+
 def flows(repo: Path) -> dict[tuple[str, str], list[str]]:
     """{(呼ぶ側, 呼ばれる側): [証拠 "path:行 字"]}。"""
     files = tracked(repo)
     plugins = sorted({f.split("/")[1] for f in files if f.startswith("plugins/") and f.count("/") >= 2
                       and (repo / "plugins" / f.split("/")[1] / ".claude-plugin" / "plugin.json").is_file()})
+    files = [f for f in files if not borrowed_link(repo, f)]
     owner: dict[str, set[str]] = defaultdict(set)      # 道具の file 名 → 持つ plugin
     outside: set[str] = set()                          # plugin の外にも同じ名の file が在る名
     for f in files:
