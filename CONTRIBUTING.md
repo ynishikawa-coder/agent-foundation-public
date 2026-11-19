@@ -22,12 +22,13 @@
   ```
 
 - `見た先端` が PR の今の先端と違う green は無効（見た後に push があった）。もう一度見てもらう。
-- red の時は、指摘を単発の手直しで済ませず細目 §3「まず構造を疑う」で原因から直し、同じ枝に push して、同じレビュー窓へ再レビューを頼む。
+- red の時は、指摘を単発の手直しで済ませず細目 §3「まず構造を疑う」で原因から直し、同じ枝に push して、同じレビュー窓へ再レビューを頼む。頼みの文は `python3 plugins/checker/scripts/rereview.py --previous <前回の判定> --fix <N>=<commit> …` が出した行をそのまま貼る（前回の止めるの全部に、前回の後に足した commit が結ばれていなければ文が出ない）。
 
 ## 3. main へ入れる
 
-- `main` へ入れるのは **Javis 側の親窓だけ**。書いた窓と別の窓の green が、今の先端に付いた PR だけを入れる。入れ方は **squash merge**。
-- 入れる前にオーナーへ「入れてよいですか」と聞かない。揃える物（レビュー green・試験が緑で衝突なし・実物が合意済みの全体の絵どおり）と、絵と差がある時に止めて聞く事、絵を照らす段が土台に入るまでの扱いは、核 §7 と細目 §7 の「main へ入れる」が正本。
+- `main` へ入れるのは **Javis 側の親窓だけ**。入れ方は **squash merge**。
+- 入れてよいのは、先端の commit の状態 `merge-gate`（`.github/workflows/merge-gate.yml`・道具は `plugins/checker/scripts/merge_gate.py`）が success の PR だけ。書いた窓と別の窓の green が今の先端に付いているか・頼み直しで前回の止めるを全部照らしたかは、合流の窓が目で読まずこの状態で見る。
+- 入れる前にオーナーへ「入れてよいですか」と聞かない。揃える物と、絵と差がある時に止めて聞く事は核 §7 と細目 §7 の「main へ入れる」が正本（ここに写さない）。
 - 書いた窓は `main` へ push しない。自分の PR を merge しない。
 - 枝へ `main` を取り込む時は **merge**（`git merge origin/main`）。rebase と force push はしない（レビュー窓が見た SHA を消さないため）。
 - 親窓から `合流済` が届いた枝には、もう push しない。続きは原因の台帳の行にし、新しい枝の窓をその行の直す窓にする。
@@ -35,7 +36,7 @@
 ### main の守りの設定（推奨・repo の持ち主が GitHub の設定で入れる）
 
 - `main` への直の push を禁止し、PR を必須にする。
-- 必須の検査に CI の `check`・`public-guard`・`plugin-smoke`（`.github/workflows/ci.yml`）を入れる。土台は main の先端をそのまま全部の窓へ配るので、`plugin-smoke`（使う側と同じ入れ方で入れて起動する試験）が合流の前の守り。`public-guard` か `plugin-smoke` が必須でないと見回りが知らせる（`docs/公開の検査.md`）。
+- 必須の検査に CI の `check`・`public-guard`・`plugin-smoke`（`.github/workflows/ci.yml`）と、状態 `merge-gate`（`.github/workflows/merge-gate.yml`）を入れる。土台は main の先端をそのまま全部の窓へ配るので、`plugin-smoke`（使う側と同じ入れ方で入れて起動する試験）が合流の前の守り。`public-guard` か `plugin-smoke` が必須でないと見回りが知らせる（`docs/公開の検査.md`）。
 - merge の仕方は squash だけを許す。
 - `main` の force push と削除を禁止する。
 

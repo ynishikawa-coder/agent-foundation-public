@@ -47,7 +47,6 @@ plugins/core/細目.md	**Chrome に貼る文の形**（Chrome を先にする事
 plugins/core/細目.md	- **4 札の中身** — `⏳待ち` は誰を・いつまで、`🛑止まった` は理由・外せる人を書く。
 plugins/core/細目.md	- **一時の試し** — 一時の試しの物は窓の作業場に置き、PR に載せない。
 plugins/core/細目.md	- **公開の repo** — 中身・歴史・commit の名義と説明・PR の題と本文が全部世界に見える。
-plugins/core/細目.md	- **判定を頼む** — 書いた窓がレビューの窓を立てて頼み、返しを受けて合流まで運ぶ。
 plugins/core/細目.md	- **別の道で確かめる** — 出した答えを、作った処理の出力や自分の報告で確かめない。
 plugins/core/細目.md	- **前提から聞く** — 問いが頼っている前提が未決なら、そちらを先に聞く（相談の間の論点の表は skill `design-mode`）。
 plugins/core/細目.md	- **問いの持ち方** — 問いは持った窓（子窓も）が題に ❓ を付けて直に出す。
@@ -91,11 +90,8 @@ plugins/core/細目.md	Chrome で打てない手（秘密の値を入れる・�
 plugins/core/細目.md	`
 plugins/core/細目.md	`直す窓` の行が残れば「一部」で、残りの行と直す窓の URL を書く。
 plugins/core/細目.md	git の「動く時に読む物」はコード・決まり・手順・値の表。
-plugins/core/細目.md	| 止めた | 決めた止まりの条件に当たって止めた |
-plugins/core/細目.md	| 状態 | 意味 |
-plugins/core/細目.md	| 終わった | 終わりの条件と確かめの条件が全部そろった |
-plugins/core/細目.md	| 続けられない | 技術・権限・構造の理由で続けられない |
-plugins/core/細目.md	|---|---|
+plugins/core/細目.md	| 状態 | 意味 | 返事の 1 行目 |
+plugins/core/細目.md	|---|---|---|
 plugins/core/細目.md	③で差が出たら main へ入れずに止め、差を見せてオーナーに決めてもらう（知らせて進めない）。
 plugins/core/細目.md	「直さない」は AI が決めない（1 行ずつオーナーに聞く）。
 plugins/core/細目.md	この窓で AI が続けるので、まだ閉じないでください。
@@ -132,7 +128,6 @@ plugins/core/細目.md	外れ（呼び口や main の守りが無い公開 repo�
 plugins/core/細目.md	大文字・小文字は問わない）。
 plugins/core/細目.md	常には読まず、返事・問い・手の窓などの形を書く時に読みます。
 plugins/core/細目.md	引いた結果（照らした前の答えの ID か URL・無ければ引いた言葉）は問いごとに持ち、問いを見る別の目にも渡す。
-plugins/core/細目.md	後継の第一声は ①目的 ②済んだ事 ③残り（並べ方は振る舞いの既定）④読む物 を書く。
 plugins/core/細目.md	後継へ移る時は前の窓の最後の返事に後継の URL を書く。
 plugins/core/細目.md	揃える物は 3 つ: ①書いた窓と別の窓のレビューが今の先端に green ②試験が緑で main との衝突が無い ③作り終わりに、書いた窓と別の目が実物を、オーナーと合意済みの全体の絵（仕組みの姿を描いた物）と照らして差が無い。
 plugins/core/細目.md	書いた窓の読みや直し方は渡さない）が、repo 全体と関わる repo から探し、見つけた物を場所つきの一覧で返す。

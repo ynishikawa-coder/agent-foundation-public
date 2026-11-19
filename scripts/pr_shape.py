@@ -9,6 +9,9 @@
   2. 試験の file の末尾への追記: 元から在る tests/**/test_*.py の試験（def test_）を増やさない。
      新しい試験は、守る約束の名の新しい file（tests/test_<約束>.py）に置く。並ぶ PR が同じ file の末尾へ足すと、
      1 本入るたびに残りが全部衝突するので、足す所を PR ごとに別の file にする（直す・消すのはよい）。
+  3. 止める物の変更: 差し戻す札（session-watch の STOP_CODES）か守りの見張りの宣言（guard の HOOKS）の行を変えた PR は、
+     足す断片の行の札の添えに `止める物:`（例 `- 足した（止める物: AI の締めだけ）: …`。何を・誰を止めるか〔AI だけ／人も〕・人も止めるならオーナーの同意の決定の記録）が要る。
+     照らしを足しただけで黙って止める物が増える形を、PR の外へ見える所に出さずに入れない（核 §3 の同意を照らす段）。
 止めるのは AI の窓の枝（claude/ で始まる枝）だけ。claude/ で始まるのに claude/<8 桁の日付>-<話題> の形でない枝は
 照らせない＝赤。claude/ で始まらない枝（人が GitHub の画面で直した patch-1 など）は止めず、照らさなかった事を 1 行知らせる
 （新しく人の操作を止める物はオーナーの同意が要る＝核 §3）。main（PR でない push）・枝の名が分からない時（手元の
@@ -27,6 +30,16 @@ ROOT = Path(__file__).resolve().parent.parent
 BRANCH = re.compile(r"^claude/(\d{8}-[0-9A-Za-z][0-9A-Za-z._-]*)$")
 TEST_DEF = re.compile(r"^(?:async\s+)?def\s+test_", re.M)
 ROOT_CAUSE = "直し: 足す所を動かして通すだけで済ませず、同じ所へ足す形になった原因を細目 §3「まず構造を疑う」で探して直す"
+
+
+STOP_DECL = re.compile(r"^[+-]\s*(?:STOP_CODES\s*=|HOOKS\s*=)")
+
+
+def stop_decl_paths(root: Path) -> list[str]:
+    """止める物を宣言する file（差し戻す札・守りの見張りの HOOKS）。"""
+    out = ["plugins/session-watch/scripts/session_watch.py"]
+    out += sorted(str(p.relative_to(root)) for p in (root / "plugins" / "guard" / "scripts").glob("*.py"))
+    return out
 
 
 def git(root: Path, *args: str) -> str:
@@ -56,6 +69,15 @@ def check(root: Path, branch: str, base: str) -> list[str]:
     rows = [ln.split("\t") for ln in git(root, "diff", "--name-status", "--no-renames", mb).splitlines() if ln]
     rows += [["A", ln] for ln in git(root, "ls-files", "--others", "--exclude-standard").splitlines() if ln]
     want = f"CHANGELOG.d/{m.group(1)}.txt"
+    stop_lines = [ln for path in stop_decl_paths(root)
+                  for ln in git(root, "diff", "-U0", mb, "--", path).splitlines()
+                  if ln[:1] in "+-" and not ln.startswith(("+++", "---")) and STOP_DECL.search(ln)]
+    if stop_lines:
+        frag = root / want
+        text = frag.read_text(encoding="utf-8") if frag.is_file() else ""
+        if not re.search(r"止める物[:：]", text):
+            errs.append(f"{want}: 止める物の宣言を変えた（{stop_lines[0][:60]}）のに、断片の行の札の添えに `止める物:` が無い（例 `- 足した（止める物: AI の締めだけ）: …`）"
+                        "（何を・誰を止めるか〔AI だけ／人も〕・人も止めるならオーナーの同意の決定の記録を書く）")
     for st, *paths in rows:
         path = paths[-1]
         if st == "A" and path.startswith("CHANGELOG.d/") and path != want:

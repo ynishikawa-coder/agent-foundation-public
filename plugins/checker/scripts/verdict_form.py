@@ -16,8 +16,17 @@
 
   8. 所見の札（止める・台帳へ・直った）と段（設計・整地…）は、review-pr の SKILL.md の「判定の形」の節の
      「- 札は」の行から読む（ここに写さない＝札や段を足す PR がこの file の定数を触らない）。読めない時は止まる。
+  9. 窓の id は 3 つの形を受ける: クラウドの窓 `session_<x>`・環境の `cse_<x>`（同じ窓＝`session_<x>` に揃えて比べる）・
+     手元の窓の UUID。形の外は誤り。
+ 10. 使う側の足す点: 使う側の値の表 `checker.review-pr.extra_points`（{"<記号>": "<名>"}）が在れば、判定に
+     `## 使う側の点` の節を置き、表の点を全部 1 行ずつ `- <記号> <名>: pass|fail|N/A` で書く。fail は red に結ぶ。
+     表が無い・空なら節は要らない（在れば誤り＝表に無い点で判定を動かさない）。
+ 11. 頼み直し（--previous <前回の判定>）: 前回の `[止める｜…]` を上から 1, 2, … と数え、今回の所見に
+     `[直った｜…] 前回の N 番 …` か `[止める｜…] 前回の N 番 …` が全部の N に在る。欠けた N は誤り（照らさずに通さない）。
+     見た先端が前回と同じなら誤り（直した commit が無いまま頼み直された＝書いた窓へ返す）。
 
 使い方: python3 verdict_form.py <コメントのファイル> [<ファイル> …] --writer <書いた窓の session id> --head <PR の先端の SHA>
+        [--previous <前回の判定のファイル>] [--extra-points <JSON>]（既定は使う側の値の表から読む）
   --writer と --head は欠かせない（欠けたら別の目と先端を照らさずに通さない＝exit 2）。
   助手（Agent）の判定は立てた窓の session id で書く。書いた窓が立てた助手の判定は --writer と同じになり誤り。
   ファイルは全部照らす（2 つ以上の時は誤りの頭にファイルの名）。誤りを 1 行ずつ出し、どれかに誤りがあれば exit 1。
@@ -28,14 +37,26 @@ from pathlib import Path
 
 SKILL = Path(__file__).resolve().parent.parent / "skills" / "review-pr" / "SKILL.md"
 
-LINE1 = re.compile(r"^レビューした窓: (session_[A-Za-z0-9]+) 判定: (green|red)$")
+WINDOW = r"(?:session_[A-Za-z0-9]+|cse_[A-Za-z0-9]+|[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})"
+LINE1 = re.compile(r"^レビューした窓: (%s) 判定: (green|red)$" % WINDOW)
 LINE2 = re.compile(r"^見た先端: ([0-9a-f]{12})$")
 VERDICT = re.compile(r"^(green|red)(?:（blocked: .+）)?$")
 STOP_CARD = "止める"   # 1 つでも在れば red になる札（判定の決まりの軸。名は SKILL.md の札の並びに在ることを load_cards が確かめる）
 POINT_ROW = re.compile(r"^\| (\d+) (\S[^|]*?) \|")
 POINT_LINE = re.compile(r"^- (\d+) ([^:：]+)[:：] ?(.*)$")
 VALUE = re.compile(r"^(pass|fail|N/A)(?:$|[ （(])")
-OTHER_EYE = re.compile(r"^書いた窓 (session_[A-Za-z0-9]+) ≠ この窓$")
+OTHER_EYE = re.compile(r"^書いた窓 (%s) ≠ この窓$" % WINDOW)
+PREV_NO = re.compile(r"前回の\s*(\d+)\s*番")
+EXTRA_LINE = re.compile(r"^- (\S+) ([^:：]+)[:：] ?(.*)$")
+
+
+def norm(win):
+    """窓の id を比べる形に揃える（`cse_<x>` と `session_<x>` は同じ窓・UUID は小文字）。"""
+    if not win:
+        return win
+    if win.startswith("cse_"):
+        return "session_" + win[4:]
+    return win if win.startswith("session_") else win.lower()
 ROOT_CAUSE = "直し: 細目 §3「まず構造を疑う」"
 
 
@@ -109,9 +130,9 @@ def check_points(lines, points, reviewer=None, writer=None):
             errs.append("点 %d の名が `%s` でない（今は `%s`）" % (no, points[no], name))
         eye = OTHER_EYE.match(val) if no == 3 else None
         if eye:
-            if reviewer and eye.group(1) == reviewer:
+            if reviewer and norm(eye.group(1)) == norm(reviewer):
                 errs.append("点 3: 書いた窓とレビューした窓が同じ（別の目でない）")
-            if writer and eye.group(1) != writer:
+            if writer and norm(eye.group(1)) != norm(writer):
                 errs.append("点 3: 書いた窓 %s が --writer %s と違う" % (eye.group(1), writer))
             continue
         mv = VALUE.match(val)
@@ -125,7 +146,86 @@ def check_points(lines, points, reviewer=None, writer=None):
     return errs, fails
 
 
-def check(text, writer=None, head=None, points=None, cards=None):
+def stops_of(text, cards=None):
+    """判定の `## 所見` の `[止める｜…]` の行を上から並べる（頼み直しの「前回の N 番」の N は 1 から）。"""
+    lines = (text or "").splitlines()
+    return [ln.strip() for ln in (section(lines, "所見") or [])
+            if re.match(r"^- [\[［]%s[｜|]" % STOP_CARD, ln.strip())]
+
+
+def seen_head(text):
+    lines = (text or "").splitlines()
+    m = LINE2.match(lines[1].strip()) if len(lines) > 1 else None
+    return m.group(1) if m else None
+
+
+def check_previous(lines, previous):
+    """頼み直し: 前回の止めるを全部、今回の所見が番号で照らしたか・先端が動いたか。"""
+    errs = []
+    prev = stops_of(previous)
+    covered = set()
+    for ln in section(lines, "所見") or []:
+        s = ln.strip()
+        if re.match(r"^- [\[［](直った|%s)[｜|]" % STOP_CARD, s):
+            covered.update(int(n) for n in PREV_NO.findall(s))
+    for n in range(1, len(prev) + 1):
+        if n not in covered:
+            errs.append("前回の止める %d 番（%s）を今回の所見が `[直った｜…] 前回の %d 番` か `[止める｜…] 前回の %d 番` で照らしていない"
+                        % (n, prev[n - 1][:30], n, n))
+    for n in sorted(covered - set(range(1, len(prev) + 1))):
+        errs.append("前回の %d 番は前回の止めるに無い（前回は %d 個）" % (n, len(prev)))
+    old = seen_head(previous)
+    now = LINE2.match(lines[1].strip()) if len(lines) > 1 else None
+    if old and now and old == now.group(1):
+        errs.append("見た先端 %s が前回と同じ（直した commit が無いまま頼み直された＝判定せず書いた窓へ返す）" % old)
+    return errs
+
+
+def check_extra(lines, extra):
+    """使う側の足す点（値の表 checker.review-pr.extra_points）の誤りと fail の数。"""
+    body = section(lines, "使う側の点")
+    if not extra:
+        return (["`## 使う側の点` が在るのに使う側の値の表に点が無い（表に無い点で判定を動かさない）"] if body is not None else []), 0
+    if body is None:
+        return ["`## 使う側の点` の節が無い（使う側の値の表の点: %s）" % "・".join(extra)], 0
+    errs, fails, seen = [], 0, set()
+    for ln in body:
+        s = ln.strip()
+        if not s:
+            continue
+        m = EXTRA_LINE.match(s)
+        if not m or m.group(1) not in extra:
+            errs.append("使う側の点の行が表の点 `- <記号> <名>: pass|fail|N/A` でない: %s" % s[:40])
+            continue
+        key, name, val = m.group(1), m.group(2).strip(), m.group(3).strip()
+        if key in seen:
+            errs.append("使う側の点 %s が 2 度在る" % key)
+        seen.add(key)
+        if name != extra[key]:
+            errs.append("使う側の点 %s の名が `%s` でない（今は `%s`）" % (key, extra[key], name))
+        mv = VALUE.match(val)
+        if not mv:
+            errs.append("使う側の点 %s の値が pass／fail／N/A のどれでもない: %s" % (key, val[:20]))
+        elif mv.group(1) == "fail":
+            fails += 1
+    for key in extra:
+        if key not in seen:
+            errs.append("使う側の点 %s %s の行が無い" % (key, extra[key]))
+    return errs, fails
+
+
+def load_extra(starts=None):
+    """使う側の値の表の checker.review-pr.extra_points（無い・空なら {}）。読み口は値の表の 1 本の口。"""
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
+    import skill_values as SV  # noqa: E402  plugin の読み口（正本への symlink）
+    got = SV.section("checker", "review-pr", strict=True, **({"starts": starts} if starts else {}))
+    val = (got or {}).get("extra_points") or {}
+    if not isinstance(val, dict) or not all(isinstance(k, str) and isinstance(v, str) for k, v in val.items()):
+        raise ValueError("checker.review-pr.extra_points は {\"<記号>\": \"<名>\"} の形にする")
+    return val
+
+
+def check(text, writer=None, head=None, points=None, cards=None, previous=None, extra=None):
     if points is None:
         points = load_points()
     if cards is None:
@@ -141,13 +241,13 @@ def check(text, writer=None, head=None, points=None, cards=None):
     if not m2:
         errs.append("2 行目が `見た先端: <SHA12>` でない")
     reviewer, judged = (m1.group(1), m1.group(2)) if m1 else (None, None)
-    for h in ("verdict", "点", "所見"):
+    for h in ("verdict", "点", "使う側の点", "所見"):
         n = sum(1 for ln in lines if ln.strip() == "## " + h)
         if n > 1:
             errs.append("`## %s` の節が %d 個在る（1 つだけにする）" % (h, n))
     if m2 and head and not head.startswith(m2.group(1)):
         errs.append("見た先端 %s が PR の今の先端 %s と違う（見直して判定を足す）" % (m2.group(1), head[:12]))
-    if writer and reviewer and writer == reviewer:
+    if writer and reviewer and norm(writer) == norm(reviewer):
         errs.append("書いた窓とレビューした窓が同じ（別の目でない）")
 
     verdict = section(lines, "verdict")
@@ -174,6 +274,11 @@ def check(text, writer=None, head=None, points=None, cards=None):
             stops += 1
     perrs, fails = check_points(lines, points, reviewer=reviewer, writer=writer)
     errs.extend(perrs)
+    xerrs, xfails = check_extra(lines, extra or {})
+    errs.extend(xerrs)
+    fails += xfails
+    if previous is not None:
+        errs.extend(check_previous(lines, previous))
     want = "red" if stops or fails else "green"
     blocked = bool(mv and "blocked" in body[0])
     if judged == "red" and not blocked and not any(ln.startswith(ROOT_CAUSE) for ln in body[1:]):
@@ -188,7 +293,7 @@ def main(argv):
     if not args:
         sys.stderr.write(__doc__)
         return 2
-    opts, paths, i = {"--writer": None, "--head": None}, [], 0
+    opts, paths, i = {"--writer": None, "--head": None, "--previous": None, "--extra-points": None}, [], 0
     while i < len(args):
         a = args[i]
         if a in opts:
@@ -213,10 +318,17 @@ def main(argv):
         # 欠けた材料で通さない: 書いた窓が無いと別の目を、先端が無いと見た後の push を照らせない
         sys.stderr.write("--writer <書いた窓の session id> と --head <PR の先端の SHA> の両方が要る（欠けたまま形を通さない）\n")
         return 2
+    try:
+        import json
+        extra = json.loads(opts["--extra-points"]) if opts["--extra-points"] else load_extra()
+        previous = Path(opts["--previous"]).read_text(encoding="utf-8") if opts["--previous"] else None
+    except Exception as e:  # noqa: BLE001  使う側の点・前回の判定が読めない時は照らさずに通さない
+        sys.stderr.write("使う側の点か前回の判定が読めない（照らさずに通さない）: %s\n" % e)
+        return 2
     bad = 0
     for path in paths:
         with open(path, encoding="utf-8") as f:
-            errs = check(f.read(), writer=opts["--writer"], head=opts["--head"])
+            errs = check(f.read(), writer=opts["--writer"], head=opts["--head"], previous=previous, extra=extra)
         bad += bool(errs)
         for e in errs:
             print(("%s: %s" % (path, e)) if len(paths) > 1 else e)

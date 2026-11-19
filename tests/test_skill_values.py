@@ -51,7 +51,7 @@ def sv(*args, cwd=None, env=None):
 
 
 # ── 正本は 1 つ: 各 plugin の lib/ は symlink・道具は自分で表を探さない ──
-USERS = ("docs-kit", "dev-flow", "guard")   # 値の表を道具が読む plugin
+USERS = ("docs-kit", "dev-flow", "guard", "checker")   # 値の表を道具が読む plugin
 
 
 @pytest.mark.parametrize("plugin", USERS)

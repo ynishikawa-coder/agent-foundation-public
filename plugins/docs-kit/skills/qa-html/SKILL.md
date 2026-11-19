@@ -34,17 +34,16 @@ repo の根（`git rev-parse --show-toplevel`）の `config/skill-values.json` �
 
 | 鍵 | 使う所 | 無い時の既定 |
 |---|---|---|
-| `docs-kit.qa-html.save_dir`（無ければ `common.save_dir`）/ `common.save_dir_avoid` | 作り方 6 の置き場・置かない所 | 窓の scratchpad（git の外） |
-| `docs-kit.qa-html.delivery`（無ければ `common.delivery`） | 写す形の渡し方 | `file:///…` の絶対パスを 1 行 |
-| `docs-kit.qa-html.customer.*` | 送る形の口（設計 `design_doc`・配る口 `service`・回答の置き場 `answers_to`・検査 `check_cmd`〔土台のこの `check.mjs` を直に呼ぶ物・§配り方〕・出す道具 `publish_cmd`/`publish_does`） | 送る形は使えない（写す形だけ） |
-| `docs-kit.qa-html.internal_words` | 検査が赤にする内部の言葉に会社の語を足す（文字列か `{語, 正規表現, 言い換え}`） | `check.mjs` の頭の表 `RULES` の語だけ |
-| `docs-kit.qa-html.limits` | 長さ・問いの数の上限を上書き | 下の §長さの上限 |
-| `docs-kit.qa-html.prior_check_cmd` | 作り方 0 の「聞く前に引く」を機械にする道具の命令（repo ごとの決定の記録・問いの表を引く物）。下の §前の答えを照らす口 | 無し＝作り方 0 は手で引く（検査は前の答えを見ない・今までどおり） |
-| `docs-kit.qa-html.later_lead` | 先に決めておきたい事（later）の最初のまとまりの 1 行の決まった文を替える | `check.mjs` の `RULES.later_lead` |
-| `docs-kit.qa-html.why` | なぜ聞くかの決まった文を替える（例 `{"once": "この月だけの事を確かめます"}`） | `check.mjs` の `RULES.why` |
-| `docs-kit.qa-html.later_lead` | 先に決めておきたい事（later）の最初のまとまりの 1 行 | `check.mjs` の `RULES.later_lead` |
+| `save_dir`（無ければ `common.save_dir`）/ `common.save_dir_avoid` | 作り方 6 の置き場・置かない所 | 窓の scratchpad（git の外） |
+| `delivery`（無ければ `common.delivery`） | 写す形の渡し方 | `file:///…` の絶対パスを 1 行 |
+| `customer.*` | 送る形の口（設計 `design_doc`・配る口 `service`・回答の置き場 `answers_to`・検査 `check_cmd`〔土台のこの `check.mjs` を直に呼ぶ物・§配り方〕・出す道具 `publish_cmd`/`publish_does`） | 送る形は使えない（写す形だけ） |
+| `internal_words` | 検査が赤にする内部の言葉に会社の語を足す（文字列か `{語, 正規表現, 言い換え}`） | `check.mjs` の頭の表 `RULES` の語だけ |
+| `limits` | 長さ・問いの数の上限を上書き | 下の §長さの上限 |
+| `prior_check_cmd` | 作り方 0 の「聞く前に引く」を機械にする道具の命令（repo ごとの決定の記録・問いの表を引く物）。下の §前の答えを照らす口 | 無し＝作り方 0 は手で引く（検査は前の答えを見ない・今までどおり） |
+| `later_lead` | 先に決めておきたい事（later）の最初のまとまりの 1 行の決まった文を替える | `check.mjs` の `RULES.later_lead` |
+| `why` | なぜ聞くかの決まった文を替える（例 `{"once": "この月だけの事を確かめます"}`） | `check.mjs` の `RULES.why` |
 | `common.glossary` | 本文の語の意味 | 語の一般の意味 |
-| `docs-kit.qa-html.distribution` | この skill の配り方 | 無し |
+| `distribution` | この skill の配り方 | 無し |
 
 ## 前提の 3 段（どこに何を書くか）
 
@@ -169,7 +168,7 @@ repo の根（`git rev-parse --show-toplevel`）の `config/skill-values.json` �
 4. **問いの箱を組む**（1 問＝1 つの `fieldset.q`・前提の 2・3 段目）: `data-qkey`＝問いの鍵（半角英数字と `_`・答えの `name` と同じ・元の表の行の鍵と同じにする）／`data-qlabel`＝一言の見出し／`data-kind`＝上の形／`data-group`＝並べ方／まとまりの最初の問いだけ `.glead`＝まとまりの 1 行／`.about`＝何について／`legend`＝問い 1 行／`.why`＝なぜ聞くか／`.reading`＝AI の読み／`.known`＝見つけた事（`data-docs`・数字は `<table>`）／`.evidence`＝根拠（`li[data-doc][data-where]`・`.quote`）／`.clips`＝切り抜き／`details.more`＝くわしく／選択肢 `label.opt`（`value`＝選択肢の鍵・半角英数字と `_`・最初の 1 つに `required`・`small.chg`＝この答えで変わる事・オーナー宛ての作り方の分かれ道の問いだけ 1 つ目に `small.rec`＝推奨の印と推す理由）／「または」と「分からない」／根拠がある時だけ `.estimate[data-basis]`＝AI の今の見込み／ひとこと `name="supp_鍵"`。前提は問いの元の表（対象・理由・資料・探した資料・選択肢ごとの変わる事）から写す＝ページの側で作文しない。最後に `name="__自由記入__"` の箱を 1 つ。選択肢は radio を使う（checkbox は required を付けられず、JS が切られた端末では答えずに送れる＝幾つも選ばせる時だけ）。
 5. **検査**: `node <この skill の dir>/check.mjs <file.html>`（ページの隣の `<名>.prior.json` が在れば、前の答えも照らす。Artifact 型に問いをデータで渡す時は `<file.json>`。知らない印・同じ印の 2 度書きは exit 2 で止まる＝打ち間違えた印で頼んだ検査をせずに緑にしない。送る形は表の `customer.check_cmd`＝この検査を直に呼び、配る口の契約と画面の写真を足した物・検査を写して持たない）。**緑でなければ渡さない**。赤の行は 1 つずつ手で潰さず細目 §3「まず構造を疑う」で原因（問いの元の表・前提の写し方）から直す（Artifact の publish の前は guard の `qa_page` も同じ検査をかけて赤なら止める）。
 6. **送る前の別の目**: 窓の中の助手（Agent ツール）に、作った文脈を渡さず **HTML と、問いごとの引いた結果（作り方 0）だけ**を渡し、答える人の立場で 1 問ずつ読ませる。見る点は 4 つ: ①**ほかの資料を開かずに、何を聞かれているか分かるか**（前提の 4 欄・根拠の場所と実物・AI の読みだけで足りるか・見込みに引っ張られないか） ②どう答えても聞き直さずに済むか ③選択肢とひとことで答えが 1 つに決まるか ④既に答えた事・資料で決まる事（資料から計算できる数を、資料の外の事実として書かせていないか）・道具の都合を聞いていないか（引いた結果に照らす。引いた結果の無い問いは差し戻す）。直したら 5 からやり直す。
-7. **保存と渡し方**: 置き場は表の `save_dir`（無ければ窓の scratchpad・`common.save_dir_avoid` には置かない）、名前は `確認_<件名>_<YYYYMMDD>.html`。写す形は表の `delivery` で 1 行＋「特に判断が要る点」を数行（HTML の中身をチャットに再展開しない）。送る形は表の `customer.publish_cmd` で配る URL を作り、お客さんにその URL だけを渡す。
+7. **保存と渡し方**: 置き場は表の `save_dir`（既定は表・`common.save_dir_avoid` には置かない）、名前は `確認_<件名>_<YYYYMMDD>.html`。写す形は表の `delivery` で 1 行＋「特に判断が要る点」を数行（HTML の中身をチャットに再展開しない）。送る形は表の `customer.publish_cmd` で配る URL を作り、お客さんにその URL だけを渡す。
 
 ## 型の約束（受け手が合わせる所・触ると壊れる所）
 
