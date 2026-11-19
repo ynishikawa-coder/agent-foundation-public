@@ -1,7 +1,7 @@
 # 公開の repo に置く呼び口の雛形（.github/workflows/public-guard.yml へそのまま写す）。
-# 写すのはこの呼び口だけ。検査の中身は土台の action を版の印で固定して呼ぶ（中身を写さない）。
-# job の名 public-guard を変えない（main の守りの必須の検査と、見回りがこの名で見る）。
-# 版の印を上げる時は @vX.Y.Z の 1 か所だけを替える。手順は土台の docs/公開の検査.md。
+# 写すのはこの呼び口だけ。検査の中身は土台の action を main の先端（@main）で呼ぶ（中身を写さない・版で止めない）。
+# 土台の直しは合流した時から全部の公開 repo に届く。誤った検査が届かないよう、土台は合流の前に CI で検査を試す。
+# job の名 public-guard を変えない（main の守りの必須の検査と、見回りがこの名で見る）。手順は土台の docs/公開の検査.md。
 name: public-guard
 
 on:
@@ -18,7 +18,7 @@ jobs:
     name: public-guard
     runs-on: ubuntu-latest
     steps:
-      - uses: ynishikawa-coder/agent-foundation-public/public-guard@vX.Y.Z
+      - uses: ynishikawa-coder/agent-foundation-public/public-guard@main
         with:
           deny-bundle: ${{ secrets.AF_DENY_BUNDLE }}
           deny-words: ${{ secrets.AF_DENY_WORDS }}

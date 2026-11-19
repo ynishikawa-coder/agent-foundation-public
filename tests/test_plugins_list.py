@@ -98,3 +98,10 @@ def test_配りの器と一覧が合う():
     for name, r in rows.items():
         if r["状態"] == "出した":
             assert name in in_market, f"出した のに器に無い: {name}"
+
+
+def test_plugin_は版の番号を持たない():
+    """土台は main の先端を配る。plugin.json に版を書くと、入った物が commit でなく版の名で区別され、
+    古い土台で立った窓を見分ける比べ（plugin core の kaku.py fresh・入った commit と main の先端）が効かなくなる。"""
+    for f in sorted(ROOT.glob("plugins/*/.claude-plugin/plugin.json")):
+        assert "version" not in json.loads(f.read_text(encoding="utf-8")), f
