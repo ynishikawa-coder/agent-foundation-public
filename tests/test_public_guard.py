@@ -21,7 +21,8 @@ import patrol  # noqa: E402
 
 GUARD = ROOT / "public-guard" / "guard.py"
 OK_MAIL = "1+someone@users.noreply.github.com"
-ENV_KEYS = ("AF_DENY_WORDS", "AF_DENY_WORDS_FILE", "AF_DENY_BUNDLE", "GITHUB_ACTIONS", "GITHUB_EVENT_PATH")
+ENV_KEYS = ("AF_DENY_WORDS", "AF_DENY_WORDS_FILE", "AF_DENY_BUNDLE", "AF_DENY_SOURCE_TOKEN", "GITHUB_ACTIONS",
+            "GITHUB_EVENT_PATH", "GITHUB_REPOSITORY_OWNER", "GITHUB_STEP_SUMMARY")
 
 
 @pytest.fixture(autouse=True)
@@ -246,6 +247,33 @@ def test_顧客の語は赤の時も出力に出ない(tmp_path):
         assert "見本商事" not in out, "顧客の語が出力に出た"
 
 
+# ---- 顧客の語の正本（持ち主ごとに 1 か所・検査が直に読む） ----------------------------
+
+OWNER = "ynishikawa-coder"
+
+
+def _source(monkeypatch, text=None, error=None):
+    """正本の置き場の読み口を作り物にする（網に出ない）。読んだ置き場を返す。"""
+    seen = []
+
+    def fake(src, token):
+        seen.append((src, token))
+        if error:
+            raise error
+        return text
+
+    monkeypatch.setattr(guard, "fetch_source_text", fake)
+    return seen
+
+
+def _main(repo, capsys, *args):
+    code = guard.main(["--repo", str(repo), "--files-only", *args])
+    return code, capsys.readouterr().out
+
+
+# ---- 出す前の文（PR の題・本文・コメント） ------------------------------------------
+
+
 def test_action_は本体を呼ぶ():
     text = (ROOT / "public-guard" / "action.yml").read_text(encoding="utf-8")
     assert "github.action_path }}/guard.py" in text
@@ -283,18 +311,25 @@ def _wf(text):
     return {"content": base64.b64encode(text.encode()).decode()}
 
 
-def _routes(full, wf_text=None, contexts=(), rules=()):
+def _routes(full, wf_text=None, contexts=(), rules=(), name="public-guard.yml", extra=None):
     r = {f"/users/{full.split('/')[0]}/repos": [{"full_name": full, "default_branch": "main", "private": False}],
          f"/repos/{full}/branches/main": {"protection": {"required_status_checks": {"contexts": list(contexts)}}},
          f"/repos/{full}/rules/branches/main": [{"type": "required_status_checks", "parameters": {
              "required_status_checks": [{"context": c} for c in rules]}}]}
+    files = dict(extra or {})
     if wf_text is not None:
-        r[f"/repos/{full}/contents/.github/workflows?"] = [{"type": "file", "name": "g.yml", "path": ".github/workflows/g.yml"}]
-        r[f"/repos/{full}/contents/.github/workflows/g.yml"] = _wf(wf_text)
+        files[name] = wf_text
+    if files:
+        r[f"/repos/{full}/contents/.github/workflows?"] = [
+            {"type": "file", "name": n, "path": f".github/workflows/{n}"} for n in files]
+        for n, t in files.items():
+            r[f"/repos/{full}/contents/.github/workflows/{n}?"] = _wf(t)
     return r
 
 
-CALLER = "    steps:\n      - uses: ynishikawa-coder/agent-foundation-public/public-guard@main\n"
+TEMPLATE_TEXT = (ROOT / "public-guard" / "caller-template.yml").read_text(encoding="utf-8")
+CALLER = TEMPLATE_TEXT
+CI_TEXT = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
 
 
 def test_見回り_呼び口と守りがあれば外れ0():
@@ -309,7 +344,7 @@ def test_見回り_枝の保護の必須でもよい():
 
 def test_見回り_呼び口が無ければ外れ():
     found = patrol.patrol(FakeGitHub(_routes("o/x", None, rules=["public-guard"])), ["o"])
-    assert "呼び口が無い" in found["o/x"][0]
+    assert "呼び口" in found["o/x"][0] and "が無い" in found["o/x"][0]
 
 
 def test_見回り_守りが無ければ外れ():
@@ -332,14 +367,14 @@ def test_見回り_非公開とarchiveは見ない():
 
 def test_見回り_土台は自分の枝の物を呼んでよい():
     full = patrol.FOUNDATION
-    gh = FakeGitHub(_routes(full, "      - uses: ./public-guard\n", rules=["public-guard", "plugin-smoke"]))
+    gh = FakeGitHub(_routes(full, CI_TEXT, rules=["public-guard", "plugin-smoke"], name="ci.yml"))
     assert patrol.patrol(gh, [full.split("/")[0]]) == {}
 
 
 def test_見回り_土台は_plugin_smoke_が必須でなければ外れ():
     """main の先端を配る代わりの守り（入れて起動する試験）が合流の必須から外れたら知らせる（注入の試験）。"""
     full = patrol.FOUNDATION
-    found = patrol.patrol(FakeGitHub(_routes(full, "      - uses: ./public-guard\n", rules=["public-guard"])),
+    found = patrol.patrol(FakeGitHub(_routes(full, CI_TEXT, rules=["public-guard"], name="ci.yml")),
                           [full.split("/")[0]])
     assert any("plugin-smoke" in p for p in found[full])
 

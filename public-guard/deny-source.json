@@ -1,0 +1,6 @@
+{
+  "訳": "顧客の語の束（pct1.<鍵>.<束> の 1 行）の正本の置き場。持ち主ごとに 1 か所。公開の検査（guard.py）は呼ぶ repo の持ち主の行を引き、読むだけの鍵 AF_DENY_SOURCE_TOKEN でそこを直に読む（各 repo の secret へ束を写さない）。置き場は非公開の repo。語を足す時は置き場の 1 行だけを替える。知らない鍵の行は止まる。",
+  "owners": {
+    "ynishikawa-coder": {"repo": "ynishikawa-coder/deny-bundle", "path": "bundle.txt", "ref": "main"}
+  }
+}

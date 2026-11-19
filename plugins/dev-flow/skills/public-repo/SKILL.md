@@ -11,6 +11,7 @@ description: 公開の repo を作る・非公開の repo を公開で出し直�
 
 - 公開にする事そのものはオーナーが決める（社外への公開・戻せない）。決まっていなければ先に聞く。
 - 顧客の語の束（Javis は環境変数の顧客の語の束、UTC は自社の束）が窓の環境にあるかを、値を出さずに確かめる。無ければ照らせないので、持ち主に頼む。
+- 持ち主の顧客の語の正本の置き場が土台の `public-guard/deny-source.json` にあるかを見る。無ければ、置き場の非公開の repo を持ち主に作ってもらい、その 1 行を土台へ PR で足す。
 
 ## 1. 今の中身を照らす（AI）
 
@@ -33,17 +34,17 @@ AF_DENY_BUNDLE="<顧客の語の束の環境変数>" python3 <土台>/public-gua
 ## 3. 中身を置く（AI）
 
 - 1 で照らした今の中身を、名義を noreply にした 1 commit で置く（`git -c user.email=<noreply> commit`）。元の歴史は置かない。
-- `.github/workflows/public-guard.yml` に土台の `public-guard/caller-template.yml` を写し、`@main` のまま置く（版の印や SHA で止めない）。job の名 `public-guard` は変えない。
-- その repo に置かない語の表があれば、雛形の `with:` に `deny-words-file:` を足す。
+- `.github/workflows/public-guard.yml` に土台の `public-guard/caller-template.yml` を一字も変えずに写す（`on`・`permissions`・`with`・`@main`・job の名 `public-guard` まで。見回りが雛形と一字ずつ比べる）。
 - 置いたら手元で `guard.py --range ALL` を顧客の語の束つきで回し、当たり 0 を確かめる。
 
 ## 4. secret（持ち主の手）
 
 秘密の値は Chrome に渡さない＝ここだけ人の手。手の窓で、開く URL（`https://github.com/<owner>/<repo>/settings/secrets/actions/new`）を直に書いて頼む:
 
-1. Settings → Secrets and variables → Actions → New repository secret: 名 `AF_DENY_BUNDLE`、値は顧客の語の束の `pct1.` で始まる 1 行だけ（名前と `=` や引用符を付けない・窓に貼らない）。
+1. GitHub の Settings → Developer settings → Fine-grained tokens で、持ち主の顧客の語の置き場の repo（`public-guard/deny-source.json` の行）1 つだけを Contents: Read-only で読める鍵を作る（鍵は 1 本を全部の公開 repo で使ってよい）。
+2. 公開の repo の Settings → Secrets and variables → Actions → New repository secret: 名 `AF_DENY_SOURCE_TOKEN`、値は 1 の鍵だけ（窓に貼らない）。束そのもの（`AF_DENY_BUNDLE`）は置かない。
 
-済んだ目印: 中身を置く PR で `public-guard` が緑。形が違えば、CI のログに値を出さずにどこが違うかが出る。
+済んだ目印: 中身を置く PR で `public-guard` が緑で、ログに「正本の置き場から直に読んだ」と出る。読めなければ赤で、どこが読めないかが出る。
 
 ## 5. 公開に切り替え、すぐ守る（持ち主の手）
 
@@ -57,4 +58,4 @@ AF_DENY_BUNDLE="<顧客の語の束の環境変数>" python3 <土台>/public-gua
 
 ## 外れを直す
 
-見回りの issue「公開の検査の見回り」に出た外れは、その repo で直す: 呼び口が無い→3／`@main` でない→`@main` に／守りが無い→5 の 2。直したら `patrol` を手で回して issue が閉じるのを見る。
+見回りの issue「公開の検査の見回り」に出た外れは、その repo で直す: 呼び口が無い・雛形と違う→3（雛形をそのまま写し直す）／`@main` でない→`@main` に／守りが無い→5 の 2。job の要約に「顧客の語が写し」と出た repo→4（鍵を置き、写しの secret `AF_DENY_BUNDLE`・`AF_DENY_WORDS` を消す）。直したら `patrol` を手で回して issue が閉じるのを見る。
