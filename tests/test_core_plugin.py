@@ -23,12 +23,15 @@ def size(text: str) -> int:
     return len(text.encode("utf-8"))
 
 
-def run(*args, project=None):
+def run(*args, project=None, home=None, stdin="", extra=None):
     env = dict(os.environ)
+    # 試験は窓の実の home（入った plugin の台帳）を読まない。新しさの見張りは作り物の home で見る。
+    env["HOME"] = str(home or (project or Path("/nonexistent-home")))
     if project is not None:
         env["CLAUDE_PROJECT_DIR"] = str(project)
+    env.update(extra or {})
     return subprocess.run([sys.executable, str(TOOL), *map(str, args)], capture_output=True, text=True,
-                          timeout=30, env=env)
+                          timeout=60, env=env, input=stdin)
 
 
 def test_核と振る舞いと細目と_hook_が_plugin_の中に在る():
@@ -36,6 +39,8 @@ def test_核と振る舞いと細目と_hook_が_plugin_の中に在る():
     hooks = json.loads((PLUGIN / "hooks" / "hooks.json").read_text(encoding="utf-8"))
     cmd = hooks["hooks"]["SessionStart"][0]["hooks"][0]["command"]
     assert "${CLAUDE_PLUGIN_ROOT}/scripts/kaku.py" in cmd and cmd.endswith(" inject")
+    cmd = hooks["hooks"]["UserPromptSubmit"][0]["hooks"][0]["command"]
+    assert "${CLAUDE_PLUGIN_ROOT}/scripts/kaku.py" in cmd and cmd.endswith(" fresh")
 
 
 def test_写しの枠が無い_repo_には核と細目の在り処を差し込む(tmp_path):
@@ -214,6 +219,127 @@ def test_核の根治は誤りが入れない形と注入の試験を持つ():
     assert "記録で確かめる" in _節(saimoku, 7)
 
 
+# ── 古い土台で立った窓を見つける（入っている物と main の先端を比べる）。remote は作り物の git ──
+
+def _git(cwd, *a):
+    return subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@example.invalid", *a], cwd=cwd,
+                          capture_output=True, text=True, check=True).stdout.strip()
+
+
+def _commit(work, files, msg):
+    for name, body in files.items():
+        f = work / name
+        f.parent.mkdir(parents=True, exist_ok=True)
+        f.write_text(body, encoding="utf-8")
+    _git(work, "add", "-A")
+    _git(work, "commit", "-q", "-m", msg)
+    _git(work, "push", "-q", "origin", "HEAD:main")
+    return _git(work, "rev-parse", "HEAD")
+
+
+class Foundation:
+    """作り物の土台: remote（bare）・書く側の clone・窓の home（入れた時の marketplace の clone と台帳）。"""
+
+    def __init__(self, tmp):
+        self.tmp, self.remote, self.work, self.home = tmp, tmp / "remote.git", tmp / "work", tmp / "home"
+        subprocess.run(["git", "init", "-q", "--bare", "-b", "main", str(self.remote)], check=True)
+        subprocess.run(["git", "clone", "-q", str(self.remote), str(self.work)], check=True, capture_output=True)
+        self.installed = _commit(self.work, {"plugins/core/核.md": "核 1\n", "docs/a.md": "1\n"}, "始め")
+
+    def install(self, source="github"):
+        """窓が立つ時に setup script が入れた形を作る（marketplace の clone と台帳）。"""
+        loc = self.home / ".claude" / "plugins" / "marketplaces" / "agent-foundation"
+        subprocess.run(["git", "clone", "-q", str(self.remote), str(loc)], check=True, capture_output=True)
+        _git(loc, "checkout", "-q", self.installed)
+        plugins = self.home / ".claude" / "plugins"
+        (plugins / "known_marketplaces.json").write_text(json.dumps({"agent-foundation": {
+            "source": {"source": source, "repo": "o/agent-foundation-public"}, "installLocation": str(loc)}}))
+        (plugins / "installed_plugins.json").write_text(json.dumps({"version": 2, "plugins": {"core@agent-foundation": [
+            {"installPath": str(PLUGIN), "gitCommitSha": self.installed}]}}))
+
+    def hook(self, event, sid="s1", source="startup"):
+        r = run(event, project=self.tmp, home=self.home, stdin=json.dumps({"session_id": sid, "source": source}),
+                extra={"AF_FRESH_INTERVAL": "0"})
+        assert r.returncode == 0, r.stderr
+        return json.loads(r.stdout)["hookSpecificOutput"]["additionalContext"] if r.stdout else ""
+
+
+def test_起動の後に_plugin_が変わったら引き継いで閉じるよう知らせる(tmp_path):
+    """注入: 窓が立った後に main の先端で plugin を変える → 次の問いで引き継ぎの手順が出る。"""
+    f = Foundation(tmp_path)
+    f.install()
+    assert "土台が古い" not in f.hook("inject")
+    assert f.hook("fresh") == ""                         # まだ先端と同じ
+    _commit(f.work, {"plugins/guard/x.py": "x\n"}, "守りを変える")
+    text = f.hook("fresh")
+    assert "引き継いで閉じる" in text and "create_session" in text and "archive_session" in text
+    assert "guard" in text and "人の作業は新しい窓で止まらず続く" in text
+    assert "引き継いで閉じる" in f.hook("fresh")        # 引き継ぐまで問いのたびに知らせる
+
+
+@pytest.mark.parametrize("source", ["compact", "clear", "resume"])
+def test_途中で古くなった窓は圧縮や_resume_を通っても引き継ぎが消えない(tmp_path, source):
+    """注入: 起動 → main を進める → SessionStart がもう 1 回（圧縮・/clear・resume）→ fresh は引き継ぎを出し続ける。"""
+    f = Foundation(tmp_path)
+    f.install()
+    f.hook("inject")
+    _commit(f.work, {"plugins/guard/x.py": "x\n"}, "守りを変える")
+    again = f.hook("inject", source=source)
+    assert "土台が古いまま立った窓" not in again           # 「起動の時から古い」と取り違えない
+    assert "引き継いで閉じる" in f.hook("fresh")
+
+
+def test_起動の時から古い窓は圧縮の後も同じ知らせを出す(tmp_path):
+    f = Foundation(tmp_path)
+    _commit(f.work, {"plugins/core/核.md": "核 2\n"}, "核を変える")
+    f.install()
+    f.hook("inject")
+    assert "土台が古いまま立った窓" in f.hook("inject", source="compact")
+
+
+def test_文書と試験だけの変更では窓を替えない(tmp_path):
+    f = Foundation(tmp_path)
+    f.install()
+    f.hook("inject")
+    _commit(f.work, {"docs/a.md": "2\n", "tests/test_x.py": "1\n"}, "文書だけ")
+    assert f.hook("fresh") == ""
+
+
+def test_起動の時から古い窓は_setup_script_を直してから引き継ぐよう知らせる(tmp_path):
+    """注入: setup script が古い物を入れた（版を指したまま）→ 直してから引き継ぐ。直せない時だけ引き継がない（輪にしない）。"""
+    f = Foundation(tmp_path)
+    _commit(f.work, {"plugins/core/核.md": "核 2\n"}, "核を変える")
+    f.install()                                          # 入れたのは 1 つ前（f.installed）
+    text = f.hook("inject")
+    assert "土台が古いまま立った窓" in text and "core" in text
+    assert "update_environment" in text and "create_session" in text and "archive_session" in text
+    assert "直せない時" in text and "連絡板" in text
+    assert "# 振る舞いの核" in text                       # 核の差し込みは止めない
+    assert f.hook("fresh") == ""
+
+
+def test_比べられない時は窓を替えない(tmp_path):
+    """手元の dir から入れた試し・remote に出られない時は、知らない値で人の作業を止めない。"""
+    f = Foundation(tmp_path)
+    f.install(source="directory")
+    f.hook("inject")
+    _commit(f.work, {"plugins/core/核.md": "核 3\n"}, "核を変える")
+    assert f.hook("fresh") == ""
+    g = Foundation(tmp_path / "g")
+    g.install()
+    g.hook("inject", sid="s2")
+    _commit(g.work, {"plugins/core/核.md": "核 3\n"}, "核を変える")
+    g.remote.rename(g.tmp / "gone.git")                 # remote に出られない
+    assert g.hook("fresh", sid="s2") == ""
+
+
+def test_起動の記録が無い窓は見に行かない(tmp_path):
+    f = Foundation(tmp_path)
+    f.install()
+    _commit(f.work, {"plugins/core/核.md": "核 4\n"}, "核を変える")
+    assert f.hook("fresh", sid="記録の無い窓") == ""
+
+
 def test_挙げた原因は全部台帳に行き先つきで持ち_全部済むまで終わったと言わない():
     """原因が 5 つ挙がって 1 つしか直らない形を戻すと赤（1 つ選ぶ・一番手前から取る・どれを今回直すか）。"""
     kaku_text = (PLUGIN / "核.md").read_text(encoding="utf-8")
@@ -239,6 +365,67 @@ def test_挙げた原因は全部台帳に行き先つきで持ち_全部済む�
     assert not hits, hits
 
 
+# 残りの受け皿: 各所が自分の名の受け皿（後の便・🎯箱・他の窓へ回す・残りに書く…）を持たず、原因の台帳 1 つへ向ける。
+# (path, その所を見分ける語) — 語はちょうど 1 行に当たり、その行に「原因の台帳」が無ければ赤。
+残りの所 = [
+    ("plugins/core/細目.md", "**一時しのぎ**"),
+    ("plugins/core/細目.md", "③道具・仕組みの都合"),
+    ("plugins/core/細目.md", "どの窓にも分けなかった論点"),
+    ("plugins/core/細目.md", "**大きい仕事の並べ方**"),
+    ("plugins/core/細目.md", "| 一部 |"),
+    ("plugins/dev-flow/skills/design-mode/SKILL.md", "どちらで出る時も"),
+    (".github/pull_request_template.md", "## 残り"),
+    ("CONTRIBUTING.md", "1 本に入らなかった仕事"),
+    ("CONTRIBUTING.md", "`合流済` が届いた枝"),
+    ("plugins/checker/skills/review-pr/SKILL.md", "`[台帳へ｜<段>]`"),
+    # codex の値の表の `task_rule` は細目 §3 の写しなので畳んだ（受け皿は本文の 6. DEFER の行だけ）
+    ("plugins/dev-flow/skills/codex/SKILL.md", "`[DEFER]`"),
+    ("plugins/dev-flow/skills/codex/SKILL.md", "**RETURN_TO_DESIGN**"),
+    ("plugins/dev-flow/skills/codex/SKILL.md", "6. **DEFER"),
+    ("plugins/dev-flow/skills/verify/SKILL.md", "**一時しのぎを含めば Partially**"),
+    ("plugins/dev-flow/skills/verify/SKILL.md", "**設計と実物の差分を必ず書く**"),
+    ("plugins/docs-kit/skills/qa-html/SKILL.md", "0. **聞く前に引く**"),
+    ("plugins/docs-kit/skills/theory-mock/SKILL.md", "範囲（やる／やらない／後で"),
+    ("plugins/docs-kit/skills/theory-mock/SKILL.md", "**Q 番号・画面番号で元と突き合わせる**"),
+    ("plugins/docs-kit/skills/theory-mock/SKILL.md", "外すとやり直しになる分かれ道"),
+    ("plugins/docs-kit/skills/mindmap/SKILL.md", "外すとやり直しになる分かれ道"),
+    ("plugins/docs-kit/skills/blueprint/SKILL.md", "外すとやり直しになる分かれ道"),
+    ("plugins/dev-flow/skills/spec-doc/SKILL.md", "4. **右サイズを提示**"),
+    ("plugins/dev-flow/skills/spec-doc/SKILL.md", "部分にする正当な理由"),
+    ("plugins/dev-flow/skills/preimpl-cleanup/SKILL.md", "`[後片付け]`（"),
+    ("plugins/dev-flow/skills/preimpl-cleanup/SKILL.md", "6. **同梱の片付けの返し**"),
+    ("plugins/dev-flow/skills/preimpl-cleanup/整地受領証.template.md", "**畳む物**"),
+    ("plugins/dev-flow/skills/preimpl-cleanup/整地受領証.template.md", "**残る穴**"),
+]
+
+
+def test_残りの受け皿は原因の台帳_1_つで_名だけの受け皿を持たない():
+    """古い形（自分の名の受け皿・A/B を 1 つ選ばせて捨てる・相談を出ると論点が消える）を戻すと赤。"""
+    s3d = _節((PLUGIN / "細目.md").read_text(encoding="utf-8"), 3)
+    assert "**残りの受け皿は原因の台帳 1 つ**" in s3d
+    for word in ["`台帳へ` の札", "DEFER", "一時しのぎ", "「一部」の残り", "どの窓も持たなかった論点", "選ばれなかった案",
+                 "1 窓 1 枝 1 PR に入らなかった仕事", "合流の後の続き", "道具の都合", "正本は台帳"]:
+        assert word in s3d, f"細目 §3 の残りの受け皿に無い: {word}"
+    missing = []
+    for rel, key in 残りの所:
+        lines = [ln for ln in (ROOT / rel).read_text(encoding="utf-8").splitlines() if key in ln]
+        if len(lines) != 1 or "原因の台帳" not in lines[0]:   # 2 行に当たる語は、片方を古い形に戻しても緑になる
+            missing.append(f"{rel}: {key}")
+    assert not missing, missing
+    olds = ["他の窓へ回す", "後の便", "🎯箱 か PR 本文", "残りに書", "直す側へ回す", "必要になった段で足す",
+            "論点として残す", "1つ選んで決めてもらう", "1 つ選んで決めてもらう", "残りを書いて引き継ぐ",
+            "回す先", "cleanup_followup"]
+    hits = []
+    for p in sorted(ROOT.rglob("*")):
+        rel = p.relative_to(ROOT)
+        if rel.parts[0] in {".git", "tests"} or p.name == "CHANGELOG.md":
+            continue
+        if p.is_file() and p.suffix in {".md", ".py", ".json", ".mjs", ".html"}:
+            text = p.read_text(encoding="utf-8")
+            hits += [f"{rel}: {o}" for o in olds if o in text]
+    assert not hits, hits
+
+
 def test_main_へは製品もオーナーに聞かずに入れ_絵と差がある時だけ止める():
     """「本番への出荷は聞く」を核に戻すと赤（Notion の決定と窓が読む核が食い違う形）。"""
     kaku_text = (PLUGIN / "核.md").read_text(encoding="utf-8")
@@ -250,6 +437,19 @@ def test_main_へは製品もオーナーに聞かずに入れ_絵と差があ�
     assert "**main へ入れる**" in s7d and "**③の段が土台に入るまで**" in s7d
     assert "核 §7 の「照らせない時」" in s7d, "照らす段が無い間の一言が核から読めない形に戻った"
     assert "核 §7 と細目 §7 の「main へ入れる」" in (ROOT / "CONTRIBUTING.md").read_text(encoding="utf-8")
+
+
+def test_土台の直しは使う側の写しの残りも同じ仕事で直し_合流まで終わったと言わない():
+    """写しの残りを洗い出すだけで終わる形（直す持ち主が無い）を戻すと赤。"""
+    s7d = _節((PLUGIN / "細目.md").read_text(encoding="utf-8"), 7)
+    line = [ln for ln in s7d.splitlines() if "**土台の直しの終わり**" in ln]
+    assert len(line) == 1, "細目 §7 に「土台の直しの終わり」が無い"
+    for word in ["使う側の repo", "同じ仕事の中で直す", "洗い出しだけで終わらせない", "使う側の写しの残り", "合流するまで「終わった」と言わない", "原因の台帳の行"]:
+        assert word in line[0], f"土台の直しの終わりに無い: {word}"
+    assert "## 使う側の写しの残り" in (ROOT / ".github" / "pull_request_template.md").read_text(encoding="utf-8")
+    assert "土台の直しの終わり" in (ROOT / "CONTRIBUTING.md").read_text(encoding="utf-8")
+    dm = [ln for ln in (ROOT / "plugins/dev-flow/skills/design-mode/SKILL.md").read_text(encoding="utf-8").splitlines() if ln.startswith("   | 写しの残り |")]
+    assert len(dm) == 1 and "同じ仕事の中" in dm[0], "design-mode の写しの残りが洗い出すだけに戻った"
 
 
 def test_ミスが出たらまず構造を疑い_単発と言うのは絵の上で示せた時だけ():
@@ -363,7 +563,6 @@ def test_inject_は振る舞いを核の後に毎回入れる(monkeypatch, tmp_p
     "CONTRIBUTING.md": ["試験を飛ばして緑にしない。赤を消すために試験を消さない。", "red の時は、同じ枝に直して push し"],
     "plugins/guard/scripts/unanswered.py": [],
     "scripts/check_all.sh": ['本: ${failed[*]})"'],
-    "scripts/release/next_tag.py": [],
 }
 # 道具（script・hook）の側は上に手で載せない。下の試験が、失敗で終わる道具を repo から自分で拾う。
 
