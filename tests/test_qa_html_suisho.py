@@ -157,6 +157,13 @@ REC_HIDE = [
     ("印だけを details に入れる", lambda r: _mark(0)(r).replace(REC, "<details>" + REC + "</details>", 1), "選択肢の枠の中身は型と同じ形だけ"),
     ("radio だけを details に入れる", lambda r: _mark(0)(r).replace('<input type="radio" name="q3" value="d7" required>', '<details><input type="radio" name="q3" value="d7" required></details>', 1),
      "選択肢の枠の中身は型と同じ形だけ"),
+    ("印の欄の name を問いの鍵と違える", lambda r: _mark(0)(r).replace('name="q3" value="d7"', 'name="q3x" value="d7"', 1), "選択肢の欄の name は包む問いの箱の鍵"),
+    ("印の欄の name を外す", lambda r: _mark(0)(r).replace('name="q3" value="d7"', 'value="d7"', 1), "選択肢の欄の name は包む問いの箱の鍵"),
+    ("印の欄の name を別の問いの鍵にする", lambda r: _mark(0)(r).replace('name="q3" value="d7"', 'name="q4" value="d7"', 1), "選択肢の欄の name は包む問いの箱の鍵"),
+    ("印の欄だけ checkbox にする", lambda r: _mark(0)(r).replace('<input type="radio" name="q3" value="d7"', '<input type="checkbox" name="q3" value="d7"', 1), "問い q3: 推奨の印の付いた問いの選択は radio か checkbox"),
+    ("2 つ目の見出しに印の絵を置く", lambda r: _mark(0)(r).replace("<b>借りた日から 14 日</b>", '<b>借りた日から 14 日<img src="data:image/png;base64,AAAA" alt="推す"></b>', 1), "選択肢の枠の中身は型と同じ形だけ"),
+    ("枠の中の meta", lambda r: _mark(0)(r).replace(REC, '<meta charset="utf-8">' + REC, 1), "選択肢の枠の中身は型と同じ形だけ"),
+    ("見出しの中の radio", lambda r: _mark(0)(r).replace("<b>借りた日から 14 日</b>", '<b>借りた日から 14 日<input type="radio" name="q3" value="d9"></b>', 1), "選択肢の枠（label.opt）の中の欄は radio か checkbox 1 つだけ"),
     ("閉じタグの中の空白で選択肢の切り方をずらす", lambda r: _mark(1)(r).replace("</label>", "</label >", 1), "検査が読めない < の書き方"),
     ("</ と空白の崩れたタグ", lambda r: _mark(0)(r).replace(REC, '</ x <!-- >' + REC + '<!-- -->', 1), "検査が読めない < の書き方"),
 ]

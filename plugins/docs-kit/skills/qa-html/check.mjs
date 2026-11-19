@@ -384,19 +384,24 @@ function treeReds(rest) {
         if (lab && isOpt(lab) && (tag !== "input" || !/^(?:radio|checkbox)$/i.test(attr(m[0], "type") ?? "") || ++optControls > 1)) {
           red.push(`選択肢の枠（label.opt）の中の欄は radio か checkbox 1 つだけ（ほかの欄があると押した先が替わる）: ${m[0].slice(0, 50)}`); break;
         }
+        if (lab && isOpt(lab)) {
+          // 選択の name は包む問いの箱の鍵と同じ（別の問いの答えを書き換えさせない・印の選択肢を答えに選べなくさせない）
+          const box = tags.findLast((t) => /^<fieldset\b/i.test(t)) ?? "";
+          if (attr(m[0], "name") !== attr(box, "data-qkey")) { red.push(`選択肢の欄の name は包む問いの箱の鍵（data-qkey="${attr(box, "data-qkey") ?? ""}"）と同じにする: ${m[0].slice(0, 50)}`); break; }
+        }
       }
       // 問いの箱＝型の JS が画面と答えとして集める物（form の中の fieldset.q[data-qkey]）と同じ物だけを、検査も問いと読む
       if (hasAttr(m[0], "data-qkey") && !(tag === "fieldset" && /(?:^|[ \t\n\f\r])q(?:[ \t\n\f\r]|$)/.test(attr(m[0], "class") ?? "") && stack.includes("form")))
         { red.push(`data-qkey は form の中の fieldset.q にだけ付ける（型の JS が問いとして集めず、検査の読みとずれる）: ${m[0].slice(0, 50)}`); break; }
       // 型の JS は fieldset.q[data-qkey] を入れ子も問わず別の画面として集める＝fieldset は入れ子にしない
       if (tag === "fieldset" && stack.includes("fieldset")) { red.push("<fieldset> の中に <fieldset> を置かない（型の JS が別の画面として集め、中の選択肢が隠れる）"); break; }
-      if (VOID.has(tag)) continue;
       // 選択肢の枠の中身も型と同じ形だけ: label.opt ＞ input（radio・checkbox）と span ／ span ＞ b・small・br ／ b・small ＞ 字と br
       {
         const p1 = tags[tags.length - 1] ?? "", p2 = tags[tags.length - 2] ?? "", p3 = tags[tags.length - 3] ?? "";
         const inOpt = isOpt(p1) ? ["input", "span"] : /^<span\b/i.test(p1) && isOpt(p2) ? ["b", "small", "br"] : /^<(?:b|small)\b/i.test(p1) && /^<span\b/i.test(p2) && isOpt(p3) ? ["br"] : null;
         if (inOpt && !inOpt.includes(tag)) { red.push(`選択肢の枠の中身は型と同じ形だけ（label.opt ＞ input と span ／ span ＞ b・small ／ b・small ＞ 字）: <${tag}>`); break; }
       }
+      if (VOID.has(tag)) continue;
       // 型の JS が中身を書き換える目印（.supp）は、問いの箱のじかの子の div だけ（中に選択肢を入れて消させない）
       if (/(?:^|[ \t\n\f\r])supp(?:[ \t\n\f\r]|$)/.test(attr(m[0], "class") ?? "") && !(tag === "div" && attr(m[0], "class") === "supp" && /^<fieldset\b/i.test(tags[tags.length - 1] ?? "")))
         { red.push(`class の supp は問いの箱（fieldset.q）のじかの子の <div class="supp"> だけ（型の JS が中の見出しを書き換える）: ${m[0].slice(0, 50)}`); break; }
@@ -633,6 +638,7 @@ export function readHtml(raw) {
         rec: recs.length ? text(recs[0][1]) : null,   // null＝印なし・字＝理由
         hasInput: /^(?:radio|checkbox)$/i.test(attr(inp, "type") ?? "") && (o[1].match(/<input\b/gi) ?? []).length === 1,
         inputName: attr(inp, "name"),
+        inputType: (attr(inp, "type") ?? "").toLowerCase(),
         hasB: !!b && text(b[1]).length > 0,
         // 初めから選ばれている・選べない・見えない選択肢（印の付いた問いでは赤）
         locked: hasAttr(inp, "checked") || hasAttr(inp, "disabled") || hasAttr(inp, "hidden") || hasAttr(/<label\b[^>]*>/i.exec(o[0])[0], "hidden"),
@@ -804,6 +810,8 @@ function checkRec(q, id, dest, format, limits, red) {
   const marked = q.options.map((o, i) => ({ o, i })).filter(({ o }) => o.rec != null);
   if (!marked.length) return;
   const mark = format === "html" ? "small.rec" : '"recommended"';
+  if (new Set(q.options.filter((o) => o.inputType).map((o) => o.inputType)).size > 1)
+    red.push(`${id}: 推奨の印の付いた問いの選択は radio か checkbox のどちらか 1 つにそろえる（印の選択肢と別の選択肢を両方選べる形にしない）`);
   if (q.options.some((o) => o.locked))
     red.push(`${id}: 推奨の印の付いた問いの選択肢に checked・disabled・hidden を付けない（印の選択肢が初めから選ばれている・選べない・見えない形にしない）`);
   if (q.keyFieldsInOpts === false)
