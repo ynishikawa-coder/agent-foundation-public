@@ -289,3 +289,13 @@ def test_pr_text_判定の材料は_PR_から引き_引けなければ止め_先
     why = deny_reason(env, p)
     assert "判定の材料" in why and "gh" in why
     assert deny_reason(env, gh("add_issue_comment", issue_number=1, body="作り物の確かめを足しました")) == ""
+
+
+def test_pr_text_の値の鍵は値の表の知らない鍵の見張りが知っている():
+    """値の表に pr_text の鍵を書いても、知らない鍵の見張り（values_keys）が止めない（鍵の正本は guard_common.DEFAULTS）。"""
+    sys.path.insert(0, str(ROOT / "plugins" / "guard" / "scripts"))
+    import values_keys  # noqa: E402
+    table = {"guard": {"pr_cleanup_exempt_repos": ["^作り物/repo$"], "pr_words_exempt_repos": [],
+                       "public_repos_extra": ["^作り物/公開$"]}}
+    assert values_keys.unknown(table) == []
+    assert values_keys.unknown({"guard": {"pr_作り物の知らない鍵": []}}) == ["guard.pr_作り物の知らない鍵"]
