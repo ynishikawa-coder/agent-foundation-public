@@ -46,12 +46,14 @@ from pathlib import Path
 SECRET_PATTERNS = {
     "GitHub のトークン": r"gh[pousr]_[A-Za-z0-9]{36,}|github_pat_[A-Za-z0-9_]{20,}",
     "Anthropic の鍵": r"sk-ant-[A-Za-z0-9_\-]{20,}",
-    "OpenAI 形の鍵": r"sk-[A-Za-z0-9]{40,}",
-    "AWS の鍵 ID": r"AKIA[0-9A-Z]{16}",
+    "OpenAI 形の鍵": r"sk-[A-Za-z0-9]{40,}|\bsk-(?:proj|svcacct|admin)-[A-Za-z0-9_\-]{20,}",
+    "AWS の鍵 ID": r"(?:AKIA|ASIA)[0-9A-Z]{16}",
+    "Stripe の本番の鍵": r"\b[rs]k_live_[A-Za-z0-9]{20,}",
     "Slack のトークン": r"xox[abpors]-[A-Za-z0-9-]{10,}",
     "Google の鍵": r"AIza[0-9A-Za-z_\-]{35}|ya29\.[0-9A-Za-z_\-]{20,}",
     "Notion のトークン": r"\b(?:secret_|ntn_)[A-Za-z0-9]{30,}",
     "秘密鍵": r"-----BEGIN [A-Z ]*PRIVATE KEY-----",
+    "サービスアカウントの鍵の JSON": r"\"private_key\"\s*:",
 }
 
 EMAIL = r"[A-Za-z0-9._%+\-]+@[A-Za-z0-9\-]+(?:\.[A-Za-z0-9\-]+)*\.[A-Za-z]{2,}"
