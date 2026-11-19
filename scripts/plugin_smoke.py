@@ -92,10 +92,12 @@ def normalize(text: str, pattern: re.Pattern) -> str:
     return text[:m.start(1)] + _SAIMOKU_MARK + text[m.end(1):]
 
 
-def expected_context(repo: Path, env: dict, cwd: Path, session_id: str) -> str:
-    """正本の repo の差し込む口 kaku.py inject を、起動した窓と同じ箱（HOME・repo の根）と同じ窓の id で回した文脈の全体。
-    同じ窓の 2 回目なので、起動の時の記録を読み外へは見に行かない＝起動した窓の hook と同じ材料で作る。"""
-    p = subprocess.run([sys.executable, str(repo / "plugins" / "core" / "scripts" / "kaku.py"), "inject"],
+def expected_context(installed_core: Path, env: dict, cwd: Path, session_id: str) -> str:
+    """差し込む口 kaku.py inject を、起動した窓と同じ箱（HOME・repo の根）・同じ窓の id・同じ在り処で回した文脈の全体。
+    同じ窓の 2 回目なので、起動の時の記録を読み外へは見に行かない＝起動した窓の hook と同じ材料で作る。
+    回すのは入った copy の口（正本の checkout の口と一字違わず同じ事を先に same_inject_code で確かめてから呼ぶ）。
+    checkout の口を回すと、口が自分の在り処（plugin の dir）で台帳の行を選ぶので、起動した窓と違う dir の材料で作ってしまう。"""
+    p = subprocess.run([sys.executable, str(installed_core / "scripts" / "kaku.py"), "inject"],
                        input=json.dumps({"session_id": session_id, "hook_event_name": "SessionStart"}), env=env,
                        cwd=cwd, capture_output=True, text=True, timeout=120)
     try:
@@ -313,12 +315,12 @@ def smoke(source: str, repo: Path, expect_sha: str | None) -> list[str]:
         expect = None
         core_root = Path(rows.get("core", {}).get("installPath") or "/nonexistent")
         if not same_inject_code(repo, core_root):
-            # 期待の文は checkout の正本の差し込む口で作る。入った copy の口が違えば同じ材料でも文が違いうるので、
+            # 期待の文は、checkout の正本と一字違わず同じと確かめた入った copy の口で作る。口が違えば同じ材料でも文が違いうるので、
             # 照らしを弱めて通さず赤にする（CI は入れる commit と同じ commit を checkout する・ci.yml の plugin-smoke）
             return bad + ["入った copy の差し込む口 kaku.py が正本の checkout と一字違わず同じでない"
                           "（入れる commit と同じ commit を checkout して回す。差し込む口を書き換える誤りもここで止まる）"]
         try:
-            expect = expected_context(repo, env, proj, str(init.get("session_id") or "smoke"))
+            expect = expected_context(core_root, env, proj, str(init.get("session_id") or "smoke"))
         except (OSError, subprocess.SubprocessError, ValueError) as e:
             return bad + [f"正本の差し込む口を回せない: {e}"]
         bad += core_problems(ctx, want, expect)
