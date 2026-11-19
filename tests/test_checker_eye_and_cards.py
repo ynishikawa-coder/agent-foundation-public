@@ -16,7 +16,7 @@ def run(tmp_path, text, *args):
     return subprocess.run([sys.executable, "-B", str(FORM), str(f), *args], capture_output=True, text=True)
 
 
-@pytest.mark.parametrize("args", [[], ["--head", "0123456789ab"], ["--writer", "session_WRITER01"],
+@pytest.mark.parametrize("args", [[], ["--head", "0123456789ab"], ["--writer", "session_01WRITER0100000000"],
                                   ["--writer", "--head", "0123456789ab"]])
 def test_書いた窓か先端が欠けたら形を通さない(tmp_path, args):
     res = run(tmp_path, GREEN, *args)
@@ -24,13 +24,13 @@ def test_書いた窓か先端が欠けたら形を通さない(tmp_path, args):
 
 
 def test_書いた窓が立てた助手の判定は書いた窓と同じ_id_になり誤り(tmp_path):
-    helper = GREEN.replace("session_REVIEW01", "session_WRITER01", 1)
-    res = run(tmp_path, helper, "--writer", "session_WRITER01", "--head", "0123456789ab")
+    helper = GREEN.replace("session_01REVIEW0100000000", "session_01WRITER0100000000", 1)
+    res = run(tmp_path, helper, "--writer", "session_01WRITER0100000000", "--head", "0123456789ab")
     assert res.returncode == 1 and "別の目でない" in res.stdout
 
 
 def test_レビューの窓の判定は通る(tmp_path):
-    res = run(tmp_path, GREEN, "--writer", "session_WRITER01", "--head", "0123456789abcdef")
+    res = run(tmp_path, GREEN, "--writer", "session_01WRITER0100000000", "--head", "0123456789abcdef")
     assert res.returncode == 0, res.stdout
 
 

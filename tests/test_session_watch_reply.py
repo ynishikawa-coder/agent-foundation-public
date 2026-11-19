@@ -12,7 +12,7 @@ from test_session_watch import CLOUD, LOGS, OK_REPLY, rows, set_title, stop_data
 
 def test_返し先が別の窓の子窓には親が付けた題を付け直すよう知らせる():
     """親が create_session で付けた題は会話ログに無く、返事の差し戻しが照らせない＝付け直させる。"""
-    text = sw.remind({"prompt": "作り物を見て（親窓 session_X の子）"}, CLOUD)
+    text = sw.remind({"prompt": "作り物を見て（親窓 session_01X000000000000000 の子）"}, CLOUD)
     assert text and "set_session_title" in text and "付け直す" in text
 
 
@@ -47,7 +47,7 @@ FAKE_KEY = "gh" + "p_" + "A1b2C3d4" * 5
     # 2. 返事の本文の中の言葉
     (owner_reply("Q202611-67 の問いは答え済みとして降ろした。"), "inner"),
     (owner_reply("#616 の直しを入れた。"), "inner"),
-    (owner_reply("続きは session_011ABCdef の窓が持つ。"), "inner"),
+    (owner_reply("続きは session_01ABCdef0000000000 の窓が持つ。"), "inner"),
     (owner_reply("直し_0020 を当てた。"), "inner"),
     (owner_reply("先端は 1a21016e8983 です。"), "inner"),
     (owner_reply("E02 の件は直した。"), "inner"),
@@ -126,8 +126,8 @@ def test_正しい返事は差し戻さない(tmp_path, good):
 
 def test_返し先が別の窓の窓は中の言葉を見ない_時刻と秘密は見る(tmp_path):
     rs = set_title(rows("owner_ok.jsonl"), "🙋 作り物の続き", "🤖✅ 作り物の続き")
-    rs[0]["message"]["content"] = "作り物の続きを頼む（返し先=session_PARENT01）。"
-    ok = owner_reply("PR は #616、先端は 1a21016e8983、続きは session_011ABCdef の窓が持つ。")
+    rs[0]["message"]["content"] = "作り物の続きを頼む（返し先=session_01PARENT0100000000）。"
+    ok = owner_reply("PR は #616、先端は 1a21016e8983、続きは session_01ABCdef0000000000 の窓が持つ。")
     assert stopped(tmp_path, ok, rs) == []
     assert stopped(tmp_path, owner_reply("08:53 UTC に入れた。"), rs) == ["time"]
     assert stopped(tmp_path, owner_reply("鍵は " + FAKE_KEY), rs) == ["secret"]
