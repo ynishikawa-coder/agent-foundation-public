@@ -787,6 +787,11 @@ REC_HIDE = [
      "属性「data-x」の値に < > を書かない"),
     ("class の NBSP の区切り", lambda r: _mark(0)(r).replace('<small class="rec">', '<small class="x\u00a0rec">', 1),
      "class の値は半角英数字"),
+    ("閉じ忘れた印が次の選択肢に写る", lambda r: _mark(0)(r).replace(REC, '<small class="rec">貸した物の手入れは今も貸した側がしている', 1), "閉じタグ </span> が開いた順と合わない"),
+    ("表の中から印を外へ移させる", lambda r: _mark(0)(r).replace(REC, "<table>" + REC + "</table>", 1), "<table> の中にじかに <small> を置かない"),
+    ("select の中で閉じタグを消させる", lambda r: _mark(0)(r).replace(REC, "<select></label></select>" + REC, 1), "閉じタグ </label> が開いた順と合わない"),
+    ("p の中の div で p を閉じさせる", lambda r: _mark(0)(r).replace(REC, '<p><div></div></p>' + REC, 1), "<p> の中に <div> を置かない"),
+    ("閉じタグの中の空白で選択肢の切り方をずらす", lambda r: _mark(1)(r).replace("</label>", "</label >", 1), "検査が読めない < の書き方"),
     ("</ と空白の崩れたタグ", lambda r: _mark(0)(r).replace(REC, '</ x <!-- >' + REC + '<!-- -->', 1), "検査が読めない < の書き方"),
 ]
 

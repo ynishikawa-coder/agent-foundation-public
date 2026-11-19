@@ -324,9 +324,41 @@ export const ALLOW = {
 const WS = "[ \\t\\n\\f\\r]";
 // 型の外の字の並びを、検査が読み切れる書き方だけにする（読みの道筋を 1 つ: 検査はページを正規表現で読むので、
 //   ブラウザと読みが分かれる書き方を入口で止める）。通すのは: 先頭の <!doctype html>・ふつうのコメント <!-- … -->・
-//   決まった形の開きタグ（属性は空白で区切り値は引用符で囲む）・閉じタグ </名>。textarea・title の中に < を書かない。
+//   決まった形の開きタグ（属性は空白で区切り値は引用符で囲む）・閉じタグ </名>（中に空白を入れない＝読む側は </名> だけを受ける）。textarea・title の中に < を書かない。
 // class に rec を持つか（区切りは HTML の空白だけ＝ブラウザと同じ・印の読みはこの 1 つ）
 const hasRec = (tag) => /(?:^|[ \t\n\f\r])rec(?:[ \t\n\f\r]|$)/.test(attr(tag, "class") ?? "");
+// ブラウザが要素の木を組み直す書き方（閉じ忘れ・入れ子の崩れ・表や select の中の移し替え・<p> の自動の閉じ・<a> の中の <a>）は赤
+//   ＝タグの並びがそのまま木になる形だけを通し、検査の読み（正規表現で切る）とブラウザの木を同じにする
+const VOID = new Set(["br", "img", "input", "meta"]);
+const BLOCK = new Set(["div", "section", "header", "p", "h1", "h2", "h3", "ul", "ol", "dl", "table", "figure", "details", "form", "fieldset"]);
+const ONLY = { table: ["thead", "tbody", "tr"], thead: ["tr"], tbody: ["tr"], tr: ["th", "td"], select: ["option"], ul: ["li"], ol: ["li"], dl: ["dt", "dd"] };
+function treeReds(rest) {
+  const red = [];
+  const stack = [];
+  // 型の外の区画（qa:css・qa:js・qa:foot）は空白で伏せてあり、その前後で木が切れる＝head と body の外枠は数えない
+  for (const m of rest.matchAll(/<(\/?)([A-Za-z][A-Za-z0-9-]*)[^>]*>|([^<]+)/g)) {
+    if (m[3] != null) {
+      const top = stack[stack.length - 1];
+      if (top && ONLY[top] && m[3].trim()) { red.push(`<${top}> の中に字をじかに書かない（ブラウザが表や一覧の外へ移す）: ${m[3].trim().slice(0, 20)}`); break; }
+      continue;
+    }
+    const tag = m[2].toLowerCase();
+    if (["html", "head", "body"].includes(tag) || VOID.has(tag) || !ALLOW.elements.includes(tag)) continue;   // 許さない要素は別の赤
+    if (!m[1]) {
+      const top = stack[stack.length - 1];
+      if (top && ONLY[top] && !ONLY[top].includes(tag)) { red.push(`<${top}> の中にじかに <${tag}> を置かない（ブラウザが外へ移す）`); break; }
+      if (top === "p" && BLOCK.has(tag)) { red.push(`<p> の中に <${tag}> を置かない（ブラウザが <p> をそこで閉じる）`); break; }
+      if (tag === "a" && stack.includes("a")) { red.push("<a> の中に <a> を置かない（ブラウザが組み直す）"); break; }
+      if (["textarea", "title", "option"].includes(top)) { red.push(`<${top}> の中にタグを書かない`); break; }
+      stack.push(tag);
+    } else {
+      if (stack[stack.length - 1] !== tag) { red.push(`閉じタグ </${tag}> が開いた順と合わない（開いているのは ${stack[stack.length - 1] ? `<${stack[stack.length - 1]}>` : "無し"}・ブラウザが木を組み直す）`); break; }
+      stack.pop();
+    }
+  }
+  return red;
+}
+
 function tokenReds(outside) {
   const red = [];
   if (!/^\uFEFF?[ \t\n\f\r]*<!doctype html>/i.test(outside)) red.push("先頭に <!doctype html> が要る（無いとブラウザが古い読み方になり、class の大小を区別しない）");
@@ -337,9 +369,10 @@ function tokenReds(outside) {
   for (const m of rest.matchAll(/</g)) {
     const at = rest.slice(m.index);
     // 開きタグ（崩れた区切りは下の allowlistReds の strict が見る）・閉じタグ・崩れたコメント（別の赤が見る）は通す
-    if (open.test(at) || /^<[A-Za-z][A-Za-z0-9-]*(?:"[^"]*"|'[^']*'|[^'">])*>/.test(at) || /^<\/[A-Za-z][A-Za-z0-9-]*[ \t\n\f\r]*>/.test(at) || /^<!--(?:>|->)/.test(at)) continue;
+    if (open.test(at) || /^<[A-Za-z][A-Za-z0-9-]*(?:"[^"]*"|'[^']*'|[^'">])*>/.test(at) || /^<\/[A-Za-z][A-Za-z0-9-]*>/.test(at) || /^<!--(?:>|->)/.test(at)) continue;
     red.push(`検査が読めない < の書き方（<? <! </ の崩れ・閉じないコメント・崩れたタグ）: ${at.slice(0, 40)}`);
   }
+  red.push(...treeReds(rest));
   // 検査が中身を切る要素（選択肢の label・印や変わる事の small）は入れ子にしない＝検査は最初の閉じタグで切るので、
   //   入れ子にすると検査とブラウザで「どの選択肢・どの欄の中か」が分かれる
   for (const t of ["label", "small"]) {
