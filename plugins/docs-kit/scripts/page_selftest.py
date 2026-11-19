@@ -62,46 +62,75 @@ def chrome_cmd(chrome: str, prof: str, url: str) -> list[str]:
     if hasattr(os, "geteuid") and os.geteuid() == 0:
         cmd.append("--no-sandbox")   # コンテナの root では sandbox が立たない
     return cmd + ["--dump-dom", url]
+
+
+SOCKET_MAX = 107   # unix の socket の path の上限（バイト）
+
+
+def short_tmp() -> str:
+    """Chrome は TMPDIR の下に dir を作りその中に socket を置く（<TMPDIR>/org.chromium.Chromium.XXXXXX/SingletonSocket）。
+    TMPDIR が長い窓・試験（日本語の名の dir など）では path が上限を越えて Chrome が落ちる（2026-11-19 CI で実測）。
+    越える時は短い置き場（/tmp）を使う。"""
+    d = tempfile.gettempdir()
+    need = len(os.path.join(d, "org.chromium.Chromium.XXXXXX", "SingletonSocket").encode())
+    return d if need <= SOCKET_MAX or not os.access("/tmp", os.W_OK) else "/tmp"
+
+
 class ChromeMissing(Exception):
     """Chrome が無い・起動できない・DOM を返さない＝検査できない（exit 2）。"""
 
 
-def dump_dom(cmd: list[str]) -> str | None:
+def dump_dom(cmd: list[str]) -> tuple[str | None, str]:
     """Chrome の --dump-dom を読む。DOM を吐いた後も Chrome が居座ることがある
-    ため、`</html>` まで読んだら Chrome を止める。時間切れは None。"""
-    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
-    buf: list[str] = []
-    done = threading.Event()
+    ため、`</html>` まで読んだら Chrome を止める。返すのは (DOM か None, DOM が無い訳)。
+    訳には Chrome の落ちた行（FATAL）か stderr の末尾を入れる（黙って捨てると、別の機械で回せない訳が誰にも見えない）。"""
+    with tempfile.TemporaryFile(mode="w+", encoding="utf-8", errors="replace") as err:
+        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=err, text=True,
+                                env=dict(os.environ, TMPDIR=short_tmp()))
+        buf: list[str] = []
+        done = threading.Event()
 
-    def reader() -> None:
-        assert proc.stdout is not None
-        for line in proc.stdout:
-            buf.append(line)
-            if "</html>" in line:
-                break
-        done.set()
+        def reader() -> None:
+            assert proc.stdout is not None
+            for line in proc.stdout:
+                buf.append(line)
+                if "</html>" in line:
+                    break
+            done.set()
 
-    threading.Thread(target=reader, daemon=True).start()
-    ok = done.wait(TIMEOUT_SEC)
-    proc.kill()
-    proc.wait()
-    out = "".join(buf)
-    return out if ok and "</html>" in out else None
+        threading.Thread(target=reader, daemon=True).start()
+        ok = done.wait(TIMEOUT_SEC)
+        code = proc.poll()
+        proc.kill()
+        proc.wait()
+        out = "".join(buf)
+        if ok and "</html>" in out:
+            return out, ""
+        err.seek(0)
+        lines = [ln.strip() for ln in err.read().splitlines() if ln.strip()]
+        loud = [ln for ln in lines if re.search(r"FATAL", ln)]   # 落ちた訳の行を先に
+        tail = " / ".join(loud[:4] or lines[-4:])[:600]
+    why = (f"Chrome が {TIMEOUT_SEC} 秒で DOM を返さない" if not ok
+           else f"Chrome が DOM を返さずに終わった（exit {code}）")
+    return None, f"{why}＝検査できない（{cmd[0]}）" + (f" stderr: {tail}" if tail else "")
+
+
+def run_chrome(chrome: str, url: str) -> tuple[str | None, str]:
+    """Chrome で url を開いて DOM を返す（(DOM か None, DOM が無い訳)）。Chrome の一時の置き場は短い path に置く。"""
+    with tempfile.TemporaryDirectory(prefix="af-page-chrome-", dir=short_tmp()) as prof:
+        return dump_dom(chrome_cmd(chrome, prof, url))
 
 
 def open_dom(target: Path, query: str) -> str:
     chrome = find_chrome()
     if chrome is None:
         raise ChromeMissing("Chrome（Playwright の chromium）が無い＝検査できない")
-    url = target.as_uri() + "?" + query
-    with tempfile.TemporaryDirectory(prefix="af-page-chrome-") as prof:
-        cmd = chrome_cmd(chrome, prof, url)
-        try:
-            dom = dump_dom(cmd)
-        except OSError as e:
-            raise ChromeMissing(f"Chrome を起動できない: {e}") from e
+    try:
+        dom, why = run_chrome(chrome, target.as_uri() + "?" + query)
+    except OSError as e:
+        raise ChromeMissing(f"Chrome を起動できない: {e}") from e
     if dom is None:
-        raise ChromeMissing(f"Chrome が {TIMEOUT_SEC} 秒で DOM を返さない＝検査できない")
+        raise ChromeMissing(why)
     return dom
 
 

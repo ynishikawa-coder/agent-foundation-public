@@ -57,7 +57,16 @@ def test_壊れた見張りはこの試験が拒む(tmp_path):
 
 
 # ── page_check ──
-CHROME = any(Path(p).exists() for p in ("/opt/pw-browsers",)) or shutil.which("chromium") or shutil.which("google-chrome")
+def _find_chrome():
+    """型の検査と同じ探し方（共通の口の find_chrome を直に呼ぶ＝試験の側で Chrome の在り処を写さない）。"""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("_page_selftest", ROOT / "plugins" / "docs-kit" / "scripts" / "page_selftest.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod.find_chrome()
+
+
+CHROME = _find_chrome()
 needs_chrome = pytest.mark.skipif(not CHROME, reason="Chrome が無い（型の検査は headless の Chrome で動く）")
 
 
@@ -87,7 +96,8 @@ def page(tmp_path, kind, edit=None, name="p.html"):
 @needs_chrome
 @pytest.mark.parametrize("kind", ["blueprint", "theory-mock", "mindmap"])
 def test_page_check_型どおりのページは通す(env, tmp_path, kind):
-    assert not denied(env, publish(page(tmp_path, kind)))
+    out = hook(env, "pre", publish(page(tmp_path, kind)))
+    assert out.get("permissionDecision") != "deny", out.get("permissionDecisionReason")   # 止めた訳を出す
 
 
 @needs_chrome
@@ -189,6 +199,93 @@ def test_ledger_row_形の合う行と台帳でない書き込みは通す(env, 
     assert not denied(env, payload)
 
 
+def _ledger():
+    sys.path.insert(0, str(SCRIPTS))
+    try:
+        return importlib.import_module("ledger_row")
+    finally:
+        sys.path.remove(str(SCRIPTS))
+
+
+SAIMOKU = ROOT / "plugins" / "core" / "細目.md"
+
+
+def test_ledger_row_行き先と欄は細目を直に読み_見張りに写さない():
+    req = _ledger().requires()
+    assert req and set(req) >= {"直す窓", "直した", "直さない", "未定"}
+    assert req["未定"] == () and all(req[d] for d in ("直す窓", "直した", "直さない"))
+    tree = ast.parse((SCRIPTS / "ledger_row.py").read_text(encoding="utf-8"))
+    docs = {id(n.body[0].value) for n in ast.walk(tree)
+            if isinstance(n, (ast.Module, ast.FunctionDef)) and n.body and isinstance(n.body[0], ast.Expr)}
+    lits = [n.value for n in ast.walk(tree) if isinstance(n, ast.Constant) and isinstance(n.value, str) and id(n) not in docs]
+    for d, cols in req.items():
+        for c in cols + (d,):
+            assert not any(t == c or "「%s」" % c in t for t in lits), f"{c} を見張りのコードに手で写している（細目から読む）"
+
+
+def test_ledger_row_細目の欄を替えると見張りもそれで照らす(env, tmp_path):
+    """注入: 細目の「直した」に欄を 1 つ足すと、その欄の無い行が止まる（細目を読まず手の写しで照らすと通る）。"""
+    t = SAIMOKU.read_text(encoding="utf-8").replace("（欄「直し」に", "（欄「直し」と欄「作り物の欄」に", 1)
+    p = tmp_path / "細目.md"
+    p.write_text(t, encoding="utf-8")
+    e = dict(env, AF_SAIMOKU=str(p))
+    out = hook(e, "pre", notion_mcp({"行き先": "直した", "直し": "https://example.com/pr/1"}))
+    assert out.get("permissionDecision") == "deny" and "作り物の欄" in out["permissionDecisionReason"]
+    assert not denied(env, notion_mcp({"行き先": "直した", "直し": "https://example.com/pr/1"}))
+
+
+def test_ledger_row_細目が読めない時は台帳の行を止める(env, tmp_path):
+    p = tmp_path / "細目.md"
+    p.write_text("# 作り物\n- **原因の台帳** — 欄の並びの無い文\n", encoding="utf-8")
+    out = hook(dict(env, AF_SAIMOKU=str(p)), "pre", notion_mcp({"行き先": "未定"}))
+    assert out.get("permissionDecision") == "deny" and "読めず" in out["permissionDecisionReason"]
+    assert not denied(dict(env, AF_SAIMOKU=str(p)), notion_mcp({"名前": "台帳でない行"}))
+
+
+def test_ledger_row_repo_の書き込みの道具へ渡す_JSON_も照らす(env, tmp_path):
+    """注入: api.notion.com を含まない命令（repo の道具に --payload の file・字で渡す）で台帳へ書く道。"""
+    bad = {"page_id": "x", "properties": {"行き先": "直さない"}}
+    f = tmp_path / "payload.json"
+    f.write_text(json.dumps(bad, ensure_ascii=False), encoding="utf-8")
+    bash = lambda c: {"tool_name": "Bash", "tool_input": {"command": c}}  # noqa: E731
+    assert denied(env, bash("python3 scripts/gateway_write.py --payload %s" % f))
+    assert denied(env, bash("python3 scripts/gateway_write.py --payload=%s" % f))
+    assert denied(env, bash("curl -sS -X PATCH https://example.com/v1/pages/x -d @%s" % f))
+    assert denied(env, bash("python3 scripts/gateway_write.py --json '%s'" % json.dumps(bad, ensure_ascii=False)))
+    assert not denied(env, bash("cat %s" % f))                                  # 読むだけは見ない
+    ok = {"page_id": "x", "properties": {"行き先": "直した", "直し": "https://example.com/pr/1"}}
+    f.write_text(json.dumps(ok, ensure_ascii=False), encoding="utf-8")
+    assert not denied(env, bash("python3 scripts/gateway_write.py --payload %s" % f))
+
+
+LEDGER_ID = "0123456789abcdef0123456789abcdef"          # 作り物の台帳の id
+
+
+@pytest.fixture
+def lenv(env, tmp_path):
+    v = tmp_path / "lv.json"
+    v.write_text(json.dumps({"guard": {"ledger_targets": [LEDGER_ID]}}), encoding="utf-8")
+    return dict(env, SKILL_VALUES=str(v))
+
+
+def test_ledger_row_台帳に作る行に行き先が無ければ止める(lenv):
+    """注入: MCP の Notion の道具で台帳を親にして、行き先の鍵を書かずに行を作る道。"""
+    dashed = "01234567-89ab-cdef-0123-456789abcdef"
+    mk = lambda props, parent: {"tool_name": "mcp__x__notion-create-pages",  # noqa: E731
+                                "tool_input": {"parent": parent, "pages": [{"properties": props}]}}
+    out = hook(lenv, "pre", mk({"原因": "作り物"}, {"data_source_id": dashed}))
+    assert out.get("permissionDecision") == "deny" and "行き先」が無い" in out["permissionDecisionReason"]
+    assert denied(lenv, mk({"原因": "作り物"}, {"type": "data_source_id", "data_source_id": "collection://" + dashed}))
+    assert not denied(lenv, mk({"原因": "作り物", "行き先": "未定"}, {"data_source_id": dashed}))
+    assert not denied(lenv, mk({"原因": "作り物"}, {"page_id": "fedcba9876543210fedcba9876543210"}))   # 台帳の外
+
+
+def test_ledger_row_MCP_の直す道具の欄の書き換えも照らす(env):
+    up = {"tool_name": "mcp__x__notion-update-page",
+          "tool_input": {"page_id": "x", "command": "update_properties", "properties": {"行き先": "直した"}}}
+    assert denied(env, up)
+
+
 # ── send_go（外へ送る命令の前の人の go）──
 SEND_CMD = "python3 /作り物/送る口.py --to グループ"
 
@@ -223,36 +320,114 @@ def send(cmd, tpath):
     return {"tool_name": "Bash", "session_id": "s1", "transcript_path": tpath, "tool_input": {"command": cmd}}
 
 
-@pytest.mark.parametrize("cmd", [SEND_CMD + " --text-file /tmp/a.txt",
-                                 '"$V/notebooklm" source add nb1 brief.pdf'])
+BODY = "〇〇さん\nお世話になっております。作り物の連絡の本文です。\n来週の打ち合わせの件、よろしくお願いします。"
+
+
+@pytest.fixture
+def mat(tmp_path):
+    """送る物: 字の文面の file と、字でない素材（PDF の形の作り物）。"""
+    txt = tmp_path / "文面.txt"
+    txt.write_text(BODY, encoding="utf-8")
+    pdf = tmp_path / "brief.pdf"
+    pdf.write_bytes(b"%PDF-1.4\0\x01\x02 fake")
+    old = 1_700_000_000                       # 素材を見せる前に書いた形（2023-11-14）
+    os.utime(pdf, (old, old))
+    return {"txt": str(txt), "pdf": str(pdf)}
+
+
+SHOWN_AT = "2026-11-19T01:00:00Z"
+
+
+def AT(t, ts=SHOWN_AT):
+    r = A(t)
+    r["timestamp"] = ts
+    return r
+
+
+def cmds(m):
+    return {"compose": SEND_CMD + " --text-file " + m["txt"],
+            "deck": '"$V/notebooklm" source add nb1 ' + m["pdf"]}
+
+
+def show(m):
+    return AT("送る文面です。\n```\n%s\n```\n素材は %s です。送ってよいですか" % (BODY, os.path.basename(m["pdf"])))
+
+
+@pytest.mark.parametrize("which", ["compose", "deck"])
 @pytest.mark.parametrize("rows", [
-    [U("〇〇さんに連絡して送って")],                                        # 頼みの同じターンで送る
-    [U("先に資料を読んで"), U("〇〇さんに連絡して送って")],                   # 人の行が続くだけで、見せた物が無い
-    [],                                                                    # 人の行が無い（人のいない窓）
+    lambda m: [U("〇〇さんに連絡して送って")],                                          # 頼みの同じターンで送る
+    lambda m: [U("先に資料を読んで"), U("〇〇さんに連絡して送って")],                     # 人の行が続くだけで、見せた物が無い
+    # 普通の会話の形（レビューの所見 1）: 前のターンの関わりの無い返事の後の頼みで送る
+    lambda m: [U("先に資料を読んで"), AT("読みました。要点は3つです"), U("〇〇さんに連絡して送って")],
+    lambda m: [U("今日の予定は"), AT("10時から打ち合わせです"), U("ありがとう"), AT("どういたしまして"),
+               U("〇〇さんに連絡して送って")],
+    # 見せたが go の前でなく、見せた後に人の答えが無い（同じターンで見せてすぐ送る）
+    lambda m: [U("前の件ありがとう"), AT("はい"), U("〇〇さんに連絡して送って"), show(m)],
+    # 人の答えに見える行が道具の返り・知らせ（人がタイプしていない）
+    lambda m: [U("〇〇さんに連絡して"), show(m),
+               {"type": "user", "origin": {"kind": "task-notification"}, "promptSource": "system",
+                "message": {"content": "作り物の助手が終わった"}}],
+    lambda m: [U("〇〇さんに連絡して"), show(m), ANSWER() | {"toolUseResult": {"stdout": "ok"}}],
+    lambda m: [],                                                                      # 人の行が無い（人のいない窓）
 ])
-def test_send_go_見せた後の人の_go_が無い送る命令は止める(senv, tmp_path, cmd, rows):
-    out = hook(senv, "pre", send(cmd, tlog(tmp_path, rows)))
+def test_send_go_見せた後の人の_go_が無い送る命令は止める(senv, tmp_path, mat, which, rows):
+    out = hook(senv, "pre", send(cmds(mat)[which], tlog(tmp_path, rows(mat))))
     assert out.get("permissionDecision") == "deny"
     assert "go" in out["permissionDecisionReason"] and "送る文面" in out["permissionDecisionReason"]
 
 
+@pytest.mark.parametrize("which", ["compose", "deck"])
 @pytest.mark.parametrize("rows", [
-    [U("〇〇さんに連絡して"), A("（文面）これで送ってよいですか"), U("go")],
-    [U("〇〇さんに連絡して"), A("（文面）"), ANSWER()],
+    lambda m: [U("〇〇さんに連絡して"), show(m), U("go")],
+    lambda m: [U("〇〇さんに連絡して"), show(m), ANSWER()],
+    lambda m: [U("前の件"), AT("はい"), U("〇〇さんに連絡して"), show(m), U("それで送って")],
 ])
-def test_send_go_見せた物に人が答えた後の送る命令は通す(senv, tmp_path, rows):
-    assert not denied(senv, send(SEND_CMD + " --text-file /tmp/a.txt", tlog(tmp_path, rows)))
+def test_send_go_送る物を見せた後に人が答えた送る命令は通す(senv, tmp_path, mat, which, rows):
+    assert not denied(senv, send(cmds(mat)[which], tlog(tmp_path, rows(mat))))
 
 
-def test_send_go_試しの形と送る口の外と値の無い_repo_は見ない(env, senv, tmp_path):
+def test_send_go_見せた物と送る物が違えば止める(senv, tmp_path, mat):
+    """注入: 見せた後に文面を書き替えた・素材を書き直した・別の素材を送る。"""
+    rows = [U("〇〇さんに連絡して"), show(mat), U("go")]
+    t = tlog(tmp_path, rows)
+    Path(mat["txt"]).write_text(BODY + "\n追伸: 見せていない一文", encoding="utf-8")
+    assert denied(senv, send(cmds(mat)["compose"], t))
+    os.utime(mat["pdf"], None)                 # 見せた後に書き直した素材
+    assert denied(senv, send(cmds(mat)["deck"], t))
+    other = tmp_path / "other.pdf"
+    other.write_bytes(b"%PDF-1.4\0")
+    os.utime(other, (1_700_000_000, 1_700_000_000))
+    assert denied(senv, send('"$V/notebooklm" source add nb1 ' + str(other), t))
+
+
+def test_send_go_命令に直に書いた文面も見せた物と結ぶ(senv, tmp_path):
+    cmd = SEND_CMD + " --text '作り物の 短い 連絡です'"
+    assert denied(senv, send(cmd, tlog(tmp_path, [U("連絡して"), AT("送ります"), U("go")])))
+    assert not denied(senv, send(cmd, tlog(tmp_path, [U("連絡して"), AT("文面: 作り物の 短い 連絡です"), U("go")])))
+
+
+def test_send_go_送る物を見分けられない命令は止める(senv, tmp_path):
+    t = tlog(tmp_path, [U("連絡して"), AT("送ります"), U("go")])
+    assert denied(senv, send(SEND_CMD + " --text-file /無い/a.txt", t))
+
+
+def test_send_go_人のいない窓は見せても止める(senv, tmp_path, mat):
+    """子の窓では親の頼み・send_message が人の行の形で届く＝人の go にならない。"""
+    rows = [U("（親窓 session_01FakeParent の子）連絡の文面を作って送る"), show(mat), U("送ってよい")]
+    assert denied(senv, send(cmds(mat)["compose"], tlog(tmp_path, rows)))
+    rows = [U("連絡して"), show(mat), U("go")]
+    assert denied(dict(senv, AF_UNATTENDED="1"), send(cmds(mat)["compose"], tlog(tmp_path, rows)))
+
+
+def test_send_go_試しの形と送る口の外と値の無い_repo_は見ない(env, senv, tmp_path, mat):
     t = tlog(tmp_path, [U("送って")])
-    assert not denied(senv, send(SEND_CMD + " --text-file /tmp/a.txt --dry-run", t))
+    assert not denied(senv, send(cmds(mat)["compose"] + " --dry-run", t))
     assert not denied(senv, send("echo 送る", t))
-    assert not denied(env, send(SEND_CMD + " --text-file /tmp/a.txt", t))     # 値の表に送る口が無い repo
+    assert not denied(env, send(cmds(mat)["compose"], t))     # 値の表に送る口が無い repo
 
 
-def test_send_go_会話ログが読めない時も止める(senv, tmp_path):
-    assert denied(senv, send(SEND_CMD + " --text-file /tmp/a.txt", str(tmp_path / "無い.jsonl")))
+def test_send_go_会話ログが読めない時も止める(senv, tmp_path, mat):
+    assert denied(senv, send(cmds(mat)["compose"], str(tmp_path / "無い.jsonl")))
 
 
 def test_send_go_送る口は_SKILL_の頭を直に読む():
