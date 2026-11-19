@@ -56,7 +56,7 @@ def test_型の検査は_Chrome_が落ちた訳の_FATAL_の行を出す(monkeyp
 @pytest.mark.parametrize("kind,mod", [("blueprint", "check_blueprint"), ("theory-mock", "check_theory_mock")])
 def test_型の検査は_sandbox_が立たない機械で_sandbox_なしに開き直し_他の落ち方は開き直さない(monkeypatch, kind, mod):
     m = _load(SKILLS / kind / "scripts" / f"{mod}.py", mod)
-    monkeypatch.setattr(m.os, "geteuid", lambda: 1000)          # root でない CI
+    monkeypatch.setattr(m, "sandbox_blocked", lambda: "")        # 前もって分からない機械
     seen = []
 
     def fake(cmd):
@@ -71,3 +71,44 @@ def test_型の検査は_sandbox_が立たない機械で_sandbox_なしに開�
     monkeypatch.setattr(m, "dump_dom", lambda cmd: (seen.append(1), (None, "stderr: FATAL: 作り物の別の故障"))[1])
     dom, why = m.run_chrome("chrome", "file:///x.html?selftest")
     assert dom is None and "別の故障" in why and seen == [1]
+
+
+@pytest.mark.parametrize("kind,mod", [("blueprint", "check_blueprint"), ("theory-mock", "check_theory_mock")])
+def test_型の検査は_sandbox_が立たないと分かる機械では初めから_sandbox_なしで_1_回だけ開く(monkeypatch, kind, mod):
+    m = _load(SKILLS / kind / "scripts" / f"{mod}.py", mod)
+    monkeypatch.setattr(m, "sandbox_blocked", lambda: "/proc/sys/kernel/apparmor_restrict_unprivileged_userns")
+    seen = []
+    monkeypatch.setattr(m, "dump_dom", lambda cmd: (seen.append("--no-sandbox" in cmd), (_dom("SELFTEST OK"), ""))[1])
+    dom, _ = m.run_chrome("chrome", "file:///x.html?selftest")
+    assert dom and seen == [True]
+
+
+@pytest.mark.parametrize("kind,mod", [("blueprint", "check_blueprint"), ("theory-mock", "check_theory_mock")])
+def test_型の検査は終わった_Chrome_の子が_stdout_を握っても待たない(monkeypatch, tmp_path, kind, mod):
+    """注入: Chrome が落ちた後も子（crashpad 等）が stdout を握って残る形。前は読み手の EOF を時間切れまで待った
+    （CI の 50 秒越えの訳）。今は Chrome が終わった所で止め、訳に時間を書く。"""
+    import time
+    m = _load(SKILLS / kind / "scripts" / f"{mod}.py", mod)
+    monkeypatch.setattr(m, "TIMEOUT_SEC", 20)
+    sh = tmp_path / "fake-chrome.sh"
+    sh.write_text("#!/bin/sh\necho 'FATAL: No usable sandbox! 作り物' >&2\nsleep 30 &\nexit 6\n", encoding="utf-8")
+    sh.chmod(0o755)
+    t0 = time.monotonic()
+    dom, why = m.dump_dom([str(sh)])
+    took = time.monotonic() - t0
+    assert dom is None and took < 8, f"{took:.1f} 秒待った: {why}"
+    assert "exit 6" in why and "秒" in why and "No usable sandbox" in why
+
+
+@pytest.mark.parametrize("kind,mod", [("blueprint", "check_blueprint"), ("theory-mock", "check_theory_mock")])
+def test_型の検査は呼ぶ側の締めの前に訳と時間を出して終わる(monkeypatch, tmp_path, kind, mod):
+    """上限は page_check の 1 か所: 締め（AF_CHECK_DEADLINE）を越えて Chrome を待たない。"""
+    import time
+    m = _load(SKILLS / kind / "scripts" / f"{mod}.py", mod)
+    sh = tmp_path / "slow-chrome.sh"
+    sh.write_text("#!/bin/sh\nsleep 30\n", encoding="utf-8")
+    sh.chmod(0o755)
+    monkeypatch.setenv("AF_CHECK_DEADLINE", "%.3f" % (time.time() + 2))
+    t0 = time.monotonic()
+    dom, why = m.dump_dom([str(sh)])
+    assert dom is None and time.monotonic() - t0 < 8 and "秒で DOM を返さない" in why and "待った" in why
