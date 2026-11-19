@@ -32,7 +32,6 @@ from __future__ import annotations
 import glob
 import os
 import re
-import shlex
 import subprocess
 import tempfile
 
@@ -85,19 +84,12 @@ def _git(cwd, *args):
 
 
 def _segments(cmd):
-    """区切り（&& || ; 改行 | &）で分けた字句の並び（リダイレクトは外す・括弧は区切り）。読めない・展開があれば None。"""
-    if "$(" in cmd or "`" in cmd:
+    """段ごとの語の並び。命令の読み手は cmd_read.read の 1 本（ここで別に字句を割らない）。
+    読めない所が在る・前に包み（sudo・env・X=1 など）が付いた段が在る時は None（rm の消す先を決めない＝通さない）。"""
+    r = R.read(cmd)
+    if r.opaque or any(getattr(seg, "prefixed", False) for seg in r.segments):
         return None
-    flat = re.sub(r"(?:\d*(?:>>|>|<)&?|&>>?)\s*\S+", " ", cmd).replace("(", ";").replace(")", ";")
-    out = []
-    for seg in re.split(r"&&|\|\||;|\n|\||&", flat):
-        try:
-            toks = shlex.split(seg)
-        except ValueError:
-            return None
-        if toks:
-            out.append(toks)
-    return out
+    return [[w.text for w in seg] for seg in r.segments]
 
 
 def _is_rm(t):

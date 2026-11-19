@@ -37,6 +37,11 @@ class Word:
     opaque: bool = False
 
 
+class Seg(list):
+    """段の語の並び。prefixed＝前に代入（X=1）・env・sudo などの包みが付いていた（読むだけと証せない）。"""
+    prefixed = False
+
+
 @dataclass
 class Reading:
     segments: list = field(default_factory=list)   # list[list[Word]]
@@ -272,7 +277,9 @@ def _unwrap(seg):
                 i += 1
             continue
         break
-    return seg[i:]
+    out = Seg(seg[i:])
+    out.prefixed = i > 0
+    return out
 
 
 def read(cmd, env=None, depth=0):
@@ -363,14 +370,160 @@ def prog_name(words):
 #   形の表は必ず漏れる。だから守りは「危ない語が命令のどこかに在る」を既定で止め、読み手が全部の段を
 #   「読むだけの命令」と証せた時だけ通す。知らない形は証せないので止まる。
 _SPLIT = re.compile(r"[\s;|&()<>{}`$=,\[\]]+")
-INERT = {"cat", "less", "more", "head", "tail", "grep", "egrep", "fgrep", "rg", "ag", "ls", "wc", "file", "stat",
-         "diff", "cmp", "comm", "sort", "uniq", "cut", "tr", "nl", "column", "jq", "yq", "readlink", "realpath",
-         "dirname", "basename", "pwd", "true", "false", "test", "[", "which", "type", "du", "df", "tree", "md5sum",
-         "sha1sum", "sha256sum", "od", "hexdump", "strings", "echo", "printf"}
-INERT_GIT = {"log", "diff", "show", "status", "grep", "blame", "ls-files", "rev-parse", "branch", "describe",
-             "shortlog", "cat-file", "ls-tree", "merge-base", "add", "commit", "fetch"}
+# 読むだけと証す正本: 命令の名ごとに「読むだけと分かっている option の集合」を持つ。名だけでは決めない
+#   （名が読むだけでも、option・設定・前の代入で別の命令を走らせる・file へ書く形が在る＝PR #91 のレビュー:
+#   git -c diff.external=… diff・GIT_EXTERNAL_DIFF=… git diff・git grep -O…・rg --pre・sort --compress-program・
+#   sort --output・git diff --output・tree -o）。段の option が 1 つでも集合の外なら証せない（守りは止める側）。
+# 形: 名 → (短い旗の字, 値を取る短い旗の字, 長い旗の名, 位置の語の上限〔None＝上限なし〕)
+#   ANY＝どの語も出力の字か式で、何も走らせない（echo・printf・test・true・false）。
+ANY = None
+_S = lambda *names: frozenset(" ".join(names).split())
+SAFE = {
+    "cat": ("AbeEnstTuv", "", _S("show-all number-nonblank show-ends number squeeze-blank show-tabs show-nonprinting"), None),
+    "less": ("NnRSFXiI", "", _S("RAW-CONTROL-CHARS chop-long-lines quit-if-one-screen no-init LINE-NUMBERS"), None),
+    "more": ("", "", _S(""), None),
+    "head": ("cnqvz0123456789", "cn", _S("lines bytes quiet silent verbose zero-terminated"), None),
+    "tail": ("cnqvzfF0123456789", "cn", _S("lines bytes quiet silent verbose zero-terminated follow retry"), None),
+    "grep": ("EFGPiyvwxclLoqsbHhnTZzraRIUefmABCdD", "efmABCdD",
+             _S("extended-regexp fixed-strings basic-regexp perl-regexp regexp file ignore-case no-ignore-case",
+                "invert-match word-regexp line-regexp count color colour files-without-match files-with-matches",
+                "max-count only-matching quiet silent no-messages byte-offset with-filename no-filename label",
+                "line-number initial-tab null null-data after-context before-context context text binary-files",
+                "devices directories exclude exclude-from exclude-dir include recursive dereference-recursive",
+                "line-buffered binary"), None),
+    "rg": ("eFfiSsvwxclnNoqHIaABCtTgmuLMjr0.", "efABCtTgmMjr",
+           _S("regexp file fixed-strings ignore-case case-sensitive smart-case invert-match word-regexp line-regexp",
+              "count count-matches files-with-matches files-without-match line-number no-line-number only-matching",
+              "quiet with-filename no-filename text after-context before-context context type type-not type-list",
+              "glob iglob max-count hidden no-ignore no-ignore-vcs follow files json color heading no-heading",
+              "multiline multiline-dotall max-columns replace null sort sortr vimgrep trim column no-messages",
+              "unrestricted max-depth pcre2 engine no-config passthru byte-offset"), None),
+    "ls": ("aAlhRtrSd1FGcikmnpsuUXCxQqgoLHvT", "IwT",
+           _S("all almost-all human-readable recursive reverse color classify directory sort time full-time",
+              "group-directories-first inode size si format indicator-style literal quoting-style",
+              "numeric-uid-gid dereference ignore hide width"), None),
+    "wc": ("clmwL", "", _S("bytes chars lines words max-line-length"), None),
+    "file": ("bLhizkNsE", "", _S("brief mime mime-type mime-encoding dereference no-dereference keep-going"), None),
+    "stat": ("LftcL", "c", _S("dereference file-system format printf terse"), None),
+    "diff": ("uqrNyiwbBEaZtTscpdeUxXCSIW", "UxXCSIW",
+             _S("unified brief recursive new-file side-by-side ignore-case ignore-all-space ignore-space-change",
+                "ignore-blank-lines text report-identical-files color exclude exclude-from no-dereference",
+                "strip-trailing-cr label minimal suppress-common-lines ignore-matching-lines width normal",
+                "context show-function-line show-c-function ignore-tab-expansion ignore-trailing-space"), None),
+    "cmp": ("blsin", "in", _S("print-bytes verbose quiet silent ignore-initial bytes"), None),
+    "comm": ("123z", "", _S("check-order nocheck-order output-delimiter total zero-terminated"), None),
+    "sort": ("bdfgiMhnRrVcCsuzkt", "kt",
+             _S("ignore-leading-blanks dictionary-order ignore-case general-numeric-sort human-numeric-sort",
+                "month-sort numeric-sort random-sort reverse version-sort check stable unique zero-terminated",
+                "key field-separator"), None),
+    "uniq": ("cdDiuzfsw", "fsw", _S("count repeated all-repeated ignore-case unique zero-terminated group"), 1),
+    "cut": ("bcfdsnz", "bcfd", _S("bytes characters fields delimiter only-delimited complement output-delimiter",
+                                   "zero-terminated"), None),
+    "tr": ("cdsCt", "", _S("complement delete squeeze-repeats truncate-set1"), None),
+    "nl": ("bdfhilnsvw", "bdfhilnsvw", _S(""), None),
+    "column": ("tsxnec", "sc", _S("table separator"), None),
+    "jq": ("rjcnsSeaCMR", "", _S("raw-output join-output compact-output null-input slurp sort-keys exit-status",
+                                  "ascii-output color-output monochrome-output tab indent arg argjson slurpfile",
+                                  "rawfile args jsonargs raw-input"), None),
+    "readlink": ("femnqsvz", "", _S("canonicalize canonicalize-existing canonicalize-missing no-newline quiet",
+                                     "silent verbose zero"), None),
+    "realpath": ("emLPqsz", "", _S("canonicalize-existing canonicalize-missing logical physical quiet",
+                                    "relative-to relative-base strip no-symlinks zero"), None),
+    "dirname": ("z", "", _S("zero"), None),
+    "basename": ("asz", "s", _S("multiple suffix zero"), None),
+    "pwd": ("LP", "", _S(""), None),
+    "which": ("a", "", _S(""), None),
+    "type": ("afptP", "", _S(""), None),
+    "du": ("achsSkmbLHlxd0", "d", _S("all apparent-size summarize human-readable max-depth si total bytes",
+                                      "count-links dereference one-file-system null inodes"), None),
+    "df": ("ahHiklPTt", "t", _S("all human-readable si inodes local portability print-type type output total"), None),
+    "tree": ("adlfiFLIPCnsughDpJrtvU", "LIP", _S("noreport dirsfirst charset gitignore prune du filelimit sort",
+                                                    "matchdirs ignore-case"), None),
+    "od": ("AjNtvbcdiosxwS", "AjNtwS", _S(""), None),
+    "hexdump": ("bcCdoxvn s", "ns", _S(""), None),
+    "strings": ("afntedw", "nte", _S("all print-file-name bytes radix encoding"), None),
+    "echo": ANY, "printf": ANY, "test": ANY, "[": ANY, "true": ANY, "false": ANY,
+}
+for _h in ("md5sum", "sha1sum", "sha256sum"):
+    SAFE[_h] = ("bctwz", "", _S("binary check tag text zero quiet status strict warn ignore-missing"), None)
+SAFE["egrep"] = SAFE["fgrep"] = SAFE["grep"]
+SAFE["sed"] = ("nErsuzl", "efl", _S("quiet silent expression file regexp-extended separate unbuffered null-data",
+                                       "posix debug sandbox line-length"), None)
+
+# git: 前の option は -C と pager の切りだけ（-c・--git-dir・--work-tree・--exec-path は設定や別の repo の hook を引く）。
+#   副命令は読むだけの物だけ（add・commit・fetch は hook・filter・取り込みが走る）。副命令ごとの option も同じ集合で証す。
+_GIT_GLOBAL = {"--no-pager": 0, "-P": 0, "--no-optional-locks": 0, "-C": 1}
+_DIFF_L = _S("stat numstat shortstat name-only name-status patch no-patch unified raw patch-with-stat summary color",
+             "no-color color-words word-diff word-diff-regex ignore-space-change ignore-all-space ignore-blank-lines",
+             "ignore-cr-at-eol ignore-space-at-eol find-renames find-copies diff-filter abbrev full-index binary",
+             "relative text exit-code quiet cached staged merge-base no-renames histogram patience minimal",
+             "diff-algorithm src-prefix dst-prefix no-prefix function-context compact-summary dirstat check",
+             "no-ext-diff no-textconv ignore-submodules submodule stat-width inter-hunk-context color-moved anchored")
+_LOG_L = _DIFF_L | _S("oneline graph format pretty decorate no-decorate all branches tags remotes reverse follow",
+                      "no-merges merges first-parent since until after before author committer grep all-match",
+                      "invert-grep regexp-ignore-case max-count skip date abbrev-commit no-abbrev-commit left-right",
+                      "cherry-pick cherry-mark cherry boundary ancestry-path simplify-by-decoration topo-order",
+                      "date-order author-date-order walk-reflogs source log-size parents children notes no-notes",
+                      "encoding max-parents min-parents full-history dense sparse mailmap use-mailmap pickaxe-regex",
+                      "pickaxe-all not no-walk do-walk diff-merges cc name-only")
+_DIFF_S = "pusMCBDlRazwbWU0123456789"
+SAFE_GIT = {
+    "log": (_DIFF_S + "nSGLiE", "nSGLUMCBl", _LOG_L, None),
+    "show": (_DIFF_S + "nSG", "nSGUMCBl", _LOG_L, None),
+    "diff": (_DIFF_S + "SG", "SGUMCBl", _DIFF_L | _S("no-index"), None),
+    "status": ("sbuvz", "u", _S("short branch porcelain long verbose untracked-files ignore-submodules ignored",
+                                "column no-column ahead-behind no-ahead-behind renames no-renames show-stash"), None),
+    "grep": ("ivwacEFGPlLnhHorqzIefABCWp", "efABCm",
+             _S("ignore-case invert-match word-regexp text count extended-regexp fixed-strings basic-regexp",
+                "perl-regexp files-with-matches files-without-match line-number column untracked cached",
+                "max-depth heading break show-function function-context and or not all-match quiet null",
+                "only-matching max-count exclude-standard no-exclude-standard full-name color no-color",
+                "after-context before-context context regexp file"), None),
+    "blame": ("lstnfpLMCwecS", "LMCS", _S("porcelain line-porcelain incremental show-name show-number show-email",
+                                           "root reverse first-parent date abbrev color-lines color-by-age",
+                                           "ignore-rev ignore-revs-file"), None),
+    "ls-files": ("cdmosiktuvfzxX", "xX", _S("cached deleted modified others stage unmerged killed ignored directory",
+                                            "no-empty-directory exclude-standard exclude exclude-from error-unmatch",
+                                            "full-name abbrev eol deduplicate format sparse"), None),
+    "rev-parse": ("q", "", _S("verify short abbrev-ref symbolic-full-name show-toplevel git-dir git-common-dir",
+                              "is-inside-work-tree is-inside-git-dir is-bare-repository show-prefix show-cdup",
+                              "absolute-git-dir quiet default all branches tags remotes sq not revs-only no-revs",
+                              "flags no-flags symbolic path-format git-path since until"), None),
+    "describe": ("", "", _S("tags all always abbrev long contains exact-match match exclude first-parent",
+                           "candidates"), None),
+    "shortlog": ("nsec", "", _LOG_L | _S("numbered summary email committer group"), None),
+    "cat-file": ("tspe", "", _S("batch batch-check batch-all-objects follow-symlinks buffer unordered"), None),
+    "ls-tree": ("dtrlz", "", _S("name-only name-status full-name full-tree abbrev long object-only format"), None),
+    "merge-base": ("a", "", _S("all octopus independent is-ancestor fork-point"), None),
+}
 _BRANCH_LIST = {"-a", "-r", "-v", "-vv", "-l", "--list", "--all", "--remotes", "--show-current", "--no-color"}
-_GIT_OPT_ARG = {"-C", "-c", "--git-dir", "--work-tree", "--namespace"}
+
+
+def _opts_safe(words, spec):
+    """words（命令の名の後の語）の option が全部 spec の集合に入るか。位置の語は spec の上限まで。"""
+    if spec is ANY:
+        return True
+    short, short_val, long_names, max_pos = spec
+    pos, i, ended = 0, 0, False
+    while i < len(words):
+        t = words[i].text
+        if ended or t == "-" or not t.startswith("-"):
+            pos += 1
+        elif t == "--":
+            ended = True
+        elif t.startswith("--"):
+            if t[2:].split("=", 1)[0] not in long_names:
+                return False
+        else:
+            for j, ch in enumerate(t[1:], 1):
+                if ch not in short:
+                    return False
+                if ch in short_val:
+                    if j == len(t) - 1:
+                        i += 1           # 値は次の語
+                    break                # 値は残りの字
+        i += 1
+    return max_pos is None or pos <= max_pos
 
 
 def _flat(s):
@@ -388,29 +541,35 @@ def mentions(cmd):
         for w in seg:
             out.add(w.text)
             out.update(t for t in _SPLIT.split(_flat(w.text)) if t)
+    # 短い旗に付けた値（-O'…'・-e…）: 旗の字の後ろに語が付くので、どこから値かを決めず後ろの全部を網に入れる
+    out.update(t[k:] for t in list(out) if t.startswith("-") and not t.startswith("--") for k in range(2, min(len(t), 66)))
     out.update(os.path.basename(t) for t in list(out))
     return out
 
 
 def _seg_inert(words):
-    if not words or any(w.opaque for w in words):
+    if not words or getattr(words, "prefixed", False) or any(w.opaque for w in words):
         return False
     prog = prog_name(words)
+    if words[0].text != prog and "/" in words[0].text:
+        return False   # 道を付けた名（./cat など）は同じ名の別の物かもしれない
     if prog == "git":
         i = 1
         while i < len(words) and words[i].text.startswith("-"):
-            i += 2 if words[i].text in _GIT_OPT_ARG else 1
-        if i >= len(words) or words[i].text not in INERT_GIT:
+            if words[i].text not in _GIT_GLOBAL:
+                return False
+            i += 1 + _GIT_GLOBAL[words[i].text]
+        if i >= len(words):
             return False
-        if words[i].text == "branch":   # 名だけ並べる形だけが読むだけ（-d・-D・-m・-f・名を付けて作る形は書く）
-            return all(w.text in _BRANCH_LIST for w in words[i + 1:])
-        return True
-    if prog == "sed":
-        return not any(w.text.startswith("-i") or w.text == "--in-place" or re.search(r"(^|[;}])\s*[ew]\b|/[ew]\s*$", w.text)
-                       for w in words[1:])
-    if prog in ("sort",):
-        return not any(w.text.startswith("-o") for w in words[1:])
-    return prog in INERT
+        sub, rest = words[i].text, words[i + 1:]
+        if sub == "branch":   # 名だけ並べる形だけが読むだけ（-d・-D・-m・-f・名を付けて作る形は書く）
+            return all(w.text in _BRANCH_LIST for w in rest)
+        return sub in SAFE_GIT and _opts_safe(rest, SAFE_GIT[sub])
+    if prog not in SAFE:
+        return False
+    if prog == "sed" and any(re.search(r"(^|[;}])\s*[ew]\b|/[ew]\s*$", w.text) for w in words[1:]):
+        return False   # sed の式の e（命令を走らせる）・w（file へ書く）
+    return _opts_safe(words[1:], SAFE[prog])
 
 
 def inert(cmd):
