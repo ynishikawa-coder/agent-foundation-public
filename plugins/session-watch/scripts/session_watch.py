@@ -50,7 +50,7 @@ PLUGIN_ROOT = os.path.dirname(HERE)
 
 
 # ── 隣の正本（写さず直に呼ぶ）──────────────────────────────────
-#  中の言葉 … plugin guard の scripts/ask_shape.py（inner_terms）・値の表は scripts/guard_common.py
+#  中の言葉・「分からない」の見分け … plugin guard の scripts/ask_shape.py（inner_terms・is_dunno）・値の表は scripts/guard_common.py
 #  秘密の形 … 公開の検査 public-guard/guard.py（secret_labels。plugin の外＝市場の写しから読む）
 #  探す順: 環境変数 → 同じ repo（plugins/session-watch の隣）→ 入れた plugin の同じ版 → 市場の写し → 入れた plugin の新しい版
 #  どこにも無ければ None（check は neighbor の札を出す＝黙って照らしを抜かない）。
@@ -134,8 +134,6 @@ STRONG = re.compile(
 COND = re.compile(r"(なら|たら|れば|場合)[^。]*(教えて|声をかけて|言って)")
 # 開いた問いをチャットで聞く時に添える AI の読み（細目 §4）。これが在る平文の問いは拾わない。
 READING = re.compile(r"AI の(今の)?読み")
-# 選択肢モーダルのどの問いにも置く選択肢（細目 §4）。
-IDK = "分からない"
 CARD_LINE = re.compile(r"^[#>*\s]*(✅|❓|⏳|🛑)")
 DONE_LINE = re.compile(r"^[#>*\s]*✅(?!\s*終わった\s*[（(]\s*一部)")   # 終わった（「✅終わった（一部）」は除く・核 §7）
 # 一言で済む返事（細目 §5）の行数の上限。札で始めた返事・問いを出したターンは長さに関わらず札と締めを見る。
@@ -267,9 +265,12 @@ class Log(object):
                     items = [q for q in inp.get("questions") or [] if isinstance(q, dict)]
                     qs = [_norm(q.get("question")) for q in items]
                     self.events.append(("ask", [q for q in qs if q]))
-                    lack = [_norm(q.get("question")) for q in items if not has_idk(q)]
+                    idk = [(q, has_idk(q)) for q in items]
+                    lack = [_norm(q.get("question")) for q, ok in idk if ok is False]
                     if lack:
                         self.events.append(("noidk", lack))
+                    if any(ok is None for _, ok in idk):
+                        self.events.append(("noidk_blind", True))
                 else:
                     self.events.append(("tool", name))
                     if moves(name, inp):
@@ -291,11 +292,12 @@ class Log(object):
 
 
 def has_idk(question):
-    """選択肢の中に「分からない」が在るか。"""
-    for o in question.get("options") or []:
-        if isinstance(o, dict) and IDK in str(o.get("label") or ""):
-            return True
-    return False
+    """選択肢の中に「分からない」（細目 §4）が在るか。見分けは plugin guard の ask_shape.is_dunno を直に呼ぶ（写さない）。
+    正本が見つからない時は None（見分けられない＝在るとも無いとも言わず、neighbor の札で知らせる）。"""
+    A = neighbor("ask_shape")
+    if A is None or not hasattr(A, "is_dunno"):
+        return None
+    return any(isinstance(o, dict) and A.is_dunno(o.get("label")) for o in question.get("options") or [])
 
 
 def _norm(text):
@@ -657,6 +659,8 @@ def check(log, closing=None, data=None):
         if k == "noidk":
             for q in v:
                 found.append(("idk", "選択肢の画面の問いに「分からない」の選択肢が無い（足して出す）: %s" % q[:60]))
+    if any(k == "noidk_blind" for k, _ in log.events):
+        found.append(("neighbor", "「分からない」の見分けの正本（plugin guard の ask_shape.is_dunno）が見つからず、選択肢の画面の問いを照らせない"))
 
     # 答えの無い問い（一度も答えが返っていない問い）
     asked, answered = [], set()
