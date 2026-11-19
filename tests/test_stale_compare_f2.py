@@ -286,15 +286,15 @@ def test_書いた窓の組は古い手元の_origin_main_でなく出所の今�
     work = tmp_path / "work"
     subprocess.run(["git", "clone", "-q", str(up), str(work)], check=True, capture_output=True)
     old = _commit(work, {"a.md": "1\n"}, "始め")
-    _commit(work, {"b.md": "1\n"}, "main の物\n\nClaude-Session: https://x/session_MAINX")
+    _commit(work, {"b.md": "1\n"}, "main の物\n\nClaude-Session: https://x/session_01MAINX00000000000000")
     _git(work, "checkout", "-q", "-b", "claude/20261120-x")
-    _git(work, "commit", "-q", "--allow-empty", "-m", "枝の物\n\nClaude-Session: https://x/session_BRANCHY")
+    _git(work, "commit", "-q", "--allow-empty", "-m", "枝の物\n\nClaude-Session: https://x/session_01BRANCHY000000000000")
     head = _git(work, "rev-parse", "HEAD")
     _git(work, "update-ref", "refs/remotes/origin/main", old)  # 注入: 手元の origin/main は古い
     tool = ROOT / "plugins" / "checker" / "scripts" / "pr_writer.py"
     r = subprocess.run([sys.executable, str(tool), "--writers", "--head", head, "--repo", str(work)],
                        capture_output=True, text=True)
-    assert r.returncode == 0 and r.stdout.strip() == "session_BRANCHY", r.stdout + r.stderr
+    assert r.returncode == 0 and r.stdout.strip() == "session_01BRANCHY000000000000", r.stdout + r.stderr
     assert "--base origin/main" not in (ROOT / "plugins" / "checker" / "skills" / "review-pr" / "SKILL.md").read_text(
         encoding="utf-8")
 
