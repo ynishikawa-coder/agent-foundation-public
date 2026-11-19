@@ -399,3 +399,20 @@ def test_差し戻す口は_decision_block_で返し壊れた入力では黙る(
     assert run(json.dumps(stop_data(OK_REPLY), ensure_ascii=False)).stdout == ""
     bad = run("壊れた")
     assert bad.returncode == 0 and bad.stdout == ""
+
+
+def test_問いの前に題を問いの印にしなかった過ぎた事は差し戻さない(tmp_path):
+    """手で回す点検は拾うが、今の題を直しても消えない事なので、差し戻すと回り続ける＝差し戻さない。"""
+    def tool(name, inp):
+        return {"type": "assistant", "message": {"content": [{"type": "tool_use", "name": name, "input": inp}]}}
+    q = {"question": "作り物の置き場を A と B のどちらにしますか", "header": "置き場",
+         "options": [{"label": "A（推奨）"}, {"label": "B"}, {"label": "分からない"}]}
+    rs = [{"type": "user", "message": {"content": "作り物を直して（返し先=オーナー）"}},
+          tool("mcp__claude-code-remote__set_session_title", {"title": "🙋 作り物"}),
+          tool("AskUserQuestion", {"questions": [q]}),
+          {"type": "user", "toolUseResult": {"questions": [q], "answers": {q["question"]: "A（推奨）"}},
+           "message": {"content": [{"type": "tool_result", "content": "A"}]}}]
+    log = tmp_path / "t.jsonl"
+    log.write_text("\n".join(json.dumps(r, ensure_ascii=False) for r in rs) + "\n", encoding="utf-8")
+    assert any(c == "title" and m.startswith(sw.ASK_BEFORE) for c, m in sw.check(sw.Log(rs), OK_REPLY))
+    assert sw.stop(stop_data(OK_REPLY, str(log)), stop_env(tmp_path)) is None
