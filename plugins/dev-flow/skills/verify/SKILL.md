@@ -16,7 +16,7 @@ repo ごとに違う値は、repo の根（`git rev-parse --show-toplevel`）の
 | `completion_sop` | 上位の完了判定の正本 | 無し |
 | `report_writer` | Completion Report を書く役（書かない窓） | この窓が書く |
 | `report_place` | Completion Report の置き場の決まり | 会話の返事の中 |
-| `learning_record` | Stopped / Failed の学びの書き先 | 各社の原因の台帳の行（細目 §3。置き場は各社の決まった所＝核 §8） |
+| `learning_record` | Stopped / Failed の学びの書き先 | 各社の CLAUDE.md が名指す原因の台帳の行 |
 
 ## 範囲（クラウドが主）
 
@@ -72,7 +72,7 @@ repo ごとに違う値は、repo の根（`git rev-parse --show-toplevel`）の
 ## オーナーの業務がどう変わったか（真の完了条件）
 ```
 
-置き場は表の `report_place`。締めは核 §5 の 2 行（AI がこの後やること／あなたがやること）。Stopped / Failed の時は、学びを表の `learning_record` へ（無ければ各社の原因の台帳の行にする。返事の中だけに置かない）。
+置き場は表の `report_place`。締めは核 §5 の 2 行（AI がこの後やること／あなたがやること）。Stopped / Failed の時は、学びを表の `learning_record` へ（無ければ各社の原因の台帳の行にする＝細目 §3・核 §8。返事の中だけに置かない）。
 
 ## やりがちな間違い
 

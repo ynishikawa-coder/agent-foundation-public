@@ -17,8 +17,8 @@ repo の根の `config/skill-values.json` の `dev-flow.register-rule.<鍵>` か
 |---|---|---|
 | `dup_check_cmd` | Step 2 の機械の重複検査の命令 | grep だけ |
 | `desc_budget_bytes` | skill の description の合計の予算（Step 4） | 測って PR 本文に書くだけ |
-| `decision_record` | 原文・経緯を書く決定の記録の口 | 各社の決定の記録（核 §8・細目 §8。置き場の名は各社の値の表か CLAUDE.md が持つ）。分からない時は PR 本文で代わりにせず聞く（公開の repo の PR 本文は誰にでも見える） |
-| `learning_record` | 失敗・学びの書き先 | 各社の原因の台帳の行（細目 §3。置き場は各社の決まった所＝核 §8） |
+| `decision_record` | 原文・経緯を書く決定の記録の口 | 各社の CLAUDE.md が名指す決定の記録。名指しが無ければ PR 本文で代わりにせず聞く（公開の repo の PR 本文は誰にでも見える） |
+| `learning_record` | 失敗・学びの書き先 | 各社の CLAUDE.md が名指す原因の台帳の行 |
 
 ## Step 1: これは止める物か（最初に問う）
 
@@ -71,7 +71,7 @@ grep -rn "<語 1>\|<語 2>" CLAUDE.md .claude/ plugins/ 2>/dev/null
 
 - 読み返して直す: 言い換えの無い専門用語・説明の無い ID・5 段以上の手順・80 字以上の文の連続。
 - 書いた後、常時読む物（核・細目・`CLAUDE.md`・skill の description）を見て、重複は 1 か所に寄せ、死んだ参照は消す。食い違いで意味が変わる物はオーナーに聞く。
-- 失敗・学びは `learning_record` へ（repo の md に積まない）。
+- 失敗・学びは `learning_record` へ（無ければ各社の原因の台帳＝細目 §3・核 §8。repo の md に積まない）。
 
 ## 出力の形
 

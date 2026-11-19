@@ -30,8 +30,9 @@ def default_of(text, key):
 
 
 def record_default_ok(cell):
-    """記録の既定が各社の置き場（核 §8）を指し、PR 本文・返事の中を置き場にしていないか。"""
-    if "核 §8" not in cell:
+    """記録の既定が各社の置き場を指し、PR 本文・返事の中を置き場にしていないか。
+    （核 §8 は本文の行き先の文が指す。値の表の既定に核・細目を挙げない＝tests/test_skill_values_no_rule_copy.py）"""
+    if "各社" not in cell:
         return False
     # 「PR 本文で代わりにしない」のような打ち消しの句は置き場にしていない（言い回しは問わず、句に打ち消しが在るかで見る）。
     placed = re.sub(r"[^。、（）]*PR 本文[^。、（）]*?(せず|しない|書かない|見える)[^。、（）]*", "", cell)
@@ -44,20 +45,21 @@ RECORD_KEYS = [(VERIFY, "learning_record"), (REGISTER, "decision_record"), (REGI
 def test_記録の既定は各社の置き場を指す():
     for path, key in RECORD_KEYS:
         cell = default_of(read(path), key)
-        assert record_default_ok(cell), "%s の %s の既定が各社の置き場（核 §8）を指していない: %s" % (path.parent.name, key, cell)
+        assert record_default_ok(cell), "%s の %s の既定が各社の置き場を指していない: %s" % (path.parent.name, key, cell)
 
 
 def test_記録の既定の照らしは古い形を拒む():
-    assert record_default_ok("各社の決定の記録（核 §8）。PR 本文には書かない")   # 言い換えても通る
+    assert record_default_ok("各社の決定の記録。PR 本文には書かない")   # 言い換えても通る
     for old in ["無し（返事の中に 1 行）", "PR 本文に原文と経緯を書く", "PR 本文の「学び:」の 1 行", "PR 本文に書く（核 §8）"]:
         assert not record_default_ok(old), "古い既定を通してしまう: %s" % old
 
 
 def test_本文の記録の行き先も返事の中や_PR_本文にしない():
-    for path, pat in [(VERIFY, r"learning_record` へ（無ければ([^）]*)）"), (REGISTER, r"decision_record`（無ければ([^）]*)）")]:
+    for path, pat in [(VERIFY, r"learning_record` へ（無ければ([^）]*)）"), (REGISTER, r"decision_record`（無ければ([^）]*)）"), (REGISTER, r"learning_record` へ（無ければ([^）]*)）")]:
         m = re.search(pat, read(path))
         assert m, "%s に記録の行き先の文が無い" % path.parent.name
         assert "PR 本文" not in m.group(1) and "返事の中に 1 行" not in m.group(1), m.group(0)
+        assert "核 §8" in m.group(1), "記録の行き先の文が核 §8 を指していない: " + m.group(0)
 
 
 def done_mark_ok(row):
