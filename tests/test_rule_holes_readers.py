@@ -44,3 +44,24 @@ def test_2_文を一緒に消した時だけ照らしが通る形でも_守ら�
         assert 穴(rel, text, only={a, b}) == []
     finally:
         readers[rel].remove(fake)
+
+
+def test_元から赤の試験は_文を守ったと数えない():
+    """注入の試験: 消す前の中身で既に赤の試験は、どの文を消しても赤のまま。それを数えると全部の文を守られたと見誤る
+    （main の取り込みで照らしの文が変わり、1 本の赤で表の行が全部古いと出た）。元から赤の試験だけが読む文は穴に出る。"""
+    readers = _決まりの試験()
+    rel = "plugins/core/細目.md"
+    sent = "- **作り物の元から赤の決まり** — 元から赤の試験だけが読む。"
+    text = _open_real(ROOT / rel, encoding="utf-8").read() + "\n" + sent + "\n"
+
+    def test_元から赤():
+        with open(ROOT / rel, encoding="utf-8") as f:
+            f.read()
+        raise AssertionError("元から赤")
+    fake = _試験(sys.modules[__name__], "_無い", {}, False)
+    fake.赤か = lambda: _回す(test_元から赤, {})
+    readers[rel].append(fake)
+    try:
+        assert 穴(rel, text, only={sent}) == [sent]
+    finally:
+        readers[rel].remove(fake)

@@ -245,9 +245,16 @@ def _決まりの試験():
     return {r: [t for *_, t in sorted(v)] for r, v in readers.items()}   # 速い試験から回す＝守られた文は早く赤になる
 
 
-def _赤(rel, text, cut):
-    """cut の文を消した中身で、rel を読む試験のどれかが赤になるか。"""
+def _緑の試験(rel, text):
+    """rel を読む試験のうち、消す前の中身 text で緑の物。元から赤の試験は数えない（どの文を消しても赤のままなので、
+    数えると全部の文を守られたと見誤る＝表の行が全部古いと出る・main の取り込みで文が変わった時に起きた）。"""
     tests = _決まりの試験()[rel]          # 見分けは差し替えの外で先に済ませる（見分けの中で中身を差し替えない）
+    with _口(swap={rel: text}):
+        return [t for t in tests if not t.赤か()]
+
+
+def _赤(rel, text, cut, tests):
+    """cut の文を消した中身で、tests（消す前に緑の試験）のどれかが赤になるか。"""
     with _口(swap={rel: _消す(text, cut)}):
         return any(t.赤か() for t in tests)
 
@@ -257,8 +264,9 @@ def 穴(rel, text=None, only=None):
     文は 1 つずつ消して見る（まとめて消すと、2 文を一緒に消した時だけ照らしが通る形で、守られた文を穴と見誤る・
     PR #79 のレビュー）。"""
     text = _open_real(ROOT / rel, encoding="utf-8").read() if text is None else text
+    tests = _緑の試験(rel, text)
     return [s.strip() for i, s in 文の並び(text)
-            if (only is None or s.strip() in only) and not _赤(rel, text, [(i, s)])]
+            if (only is None or s.strip() in only) and not _赤(rel, text, [(i, s)], tests)]
 
 
 def 表():
