@@ -90,6 +90,7 @@ def test_make_deck_の差し込みが埋まる_欠ければ止まる(tmp_path):
     ng = subprocess.run([sys.executable, "-B", str(render), "render", "--values", str(thin), "--out", str(tmp_path / "q.txt")],
                         capture_output=True, text=True)
     assert ng.returncode != 0
+    assert "細目 §3「まず構造を疑う」" in ng.stderr.strip().splitlines()[-1], "欠けを埋めて出し直させるだけの古い形に戻った"
 
 
 # ── qa-html の検査 ──────────────────────────────────────────────────
@@ -884,3 +885,59 @@ def test_1枚ずつの印は_file_が2つなら止まる(tmp_path):
     res = subprocess.run([NODE, str(CHECK), str(good), str(DATA / "good.json"), "--run-prior"],
                          capture_output=True, text=True, cwd=tmp_path)
     assert res.returncode == 2 and "1 枚ずつ" in res.stderr
+def test_検査が赤なら根治の入口を指し緑なら出さない():
+    """赤の行だけを返す古い形（原因から直させない）に戻すと赤。"""
+    bad = subprocess.run([NODE, str(CHECK), str(DATA / "bad.json")], capture_output=True, text=True)
+    assert bad.returncode == 1 and "細目 §3「まず構造を疑う」" in bad.stdout.strip().splitlines()[-1]
+    good = subprocess.run([NODE, str(CHECK), str(DATA / "good.json")], capture_output=True, text=True)
+    assert good.returncode == 0 and "まず構造を疑う" not in good.stdout
+
+
+def _load(path, name):
+    import importlib.util
+    spec = importlib.util.spec_from_file_location(name, path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def _dom(text):
+    return '<pre id="selftest">%s</pre>' % text if text is not None else "<html></html>"
+
+
+@pytest.mark.parametrize("selftest", ["SELFTEST NG\nscr1: 例外", None])
+def test_理論モックの検査は_NG_なら最後に根治の入口を指し_OK_なら指さない(tmp_path, monkeypatch, capsys, selftest):
+    """NG の行だけを返す古い形（1 つずつ潰させる）に戻すと赤。Chrome は使わず DOM を作り物にする。"""
+    tm = _load(SKILLS / "theory-mock" / "scripts" / "check_theory_mock.py", "check_theory_mock")
+    page = tmp_path / "m.html"
+    page.write_text("<html></html>", encoding="utf-8")
+    monkeypatch.setattr(tm, "find_chrome", lambda: "chrome")
+    monkeypatch.setattr(tm, "dump_dom", lambda cmd: _dom(selftest))
+    assert tm.main(["x", str(page)]) == 1
+    assert "細目 §3「まず構造を疑う」" in capsys.readouterr().out.strip().splitlines()[-1]
+    monkeypatch.setattr(tm, "dump_dom", lambda cmd: _dom("SELFTEST OK 3 screens"))
+    assert tm.main(["x", str(page)]) == 0
+    assert "まず構造を疑う" not in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("selftest", ["SELFTEST NG\ntab1/s1: 根拠が空", None])
+def test_Blueprint_の検査は_NG_なら最後に根治の入口を指し_OK_なら指さない(tmp_path, monkeypatch, capsys, selftest):
+    bp = _load(SKILLS / "blueprint" / "scripts" / "check_blueprint.py", "check_blueprint")
+    page = tmp_path / "b.html"
+    page.write_text("<html></html>", encoding="utf-8")
+    monkeypatch.setattr(bp, "open_dom", lambda target, mode: _dom(selftest))
+    assert bp.check(str(page)) == 1
+    assert "細目 §3「まず構造を疑う」" in capsys.readouterr().out.strip().splitlines()[-1]
+    monkeypatch.setattr(bp, "open_dom", lambda target, mode: _dom("SELFTEST OK 1 tabs 2 steps"))
+    assert bp.check(str(page)) == 0
+    assert "まず構造を疑う" not in capsys.readouterr().out
+
+
+def test_Blueprint_の比較で材料が読めなければ最後に根治の入口を指す(tmp_path, monkeypatch, capsys):
+    bp = _load(SKILLS / "blueprint" / "scripts" / "check_blueprint.py", "check_blueprint")
+    a, b = tmp_path / "a.html", tmp_path / "b.html"
+    for f in (a, b):
+        f.write_text("<html></html>", encoding="utf-8")
+    monkeypatch.setattr(bp, "open_dom", lambda target, mode: "<html></html>")
+    assert bp.compare(str(a), str(b)) == 1
+    assert "細目 §3「まず構造を疑う」" in capsys.readouterr().out.strip().splitlines()[-1]

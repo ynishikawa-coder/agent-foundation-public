@@ -39,6 +39,7 @@ import { fileURLToPath } from "node:url";
 //    （文字列か {語, 正規表現, 言い換え}）、上限は docs-kit.qa-html.limits で上書きする。
 // 外した欄（2026-11-14 オーナー決定: 差出人・連絡先の欄は要らない）。HTML の class と JSON の鍵が同じ名。
 const DROPPED = [["from", "差出人"], ["contact", "連絡先"]];
+const ROOT_CAUSE = "  直し: 赤の行を 1 つずつ潰さず、細目 §3「まず構造を疑う」で原因（問いの元の表・前提の写し方）から直す";
 
 export const RULES = {
   "limits": {
@@ -948,6 +949,7 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
       console.log(`${res.ok ? "🟢 緑" : "🔴 赤"}  ${res.file}（${res.format}・問い ${res.questions.length}・宛先 ${res.dest ?? "?"}）`);
       for (const r of res.red) console.log(`  ✗ ${r}`);
     }
+    if (results.some((r) => !r.ok)) console.log(ROOT_CAUSE);
     if (results.length > 1) console.log(`照らした file ${results.length}・赤 ${results.filter((r) => !r.ok).length}`);
   }
   process.exit(results.every((r) => r.ok) ? 0 : 1);

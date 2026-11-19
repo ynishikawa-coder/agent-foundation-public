@@ -68,6 +68,9 @@ class GitHub:
             page += 1
 
 
+# 外れが在る時の最後の行（中身は土台の細目 §3 が正本＝ここは指すだけ）
+ROOT_CAUSE = "直し: 外れた repo を 1 つずつ直すだけで済ませず、外れる形になった原因を細目 §3「まず構造を疑う」で探して直す"
+
 def public_repos(gh: GitHub, owner: str) -> list[dict]:
     return [r for r in gh.pages(f"/users/{owner}/repos?type=owner")
             if not r.get("private") and not r.get("archived")]
@@ -170,6 +173,8 @@ def main(argv=None) -> int:
         return 2
     text = render(found, owners)
     print(("✗ " if found else "✅ ") + text)
+    if found:
+        print(ROOT_CAUSE)
     summary = os.environ.get("GITHUB_STEP_SUMMARY")
     if summary:
         with open(summary, "a", encoding="utf-8") as f:
