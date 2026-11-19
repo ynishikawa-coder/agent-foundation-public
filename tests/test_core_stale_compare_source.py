@@ -172,3 +172,35 @@ def test_入口は入れ終わる前の_main_を記録し_入れている間の_
     state = json.loads((home / ".claude" / "af-foundation" / "setup.json").read_text(encoding="utf-8"))
     up_tip = subprocess.run(["git", "-C", str(up), "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip()
     assert state["main_at_setup"] == state["catalog_sha"] != up_tip, (r.stdout, state)
+
+
+def test_分かれ目が読めない浅い_clone_では直ったとも足したとも言い切らない(tmp_path):
+    """注入（レビューの止める）: main で古い形を直し 5 本進めた remote を浅く clone し、古い枝を checkout → 分かれ目が
+    読めない → 「この枝で足した・消す」とも「main で直った」とも言わず、分からないと名指す。olds は main を読んで 0。"""
+    remote, work = tmp_path / "remote.git", tmp_path / "work"
+    subprocess.run(["git", "init", "-q", "--bare", "-b", "main", str(remote)], check=True)
+    subprocess.run(["git", "clone", "-q", str(remote), str(work)], check=True, capture_output=True)
+    base = _commit(work, {"setup.sh": OLD}, "始め")
+    _git(work, "push", "-q", "origin", f"{base}:refs/heads/古い枝")
+    _commit(work, {"setup.sh": NEW}, "main で直す")
+    for i in range(5):
+        _commit(work, {f"docs/{i}.md": "x\n"}, f"進める {i}")
+    shallow = tmp_path / "浅い"
+    subprocess.run(["git", "clone", "-q", "--depth", "2", "--no-single-branch", f"file://{remote}", str(shallow)],
+                   check=True, capture_output=True)
+    _git(shallow, "checkout", "-q", "古い枝")
+    assert subprocess.run(["git", "-C", str(shallow), "merge-base", "HEAD", "origin/main"],
+                          capture_output=True).returncode != 0
+    text = json.loads(run("inject", project=shallow).stdout)["hookSpecificOutput"]["additionalContext"]
+    assert "残っている — この仕事で消す" not in text and "（この枝で足した）" not in text, text
+    assert "古い形は main では直っている" not in text
+    assert "分からない" in text and "setup.sh" in text
+    assert run("olds", shallow).returncode == 0
+
+
+def test_記録が_SHA_の形でなければ分からないと名指す(tmp_path):
+    f = Foundation(tmp_path)
+    _commit(f.work, {"plugins/guard/x.py": "x\n"}, "守りを変える")
+    f.install(main_at_setup="壊れた記録")
+    text = f.hook("inject")
+    assert "分からない" in text and "setup はそれと違う物を入れた" not in text

@@ -145,7 +145,7 @@ def _tree_texts(project: Path, ref: str, only: set[tuple[str, str]] | None = Non
     return texts
 
 
-SCAN_KEYS = ("found", "fixed_here", "behind", "added")
+SCAN_KEYS = ("found", "fixed_here", "behind", "added", "unknown")
 
 
 def olds_scan(project: Path, rows: list[dict] | None = None) -> dict:
@@ -158,17 +158,21 @@ def olds_scan(project: Path, rows: list[dict] | None = None) -> dict:
     ref = main_ref(project)
     checkout = _hits(rows, _checkout_texts(project))
     if not ref:
-        return {"ref": None, "found": checkout, "fixed_here": [], "behind": [], "added": []}
+        return {"ref": None, "found": checkout, "fixed_here": [], "behind": [], "added": [], "unknown": []}
     found = _hits(rows, _tree_texts(project, ref))
     seen = {(r["id"], f) for r, f in found}
     only = {(r["id"], f) for r, f in checkout} - seen
     base = _git(str(project), "merge-base", "HEAD", ref, timeout=10) if only else None
     was = {(r["id"], f) for r, f in _hits(rows, _tree_texts(project, base, only))} if base else set()
     rest = [(r, f) for r, f in checkout if (r["id"], f) in only]
+    if not base:  # 分かれ目が読めない（浅い clone 等）: main で直ったともこの枝で足したとも言い切らない
+        return {"ref": ref, "found": found, "fixed_here": [(r, f) for r, f in found if (r["id"], f) not in
+                                                           {(x["id"], y) for x, y in checkout}],
+                "behind": [], "added": [], "unknown": rest}
     return {"ref": ref, "found": found, "fixed_here": [(r, f) for r, f in found if (r["id"], f) not in
                                                        {(x["id"], y) for x, y in checkout}],
             "behind": [x for x in rest if (x[0]["id"], x[1]) in was],
-            "added": [x for x in rest if (x[0]["id"], x[1]) not in was]}
+            "added": [x for x in rest if (x[0]["id"], x[1]) not in was], "unknown": []}
 
 
 def find_olds(project: Path, rows: list[dict] | None = None) -> list[tuple[dict, str]]:
@@ -207,6 +211,12 @@ def olds_text(scan: dict, project: Path) -> str | None:
         lines += [f"## この repo（{project.name}）の作業の枝は main より古い — 古い形は main では直っている\n",
                   f"次は checkout には残るが main（{ref[:12]}）で直った（消す仕事は要らない。枝を main に追いつかせれば消える）: "
                   + "・".join(f"{f}（{r['id']}）" for r, f in scan["behind"]) + "\n"]
+    if scan.get("unknown"):
+        lines += [f"## この repo（{project.name}）の作業の枝にだけ古い形が在る — main で直ったか、この枝で足したかが分からない\n",
+                  f"次は checkout には在るが main（{ref[:12]}）には無い。枝と main の分かれ目が読めない（浅い clone など）ので、"
+                  "main で直った物（枝を main に追いつかせれば消える）か、この枝で足した物（この仕事で消す）かを言い切れない。"
+                  "`git fetch --unshallow`（または `--deepen`）で分かれ目を取ってから見分ける: "
+                  + "・".join(f"{f}（{r['id']}）" for r, f in scan["unknown"]) + "\n"]
     return "".join(lines) or None
 
 
@@ -363,7 +373,7 @@ def start_cause(f: dict | None) -> str | None:
     if not f or not f["plugins"]:
         return None
     rec = (_read_json(_home() / "af-foundation" / "setup.json") or {}).get("main_at_setup")
-    if not isinstance(rec, str) or not rec:
+    if not isinstance(rec, str) or not re.fullmatch(r"[0-9a-f]{40}|[0-9a-f]{64}", rec):
         return "unknown"
     return "after" if rec == f["installed"] else "setup"
 
