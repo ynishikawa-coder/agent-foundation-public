@@ -162,7 +162,7 @@ def test_聞き方は見せてから聞き_前提の出所を分け_推奨の印
     reminder = (ROOT / "plugins" / "guard" / "scripts" / "unanswered.py").read_text(encoding="utf-8")
     assert "この答えに頼らない作業だけを進めて" in reminder
     olds = ["答えを待つ間も止まらない", "①決めること ②なぜ今 ③材料", "推奨を 1 つ目に `(推奨)`", "「終わった（推奨）」",
-            "戻せる作業だけを推奨案で進めて", "答え待ちで推奨を採った", "質問（`Q`）は必ず推奨と", "推奨を 1 つ目・", "推奨を 1 つ目・1 画面 4 問まで"]
+            "戻せる作業だけを推奨案で進めて", "答え待ちで推奨を採った", "質問（`Q`）は必ず推奨と", "推奨を 1 つ目・", "推奨を 1 つ目・1 画面 4 問まで", "推奨で決めて"]
     hits = []
     for p in sorted(ROOT.rglob("*")):
         rel = p.relative_to(ROOT)
@@ -381,7 +381,7 @@ def test_挙げた原因は全部台帳に行き先つきで持ち_全部済む�
     ("CONTRIBUTING.md", "1 本に入らなかった仕事"),
     ("CONTRIBUTING.md", "`合流済` が届いた枝"),
     ("plugins/checker/skills/review-pr/SKILL.md", "`[台帳へ｜<段>]`"),
-    ("plugins/dev-flow/skills/codex/SKILL.md", "| `task_rule` |"),
+    # codex の値の表の `task_rule` は細目 §3 の写しなので畳んだ（受け皿は本文の 6. DEFER の行だけ）
     ("plugins/dev-flow/skills/codex/SKILL.md", "`[DEFER]`"),
     ("plugins/dev-flow/skills/codex/SKILL.md", "**RETURN_TO_DESIGN**"),
     ("plugins/dev-flow/skills/codex/SKILL.md", "6. **DEFER"),
