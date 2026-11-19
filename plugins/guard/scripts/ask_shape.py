@@ -23,7 +23,13 @@
 """
 from __future__ import annotations
 
+import os
 import re
+import sys
+
+sys.dont_write_bytecode = True
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib"))
+import skill_values as SV  # noqa: E402  値の表の当て方の 1 本の口（土台の skill-values/ への symlink）
 
 ASK_TOOL = "AskUserQuestion"
 
@@ -112,14 +118,14 @@ def bad_patterns(vals):
 
 
 def _inner_hits(text, vals):
-    allow = _patterns(vals, "ask_term_allow")[0]
+    allow = SV.patterns_of("guard", None, "ask_term_allow", vals)
     extra = [("中の言葉", p) for p in _patterns(vals, "ask_inner_terms_extra")[0]]
     body = _URL.sub(" ", text)
     hits = []
     for name, pat in INNER + tuple(extra):
         for m in re.finditer(pat, body):
             tok = m.group(0).strip()
-            if not tok or any(a.search(tok) for a in allow):
+            if not tok or SV.hit(allow, tok) is not None:
                 continue
             if (name, tok) not in hits:
                 hits.append((name, tok))
@@ -189,7 +195,7 @@ def _rec_findings(q):
 
 
 def _exempt(text, vals):
-    return any(isinstance(p, str) and p and re.search(p, text) for p in (vals.get("ask_shape_exempt") or []))
+    return SV.hit(SV.patterns_of("guard", None, "ask_shape_exempt", vals), text) is not None
 
 
 def findings(qs, vals):
@@ -277,13 +283,14 @@ def rec_kind_notes(qs, vals, bad=None):
     kinds = vals.get("ask_rec_notice_kinds")
     if not isinstance(kinds, dict) or not kinds:
         kinds = REC_NOTICE_KINDS
-    exempt = [p for p in (vals.get("ask_rec_notice_exempt") or []) if isinstance(p, str) and p]
+    exempt = SV.patterns_of("guard", None, "ask_rec_notice_exempt", vals)
+    bad += [p for p in SV.bad_pattern_rows(vals.get("ask_rec_notice_exempt") or []) if isinstance(p, str) and p and p not in bad]
     out = []
     for q in qs:
         if not isinstance(q, dict):
             continue
         text = _text(q.get("question"))
-        if not text or any(_search(p, text, bad) for p in exempt):
+        if not text or SV.hit(exempt, text) is not None:
             continue
         labels = [_text(o.get("label")) for o in (q.get("options") or []) if isinstance(o, dict)]
         if not any(_REC_WORD.search(lb) for lb in labels):

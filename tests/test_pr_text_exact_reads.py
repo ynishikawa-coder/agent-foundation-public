@@ -16,8 +16,12 @@ import pytest
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "plugins" / "guard" / "scripts"))
 sys.path.insert(0, str(ROOT / "skill-values"))
+sys.path.insert(0, str(ROOT / "public-guard"))
 import pr_text as P  # noqa: E402
 import skill_values as SV  # noqa: E402
+import workflow_reader as W  # noqa: E402
+
+from test_wf_reader import whole  # noqa: E402  断片を PR で走る workflow の job の steps に包む
 
 from test_pr_text import MAIL, PUBLIC_WORD, _fake_public_repo, deny_reason, env, gh  # noqa: E402,F401
 
@@ -45,7 +49,7 @@ REPO_KEYS = ("pr_cleanup_exempt_repos", "pr_words_exempt_repos", "public_repos_e
     ("    steps:\n      - %s\n        with:\n          pattern-skip: |\n            deny-words-file: other/x.txt\n" % CALL, ""),
 ])
 def test_置かない語の表は_public_guard_を呼ぶ_step_の_with_からだけ読む(wf, want):
-    assert P.deny_words_file(wf, F) == want
+    assert W.deny_words_files(whole(wf), F) == ([want] if want else [])
 
 
 def test_別の_step_の語の表を公開の検査に渡さない(env):  # noqa: F811
@@ -54,7 +58,7 @@ def test_別の_step_の語の表を公開の検査に渡さない(env):  # noqa
     _fake_public_repo(proj, PUBLIC_WORD)
     (proj / "data" / "other.txt").write_text("作り物の別の語\n", encoding="utf-8")
     (proj / ".github" / "workflows" / "public-guard.yml").write_text(
-        "jobs:\n  public-guard:\n    steps:\n      - uses: someone/other-check@v1\n        with:\n"
+        "on: [pull_request]\njobs:\n  public-guard:\n    steps:\n      - uses: someone/other-check@v1\n        with:\n"
         "          deny-words-file: data/other.txt\n      - %s\n        with:\n"
         "          deny-words-file: data/deny.txt\n" % CALL, encoding="utf-8")
     why = deny_reason(env, gh("update_pull_request", pullNumber=1, title="%s の直し" % PUBLIC_WORD, repo="fake-public"))
@@ -137,7 +141,7 @@ def test_説明が名の全体に当てる正規表現と書く():
 
 def test_run_の塊の中の_uses_の行は呼び口と見ない():
     wf = "    steps:\n      - run: |\n          uses: ./public-guard\n          deny-words-file: other/x.txt\n"
-    assert not P.calls_public_guard(wf, F) and P.deny_words_file(wf, F) == ""
+    assert not P.calls_public_guard(whole(wf), F) and W.deny_words_files(whole(wf), F) == []
 
 
 @pytest.mark.parametrize("rows", [["^fake-owner/far-public$", "^other/"], ["^other/", "^fake-owner/far-public$"],

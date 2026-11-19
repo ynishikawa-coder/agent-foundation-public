@@ -147,6 +147,22 @@ def values_problems(payload=None):
     return path, problems + SV.check(table)
 
 
+def patterns(vals, key, flags=0):
+    """値の表 guard の正規表現の鍵を、型の正本（schema.json の against・match）の当て方で読んだ形（SV.hit に渡す）。
+    鍵ごとに re.search・fullmatch を書き分けない＝当て方の正本は schema の spec の 1 か所。"""
+    return SV.patterns_of("guard", None, key, vals, flags)
+
+
+def tool_sig(block):
+    """道具の呼び出し 1 つの当てる相手: 道具の名・空白 1 つ・入力の JSON（鍵の順に並べた 1 行）。
+    値の表 guard.ask_prior_lookup・context_handoff の当てる相手の正本（schema.json の against と同じ形）。"""
+    try:
+        body = json.dumps(block.get("input") or {}, ensure_ascii=False, sort_keys=True)
+    except (TypeError, ValueError):
+        body = str(block.get("input") or "")
+    return "%s %s" % (block.get("name") or "", body)
+
+
 def truthy(v):
     v = str(v or "").strip().lower()
     return bool(v) and v not in ("0", "false", "no", "off")
