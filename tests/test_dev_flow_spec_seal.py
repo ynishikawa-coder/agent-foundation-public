@@ -162,3 +162,32 @@ def test_値の表の形が壊れていれば落ちずに止める(env):
     put15(spec, DONE_TABLE)
     res = seal(repo, spec)
     assert res.returncode == 1 and "Traceback" not in res.stderr
+
+
+@pytest.mark.parametrize("raw", ['["並び"]', '{"dev-flow": ""}', '{"dev-flow": [1]}', '{"dev-flow": {"spec-doc": "字"}}'])
+def test_値の表の形が違えば口を黙って消さず止める(env, raw):
+    repo, spec = env
+    (repo / "config" / "skill-values.json").write_text(raw, encoding="utf-8")
+    put15(spec, UNMATCHED)
+    res = seal(repo, spec, "--match-only")
+    assert res.returncode == 1 and "Traceback" not in res.stderr, raw
+    assert "値の表" in res.stderr, raw
+
+
+def test_渡した値の表が無い時は止める(env, tmp_path):
+    repo, spec = env
+    put15(spec, UNMATCHED)
+    res = seal(repo, spec, "--match-only", "--values", str(tmp_path / "無い.json"))
+    assert res.returncode == 1 and "値の表が無い" in res.stderr
+
+
+@pytest.mark.parametrize("item,code", [
+    ("- 作り物の決定 A: 直した・未定", 1),
+    ("- 作り物の決定 A: 直した/未定", 1),
+    ("- 作り物の決定 A: ぶつかる → 直した（理由: 作り物）", 0),
+    ("- 作り物の決定 A: ぶつかる → 覆す＝墓標へ", 0),
+])
+def test_扱いの頭の語の後ろと括弧の中の区切り(env, item, code):
+    repo, spec = env
+    put15(spec, HEAD + "## §6 決定照合\n\n" + item + "\n")
+    assert seal(repo, spec, "--match-only").returncode == code, item

@@ -88,12 +88,23 @@ def repo_root(start: Path) -> Path:
 def load_values(root: Path, path: str | None) -> dict:
     p = Path(path) if path else root / "config" / "skill-values.json"
     if not p.is_file():
+        if path:
+            raise Abort(f"--values に渡した値の表が無い: {p}")
         return {}
     try:
         data = json.loads(p.read_text(encoding="utf-8"))
     except json.JSONDecodeError as e:
         raise Abort(f"値の表が読めない（{p.name}: {e}）")
-    return (data.get("dev-flow") or {}).get("codex") or {}
+    # 形の違う値の表は黙って空にしない（照合の口・外し方が消えて素通りになるため）。
+    if not isinstance(data, dict):
+        raise Abort("値の表の全体が表（JSON の object）でない")
+    flow = data.get("dev-flow", {})
+    if not isinstance(flow, dict):
+        raise Abort("値の表の dev-flow が表（JSON の object）でない")
+    vals = flow.get("codex", {})
+    if not isinstance(vals, dict):
+        raise Abort("値の表の dev-flow.codex が表（JSON の object）でない")
+    return vals
 
 
 def rel_of(root: Path, f: str) -> str:

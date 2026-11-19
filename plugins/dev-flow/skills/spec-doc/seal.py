@@ -37,8 +37,9 @@ _SEC6 = re.compile(r"(?:§\s*6(?!\d)|^6(?:[.．、\s]|$)|決定照合)")
 _TABLE = re.compile(r"^\s*\|")
 _TABLE_SEP = re.compile(r"^\s*\|[\s:\-|]+\|?\s*$")
 # 扱いは欄（箇条なら最後の区切りの後）の頭に 3 語のどれかを置き、その後は区切りか終わり（「直したいが未定」は済みでない）。
-_DONE = re.compile(r"^\s*(?:直した|覆す|関係なし)(?=$|[\s＝=（(。、/・:：|\-—→])")
-_LAST_SEP = re.compile(r".*(?:→|->|:|：|＝>|\|)\s*")
+_DONE = re.compile(r"^\s*(?:直した|覆す|関係なし)(?=$|[\s＝=（(。])")
+_LAST_SEP = re.compile(r".*(?:→|->|:|：)\s*")
+_PAREN = re.compile(r"（[^（）]*）|\([^()]*\)")
 _ITEM = re.compile(r"^\s*(?:[-*+]|\d+[.)])\s+\S")
 
 
@@ -60,15 +61,21 @@ def load_values(root: Path | None, path: str | None) -> dict:
     else:
         return {}
     if not p.is_file():
+        if path:
+            raise Abort(f"--values に渡した値の表が無い: {p}")
         return {}
     try:
         data = json.loads(p.read_text(encoding="utf-8"))
     except json.JSONDecodeError as e:
         raise Abort(f"値の表が読めない（{p.name}: {e}）")
-    vals = (data.get("dev-flow") or {}).get("spec-doc") if isinstance(data, dict) else None
-    if vals is None:
-        return {}
-    if not isinstance(data.get("dev-flow"), dict) or not isinstance(vals, dict):
+    # 形の違う値の表は黙って空にしない（照合の口・外し方が消えて素通りになるため）。
+    if not isinstance(data, dict):
+        raise Abort("値の表の全体が表（JSON の object）でない")
+    flow = data.get("dev-flow", {})
+    if not isinstance(flow, dict):
+        raise Abort("値の表の dev-flow が表（JSON の object）でない")
+    vals = flow.get("spec-doc", {})
+    if not isinstance(vals, dict):
         raise Abort("値の表の dev-flow.spec-doc が表（JSON の object）でない")
     return vals
 
@@ -118,7 +125,7 @@ def rows_of(body: list[tuple[int, str]]) -> list[tuple[int, str, str]]:
             header = col = None
             if _ITEM.match(ln):
                 body = re.sub(r"^\s*(?:[-*+]|\d+[.)])\s+", "", ln)
-                out.append((no, ln.strip(), _LAST_SEP.sub("", body, count=1)))
+                out.append((no, ln.strip(), _LAST_SEP.sub("", _PAREN.sub("", body), count=1)))
     return out
 
 

@@ -225,3 +225,15 @@ def test_止めた時の送り出しの記録に塊の字を書かない(repo, t
     rec = json.loads(line)
     assert rec["result"] == "中止" and rec["block"] == ["高エントロピーの塊"]
     assert tok not in line
+
+
+@pytest.mark.parametrize("raw", ['["並び"]', '{"dev-flow": ""}', '{"dev-flow": [1]}', '{"dev-flow": {"codex": "字"}}'])
+def test_値の表の形が違えば黙って空にせず止める(repo, tmp_path, raw):
+    (repo / "config" / "skill-values.json").write_text(raw, encoding="utf-8")
+    res = run(repo, tmp_path / "o", "--file", "tools/calc.py")
+    assert res.returncode == 1 and "Traceback" not in res.stderr and "値の表" in res.stderr, raw
+
+
+def test_渡した値の表が無い時は止める(repo, tmp_path):
+    res = run(repo, tmp_path / "o", "--file", "tools/calc.py", "--values", str(tmp_path / "無い.json"))
+    assert res.returncode == 1 and "値の表が無い" in res.stderr
