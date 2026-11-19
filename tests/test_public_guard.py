@@ -326,6 +326,20 @@ def test_見回り_外れはissueで知らせ_0なら閉じる():
     assert ("PATCH", "/repos/h/issues/3", {"state": "closed", "state_reason": "completed"}) in gh.sent
 
 
+def test_見回り_同じ題のissueが2つあれば古い方を書き替え_残りは閉じる():
+    gh = FakeGitHub({"/repos/h/issues?": [{"number": 9, "title": patrol.ISSUE_TITLE},
+                                          {"number": 4, "title": patrol.ISSUE_TITLE}]})
+    patrol.report_issue(gh, "h", {"o/x": ["外れ"]}, "本文")
+    assert ("PATCH", "/repos/h/issues/4", {"body": "本文"}) in gh.sent
+    assert ("PATCH", "/repos/h/issues/9", {"state": "closed", "state_reason": "not_planned"}) in gh.sent
+    assert any(m == "POST" and p == "/repos/h/issues/9/comments" and "#4" in b["body"] for m, p, b in gh.sent)
+
+
+def test_置かない語は数を出す():
+    assert guard.word_hits("a.md", "作り物の甲と作り物の乙", ["甲", "乙", "丙"]) == ["a.md: 置かない語 2 個"]
+    assert guard.word_hits("a.md", "なし", ["甲"]) == []
+
+
 def test_見回りの相手が決まっている():
     owners = json.loads((ROOT / "public-guard" / "patrol.json").read_text(encoding="utf-8"))["owners"]
     assert owners and all(isinstance(o, str) and o for o in owners)

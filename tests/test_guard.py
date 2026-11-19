@@ -279,14 +279,63 @@ def test_助手の中では文脈を見ない(env, tmp_path):
     assert hook(env, "post", post_tool(tpath)) == {}
 
 
-def test_寿命を過ぎた問いは冒頭に出ない(env, tmp_path):
-    hook(env, "post", ask_result())
+def _age_ledger(tmp_path, keys=None):
     ledger = next((tmp_path / "state").rglob("unanswered-questions.json"))
     data = json.loads(ledger.read_text(encoding="utf-8"))
     for p in data["pending"]:
-        p["last_seen_at"] = "2000-01-01T00:00:00.000000Z"
+        if keys is None or p["key"] in keys:
+            p["last_seen_at"] = "2000-01-01T00:00:00.000000Z"
     ledger.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
-    assert hook(env, "start", {"session_id": "s2"}) == {}
+    return data
+
+
+def test_寿命を過ぎた問いは黙って消さず_一度知らせてから降ろす(env, tmp_path):
+    hook(env, "post", ask_result())
+    _age_ledger(tmp_path)
+    note = hook(env, "start", {"session_id": "s2"}).get("additionalContext", "")
+    assert "時間を過ぎたので、台帳から降ろします" in note and "作り物の置き場を A と B のどちらにしますか" in note
+    assert "前の窓で答えのないまま閉じた問い" not in note          # 出し直しの頼みには入れない
+    assert hook(env, "start", {"session_id": "s3"}) == {}           # 知らせたのは一度だけ
+    ledger = next((tmp_path / "state").rglob("unanswered-questions.json"))
+    assert [e["question"] for e in json.loads(ledger.read_text(encoding="utf-8"))["expired_recent"]] == \
+        ["作り物の置き場を A と B のどちらにしますか"]
+
+
+def test_寿命を過ぎた問いも次の問いを積む時には消えない(env, tmp_path):
+    hook(env, "post", ask_result())
+    _age_ledger(tmp_path)
+    hook(env, "post", many_questions(1, sid="s2", start=9))        # 別の問いを積む＝台帳を書き直す
+    note = hook(env, "start", {"session_id": "s3"})["additionalContext"]
+    assert "作り物の置き場を A と B のどちらにしますか" in note and "作り物の問い 9 番" in note
+
+
+def many_questions(n, sid="s1", start=1):
+    qs = [{"question": "作り物の問い %d 番はどちらにしますか" % i, "header": "問い%d" % i,
+           "options": [{"label": "甲", "description": "作り物"}, {"label": "乙", "description": "作り物"}]}
+          for i in range(start, start + n)]
+    return {"tool_name": "AskUserQuestion", "session_id": sid, "transcript_path": "",
+            "tool_response": {"questions": qs, "answers": {}}}
+
+
+def test_出し直しは頭の4件で切らず_5件目まで全部渡す(env):
+    hook(env, "post", many_questions(4))
+    hook(env, "post", many_questions(1, sid="s1b", start=5))        # 4＋1＝5 件（モーダル 1 回の数を 1 つ越える）
+    note = hook(env, "start", {"session_id": "s2"})["additionalContext"]
+    assert "5 件" in note and "2 回続けて出します" in note
+    for i in range(1, 6):
+        assert "作り物の問い %d 番はどちらにしますか" % i in note
+    assert "次の機会に" not in note
+
+
+def test_閉じた問いが5つでも隣の1行に全部の文面が載る(env):
+    note = hook(env, "post", many_questions(5))["additionalContext"]
+    assert "（5 件）" in note and "作り物の問い 5 番" in note
+
+
+def test_離席の止めは閉じた問いが多い時ほか何件と置き場を出す(env):
+    hook(env, "post", many_questions(4))
+    why = deny_reason(env, bash(DROP))
+    assert "4 件" in why and "ほか 1 件" in why and "unanswered-questions.json" in why
 
 
 def test_子の窓の問いも台帳に積み離席の止めが働く(env, tmp_path):
@@ -462,3 +511,25 @@ def test_qa_page_入れた_plugin_の形でも検査を見つける(tmp_path):
     finally:
         if old is not None:
             os.environ["AF_QA_CHECK"] = old
+
+
+def test_qa_page_赤が多い時ほか何件と全部の出し方を出す(env, tmp_path):
+    fake = tmp_path / "fake_check.mjs"
+    fake.write_text('console.log(JSON.stringify({ok: false, red: Array.from({length: 13}, (_, i) => "作り物の赤 " + (i + 1))}));'
+                    "process.exit(1);\n", encoding="utf-8")
+    page = tmp_path / "kakunin.html"
+    page.write_text(STATE_PAGE, encoding="utf-8")
+    if not shutil.which("node"):
+        pytest.skip("node が無い（作り物の検査は node で動く）")
+    why = deny_reason(dict(env, AF_QA_CHECK=str(fake)), publish(page))
+    assert "検査の赤 13 件" in why and "作り物の赤 12" in why and "ほか 1 件" in why and str(fake) in why
+
+
+def test_qa_page_51個目に在る問いの並びも見分ける(tmp_path):
+    sys.path.insert(0, str(PLUGIN / "scripts"))
+    try:
+        import qa_page
+    finally:
+        sys.path.pop(0)
+    rows = [{"x": i} for i in range(50)] + [{"questions": [{"q": "作り物", "options": ["甲", "乙"]}]}]
+    assert qa_page._has_question_list({"pages": rows})

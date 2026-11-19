@@ -862,3 +862,25 @@ def test_選択肢_1_つは資料の外の数の欄の時だけ(tmp_path):
     for i, (kind, input_) in enumerate([("choose", "text"), ("judge", "text"), ("judge", "number"), ("fact", "text"), ("fact", "date")]):
         red = _json_page(tmp_path, one(kind, input_), f"o{i}.json")
         assert any(r.startswith("問い q3: 選択肢が 1 つだけ") for r in red), (kind, input_, red)
+
+
+@needs_node
+def test_file_を2つ渡すと2つ目の赤も出る(tmp_path):
+    good = tmp_path / "確認.html"
+    good.write_text(filled_template("copy"), encoding="utf-8")
+    bad = DATA / "bad.json"
+    one = subprocess.run([NODE, str(CHECK), str(good)], capture_output=True, text=True, cwd=tmp_path)
+    assert one.returncode == 0, one.stdout
+    res = subprocess.run([NODE, str(CHECK), str(good), str(bad), "--json"], capture_output=True, text=True, cwd=tmp_path)
+    assert res.returncode == 1, res.stderr
+    out = json.loads(res.stdout)
+    assert [r["ok"] for r in out] == [True, False] and out[1]["file"] == str(bad.resolve())
+
+
+@needs_node
+def test_1枚ずつの印は_file_が2つなら止まる(tmp_path):
+    good = tmp_path / "確認.html"
+    good.write_text(filled_template("copy"), encoding="utf-8")
+    res = subprocess.run([NODE, str(CHECK), str(good), str(DATA / "good.json"), "--run-prior"],
+                         capture_output=True, text=True, cwd=tmp_path)
+    assert res.returncode == 2 and "1 枚ずつ" in res.stderr

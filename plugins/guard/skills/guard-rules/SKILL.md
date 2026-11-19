@@ -13,7 +13,7 @@ description: 守りの hook（guard の 5 つ）に止められた・知らさ�
 | paid_upstream（試験から有料の上流） | PreToolUse | 試験らしい path へ書く中身に、AI の API の鍵名・公式のエンドポイントがあれば止める | 既定を録画の再生か偽物にする。本物が要るなら環境変数 1 本で切り替える関所を通し、その file に `PAID_UPSTREAM_GUARD` を書く |
 | qa_page（問いのページの検査） | PreToolUse | Artifact の publish（file_path が .html・.json）の前に、そのページが問いのページ（型の印 `<body data-dest>`・`CustomEvent('qa:submit')`／`<script>` の JSON に `questions`・`qs` と選択肢／radio と答えを外へ出す仕組み〔form・sendPrompt・window.claude の書く呼び出し・POST 等の fetch・clipboard への書き込み〕の両方／問いのデータの JSON。読むだけの fetch や表示の切り替えの radio は数えない）なら qa-html の `check.mjs` をかけ、赤なら止める。検査が見つからない・node が無い・検査が壊れた時も止める（緑を確かめられない物は出さない） | ①聞く前に引き（細目 §4）、答え済み・資料で決まる・道具の都合の問いを消す ②オーナーへの問いなら選択肢の画面で聞く ③ページで出すなら skill `docs-kit:qa-html` の型を写して作り直し、止めた文に出る `node <check.mjs> <file>` が緑になってから出し直す。検査が無いなら plugin docs-kit と node を入れる（`AF_QA_CHECK` で path を渡せる）。問いのページでないのに止まった時だけ、値の表の `qa_page_exempt` で外す（PR とレビューを通す） |
 | context_size（文脈の量） | PostToolUse | 文脈が目安を越えた最初の 1 回だけ知らせる | 人のいる窓は区切りで引き継ぎを書き後継の窓へ替える。人のいない窓は今の段を終えて引き継ぎを書き止まる |
-| unanswered（未回答の台帳） | PostToolUse・SessionStart | モーダルが答えのないまま閉じた問いを台帳に積み、24 時間の間、次の窓の冒頭で出し直させる。答えが返れば降ろす。子の窓の問いも同じ | 冒頭で渡された文面と選択肢をそのまま AskUserQuestion で出し直す（要約しない） |
+| unanswered（未回答の台帳） | PostToolUse・SessionStart | モーダルが答えのないまま閉じた問いを台帳に積み、24 時間の間、次の窓の冒頭で全部を出し直させる（4 問ずつ続けて）。答えが返れば降ろす。寿命を過ぎた問いは冒頭で一度知らせてから降ろす。子の窓の問いも同じ | 冒頭で渡された文面と選択肢をそのまま AskUserQuestion で出し直す（要約しない） |
 
 強制 push・main への push・本番への出荷・sudo は、オーナーが居ても居なくても settings の `permissions.deny` の受け持ち（ここでは重ねない）。
 

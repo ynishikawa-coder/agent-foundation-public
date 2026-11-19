@@ -9,8 +9,11 @@
     - 1 つも答えが返らなければ「離席の窓」を開き、隣に 1 行鳴らす（ここから先は元に戻せる作業だけ）。
       1 つでも返れば窓を閉じる。窓は irreversible が読む。
   resurface（SessionStart）
-    - 台帳に残る問いを、文面と選択肢そのままで「この応答の最初に出し直す」よう渡す。
+    - 台帳に残る問いを全部、文面と選択肢そのままで「この応答の最初に出し直す」よう渡す
+      （モーダルは 1 回 4 問までなので、4 問ずつ続けて出させる。頭の 4 件だけ渡して残りを落とさない）。
     - 台帳の寿命は最後に出てから LEDGER_TTL_HOURS（古い問いが毎回鳴らない。1 時間答えの無い問いは親の窓が知らせる）。
+      寿命を過ぎた問いは黙って消さない: 読む・積む時は残し、次の resurface で「寿命で降ろす」と文面ごと
+      一度知らせてから降ろす（降ろした控えは台帳の expired_recent に残る）。
   離席の窓（away）
     - 窓（セッション）ごとの印 1 個。止める側は在席中は stat 1 回で終わる。持ち越した問いは窓を開けない
       ＝1 件の未回答がずっと戻せない操作を塞ぐことは起きない。
@@ -36,7 +39,7 @@ SCHEMA = "af-guard/unanswered/v1"
 LEDGER_NAME = "unanswered-questions.json"
 ANSWERED_KEEP = 20     # 観測用に残す「答えが返った問い」の上限（判定には使わない）
 CONTAIN_MIN = 16       # 文面の含有で同じ問いとみなす最低の長さ（短い問い同士の取り違えを防ぐ）
-MAX_SHOW = 4           # 冒頭で出し直させる上限（モーダルは 1 回 4 問まで）
+ASK_BATCH = 4          # モーダル 1 回に載る問いの数（出し直しはこの数ずつ続けて出させる）
 LEDGER_TTL_HOURS = 24  # 台帳の寿命（最後に出てから）
 _WS = re.compile(r"\s+")
 
@@ -122,7 +125,7 @@ def ledger_path(vals, payload=None):
 
 
 def _empty():
-    return {"schema": SCHEMA, "pending": [], "answered_recent": []}
+    return {"schema": SCHEMA, "pending": [], "answered_recent": [], "expired_recent": []}
 
 
 def _fresh(p):
@@ -137,10 +140,10 @@ def _parse(raw):
         return _empty()
     if not isinstance(d, dict):
         return _empty()
-    for k in ("pending", "answered_recent"):
+    for k in ("pending", "answered_recent", "expired_recent"):
         if not isinstance(d.get(k), list):
             d[k] = []
-    d["pending"] = [p for p in d["pending"] if _fresh(p)]      # 寿命を過ぎた問いは読む時に降ろす
+    d["pending"] = [p for p in d["pending"] if isinstance(p, dict)]   # 寿命を過ぎた問いも残す（降ろすのは知らせてから）
     d["schema"] = SCHEMA
     return d
 
@@ -226,6 +229,19 @@ def close_answered(data, pairs):
     return closed
 
 
+def drop_expired(data, keys):
+    """知らせた後に、寿命を過ぎた問い（keys）を台帳から降ろし、控えを expired_recent へ。戻り値＝降ろした件数。"""
+    now = G.now_utc()
+    keep, gone = [], []
+    for p in data.get("pending", []):
+        (gone if isinstance(p, dict) and p.get("key") in keys and not _fresh(p) else keep).append(p)
+    data["pending"] = keep
+    recent = list(data.get("expired_recent") or [])
+    recent += [{"key": p.get("key"), "question": p.get("question"), "expired_at": now} for p in gone]
+    data["expired_recent"] = recent[-ANSWERED_KEEP:]
+    return len(gone)
+
+
 # ── 離席の窓（窓＝セッションの中だけで閉じる）──
 def away_path(session_id):
     sid = G.safe_id(session_id)
@@ -299,30 +315,53 @@ def capture(data, vals):
         open_away(session_id, unanswered)
     if not unanswered:
         return ""
-    stems = " / ".join("「%s」" % i["question"][:48] for i in unanswered[:4])
+    stems = " / ".join("「%s」" % i["question"][:48] for i in unanswered)
     return REMINDER.format(n=len(unanswered), stems=stems, ttl=LEDGER_TTL_HOURS, ledger=path or "(置き場を決められず)")
 
 
+def _lines_for(n, it):
+    out = ["%d. question: %s" % (n, it.get("question", ""))]
+    if it.get("header"):
+        out.append("   header: %s" % it["header"])
+    for o in it.get("options") or []:
+        out.append("   - %s : %s" % (o.get("label", ""), (o.get("description") or "")[:160]))
+    out.append("")
+    return out
+
+
 def resurface(data, vals):
-    """SessionStart。台帳に残る問いを出し直させる文（無ければ ""）。"""
+    """SessionStart。台帳に残る問いを全部出し直させ、寿命を過ぎた問いは知らせてから降ろす文（無ければ ""）。"""
     if G.unattended_by_env(vals):
         return ""
     path = ledger_path(vals, data)
-    items = [p for p in read_ledger(path).get("pending", []) if isinstance(p, dict) and p.get("question")]
-    if not items:
+    every = [p for p in read_ledger(path).get("pending", []) if isinstance(p, dict) and p.get("question")]
+    items = [p for p in every if _fresh(p)]
+    expired = [p for p in every if not _fresh(p)]
+    if not items and not expired:
         return ""
-    lines = ["<unanswered-question-carryover>",
-             "前の窓で答えのないまま閉じた問いが %d 件あります。" % len(items),
-             "この応答の最初に AskUserQuestion で出し直してください（文面・選択肢はそのまま。要約しない・作り直さない）。", ""]
-    for n, it in enumerate(items[:MAX_SHOW], 1):
-        lines.append("%d. question: %s" % (n, it.get("question", "")))
-        if it.get("header"):
-            lines.append("   header: %s" % it["header"])
-        for o in it.get("options") or []:
-            lines.append("   - %s : %s" % (o.get("label", ""), (o.get("description") or "")[:160]))
+    lines = ["<unanswered-question-carryover>"]
+    if items:
+        rounds = (len(items) + ASK_BATCH - 1) // ASK_BATCH
+        lines += ["前の窓で答えのないまま閉じた問いが %d 件あります。" % len(items),
+                  "この応答の最初に AskUserQuestion で全部を出し直してください（文面・選択肢はそのまま。要約しない・作り直さない）。"]
+        if rounds > 1:
+            lines.append("モーダルは 1 回 %d 問までなので、上から %d 問ずつ %d 回続けて出します（どの問いも飛ばさない）。"
+                         % (ASK_BATCH, ASK_BATCH, rounds))
         lines.append("")
-    if len(items) > MAX_SHOW:
-        lines.append("（ほか %d 件は台帳に残ります。モーダルは 1 回 4 問までなので次の機会に）" % (len(items) - MAX_SHOW))
-    lines.append("答えが返れば台帳から自動で降ります。また閉じれば次の窓へ持ち越します。台帳: %s" % path)
+        for n, it in enumerate(items, 1):
+            lines += _lines_for(n, it)
+        lines.append("答えが返れば台帳から自動で降ります。また閉じれば次の窓へ持ち越します。台帳: %s" % path)
+    if expired:
+        if items:
+            lines.append("")
+        lines += ["次の %d 件は最後に出てから %d 時間を過ぎたので、台帳から降ろします（この知らせが最後です）。"
+                  % (len(expired), LEDGER_TTL_HOURS),
+                  "まだ要る問いなら、この応答で AskUserQuestion に出し直してください（出せば台帳に積み直されます）。", ""]
+        for n, it in enumerate(expired, 1):
+            lines += _lines_for(n, it)
+        keys = {p.get("key") for p in expired}
+        if not update_ledger(path, lambda d: drop_expired(d, keys)):
+            lines.append("（台帳を書けず、降ろせませんでした。次の窓でもう一度知らせます）")
+        lines.append("降ろした問いの控え: 台帳 %s の expired_recent" % path)
     lines.append("</unanswered-question-carryover>")
     return "\n".join(lines)
