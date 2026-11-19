@@ -15,6 +15,11 @@ jobs:
     environment: rulesets
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: 道具を入れる（正本は requirements-ci.txt）
+        run: python3 -m pip install --quiet -r requirements-ci.txt
       - name: 書き戻す
         env:
           GH_TOKEN: ${{ secrets.RULESET_TOKEN }}

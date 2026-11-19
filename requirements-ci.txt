@@ -1,0 +1,6 @@
+# CI と見回りが python の道具を回す前に入れる物の正本（workflow は `pip install -r requirements-ci.txt` だけで入れ、名を手で並べない）。
+# scripts/・public-guard/・tests/ が import する標準でない道具は、ここに載せるか、下の「任意」の行に載せる
+# （照らすのは tests/test_ci_requirements.py）。
+pytest
+PyYAML  # import yaml
+# 任意（無ければ使う試験を飛ばす）: playwright
