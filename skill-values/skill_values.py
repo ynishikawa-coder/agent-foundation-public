@@ -50,7 +50,8 @@ class ValuesError(Exception):
 
 
 def format_problems(path, problems):
-    head = "値の表 %s に直す所がある（鍵の一覧の正本は土台の skill-values/schema.json）:" % (path or "（不明）")
+    head = ("値の表 %s に直す所がある（鍵の一覧の正本は土台の skill-values/schema.json。鍵を 1 つずつ消して済ませず、"
+            "細目 §3「まず構造を疑う」で、なぜ写しや古い鍵が残ったかから直す）:" % (path or "（不明）"))
     return "\n".join([head] + ["  - " + p for p in problems])
 
 
