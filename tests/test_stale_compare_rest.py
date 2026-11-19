@@ -14,7 +14,7 @@ from pathlib import Path
 
 import pytest
 
-from test_core_plugin import PLUGIN, Foundation, _commit, _git, kaku, run
+from test_core_plugin import PLUGIN, Foundation, _commit, _git, catalog_commit, kaku, run
 
 ROOT = Path(__file__).resolve().parent.parent
 OLD = 'for p in core guard; do claude plugin install "$p@agent-foundation"; done\n'
@@ -82,7 +82,7 @@ def _home(tmp_path, *, rec_sha=None, rec_at="2026-11-19T20:57:09+0900", updated=
         {"name": "agent-foundation", "plugins": [{"name": "core"}, {"name": "guard"}]}), encoding="utf-8")
     (home / ".claude" / "plugins" / "known_marketplaces.json").write_text(json.dumps({"agent-foundation": {
         "source": {"source": "github", "repo": repo or kaku.UPSTREAM}, "installLocation": str(loc)}}), encoding="utf-8")
-    sha = "b" * 40
+    sha = catalog_commit(loc)
     (home / ".claude" / "plugins" / "installed_plugins.json").write_text(json.dumps({"version": 2, "plugins": {
         f"{n}@agent-foundation": [{"scope": "user", "installPath": str(PLUGIN), "gitCommitSha": sha, "lastUpdated": updated}]
         for n in ("core", "guard")}}), encoding="utf-8")
@@ -220,7 +220,7 @@ def _entry(work, name):
         (work / rel).write_text("import sys\nprint('本体に来た', *sys.argv[1:])\n", encoding="utf-8")
         stubbed = True
     env = dict(__import__("os").environ, GITHUB_EVENT_NAME="pull_request", GITHUB_HEAD_REF="claude/20261119-eda",
-               PR_BODY="", PR_HEAD_SHA="HEAD")
+               PR_BODY="", PR_HEAD_SHA=_git(work, "rev-parse", "HEAD"))  # CI は event の head.sha を渡す
     return stubbed, subprocess.run(["bash", str(sh)], cwd=work, capture_output=True, text=True, env=env)
 
 

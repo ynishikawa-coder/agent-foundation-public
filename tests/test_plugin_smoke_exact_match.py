@@ -47,9 +47,9 @@ def test_塊の_marketplace_add_が土台そのものなら読める(tmp_path):
     assert S.marketplace_adds(S.setup_block(ROOT)) == [S.FOUNDATION]  # 今の正本の塊
 
 
-def test_入った台帳は土台の目録から入った行だけを名で束ねる():
-    mine = {"gitCommitSha": "a" * 40, "installPath": "/mine"}
-    other = {"gitCommitSha": "b" * 40, "installPath": "/other"}
+def test_入った台帳は土台の目録から入った行だけを名で束ねる(tmp_path):
+    mine = {"scope": "user", "gitCommitSha": "a" * 40, "installPath": str(tmp_path)}
+    other = {"scope": "user", "gitCommitSha": "b" * 40, "installPath": str(tmp_path)}
     table = {"plugins": {"core@" + S.MARKET: [mine], "core@other-market": [other],
                          "guard@" + S.MARKET + "-fork": [other], "docs-kit@x@" + S.MARKET: [mine]}}
     rows = S.installed_rows(table)
