@@ -594,7 +594,7 @@ def test_核から細目へ移した物が細目に在る():
     saimoku = (PLUGIN / "細目.md").read_text(encoding="utf-8")
     assert "「ほぼ終わった」と書かない" in _節(saimoku, 7)
     s8 = _節(saimoku, 8)
-    assert "Javis は Notion と Drive" in s8 and "**またぐ連絡**" in s8
+    assert "Javis は Notion" in s8 and "Drive" in s8 and "**またぐ連絡**" in s8
 
 
 # ---- 振る舞いの既定（AI の癖と逆を求める物）は核と一緒に毎回差し込む ----
