@@ -258,3 +258,16 @@ def test_send_go_送る口は_SKILL_の頭を直に読む():
     heads = {d.name: (d / "SKILL.md").read_text(encoding="utf-8").split("\n---", 1)[0]
              for d in sorted(SKILLS.iterdir()) if (d / "SKILL.md").is_file()}
     assert "send-gate:" in heads["compose-message"] and "send-gate:" in heads["make-deck"]
+
+
+# ── qa_page: 型から作る Artifact のデータ（type_url と files）も照らす（台帳の行: 型から作る Artifact のデータを見ない）──
+DOCS_KIT_DATA = ROOT / "tests" / "docs_kit"
+
+
+@pytest.mark.skipif(not shutil.which("node"), reason="node が無い（qa-html の検査は node で動く）")
+def test_qa_page_型から作る_Artifact_のデータも出す前に検査する(env):
+    def create(src):
+        return {"tool_name": "Artifact", "tool_input": {"type_url": "https://example.com/type", "title": "作り物",
+                                                        "files": {"data/questions.json": str(src)}}}
+    assert denied(env, create(DOCS_KIT_DATA / "bad.json"))
+    assert not denied(env, create(DOCS_KIT_DATA / "good.json"))
