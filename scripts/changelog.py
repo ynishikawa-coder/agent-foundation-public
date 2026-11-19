@@ -24,7 +24,7 @@ DIR_NAME = "CHANGELOG.d"
 # 断片へ移す前の記録（そのまま移した経緯・札の形を照らさない）。
 OLD_FILE = "00000000-断片へ移す前.txt"
 # 移す前の記録は動かさない（頭へ足せば、同じ所へ追記する形がこの file へ移るだけ）。中身の印で止める。
-OLD_SHA256 = "03b2d26bc3b3a62d155f02883fac68c3824c29a70ed77da736813355a5352301"
+OLD_SHA256 = "93e5dda7492211d6997bb3046b0bd8659069845e88da658d149b85fb6430eaff"
 NAME_RE = re.compile(r"^\d{8}-[0-9A-Za-z][0-9A-Za-z._-]*\.txt$")
 LINE_RE = re.compile(r"^- (壊れる|足した|直した|畳んだ)(（[^）\n]+）)?: \S")
 JST = timezone(timedelta(hours=9))
