@@ -33,7 +33,7 @@ from pathlib import Path
 
 UNMATCHED = "未照合"
 _HEAD = re.compile(r"^(#{1,6})\s*(.*?)\s*#*\s*$")
-_SEC6 = re.compile(r"(?:§\s*6(?!\d)|^6(?:[.．、\s]|$)|決定照合)")
+_SEC6 = re.compile(r"(?:§\s*6(?!\d)|^6[.．](?!\d)|決定照合)")
 _TABLE = re.compile(r"^\s*\|")
 _TABLE_SEP = re.compile(r"^\s*\|[\s:\-|]+\|?\s*$")
 # 扱いは欄（箇条なら最後の区切りの後）の頭に 3 語のどれかを置き、その後は区切りか終わり（「直したいが未定」は済みでない）。
@@ -90,21 +90,20 @@ def _cells(line: str) -> list[str]:
 
 
 def section6(text: str) -> list[tuple[int, str]] | None:
-    """§6 の節の中の行を (行番号, 行) で返す。節が無ければ None。"""
+    """§6 の節の中の行を (行番号, 行) で返す。節が無ければ None。当たる見出しが 2 つ以上なら止める。"""
     lines = text.splitlines()
-    start = level = None
-    for i, ln in enumerate(lines):
-        m = _HEAD.match(ln)
-        if not m:
-            continue
-        if start is None:
-            if _SEC6.search(m.group(2)):
-                start, level = i, len(m.group(1))
-        elif len(m.group(1)) <= level:
-            return [(j + 1, lines[j]) for j in range(start + 1, i)]
-    if start is None:
+    heads = [(i, len(m.group(1)), m.group(2)) for i, ln in enumerate(lines)
+             if (m := _HEAD.match(ln))]
+    hits = [h for h in heads if _SEC6.search(h[2])]
+    if len(hits) > 1:
+        names = "、".join(f"{i + 1} 行目「{t}」" for i, _, t in hits)
+        raise Abort(f"§6（決定照合）に当たる見出しが 2 つ以上ある（{names}）＝どれを照らすか決まらない。"
+                    "§6 の見出しを 1 つにし、ほかの見出しから「§6」「6.」「決定照合」を外す")
+    if not hits:
         return None
-    return [(j + 1, lines[j]) for j in range(start + 1, len(lines))]
+    start, level, _ = hits[0]
+    end = next((i for i, lv, _ in heads if i > start and lv <= level), len(lines))
+    return [(j + 1, lines[j]) for j in range(start + 1, end)]
 
 
 def rows_of(body: list[tuple[int, str]]) -> list[tuple[int, str, str]]:

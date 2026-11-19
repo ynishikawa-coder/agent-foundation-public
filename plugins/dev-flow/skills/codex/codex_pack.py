@@ -247,6 +247,9 @@ def entropy_hits(text: str, values: dict | None = None, rels=None):
         if ln.startswith("### ") and (rels is None or ln[4:] in rels):
             where, base = ln[4:], no + 1   # 次の行は ```` の囲み＝その次が file の 1 行目
             continue
+        if ln == "````" and where != "（パックの見出し）" and no > base:
+            where, base = "（パックの見出し）", 0   # file の囲みの閉じ＝その後は file の行でない
+            continue
         for tok in _CHUNK.findall(ln):
             if entropy(tok) < ADVISORY_MIN_ENTROPY:
                 continue

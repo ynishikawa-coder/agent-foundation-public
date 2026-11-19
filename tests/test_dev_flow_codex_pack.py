@@ -238,3 +238,10 @@ def test_値の表の形が違えば黙って空にせず止める(repo, tmp_pat
 def test_渡した値の表が無い時は止める(repo, tmp_path):
     res = run(repo, tmp_path / "o", "--file", "tools/calc.py", "--values", str(tmp_path / "無い.json"))
     assert res.returncode == 1 and "値の表が無い" in res.stderr
+
+
+def test_file_の囲みの後の行は_file_の行と数えない():
+    tok = fake_chunk("囲みの後")
+    text = f"# 見出し\n\n### tools/a.py\n````\nx = 1\n````\n\n{tok}\n"
+    _, hits = load_builder().scan(text, {}, {"tools/a.py"})
+    assert hits and hits[0][0] == "（パックの見出し）" and hits[0][1] == 8
