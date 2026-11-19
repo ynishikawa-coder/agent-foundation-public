@@ -17,7 +17,7 @@
 誤って止めた時: 値の表 ask_prior_exempt（問いの文に当てる正規表現）に当たる問いだけの画面は照らさない（済んだかの確かめ等）。
   値の表は PR とレビューを通る＝窓の一存では外れない。
 止めた文の最後には入口（guard.py）が、出し直すだけで済ませず原因を細目 §3「まず構造を疑う」で探す行を付ける。
-黙る時: 選択肢の画面の外・助手の中（transcript の path に /subagents/）・会話ログが読めない（見張りの故障で窓を止めない）。
+黙る時: 選択肢の画面の外・助手の中（hook の入力に agent_id・guard_common.BASIS）・会話ログが読めない（見張りの故障で窓を止めない）。
 """
 from __future__ import annotations
 
@@ -94,7 +94,7 @@ def check(data, vals):
     if not isinstance(qs, list) or not qs or _all_exempt(qs, vals):
         return ""
     tpath = str(data.get("transcript_path") or "")
-    if not tpath or not os.path.isfile(tpath) or "/subagents/" in tpath.replace(os.sep, "/"):
+    if not tpath or not os.path.isfile(tpath) or G.in_subagent(data):
         return ""
     sid = G.safe_id(data.get("session_id") or os.path.basename(tpath)) or "window"
     patterns = G.patterns(vals, "ask_prior_lookup")

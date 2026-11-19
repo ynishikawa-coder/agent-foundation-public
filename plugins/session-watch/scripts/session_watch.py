@@ -27,7 +27,7 @@
 決め方の正本は window_kind 1 つ（決まりの文 KIND_RULE を skill title-mark がそのまま載せ、細目 §4 は skill を指す。試験が照らす）:
   手の窓（作業名が `手:` で始まる窓）は返し先によらず 🙋 ／ それ以外は最初の頼みの文に書かれた返し先で
   `返し先=オーナー` → 🙋 ／ `返し先=session_…` → 🤖 ／ `（親窓 session_… の子）` → 🤖 ／ 書いていない → 決めない。
-  別の窓を指す返し先は手で書いた写しなので、頼みの行の記録（origin.kind が人でない・promptSource が system＝
+  別の窓を指す返し先は手で書いた写しなので、頼みの行の記録（origin.kind が human でない＝
   別の窓や仕組みから来た頼み）と合う時だけ数える。行がまだ無い最初の知らせでは記録を読めないので決めず、サーバの記録
   （get_session の parent_session_id）を AI に読ませる。窓の環境の CLAUDE_CODE_CHILD_SESSION は Claude Code が hook・Bash の
   子プロセス全部に付ける印（公式の文書 env-vars）＝どの窓でも 1 なので見分けに使わない。
@@ -217,11 +217,29 @@ def seeded_by_record(row):
     return bool(G.seeded_by_record(row)) if G is not None else False
 
 
-def is_owner_text(row):
-    """ターンの境界になる頼みの文か（道具の返り・見張りの差し戻し〔isMeta〕を除く）。"""
-    if row.get("type") != "user" or row.get("isMeta") or "toolUseResult" in row:
-        return False
-    return bool(text_of(row).strip())
+def is_prompt_text(row):
+    """ターンの境界になる頼みの行か（人が打った行も、別の窓・知らせから来た行も。道具の返り・isMeta・要約は除く）。
+    読み方の正本は隣の plugin guard の guard_common.is_prompt_row（確かめた物は guard_common.BASIS）。隣が無い時は同じ条件の
+    最小の形で読み、返事の差し戻しが neighbor の札で名指す。"""
+    G = neighbor("guard_common")
+    if G is not None and hasattr(G, "is_prompt_row"):
+        return bool(G.is_prompt_row(row))
+    return (row.get("type") == "user" and not row.get("isMeta") and "toolUseResult" not in row
+            and not row.get("isCompactSummary") and bool(text_of(row).strip()))
+
+
+def is_cloud_env(env):
+    """クラウドの窓か（窓の環境の CLAUDE_CODE_REMOTE。正本は guard_common.is_cloud・BASIS「クラウドの窓」）。"""
+    G = neighbor("guard_common")
+    if G is not None and hasattr(G, "is_cloud"):
+        return bool(G.is_cloud(env))
+    return str(env.get("CLAUDE_CODE_REMOTE") or "").strip().lower() == "true"
+
+
+# 会話ログだけを後から読む時（窓の環境が無い）のクラウドの印: 行の entrypoint が remote（実物の会話ログで全部の行に付き、
+# 窓の環境の CLAUDE_CODE_ENTRYPOINT=remote と合う）。クラウドの窓の道具（mcp__claude-code-remote__）を打った跡も印に
+# 数える（道具を持つ確かな跡）が、それだけでは決めない＝その道具を呼ばない窓も外さない。
+REMOTE_ENTRYPOINT = "remote"
 
 
 def blocks(row):
@@ -262,10 +280,12 @@ class Log(object):
         self.cloud = False
         turn_start = 0
         for row in rows:
+            if row.get("entrypoint") == REMOTE_ENTRYPOINT:
+                self.cloud = True
             if row.get("type") == "user" and row.get("isMeta") and "toolUseResult" not in row:
                 self.events.append(("meta", ""))     # 見張りの差し戻し: ターンは続くが、締めの本文はここから数え直す
                 continue
-            if is_owner_text(row):
+            if is_prompt_text(row):
                 if not self.first_prompt:
                     self.first_prompt = text_of(row)
                     self.first_seeded = seeded_by_record(row)
@@ -285,7 +305,7 @@ class Log(object):
                     continue
                 name, inp = val
                 if name.startswith(REMOTE_PREFIX):
-                    self.cloud = True
+                    self.cloud = True     # クラウドの窓の道具を打った＝題の道具を持つ窓（打たない窓は entrypoint で読む）
                 if name.endswith(SET_TITLE_SUFFIX):
                     self.events.append(("title", str(inp.get("title") or "")))
                 elif name == ASK:
@@ -792,7 +812,7 @@ def titled(log):
 def remind(data, env=None):
     """出す文（str）か None。クラウドの窓（題の道具を持つ窓）で、まだ種類の印を付けていない時だけ。"""
     env = os.environ if env is None else env
-    if str(env.get("CLAUDE_CODE_REMOTE", "")).lower() != "true":
+    if not is_cloud_env(env):
         return None
     path = data.get("transcript_path") or ""
     log = Log(read_rows(path)) if path and os.path.exists(path) else Log([])
@@ -893,14 +913,15 @@ def _count(env, sid, reset):
 
 
 def stop(data, env=None):
-    """差し戻す理由（str）か None。今の返事（last_assistant_message・無ければ会話ログの締め）の形を見る。"""
+    """差し戻す理由（str）か None。今の返事（last_assistant_message・無ければ会話ログの締め）の形を見る。
+    入力の欄の意味（last_assistant_message・stop_hook_active）は公式の hooks の文書の Stop input（guard_common.BASIS）。"""
     env = os.environ if env is None else env
     if str(env.get(STOP_OFF, "")).strip().lower() in ("0", "false", "off", "no"):
         return None
     path = data.get("transcript_path") or ""
     log = Log(read_rows(path)) if path and os.path.exists(path) else Log([])
-    if str(env.get("CLAUDE_CODE_REMOTE", "")).lower() == "true":
-        log.cloud = True          # クラウドの窓は題の道具を持つ（会話ログで道具を打つ前でも題を照らす）
+    if is_cloud_env(env):
+        log.cloud = True          # クラウドの窓（会話ログで道具を打つ前でも題を照らす）
     last = data.get("last_assistant_message")
     closing = last if isinstance(last, str) and last.strip() else None
     found = [(c, m) for c, m in check(log, closing, data) if c in STOP_CODES and not m.startswith(ASK_BEFORE)]

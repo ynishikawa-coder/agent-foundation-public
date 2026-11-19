@@ -373,7 +373,7 @@ def capture(data, vals):
     if (data.get("tool_name") or "") != ASK_TOOL or G.unattended_by_env(vals):
         return ""
     tpath = str(data.get("transcript_path") or "")
-    if "/subagents/" in tpath.replace(os.sep, "/"):
+    if G.in_subagent(data):
         return ""     # 助手の中の使い捨ての文脈＝オーナーに出た問いではない
     unanswered, pairs = split_response(data.get("tool_response"))
     if unanswered is None:

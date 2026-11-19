@@ -88,6 +88,5 @@ def test_prior_ask_引く要の無い問いは値の表で外せ選択肢の画�
                                      q("保存の置き場は A にしますか", header="保存"))), "外さない問いが混ざれば照らす"
     assert deny_reason(env, {"tool_name": "Bash", "session_id": "s1", "transcript_path": tpath,
                              "tool_input": {"command": "echo"}}) == ""
-    d = tmp_path / "subagents"
-    d.mkdir()
-    assert deny_reason(env, ask_with(write_log(d / "a.jsonl", [owner("作り物", "u1")]))) == ""
+    # 助手の中（入力に agent_id・公式の hooks の文書）は見ない
+    assert deny_reason(env, {**ask_with(write_log(tmp_path / "a.jsonl", [owner("作り物", "u1")])), "agent_id": "a1"}) == ""
