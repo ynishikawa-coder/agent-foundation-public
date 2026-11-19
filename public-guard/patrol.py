@@ -107,11 +107,10 @@ def required_checks(gh: GitHub, full: str, branch: str) -> set[str]:
     return names
 
 
-def inspect(gh: GitHub, repo: dict) -> list[str]:
-    """1 つの公開 repo の外れ（無ければ空）。"""
-    full, branch = repo["full_name"], repo.get("default_branch") or "main"
+def call_problems(gh: GitHub, full: str, at: str) -> list[str]:
+    """at（枝・commit）の workflow で見た呼び口の外れ（無ければ空）。"""
     problems = []
-    texts = workflow_texts(gh, full, branch)
+    texts = workflow_texts(gh, full, at)
     # 数える呼び口のうち、必須の検査 public-guard の job の物だけ（別の job の呼び口では、必須の検査が照らさない）。
     # ./public-guard（その repo の中の action）は土台そのものでだけ土台の action。
     calls = [c for t in texts for c in W.counted(t, FOUNDATION)
@@ -122,11 +121,35 @@ def inspect(gh: GitHub, repo: dict) -> list[str]:
     for ref in dict.fromkeys(c.ref for c in calls if not c.local):
         if ref != REF:
             problems.append(f"公開の検査を main の先端で呼んでいない（@{ref or '版なし'} → @{REF}）")
+    return problems
+
+
+def inspect(gh: GitHub, repo: dict) -> list[str]:
+    """1 つの公開 repo の外れ（無ければ空）。"""
+    full, branch = repo["full_name"], repo.get("default_branch") or "main"
+    problems = call_problems(gh, full, branch)
     have = required_checks(gh, full, branch)
     for check in (FOUNDATION_CHECKS if full == FOUNDATION else (CHECK,)):
         if check not in have:
             problems.append(f"{branch} の守りの必須の検査に {check} が無い（Settings → Rules → Rulesets）")
     return problems
+
+
+def fixing_prs(gh: GitHub, full: str) -> list[dict]:
+    """合流すれば呼び口の外れが消える、その repo の開いた PR（呼び口の見分けは外れと同じ読み手で、PR の先端を読む）。
+
+    外れを出すだけでは読む者がいない（直しの PR がレビューを通ったまま合流されず、見回りが赤のまま続いた）。
+    見回りの赤と issue に「次の手＝この PR の合流」を名指して載せる。守りの外れ（必須の検査）は設定なので PR では消えない。
+    """
+    base = (gh.get(f"/repos/{full}") or {}).get("default_branch") or "main"
+    if not call_problems(gh, full, base):
+        return []
+    return [pr for pr in gh.pages(f"/repos/{full}/pulls?state=open&base={base}")
+            if (pr.get("head") or {}).get("sha") and not call_problems(gh, full, pr["head"]["sha"])]
+
+
+def fixes(gh: GitHub, found: dict[str, list[str]]) -> dict[str, list[dict]]:
+    return {full: prs for full in found if (prs := fixing_prs(gh, full))}
 
 
 def patrol(gh: GitHub, owners: list[str]) -> dict[str, list[str]]:
@@ -139,13 +162,16 @@ def patrol(gh: GitHub, owners: list[str]) -> dict[str, list[str]]:
     return found
 
 
-def render(found: dict[str, list[str]], owners: list[str]) -> str:
+def render(found: dict[str, list[str]], owners: list[str], prs: dict[str, list[dict]] | None = None) -> str:
     if not found:
         return f"外れ 0（見た持ち主: {', '.join(owners)}）"
     lines = [f"外れ {len(found)} repo（見た持ち主: {', '.join(owners)}）。直し方は docs/公開の検査.md の「公開の repo を作る・直す」。", ""]
     for full, probs in sorted(found.items()):
         lines.append(f"- {full}")
         lines += [f"  - {p}" for p in probs]
+        for pr in (prs or {}).get(full, []):
+            lines.append(f"  - 次の手: 開いている PR #{pr['number']}「{pr.get('title', '')}」を合流すれば呼び口の外れが消える"
+                         f"（{pr.get('html_url', '')}）。合流の決まりはその repo の手順")
     return "\n".join(lines)
 
 
@@ -179,10 +205,11 @@ def main(argv=None) -> int:
     gh = GitHub(os.environ.get("GITHUB_TOKEN") or None)
     try:
         found = patrol(gh, owners)
+        prs = fixes(gh, found)
     except (urllib.error.URLError, OSError) as e:
         print(f"✗ GitHub が読めない: {e}")
         return 2
-    text = render(found, owners)
+    text = render(found, owners, prs)
     print(("✗ " if found else "✅ ") + text)
     if found:
         print(ROOT_CAUSE)
