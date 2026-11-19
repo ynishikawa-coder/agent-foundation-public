@@ -15,7 +15,7 @@
   title   … set_session_title と create_session の title が題の形（`<種類><状態> <作業名>`）でない。手の窓の題
             （`🙋⏳ 手: <何を>`）で窓を立てるのに、頼みの文に 目的・手順・済んだ目印・済んだ後 が揃っていない。
             形の正本は session-watch の session_watch.py（title_shape・HAND_PARTS）。見つからない時は題を照らさない。
-誤って止めた時: 値の表 config/skill-values.json の "guard" の outbound_secret_allow（当たった字に当てる正規表現・
+誤って止めた時: 値の表 config/skill-values.json の "guard" の outbound_secret_allow（当たった字の塊の全体に当てる正規表現・各行 ^…$・
 作り物の見本だけ）・number_request_exempt（文に当てる正規表現）で外す。値の表は PR とレビューを通る＝窓の一存では外れない。
 """
 from __future__ import annotations
@@ -102,12 +102,14 @@ def secret_hits(data, vals, pg):
                     texts.append(("file %s" % path, f.read()))
             except OSError:
                 continue
-    allow = [p for p in (vals.get("outbound_secret_allow") or []) if isinstance(p, str) and p]
+    if G.SV.bad_pattern_rows(vals.get("outbound_secret_allow") or []):
+        raise re.error("outbound_secret_allow に読めない形")   # 外す形が壊れたら鍵を外さず照らせないと止める
+    allow = G.patterns(vals, "outbound_secret_allow")
     hits = []
     for where, text in texts:
         for label, pat in pg.SECRET_PATTERNS.items():
             for m in re.finditer(pat, text):
-                if any(re.search(a, m.group(0)) for a in allow):
+                if G.SV.hit(allow, m.group(0)) is not None:
                     continue
                 if (where, label) not in hits:
                     hits.append((where, label))
@@ -146,14 +148,14 @@ def check_secret(data, vals):
 # ── number ──
 def number_only(text, vals):
     """番号だけで中身の名の無い文の並び。"""
-    exempt = [p for p in (vals.get("number_request_exempt") or []) if isinstance(p, str) and p]
+    exempt = G.patterns(vals, "number_request_exempt")
     v2 = dict(vals)
     v2["ask_topic_stopwords_extra"] = list(vals.get("ask_topic_stopwords_extra") or []) + sorted(REQUEST_WORDS)
     v2["ask_inner_terms_extra"] = []
     out = []
     for raw in _SENT.findall(text or ""):
         s = raw.strip()
-        if not s or any(re.search(p, s) for p in exempt):
+        if not s or G.SV.hit(exempt, s) is not None:
             continue
         nums = [tok for name, tok in ask_shape._inner_hits(s, v2) if name == "番号"]
         if not nums:

@@ -1,5 +1,5 @@
 {
-  "_readme": "値の表（使う側の repo の根の config/skill-values.json）の鍵の一覧と型の正本。土台の道具は同じ dir の skill_values.py でこれを直に読む（各 plugin の lib/ へは symlink で届く＝写さない）。鍵を足す・名を変える・畳む時はここだけを直し、変えた古い鍵は retired に移す（使う側の古い鍵が名指しで止まる）。型: str・int・bool・list・dict・text（文字列か文字列の並び）・any・repo_names（owner/repo の名の全体に当てる正規表現の並び。各行を ^ で始め $ で終える。頭だけ・錨なしの行は型の違いとして名指す）。dict は keys で中の鍵も照らす。名が _ で始まる鍵は注として読まない。土台の plugin の名でも common でもない頂の欄は、その repo 自身の物として照らさない。",
+  "_readme": "値の表（使う側の repo の根の config/skill-values.json）の鍵の一覧と型の正本。土台の道具は同じ dir の skill_values.py でこれを直に読む（各 plugin の lib/ へは symlink で届く＝写さない）。鍵を足す・名を変える・畳む時はここだけを直し、変えた古い鍵は retired に移す（使う側の古い鍵が名指しで止まる）。型: str・int・bool・list・dict・text（文字列か文字列の並び）・any・repo_names（owner/repo の名の全体に当てる正規表現の並び。各行を ^ で始め $ で終える。頭だけ・錨なしの行は型の違いとして名指す）・patterns（正規表現の並び。鍵の spec の against が当てる相手、match が当て方: whole は相手の全体に当て各行を ^ で始め $ で終える〔^…$ でない行は前の形として一部に当てたまま名指す〕・part は相手の一部に当てる）・words（字のまま相手の一部に当てる。正規表現でない＝\\ を書かない）・globs（repo の根からの path の全体に当てる glob。* と ? は / をまたがず、dir をまたぐのは **）。字や正規表現を読む鍵は全部この 3 つの型か against と match を持つ（道具は skill_values.py の compile_patterns・hit・words_in・glob_match だけで当てる）。dict は keys で中の鍵も照らす。名が _ で始まる鍵は注として読まない。土台の plugin の名でも common でもない頂の欄は、その repo 自身の物として照らさない。",
   "sections": {
     "common": {
       "keys": {
@@ -26,7 +26,7 @@
         },
         "watch-log": {
           "keys": {
-            "reply_exempt": "list"
+            "reply_exempt": {"type": "patterns", "match": "part", "against": "返事の本文の 1 行"}
           }
         }
       }
@@ -47,22 +47,10 @@
           "type": "str",
           "default": "~/.claude/af-guard"
         },
-        "paid_markers_extra": {
-          "type": "list",
-          "default": []
-        },
-        "irreversible_bash_extra": {
-          "type": "list",
-          "default": []
-        },
-        "irreversible_tools_extra": {
-          "type": "list",
-          "default": []
-        },
-        "qa_page_exempt": {
-          "type": "list",
-          "default": []
-        },
+        "paid_markers_extra": {"type": "words", "default": [], "against": "試験の file に書く本文・試験の file に書く Bash の命令の全文"},
+        "irreversible_bash_extra": {"type": "patterns", "match": "part", "default": [], "against": "Bash の命令の全文"},
+        "irreversible_tools_extra": {"type": "patterns", "match": "whole", "default": [], "against": "道具の名（例 mcp__server__delete_item）"},
+        "qa_page_exempt": {"type": "patterns", "match": "whole", "default": [], "against": "問いのページの file の path（repo の根から・/ 区切り）"},
         "ask_question_max_chars": {
           "type": "int",
           "default": 60
@@ -71,42 +59,21 @@
           "type": "int",
           "default": 1
         },
-        "ask_inner_terms_extra": {
-          "type": "list",
-          "default": []
-        },
-        "ask_term_allow": {
-          "type": "list",
-          "default": []
-        },
+        "ask_inner_terms_extra": {"type": "patterns", "match": "part", "default": [], "against": "問いの文・返事の本文（当たった所を中の言葉と数える）"},
+        "ask_term_allow": {"type": "patterns", "match": "whole", "default": [], "against": "中の言葉と見つけた字の塊"},
         "ask_topic_stopwords_extra": {
           "type": "list",
           "default": []
         },
-        "ask_shape_exempt": {
-          "type": "list",
-          "default": []
-        },
-        "ask_pick_one_exempt": {
-          "type": "list",
-          "default": []
-        },
+        "ask_shape_exempt": {"type": "patterns", "match": "part", "default": [], "against": "問いの文"},
+        "ask_pick_one_exempt": {"type": "patterns", "match": "part", "default": [], "against": "問いの文"},
         "ask_rec_notice_kinds": {
           "type": "dict",
           "default": {}
         },
-        "ask_rec_notice_exempt": {
-          "type": "list",
-          "default": []
-        },
-        "outbound_secret_allow": {
-          "type": "list",
-          "default": []
-        },
-        "number_request_exempt": {
-          "type": "list",
-          "default": []
-        },
+        "ask_rec_notice_exempt": {"type": "patterns", "match": "part", "default": [], "against": "問いの文"},
+        "outbound_secret_allow": {"type": "patterns", "match": "whole", "default": [], "against": "鍵の形に当たった字の塊"},
+        "number_request_exempt": {"type": "patterns", "match": "part", "default": [], "against": "外へ送る文の 1 文"},
         "pr_cleanup_exempt_repos": {
           "type": "repo_names",
           "default": []
@@ -120,9 +87,9 @@
           "default": []
         },
         "context_stop_max": {"type": "int", "default": 2},
-        "context_handoff": {"type": "list", "default": ["create_session\\b", "send_message\\b", "\"file_path\": \"[^\"]*(?:引き継ぎ|handoff)[^\"]*\""]},
-        "ask_prior_lookup": {"type": "list", "default": []},
-        "ask_prior_exempt": {"type": "list", "default": []}
+        "context_handoff": {"type": "patterns", "match": "whole", "against": "道具の呼び出し 1 つ（道具の名・空白 1 つ・入力の JSON〔鍵の順に並べ、区切りは「, 」と「: 」の 1 行〕）", "default": ["^mcp__[^ ]*__create_session \\{.*\\}$", "^mcp__[^ ]*__send_message \\{.*\\}$", "^(?:Write|Edit) \\{.*\"file_path\": \"[^\"]*(?:引き継ぎ|handoff)[^\"/]*\".*\\}$"]},
+        "ask_prior_lookup": {"type": "patterns", "match": "whole", "default": [], "against": "道具の呼び出し 1 つ（道具の名・空白 1 つ・入力の JSON〔鍵の順に並べ、区切りは「, 」と「: 」の 1 行〕）"},
+        "ask_prior_exempt": {"type": "patterns", "match": "part", "default": [], "against": "問いの文"}
       }
     },
     "docs-kit": {
@@ -210,13 +177,13 @@
         "codex": {
           "keys": {
             "pack_dir": "str",
-            "self_allow": "list",
-            "clients": "dict",
+            "self_allow": {"type": "globs", "against": "パックに載せる file の path（repo の根から）"},
+            "clients": {"type": "dict", "against": "{名: {opt_in, no_training_tier, expires, paths}}。paths は型 globs と同じ当て方"},
             "egress_log": "str",
             "pack_local": "text",
             "rounds_cmd": "str",
             "contract_doc": "str",
-            "entropy_allow": "list"
+            "entropy_allow": {"type": "list", "match": "whole", "against": "鍵らしい塊の全体（\"sha256:<指紋>\" の行は塊の sha256 の頭）"}
           }
         },
         "preimpl-cleanup": {
@@ -242,7 +209,7 @@
             "save_place": "text",
             "screen_design": "text",
             "decision_match": "text",
-            "decision_match_allow": "list"
+            "decision_match_allow": {"type": "patterns", "match": "part", "against": "設計書の行"}
           }
         },
         "verify": {

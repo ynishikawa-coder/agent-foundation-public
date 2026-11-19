@@ -58,6 +58,11 @@ def _compile(pairs):
     return out
 
 
+def _why(row):
+    """値の表の行（字か {"pattern", "why"}）の理由。"""
+    return str((row.get("why") if isinstance(row, dict) else None) or "戻せない操作")
+
+
 def _git(cwd, *args):
     env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
     return subprocess.run(["git", "-C", cwd, *args], capture_output=True, text=True, timeout=10, env=env)
@@ -197,17 +202,23 @@ def rm_restorable(cmd, cwd):
 def match(tool_name, tool_input, cwd, vals):
     """戻せない操作なら理由、そうでなければ ""。"""
     name = str(tool_name or "")
-    for rx, why in _compile(_TOOLS) + _compile(vals.get("irreversible_tools_extra") or []):
+    for rx, why in _compile(_TOOLS):
         if rx.search(name):
             return why
+    row = G.SV.hit(G.patterns(vals, "irreversible_tools_extra", re.IGNORECASE), name)
+    if row is not None:
+        return _why(row)
     if name != "Bash":
         return ""
     cmd = str((tool_input or {}).get("command") or "") if isinstance(tool_input, dict) else ""
     if recursive_rm(cmd) and not rm_restorable(cmd, cwd):
         return RM_WHY
-    for rx, why in _compile(_BASH) + _compile(vals.get("irreversible_bash_extra") or []):
+    for rx, why in _compile(_BASH):
         if rx.search(cmd):
             return why
+    row = G.SV.hit(G.patterns(vals, "irreversible_bash_extra", re.IGNORECASE), cmd)
+    if row is not None:
+        return _why(row)
     return ""
 
 
