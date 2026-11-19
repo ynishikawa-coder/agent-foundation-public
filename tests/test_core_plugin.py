@@ -112,7 +112,7 @@ def test_入口を呼ぶ_setup_は古い形に当たらない():
 def test_古い形の見張りは時間の上限で打ち切り_黙って一部だけにしない(tmp_path):
     """注入: 見張りの時間を使い切った形 → 当たった所までを黙って返さず TimeoutError（起動では「見張りが動かなかった」と名指し）。"""
     import time
-    _git_repo(tmp_path / "p", {"CLAUDE.md": "<!-- AF-CORE:BEGIN -->\n"})
+    _olds_repo(tmp_path / "p", {"CLAUDE.md": "<!-- AF-CORE:BEGIN -->\n"})
     with pytest.raises(TimeoutError):
         kaku.find_olds(tmp_path / "p", deadline=time.monotonic() - 1)
     assert kaku.find_olds(tmp_path / "p", deadline=time.monotonic() + 60)
@@ -125,7 +125,7 @@ def test_古い形の一覧の欄が欠けると読めない(tmp_path):
         kaku.olds_table(bad)
 
 
-def _git_repo(d, files):
+def _olds_repo(d, files):
     d.mkdir(parents=True, exist_ok=True)
     for name, body in files.items():
         (d / name).parent.mkdir(parents=True, exist_ok=True)
@@ -137,7 +137,7 @@ def _git_repo(d, files):
 def test_plugin_の名を写した_setup_の行が在る_repo_を名指しする(tmp_path):
     """注入: 使う側の setup script に plugin の名を写して入れる行を戻す → 起動の hook と olds が file を名指しする。"""
     proj = tmp_path / "p"
-    _git_repo(proj, {"scripts/env/setup.sh": 'for p in core guard; do claude plugin install "$p@agent-foundation"; done\n',
+    _olds_repo(proj, {"scripts/env/setup.sh": 'for p in core guard; do claude plugin install "$p@agent-foundation"; done\n',
                      "README.md": "ふつう\n"})
     ctx = _ctx(run("inject", project=proj))
     assert "scripts/env/setup.sh: 土台の目録を足して plugin を入れるのに" in ctx and "README.md" not in ctx
@@ -285,7 +285,7 @@ def test_聞き方は見せてから聞き_前提の出所を分け_推奨の印
     reminder = (ROOT / "plugins" / "guard" / "scripts" / "unanswered.py").read_text(encoding="utf-8")
     assert "この答えに頼らない作業だけを進めて" in reminder
     olds = ["答えを待つ間も止まらない", "①決めること ②なぜ今 ③材料", "推奨を 1 つ目に `(推奨)`", "「終わった（推奨）」",
-            "戻せる作業だけを推奨案で進めて", "答え待ちで推奨を採った", "質問（`Q`）は必ず推奨と", "推奨を 1 つ目・", "推奨を 1 つ目・1 画面 4 問まで"]
+            "戻せる作業だけを推奨案で進めて", "答え待ちで推奨を採った", "質問（`Q`）は必ず推奨と", "推奨を 1 つ目・", "推奨を 1 つ目・1 画面 4 問まで", "推奨で決めて"]
     hits = []
     for p in sorted(ROOT.rglob("*")):
         rel = p.relative_to(ROOT)
@@ -467,8 +467,11 @@ def test_挙げた原因は全部台帳に行き先つきで持ち_全部済む�
     """原因が 5 つ挙がって 1 つしか直らない形を戻すと赤（1 つ選ぶ・一番手前から取る・どれを今回直すか）。"""
     kaku_text = (PLUGIN / "核.md").read_text(encoding="utf-8")
     s3 = _節(kaku_text, 3)
-    for word in ["原因の台帳", "1 行ずつ", "直す窓／直した／直さない", "オーナーが決めた理由"]:
+    for word in ["原因の台帳", "全部", "行き先"]:
         assert word in s3, f"核 §3 に無い: {word}"
+    s3d = _節((PLUGIN / "細目.md").read_text(encoding="utf-8"), 3)
+    for word in ["1 つ 1 行", "`直す窓`", "`直した`", "`直さない`", "オーナーが決めた理由"]:
+        assert word in s3d, f"細目 §3 の原因の台帳に無い: {word}"   # 行き先の細かさは細目が正本（核は芯だけ）
     s7 = _節(kaku_text, 7)
     assert "「直した」か「直さない」になるまで終わったと言わない" in s7 and "直す窓の行が残れば一部" in s7
     s4 = _節(kaku_text, 4)
@@ -501,7 +504,7 @@ def test_挙げた原因は全部台帳に行き先つきで持ち_全部済む�
     ("CONTRIBUTING.md", "1 本に入らなかった仕事"),
     ("CONTRIBUTING.md", "`合流済` が届いた枝"),
     ("plugins/checker/skills/review-pr/SKILL.md", "`[台帳へ｜<段>]`"),
-    ("plugins/dev-flow/skills/codex/SKILL.md", "| `task_rule` |"),
+    # codex の値の表の `task_rule` は細目 §3 の写しなので畳んだ（受け皿は本文の 6. DEFER の行だけ）
     ("plugins/dev-flow/skills/codex/SKILL.md", "`[DEFER]`"),
     ("plugins/dev-flow/skills/codex/SKILL.md", "**RETURN_TO_DESIGN**"),
     ("plugins/dev-flow/skills/codex/SKILL.md", "6. **DEFER"),
@@ -771,3 +774,63 @@ def test_検査の入口の赤の最後の行は根治の入口を指し緑は�
     test.write_text("def test_x():\n    assert True\n", encoding="utf-8")
     green = run()
     assert green.returncode == 0 and "まず構造を疑う" not in green.stdout
+
+
+def _git_repo(tmp_path, text):
+    """作り物の git repo に 核.md を 1 commit で置き、その file の path を返す。"""
+    g = lambda *a: subprocess.run(["git", *a], cwd=tmp_path, check=True, capture_output=True)
+    g("init", "-q")
+    g("config", "user.email", "t@example.invalid")
+    g("config", "user.name", "t")
+    f = tmp_path / "核.md"
+    f.write_text(text, encoding="utf-8")
+    g("add", "-A")
+    g("commit", "-q", "-m", "元")
+    return f
+
+
+def test_毎回差し込む物が元より増えると赤で_同じか減れば緑(monkeypatch, tmp_path, capsys):
+    """上限の内でも純増は赤（足すなら同じ変更で同じだけ畳む）。わざと 1 字足すと赤になる注入の試験。"""
+    f = _git_repo(tmp_path, "元の核\n")
+    monkeypatch.setattr(kaku, "injected", lambda: (f,))
+    assert kaku.grow("HEAD") == 0                       # 同じ
+    f.write_text("元の核\n足\n", encoding="utf-8")
+    assert kaku.grow("HEAD") == 1                       # 1 字でも増えたら赤
+    out = capsys.readouterr().out
+    assert "増えた" in out and "同じだけ畳む" in out.strip().splitlines()[-1]
+    f.write_text("核\n", encoding="utf-8")
+    assert kaku.grow("HEAD") == 0                       # 減った
+
+
+def test_比べる元が読めないと増え方の照らしは緑にせず止まる(monkeypatch, tmp_path, capsys):
+    f = _git_repo(tmp_path, "元の核\n")
+    monkeypatch.setattr(kaku, "injected", lambda: (f,))
+    assert kaku.grow("無い枝") == 2
+    new = tmp_path / "新.md"                            # 元の時に無い file
+    new.write_text("x", encoding="utf-8")
+    monkeypatch.setattr(kaku, "injected", lambda: (new,))
+    assert kaku.grow("HEAD") == 2
+    assert "照らせない" in capsys.readouterr().out
+
+
+def test_差し込む物を足すと増え方の照らしもそれを見る(monkeypatch, tmp_path, capsys):
+    """差し込む一覧と照らす一覧が別の写しに戻ると、足した物が黙って照らされず赤。"""
+    f = _git_repo(tmp_path, "元の核\n")
+    third = tmp_path / "三つ目.md"
+    third.write_text("三\n", encoding="utf-8")
+    subprocess.run(["git", "add", "-A"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "commit", "-q", "-m", "三"], cwd=tmp_path, check=True)
+    monkeypatch.setattr(kaku, "injected", lambda: (f, third))
+    assert "三" in kaku.inject_text()                   # 差し込む
+    third.write_text("三\n足\n", encoding="utf-8")
+    assert kaku.grow("HEAD") == 1                       # 照らす
+    assert "三つ目.md" in capsys.readouterr().out
+
+
+def test_増え方の照らしは検査の入口から回る():
+    assert kaku.injected() == (kaku.KAKU, kaku.FURUMAI)
+    sh = (ROOT / "scripts" / "checks" / "kaku_growth.sh").read_text(encoding="utf-8")
+    assert "kaku.py grow --base" in sh and "origin/main" in sh
+    ci = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+    check_job = ci.split("public-guard:")[0]
+    assert "fetch-depth: 0" in check_job, "CI の check が origin/main を取らず、比べる元が無くなる"

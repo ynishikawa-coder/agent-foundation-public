@@ -297,14 +297,65 @@ def test_助手の中では文脈を見ない(env, tmp_path):
     assert hook(env, "post", post_tool(tpath)) == {}
 
 
-def test_寿命を過ぎた問いは冒頭に出ない(env, tmp_path):
-    hook(env, "post", ask_result())
+def _age_ledger(tmp_path, keys=None):
     ledger = next((tmp_path / "state").rglob("unanswered-questions.json"))
     data = json.loads(ledger.read_text(encoding="utf-8"))
     for p in data["pending"]:
-        p["last_seen_at"] = "2000-01-01T00:00:00.000000Z"
+        if keys is None or p["key"] in keys:
+            p["last_seen_at"] = "2000-01-01T00:00:00.000000Z"
     ledger.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
-    assert hook(env, "start", {"session_id": "s2"}) == {}
+    return data
+
+
+def test_寿命を過ぎた問いは黙って消さず_一度知らせてから降ろす(env, tmp_path):
+    hook(env, "post", ask_result())
+    _age_ledger(tmp_path)
+    note = hook(env, "start", {"session_id": "s2"}).get("additionalContext", "")
+    assert "時間を過ぎたので、台帳から降ろします" in note and "作り物の置き場を A と B のどちらにしますか" in note
+    assert "前の窓で答えのないまま閉じた問い" not in note          # 出し直しの頼みには入れない
+    assert "答えが返らなかった原因" in note                          # 寿命切れだけでも根治の入口を指す
+    assert hook(env, "start", {"session_id": "s3"}) == {}           # 知らせたのは一度だけ
+    ledger = next((tmp_path / "state").rglob("unanswered-questions.json"))
+    assert [e["question"] for e in json.loads(ledger.read_text(encoding="utf-8"))["expired_recent"]] == \
+        ["作り物の置き場を A と B のどちらにしますか"]
+
+
+def test_寿命を過ぎた問いも次の問いを積む時には消えない(env, tmp_path):
+    hook(env, "post", ask_result())
+    _age_ledger(tmp_path)
+    hook(env, "post", many_questions(1, sid="s2", start=9))        # 別の問いを積む＝台帳を書き直す
+    note = hook(env, "start", {"session_id": "s3"})["additionalContext"]
+    assert "作り物の置き場を A と B のどちらにしますか" in note and "作り物の問い 9 番" in note
+    assert note.index("台帳から降ろします") < note.index("前の窓で答えのないまま閉じた問い")   # 切られても先に読まれる
+
+
+def many_questions(n, sid="s1", start=1):
+    qs = [{"question": "作り物の問い %d 番はどちらにしますか" % i, "header": "問い%d" % i,
+           "options": [{"label": "甲", "description": "作り物"}, {"label": "乙", "description": "作り物"}]}
+          for i in range(start, start + n)]
+    return {"tool_name": "AskUserQuestion", "session_id": sid, "transcript_path": "",
+            "tool_response": {"questions": qs, "answers": {}}}
+
+
+def test_出し直しは頭の4件で切らず_5件目まで全部渡す(env):
+    hook(env, "post", many_questions(4))
+    hook(env, "post", many_questions(1, sid="s1b", start=5))        # 4＋1＝5 件（モーダル 1 回の数を 1 つ越える）
+    note = hook(env, "start", {"session_id": "s2"})["additionalContext"]
+    assert "5 件" in note and "4 問ずつ続けて出す" in note and "下の 5 件を全部" in note
+    for i in range(1, 6):
+        assert "作り物の問い %d 番はどちらにしますか" % i in note
+    assert "次の機会に" not in note
+
+
+def test_閉じた問いが5つでも隣の1行に全部の文面が載る(env):
+    note = hook(env, "post", many_questions(5))["additionalContext"]
+    assert "（5 件）" in note and "作り物の問い 5 番" in note
+
+
+def test_離席の止めは閉じた問いが多い時ほか何件と置き場を出す(env):
+    hook(env, "post", many_questions(4))
+    why = deny_reason(env, bash(DROP))
+    assert "4 件" in why and "ほか 1 件" in why and "unanswered-questions.json" in why
 
 
 def test_子の窓の問いも台帳に積み離席の止めが働く(env, tmp_path):
@@ -483,6 +534,26 @@ def test_qa_page_入れた_plugin_の形でも検査を見つける(tmp_path):
             os.environ["AF_QA_CHECK"] = old
 
 
+def test_qa_page_赤が多い時ほか何件と全部の出し方を出す(env, tmp_path):
+    fake = tmp_path / "fake_check.mjs"
+    fake.write_text('console.log(JSON.stringify({ok: false, red: Array.from({length: 13}, (_, i) => "作り物の赤 " + (i + 1))}));'
+                    "process.exit(1);\n", encoding="utf-8")
+    page = tmp_path / "kakunin.html"
+    page.write_text(STATE_PAGE, encoding="utf-8")
+    if not shutil.which("node"):
+        pytest.skip("node が無い（作り物の検査は node で動く）")
+    why = deny_reason(dict(env, AF_QA_CHECK=str(fake)), publish(page))
+    assert "検査の赤 13 件" in why and "作り物の赤 12" in why and "ほか 1 件" in why and str(fake) in why
+
+
+def test_qa_page_51個目に在る問いの並びも見分ける(tmp_path):
+    sys.path.insert(0, str(PLUGIN / "scripts"))
+    try:
+        import qa_page
+    finally:
+        sys.path.pop(0)
+    rows = [{"x": i} for i in range(50)] + [{"questions": [{"q": "作り物", "options": ["甲", "乙"]}]}]
+    assert qa_page._has_question_list({"pages": rows})
 # ── ask_shape（選択肢の画面の問いの形）──
 def ask_pre(*qs):
     return {"tool_name": "AskUserQuestion", "session_id": "s1", "tool_input": {"questions": list(qs)}}
@@ -542,6 +613,66 @@ ASK_GOOD = [
 
 @pytest.mark.parametrize("name,payload", ASK_GOOD, ids=[c[0] for c in ASK_GOOD])
 def test_ask_shape_読みやすい問いは通す(env, name, payload):
+    assert deny_reason(env, payload) == ""
+
+
+# 推奨の印の付け方（誤りの類をわざと入れて止まるか・正しい形は通るか）
+ASK_REC_BAD = [
+    ("印が2つ", ask_pre(q("作り物の置き場をどちらにしますか", labels=("A（推奨）", "B（推奨）", "分からない"))), "2 つの選択肢"),
+    ("印が2つ目", ask_pre(q("作り物の置き場をどちらにしますか", labels=("A", "B (推奨)", "分からない"))), "1 つ目でない"),
+    ("英語の印が後ろ", ask_pre(q("作り物の置き場をどちらにしますか", labels=("A", "分からない", "B (Recommended)"))), "1 つ目でない"),
+    ("分からないに印", ask_pre(q("作り物の置き場をどちらにしますか", labels=("分からない（推奨）", "A", "B"))), "「分からない」の選択肢"),
+    ("末の推奨が2つ", ask_pre(q("作り物の置き場をどちらにしますか", labels=("A 推奨", "B・推奨"))), "2 つの選択肢"),
+    ("【】の印が後ろ", ask_pre(q("作り物の置き場をどちらにしますか", labels=("A", "B【おすすめ】"))), "1 つ目でない"),
+    ("区切りの無い末の印", ask_pre(q("作り物の置き場をどちらにしますか", labels=("A", "B推奨"))), "1 つ目でない"),
+    ("★の末の印", ask_pre(q("作り物の置き場をどちらにしますか", labels=("A", "B ★推奨"))), "1 つ目でない"),
+    ("括弧の中に続きのある印", ask_pre(q("作り物の置き場をどちらにしますか", labels=("A", "B（推奨: 早い）"))), "1 つ目でない"),
+    ("推奨案の印", ask_pre(q("作り物の置き場をどちらにしますか", labels=("A", "B（推奨案）"))), "1 つ目でない"),
+    ("末のお勧め", ask_pre(q("作り物の置き場をどちらにしますか", labels=("A", "B オススメ"))), "1 つ目でない"),
+    ("★の括弧の印", ask_pre(q("作り物の置き場をどちらにしますか", labels=("A", "B（★推奨）"))), "1 つ目でない"),
+    ("第二推奨", ask_pre(q("作り物の置き場をどちらにしますか", labels=("A（推奨）", "B（第二推奨）"))), "2 つの選択肢"),
+    ("《》の印", ask_pre(q("作り物の置き場をどちらにしますか", labels=("A", "B《推奨》"))), "1 つ目でない"),
+    ("<>の印", ask_pre(q("作り物の置き場をどちらにしますか", labels=("A", "B <推奨>"))), "1 つ目でない"),
+    ("よく分からないに印", ask_pre(q("作り物の置き場をどちらにしますか", labels=("よく分からない（推奨）", "A"))), "「分からない」の選択肢"),
+    ("分かりませんに印", ask_pre(q("作り物の置き場をどちらにしますか", labels=("分かりません（推奨）", "A"))), "「分からない」の選択肢"),
+    ("Unknownに印", ask_pre(q("作り物の置き場をどちらにしますか", labels=("Unknown (Recommended)", "A"))), "「分からない」の選択肢"),
+    ("推奨の語を含む見出し", ask_pre(q("作り物の置き場をどちらにしますか", labels=("A（推奨）", "推奨どおり B にする", "分からない"))), "印の形"),
+    ("推奨なし", ask_pre(q("作り物の置き場をどちらにしますか", labels=("A（推奨）", "B（推奨なし）", "分からない"))), "印の形"),
+    ("非推奨", ask_pre(q("作り物の置き場をどちらにしますか", labels=("A（推奨）", "B は非推奨", "分からない"))), "印の形"),
+    ("推奨しません", ask_pre(q("作り物の置き場をどちらにしますか", labels=("A（推奨）", "B（推奨しません）"))), "印の形"),
+    ("1つ目でも崩れた形", ask_pre(q("作り物の置き場をどちらにしますか", labels=("A（推奨: 早い）", "B", "分からない"))), "印の形"),
+    ("やや推奨", ask_pre(q("作り物の置き場をどちらにしますか", labels=("A", "B（やや推奨）"))), "1 つ目でない"),
+    ("Strongly", ask_pre(q("作り物の置き場をどちらにしますか", labels=("A", "B (Strongly recommended)"))), "1 つ目でない"),
+    ("末の句点", ask_pre(q("作り物の置き場をどちらにしますか", labels=("A", "B 推奨。"))), "1 つ目でない"),
+    ("I don't know に印", ask_pre(q("作り物の置き場をどちらにしますか", labels=("I don't know (Recommended)", "A"))), "「分からない」の選択肢"),
+    ("知らないに印", ask_pre(q("作り物の置き場をどちらにしますか", labels=("知らない（推奨）", "A"))), "「分からない」の選択肢"),
+    ("お薦めが後ろ", ask_pre(q("作り物の置き場をどちらにしますか", labels=("A", "B（お薦め）"))), "1 つ目でない"),
+    ("suggested が後ろ", ask_pre(q("作り物の置き場をどちらにしますか", labels=("A", "B (suggested)"))), "1 つ目でない"),
+    ("recommend", ask_pre(q("作り物の置き場をどちらにしますか", labels=("A", "B (recommend)"))), "1 つ目でない"),
+]
+
+
+@pytest.mark.parametrize("name,payload,want", ASK_REC_BAD, ids=[c[0] for c in ASK_REC_BAD])
+def test_ask_shape_推奨の印の付け方が崩れた問いは画面を出す前に止める(env, name, payload, want):
+    why = deny_reason(env, payload)
+    assert "[rec]" in why and want in why, why
+    assert "作り方の分かれ道" in why and "画面はまだ人に出ていない" in why
+
+
+ASK_REC_GOOD = [
+    ("1つ目に1つ", ask_pre(q("作り物の置き場をどちらにしますか", labels=("A（推奨）", "B", "分からない")))),
+    ("英語の印が1つ目", ask_pre(q("作り物の置き場をどちらにしますか", labels=("A (Recommended)", "B", "分からない")))),
+    ("印が無い", ask_pre(q("作り物の置き場をどちらにしますか", labels=("A", "B", "分からない")))),
+    ("説明の中の推奨は印でない", ask_pre(q("作り物の置き場をどちらにしますか", labels=("A（推奨）", "B", "分からない"),
+                                    desc="推奨の理由: あとで動かしやすい"))),
+    ("全角の印", ask_pre(q("作り物の置き場をどちらにしますか", labels=("A （推奨）", "B", "分からない")))),
+    ("unknowns を洗う", ask_pre(q("作り物の置き場をどちらにしますか", labels=("unknowns を洗う (Recommended)", "B", "分からない")))),
+    ("見出しの途中の不明", ask_pre(q("作り物の置き場をどちらにしますか", labels=("不明点を先に洗う（推奨）", "B", "分からない")))),
+]
+
+
+@pytest.mark.parametrize("name,payload", ASK_REC_GOOD, ids=[c[0] for c in ASK_REC_GOOD])
+def test_ask_shape_推奨の印が1つ目に1つだけなら通す(env, name, payload):
     assert deny_reason(env, payload) == ""
 
 

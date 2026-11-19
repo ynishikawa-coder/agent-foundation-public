@@ -11,9 +11,11 @@
                                       この窓を新しい窓へ引き継いで閉じるよう AI に知らせる（人の作業は止めない）。
   python3 kaku.py check [--claude P]  核と振る舞いの既定が在り、上限の内かを照らす。--claude を渡すと、その CLAUDE.md が各社固有の上限の内で
                                       核の写しの枠を持たないかも照らす。
+  python3 kaku.py grow --base REF     毎回差し込む物（injected() の一覧）が git の REF の時より増えていないかを照らす。
+                                      足すなら同じ変更で同じだけ畳む（上限の内で足し続けて満杯にしない）。
   python3 kaku.py olds DIR...         使う側の checkout に古い形.json の古い形が残っていないかを照らす
                                       （「壊れる（2 段目）」の前に、使う側が移ったのを記録で確かめる口）。
-exit: inject と fresh は何が起きても 0（窓の起動も人の作業も止めない）。check と olds は 0=緑 / 1=外れ / 2=読めない。
+exit: inject と fresh は何が起きても 0（窓の起動も人の作業も止めない）。check・grow・olds は 0=緑 / 1=外れ・増えた / 2=読めない。
 """
 from __future__ import annotations
 
@@ -130,15 +132,22 @@ def setup_text() -> str | None:
     return ("## 土台の入れ方が古い・欠けている\n" + "".join(parts)) if parts else None
 
 
+def injected() -> tuple[Path, ...]:
+    """毎回差し込む物の一覧（差し込む inject と増え方を照らす grow が同じこの 1 つを読む）。頭の核は欠けたら差し込まない。"""
+    return (KAKU, FURUMAI)
+
+
 def inject_text() -> str:
-    kaku = KAKU.read_text(encoding="utf-8").rstrip("\n")
-    try:
-        furumai = FURUMAI.read_text(encoding="utf-8").rstrip("\n")
-    except UNREADABLE as e:
-        # 欠けたまま黙って核だけにしない: 窓の起動は止めず、欠けた事を文脈に名指しで出す
-        print(f"plugin core: 振る舞い.md が読めない（{e}）", file=sys.stderr)
-        furumai = f"（振る舞いの既定 {FURUMAI} が読めず、差し込まれていない。最初にオーナーへ知らせる）"
-    return (kaku + "\n\n" + furumai + "\n\n"
+    head, *rest = injected()
+    parts = [head.read_text(encoding="utf-8").rstrip("\n")]
+    for path in rest:
+        try:
+            parts.append(path.read_text(encoding="utf-8").rstrip("\n"))
+        except UNREADABLE as e:
+            # 欠けたまま黙って核だけにしない: 窓の起動は止めず、欠けた事を文脈に名指しで出す
+            print(f"plugin core: {path.name} が読めない（{e}）", file=sys.stderr)
+            parts.append(f"（毎回差し込む {path} が読めず、差し込まれていない。最初にオーナーへ知らせる）")
+    return ("\n\n".join(parts) + "\n\n"
             + "（この核と振る舞いの既定は土台の plugin core が起動時に差し込んだ。"
             + f"返事・問い・手の窓などの形の細目は {SAIMOKU} の同じ番号の節。その形を書く時に Read する）\n")
 
@@ -356,6 +365,45 @@ def check(claude: Path | None) -> int:
     return 0
 
 
+# 毎回差し込む物（injected）＝増やさない物。足す時は同じ変更で同じだけ畳む（上限の内でも純増は赤）。
+GROW_FIX = "直し: 足すなら同じ変更で同じだけ畳む（重複を細目・skill の正本へ寄せる）。量を合わせるだけで済ませず、細目 §3「まず構造を疑う」で増えた原因から畳む"
+
+
+def base_text(ref: str, path: Path) -> str:
+    """git の ref の時の中身。読めない（ref が無い・その時に file が無い）時は OSError で止める。"""
+    top = subprocess.run(["git", "rev-parse", "--show-toplevel"], cwd=path.parent, capture_output=True, text=True)
+    if top.returncode != 0:
+        raise OSError(f"git の外: {top.stderr.strip()}")
+    rel = path.resolve().relative_to(Path(top.stdout.strip()).resolve()).as_posix()
+    r = subprocess.run(["git", "show", f"{ref}:{rel}"], cwd=path.parent, capture_output=True)
+    if r.returncode != 0:
+        raise OSError(f"{ref}:{rel} が読めない: {r.stderr.decode('utf-8', 'replace').strip()}")
+    return r.stdout.decode("utf-8")
+
+
+def grow(ref: str) -> int:
+    bad = []
+    for path in injected():
+        try:
+            now = size(path.read_text(encoding="utf-8"))
+            before = size(base_text(ref, path))
+        except UNREADABLE as e:
+            # 比べる元が無い時に黙って緑にしない（既定で止める）
+            print(f"✗ {path.name} の増え方を照らせない: {e}")
+            return 2
+        if now > before:
+            bad.append(f"{path.name} が {ref} より増えた: {before} → {now} バイト（+{now - before}）")
+        else:
+            print(f"・{path.name}: {before} → {now} バイト")
+    for b in bad:
+        print(f"✗ {b}")
+    if bad:
+        print(GROW_FIX)
+        return 1
+    print("✅ 毎回差し込む物は増えていない")
+    return 0
+
+
 def olds(dirs: list[Path]) -> int:
     try:
         rows = olds_table()
@@ -383,11 +431,15 @@ def main(argv=None) -> int:
     sub.add_parser("fresh", help="UserPromptSubmit の hook から呼ぶ")
     c = sub.add_parser("check", help="量の上限を照らす")
     c.add_argument("--claude", type=Path, help="照らす repo の根の CLAUDE.md")
+    g = sub.add_parser("grow", help="毎回差し込む物が REF より増えていないかを照らす")
+    g.add_argument("--base", required=True, help="比べる元の git の ref（例: main との分かれ目）")
     o = sub.add_parser("olds", help="使う側の checkout に古い形が残っていないかを照らす")
     o.add_argument("dirs", type=Path, nargs="+")
     a = ap.parse_args(argv)
     if a.cmd == "inject":
         return inject()
+    if a.cmd == "grow":
+        return grow(a.base)
     if a.cmd == "fresh":
         return fresh()
     if a.cmd == "olds":
