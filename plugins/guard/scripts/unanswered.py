@@ -285,16 +285,18 @@ def drop(data, keys, why):
     return gone
 
 
-def retire(data, keys, notified, notified_marks=()):
+def retire(data, keys, notified, notified_marks=(), keyless=0):
     """寿命切れ・文面の無い行を台帳から降ろし、控えを expired_recent へ。戻り値＝降ろした件数。
-    keys に在る行（key の無い文面なしの行は常に）だけを、降ろす直前に row_state で照らし直して降ろす
-    （読んでから書くまでに積み直された問いは降ろさない）。notified=False は人のいない窓が黙って移す時。
+    keys に在る行と、key の無い文面なしの行を読んだ数（keyless）までだけを、降ろす直前に row_state で照らし直して
+    降ろす（読んでから書くまでに積まれた・積み直された行は、知らせずに降ろさない）。notified=False は人のいない窓が黙って移す時。
     notified_marks（(key, expired_at) の並び）は、知らせ終えた控えに印を付ける。"""
     now = G.now_utc()
     keep, gone = [], []
     for p in data.get("pending", []):
         st = row_state(p)
-        hit = st in ("expired", "broken") and (p.get("key") in keys or (st == "broken" and not p.get("key")))
+        hit = st in ("expired", "broken") and p.get("key") in keys
+        if st == "broken" and not p.get("key") and keyless > 0:
+            hit, keyless = True, keyless - 1
         (gone if hit else keep).append(p)
     data["pending"] = keep
     recent = list(data.get("expired_recent") or [])
@@ -406,9 +408,11 @@ def _quiet_retire(path):
     """人のいない窓: 寿命切れ・文面の無い行を、知らせずに控えへ移す（知らせは次の人のいる窓）。台帳が無ければ作らない。"""
     if not path or not os.path.isfile(path):
         return
-    keys = {p.get("key") for p in read_ledger(path).get("pending", []) if row_state(p) != "live"}
-    if keys:
-        update_ledger(path, lambda d: retire(d, keys, notified=False))
+    old = [p for p in read_ledger(path).get("pending", []) if row_state(p) not in (None, "live")]
+    keys = {p.get("key") for p in old if p.get("key")}
+    keyless = sum(1 for p in old if not p.get("key"))
+    if old:
+        update_ledger(path, lambda d: retire(d, keys, notified=False, keyless=keyless))
 
 
 def _expired_line(n, it):
@@ -441,9 +445,10 @@ def resurface(data, vals):
                   "（出せば台帳に積み直されます）。", ""]
         for n, it in enumerate(expired, 1):
             lines += _expired_line(n, it)
-        keys = {p.get("key") for p in gone}
+        keys = {p.get("key") for p in gone if p.get("key")}
+        keyless = sum(1 for p in gone if not p.get("key"))
         marks = [(e.get("key"), e.get("expired_at")) for e in moved]
-        if not update_ledger(path, lambda d: retire(d, keys, notified=True, notified_marks=marks)):
+        if not update_ledger(path, lambda d: retire(d, keys, notified=True, notified_marks=marks, keyless=keyless)):
             lines.append("（台帳を書けず、降ろせませんでした。次の窓でもう一度知らせます）")
         lines += ["降ろした問いの控え: 台帳 %s の expired_recent" % path]
         if not items:
@@ -500,7 +505,7 @@ def cli(argv):
         why = " ".join(args[i + 1:]).strip()
         args = args[:i]
     # 知らない印・2 度目の --why は既定で止める（key や訳の文に紛れて黙って通さない）
-    bad = [a for a in args if a.startswith("--")] + (["--why（2 度目）"] if "--why" in why.split() else [])
+    bad = [a for a in args + why.split() if a.startswith("--")]   # 訳の側に紛れた印（2 度目の --why も）も止める
     if bad:
         sys.stderr.write("知らない印: %s\n%s" % (" ".join(bad), usage))
         return 2

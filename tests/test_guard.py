@@ -348,7 +348,7 @@ def test_人のいない窓だけが続いても寿命切れは台帳に残ら�
 def test_人のいない窓は台帳が無ければ作らない(env, tmp_path):
     env["AF_UNATTENDED"] = "1"
     assert hook(env, "start", {"session_id": "n1"}) == {}
-    assert not list((tmp_path / "state").rglob("unanswered-questions.json")) if (tmp_path / "state").exists() else True
+    assert not list(tmp_path.rglob("unanswered-questions.json"))
 
 
 def test_まだ知らせていない控えは上限で黙って落ちない(env, tmp_path):
@@ -788,7 +788,8 @@ def test_答え済みの問いはAIが台帳から降ろせ次の窓に出ない
 def test_降ろしの口は知らない印で止まる(env):
     hook(env, "post", ask_result())
     key = run_cli(env, "list").stdout.split("\t")[0]
-    for args in (("drop", key, "--force", "--why", "x"), ("drop", key, "--why", "x", "--why", "y"), ("list", "--all")):
+    for args in (("drop", key, "--force", "--why", "x"), ("drop", key, "--why", "x", "--why", "y"),
+                 ("drop", key, "--why", "x", "--force"), ("list", "--all")):
         p = run_cli(env, *args)
         assert p.returncode == 2, args
     assert key in run_cli(env, "list").stdout                         # 止まった間に降ろしていない
@@ -828,3 +829,14 @@ def test_同じ選択肢で物だけ違う問いを閉じず重ねもしない(e
     hook(env, "post", _ask_post(right, labels, False, "s4"))
     again = hook(env, "start", {"session_id": "s5"}).get("additionalContext", "")
     assert "2 件あります" in again and left in again and right in again
+
+
+def test_読んでから書くまでに積まれた_key_の無い行は知らせずに降ろさない():
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("unanswered_t", UNANSWERED)
+    uq = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(uq)
+    data = {"pending": [{"last_seen_at": "2000-01-01T00:00:00.000000Z"}, {"last_seen_at": "2000-01-01T00:00:00.000000Z"}],
+            "expired_recent": []}
+    assert uq.retire(data, set(), notified=True, keyless=1) == 1     # 読んで知らせたのは 1 行だけ
+    assert len(data["pending"]) == 1 and len(data["expired_recent"]) == 1
