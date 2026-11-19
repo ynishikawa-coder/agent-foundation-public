@@ -201,7 +201,7 @@ def template_parts(path):
     heads = [(no, name.split("（")[0].strip()) for no, name in TEMPLATE_HEAD.findall(text)]
     if not heads:
         raise ValueError("整地の雛形に `## N. ` の見出しが無い: %s" % path)
-    holders = sorted({m.group(0)[:14] for m in PLACEHOLDER.finditer(COMMENT.sub("", text))})
+    holders = sorted({m.group(0)[:14] for m in PLACEHOLDER.finditer(strip_notes(text))})
     return heads, holders
 
 
