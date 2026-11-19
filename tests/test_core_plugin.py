@@ -126,7 +126,7 @@ def test_聞き方は見せてから聞き_前提の出所を分け_推奨の印
     """原因の台帳の 4 行（2026-11-19）: 問いの文に全部を詰める・推奨の印が済んだかにも付く・前提に AI の推測を事実として置く・
     「待つ間も止まらない」が合意の要る事まで進める と読まれる。古い文を戻すと赤。"""
     s4 = _節((PLUGIN / "核.md").read_text(encoding="utf-8"), 4)
-    for word in ["案・前提・材料をチャットで先に見せ", "画面の問いは決める事の 1 文", "推奨の印は作り方の分かれ道だけ",
+    for word in ["案と前提をチャットで先に見せ", "画面の問いは 1 文に", "推奨の印は作り方の分かれ道だけ",
                  "済んだかは AI が確かめてから", "答えを待つ間は答えに頼らない事を進める"]:
         assert word in s4, f"核 §4 に無い: {word}"
     s4d = _節((PLUGIN / "細目.md").read_text(encoding="utf-8"), 4)
@@ -134,10 +134,12 @@ def test_聞き方は見せてから聞き_前提の出所を分け_推奨の印
                  "「ずれ」と決め込まない", "「なぜこの形か」を問う", "**推奨の印**", "済んだかの確認には付けない",
                  "**答えを待つ間**", "推奨で先に進めない", "「終わった」「うまくいかない」「分からない」・推奨の印は付けない"]:
         assert word in s4d, f"細目 §4 に無い: {word}"
+    mock = (ROOT / "plugins" / "docs-kit" / "skills" / "theory-mock" / "SKILL.md").read_text(encoding="utf-8")
+    assert "作り方の分かれ道（画面・データ・流れをどう作るか）だけを置き" in mock and "推奨を付けずにチャットで聞く" in mock
     reminder = (ROOT / "plugins" / "guard" / "scripts" / "unanswered.py").read_text(encoding="utf-8")
     assert "この答えに頼らない作業だけを進めて" in reminder
     olds = ["答えを待つ間も止まらない", "①決めること ②なぜ今 ③材料", "推奨を 1 つ目に `(推奨)`", "「終わった（推奨）」",
-            "戻せる作業だけを推奨案で進めて", "答え待ちで推奨を採った", "推奨を 1 つ目・1 画面 4 問まで"]
+            "戻せる作業だけを推奨案で進めて", "答え待ちで推奨を採った", "質問（`Q`）は必ず推奨と", "推奨を 1 つ目・1 画面 4 問まで"]
     hits = []
     for p in sorted(ROOT.rglob("*")):
         rel = p.relative_to(ROOT)
@@ -203,7 +205,7 @@ def test_挙げた原因は全部台帳に行き先つきで持ち_全部済む�
     s7 = _節(kaku_text, 7)
     assert "「直した」か「直さない」になるまで終わったと言わない" in s7 and "直す窓の行が残れば一部" in s7
     s4 = _節(kaku_text, 4)
-    assert "1 つ選ばせる問いを出さない" in s4 and "挙がった物は全部やり" in s4
+    assert "並べて 1 つ選ばせる問いを出さない" in s4 and "全部やり、分け方は AI が決める" in s4
     saimoku = (PLUGIN / "細目.md").read_text(encoding="utf-8")
     assert "**原因の台帳**" in _節(saimoku, 3) and "**選ばせない**" in _節(saimoku, 4) and "**根治の終わり**" in _節(saimoku, 7)
     assert "③は 1 本の列（番号の順）にせず" in _節(saimoku, 8), "引き継ぎの残りが番号の列に戻った"
