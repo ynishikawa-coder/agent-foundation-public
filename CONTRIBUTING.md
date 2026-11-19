@@ -63,7 +63,7 @@
 - 2・3 の入力は作り物だけ。`tests/data/` か試験の中に書く。**顧客の物（実データ・実 ID・実画面）はどの場合も置かない。**
 - 1 つの試験は 1 つの約束を見る。名前で何を守るかが分かるようにする（例: `test_一覧の行が全部ある`）。
 - まだ無い物（他の窓が先に置く物）に頼る試験は、無い間は `pytest.skip` で飛ばし、理由を書く。消さない・赤のまま置かない。
-- 試験を飛ばして緑にしない。赤を消すために試験を消さない。
+- 赤は試験を飛ばす・消すで消さず、細目 §3「まず構造を疑う」で原因から直す。
 - 手元で走らせる: `python3 -m pytest -q tests/`
 
 ## 6. 検査の入口（CI）
@@ -71,7 +71,7 @@
 - CI は `.github/workflows/ci.yml`。`main` への push と、すべての PR で走る。
 - CI の job は 2 つ: `check`（入口は `bash scripts/check_all.sh` の 1 本）と `public-guard`（公開の検査）。`check_all.sh` は中で pytest（`tests/`）と、`scripts/checks/*.sh` があればそれを順に走らせる。
 - 検査を足す時は `scripts/checks/<名前>.sh` を足すか、`tests/` に試験を足す。`ci.yml` と `check_all.sh` は書き換えなくてよい。
-- `check_all.sh` の最後の行が `check_all: 緑` なら通り、`check_all: 赤 …` なら止まり。
+- `check_all.sh` の最後の行が `check_all: 緑` なら通り、`check_all: 赤 …` なら止まり。止まったら赤の行を 1 つずつ潰さず、細目 §3「まず構造を疑う」で原因から直す。
 
 ## 7. プラグインの一覧
 
@@ -81,4 +81,4 @@
 
 ## 8. 版
 
-- 版の印は main に入るたびに Actions が自動で打つ（`docs/版の出し方.md`）。版を出す PR は無い。使う側に関係する変更は `CHANGELOG.md` の先頭の「合流ごと」に、PR ごとに 1 行足す。
+- 版の印は main に入るたびに Actions が自動で打つ（`docs/版の出し方.md`）。版を出す PR は無い。使う側に関係する変更は、PR ごとに自分の file を `CHANGELOG.d/<日付>-<話題>.txt` に 1 つ足す（`CHANGELOG.md` へは足さない・書き方は `CHANGELOG.d/README.md`）。

@@ -42,6 +42,7 @@ RED = """レビューした窓: session_REVIEW01 判定: red
 
 ## verdict
 red
+直し: 細目 §3「まず構造を疑う」
 
 ## 点
 - 1 依頼の充足: fail（作り物の欠け）
@@ -172,3 +173,17 @@ def test_同じ見出しの節が_2_つ在ると赤():
     extra = "## 点\n- 99 作り物: ok\n\n"
     text = GREEN.replace("## 所見", extra + "## 所見", 1)
     assert any("`## 点` の節が 2 個" in e for e in vf.check(text, writer="session_WRITER01"))
+
+
+def test_red_が根治の入口を指さないと誤り():
+    """red を直す行の一覧だけで返す古い形（直し: の行が無い）に戻すと赤。blocked は測れなかっただけなので要らない。"""
+    old = RED.replace("直し: 細目 §3「まず構造を疑う」\n", "")
+    assert any("まず構造を疑う" in e for e in vf.check(old))
+    blocked = old.replace("## verdict\nred", "## verdict\nred（blocked: 物差しが回らない）").replace(
+        "[止める｜実装]", "[後の便｜実装]").replace("fail（作り物の欠け）", "pass")
+    assert not any("まず構造を疑う" in e for e in vf.check(blocked))
+
+
+def test_判定の形の見本が根治の入口を指す行を持つ():
+    text = (PLUGIN / "skills" / "review-pr" / "SKILL.md").read_text(encoding="utf-8")
+    assert vf.ROOT_CAUSE in text
