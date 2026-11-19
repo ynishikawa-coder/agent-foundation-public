@@ -9,7 +9,9 @@
 知らない鍵・畳んだ鍵（retired・理由と直し方つき）・型の違う値を名指す。repo 自身の欄と `_` で始まる注は見ない。
 SKILL.md の「repo ごとの値」の表と鍵の一覧のずれは土台の試験（tests/test_skill_values.py）が両向きに照らす。
 
-  values_keys.py [<skill-values.json>]  … 問題の鍵を並べ、在れば exit 1（使う側の CI・手元で回す口）
+  values_keys.py [<skill-values.json>]  … 問題の鍵を並べる（使う側の CI・手元で回す口）
+    exit: 0=問題の鍵 0／1=問題の鍵が在る／2=値の表が読めない（照らせない）。土台の道具の 0/1/2 の約束と同じ
+    （kaku.py olds・copies.py・refs.py）。使う側は 2 を「ずれが在る」と取り違えず「照らせない」と分けて受ける。
 hook（guard.py から）:
   check(data, vals)     … PreToolUse: Write・Edit・MultiEdit で値の表を書いた後に問題の鍵が残り、
                           書く前より減っていなければ止める（AI の書き込みだけを止める・人の手は止めない）
@@ -69,7 +71,7 @@ def _say(keys, where):
             "直し方: 消すか、今の名の鍵へ移す（今の鍵の一覧の正本は土台の skill-values/schema.json・各 skill の SKILL.md の「repo ごとの値」の表と同じ）。"
             "repo が自分で持つ値なら、土台の plugin の名と common の外の頭へ移す。この repo の PR で直す（skill `guard:guard-rules`）。"
             "土台の道具が今も読む鍵なのに一覧に無いだけなら、値の表は直さず、土台の repo で skill-values/schema.json とその skill の SKILL.md の表に行を足す PR を出す。"
-            "古い鍵が残った訳（土台を直した仕事が使う側の値の表まで届かなかった等）は、細目 §3「まず構造を疑う」で原因から直す。"
+            "古い鍵が残った訳（土台を直した仕事が使う側の値の表まで届かなかった等）は、細目「まず構造を疑う」で原因から直す。"
             % (where, "\n".join("  - " + k for k in keys)))
 
 
@@ -119,8 +121,8 @@ def main(argv):
         with open(path, encoding="utf-8") as f:
             table = json.load(f)
     except Exception as e:      # noqa: BLE001
-        print("値の表 %s が読めない: %s" % (path, e))
-        return 1
+        print("値の表 %s が読めない（照らせない）: %s" % (path, e))
+        return 2
     keys = unknown(table)
     if keys:
         print(_say(keys, path))

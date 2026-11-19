@@ -6,6 +6,9 @@
 照らし方: 文ごとに、記号と空白を除いた字の 2 字の並びの重なり（Dice の係数）を土台の全部の文と比べ、
   THRESHOLD 以上の組を写しとみなす。そのままの写しは 1.0、語順や語尾を変えた言い換えは 0.6〜0.8 ほど、
   関係の無い文は 0.1 ほど。MIN_CHARS より短い文は照らさない（短い決まり文句の取り違えを避ける）。
+  正本を指す字（file の path・`…` のコード・skill の名 `plugin:skill`）は字の並びから除く（_POINTER）。写しの直し方は
+  「正本を指す 1 行に替える」なので、指す字が重なっただけの行を写しと呼ぶと、直した行がまた赤になる。指す字を除いて
+  MIN_CHARS に足りない行（指すだけの行）は照らさない。
 土台の文: 同じ plugin の 核.md・振る舞い.md・細目.md と、並ぶ plugin の skills/*/SKILL.md
   （repo の形 plugins/<名>/ は並ぶ plugin、入れた写しの形 cache/<市場>/<名>/<版>/ は入った版の dir だけ＝plugin_dirs）。--foundation で dir を渡せば
   その下の .md を全部使う。土台の文が 1 つも読めない時は照らさずに止める（黙って緑にしない）。
@@ -27,8 +30,17 @@ THRESHOLD = 0.5
 MIN_CHARS = 20
 _STRIP = re.compile(r"[\s`*_>#|・、。，．,.:：;；()（）「」『』\[\]{}<>—\-–/\\!！?？=＝+〔〕【】]+")
 _SPLIT = re.compile(r"(?<=[。！？])|\n")
-ROOT_CAUSE = ("直し: 写しの文を言い換えて逃がさず、土台の正本を指す 1 行（どの file のどの節か）に替える。"
-              "写しが要る形になった原因は細目 §3「まず構造を疑う」で探す")
+_POINTER = re.compile(r"`[^`\n]*`"                                   # コード・path を `…` で書いた所
+                      r"|[\w.~-]*(?:/[\w.~-]+)+/?"                    # dir を含む path（.github/x.md・plugins/core/）
+                      r"|[\w~-]+\.(?:md|py|json|sh|ya?ml|mjs|js|txt|toml)\b"  # 名だけの file（CONTRIBUTING.md）
+                      r"|\b[a-z][\w-]*:[a-z][\w-]*\b", re.A)              # skill の名（dev-flow:verify）
+ROOT_CAUSE = ("直し: 写しの文を言い換えて逃がさず、土台の正本を指す 1 行（どの file のどの節か。節は番号でなく名で指し、"
+              "refs.py check で照らす）に替える。写しが要る形になった原因は細目「まず構造を疑う」で探す")
+
+
+def body(s: str) -> str:
+    """照らす字: 正本を指す字と記号・空白を除いた残り。"""
+    return _STRIP.sub("", _POINTER.sub(" ", s))
 
 
 def sentences(text: str):
@@ -37,13 +49,13 @@ def sentences(text: str):
     for no, line in enumerate(text.splitlines(), 1):
         line = re.sub(r"^\s*(?:[-*+]|\d+[.)]|#+|>)\s*", "", line)
         for part in _SPLIT.split(line):
-            if len(_STRIP.sub("", part)) >= MIN_CHARS:
+            if len(body(part)) >= MIN_CHARS:
                 out.append((no, part.strip()))
     return out
 
 
 def grams(s: str) -> Counter:
-    s = _STRIP.sub("", s)
+    s = body(s)
     return Counter(s[i:i + 2] for i in range(len(s) - 1))
 
 
