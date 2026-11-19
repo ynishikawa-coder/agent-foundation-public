@@ -296,3 +296,31 @@ def test_前の返事に手順を直に書いた窓へ次の頼みで知らせ�
     assert sw.remind({"transcript_path": str(log)}, CLOUD) is None
     log.write_text("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in rs), encoding="utf-8")
     assert sw.remind({"transcript_path": str(log)}, {}) is None   # クラウドでない窓には出さない
+
+
+def test_一言で済む返事は札と締めを求めない():
+    """細目 §5: 札も締めも無い 3 行以下の返事（問いを出していない）は card・close を拾わない。"""
+    c = set_last_text(rows("child_ok.jsonl"), "はい、main の先端は d7b1191 です。")
+    assert not {"card", "close"} & set(codes(c))
+    c = set_last_text(rows("child_ok.jsonl"), "はい。\n枝は claude/20261119-x です。\n試験は通っています。")
+    assert not {"card", "close"} & set(codes(c))
+
+
+def test_一言の外は今までどおり札と締めを求める():
+    """古い形に戻す注入: 4 行以上・札を付けた短い返事・締めだけ書いた短い返事は、今までどおり拾う。"""
+    c = set_last_text(rows("child_ok.jsonl"), "はい。\n枝は作り物です。\n試験は通っています。\nPR も出しました。")
+    assert {"card", "close"} <= set(codes(c))
+    c = set_last_text(rows("child_ok.jsonl"), "✅終わった\nPR を出した。")
+    assert "close" in codes(c)
+    c = set_last_text(rows("child_ok.jsonl"), "終わりました。\nAI がこの後やること: なし\nあなたがやること: なし。この窓は閉じて大丈夫です。")
+    assert "card" in codes(c)
+
+
+def test_問いを出したターンは短くても札を求める():
+    rs = rows("plain_unanswered.jsonl")
+    ask = copy.deepcopy(rs[3])   # 選択肢の画面を出した行
+    assert ask["message"]["content"][0]["name"] == "AskUserQuestion"
+    rs = set_last_text(rs, "選んでください。")
+    rs.insert(len(rs) - 1, ask)  # 最後のターンで問いを出してから短く締める
+    assert sw.Log(rs).turn_asked()
+    assert "card" in codes(rs)

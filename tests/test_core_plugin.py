@@ -136,6 +136,24 @@ def test_古い根治と聞き方の言い回しが土台に残らない():
     assert not hits, hits
 
 
+def test_一言の返事は札と締めを省き_窓の役に決まった一覧を置かない():
+    """同じ原因（決まりが 1 つの形に押し込める）の残り: 短い返事に 3 行を足さない・役の名を 5 つに閉じない。古い形を戻すと赤。"""
+    kaku_text = (PLUGIN / "核.md").read_text(encoding="utf-8")
+    assert "一言で済む返事は札と締めを省く" in _節(kaku_text, 5)
+    s5d = _節((PLUGIN / "細目.md").read_text(encoding="utf-8"), 5)
+    assert "**一言で済む返事**" in s5d and "札を付けたら締めも付ける" in s5d
+    olds = ["の 5 つだけ。他の名を足さない", "親・書く・レビュー・調べ・手 の 5 つ", "社内で確かめてから答える", "問いの形（3 つだけ）", "決まった 4 文"]
+    hits = []
+    for p in sorted(ROOT.rglob("*")):
+        rel = p.relative_to(ROOT)
+        if rel.parts[0] in {".git", "tests"} or p.name == "CHANGELOG.md":
+            continue
+        if p.is_file() and p.suffix in {".md", ".py", ".json", ".mjs", ".html"}:
+            text = p.read_text(encoding="utf-8")
+            hits += [f"{rel}: {o}" for o in olds if o in text]
+    assert not hits, hits
+
+
 def test_核の根治は誤りが入れない形と注入の試験を持つ():
     kaku_text = (PLUGIN / "核.md").read_text(encoding="utf-8")
     s3 = _節(kaku_text, 3)
