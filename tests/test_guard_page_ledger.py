@@ -58,9 +58,9 @@ def test_壊れた見張りはこの試験が拒む(tmp_path):
 
 # ── page_check ──
 def _find_chrome():
-    """型の検査と同じ探し方（検査の find_chrome を直に呼ぶ＝試験の側で Chrome の在り処を写さない）。"""
+    """型の検査と同じ探し方（共通の口の find_chrome を直に呼ぶ＝試験の側で Chrome の在り処を写さない）。"""
     import importlib.util
-    spec = importlib.util.spec_from_file_location("_bp_chrome", SKILLS / "blueprint" / "scripts" / "check_blueprint.py")
+    spec = importlib.util.spec_from_file_location("_page_selftest", ROOT / "plugins" / "docs-kit" / "scripts" / "page_selftest.py")
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     return mod.find_chrome()
@@ -75,8 +75,11 @@ def publish(path, **kw):
 
 
 def broken(s):
-    """注入: 型の中身の飛び先の 1 つを、どの段・画面にも無い id へ替える（型の検査が赤にする形）。"""
+    """注入: 型の中身の飛び先の 1 つを、どの段・画面にも無い id へ替える（型の検査が赤にする形）。
+    マインドマップは飛び先を持たないので、カードの id を重ねる。"""
     out = re.sub(r"go\('(s12|r1)'", "go('zz_nai'", s, count=1)
+    if out == s:
+        out = s.replace('"id": "c13"', '"id": "c12"', 1)
     assert out != s
     return out
 
@@ -91,14 +94,14 @@ def page(tmp_path, kind, edit=None, name="p.html"):
 
 
 @needs_chrome
-@pytest.mark.parametrize("kind", ["blueprint", "theory-mock"])
+@pytest.mark.parametrize("kind", ["blueprint", "theory-mock", "mindmap"])
 def test_page_check_型どおりのページは通す(env, tmp_path, kind):
     out = hook(env, "pre", publish(page(tmp_path, kind)))
     assert out.get("permissionDecision") != "deny", out.get("permissionDecisionReason")   # 止めた訳を出す
 
 
 @needs_chrome
-@pytest.mark.parametrize("kind", ["blueprint", "theory-mock"])
+@pytest.mark.parametrize("kind", ["blueprint", "theory-mock", "mindmap"])
 def test_page_check_型の検査が赤のページは出す前に止め直し方を返す(env, tmp_path, kind):
     # 注入: どの画面にも無い飛び先を足す（型の検査が赤にする形）
     bad = page(tmp_path, kind, broken)
@@ -118,7 +121,7 @@ def test_page_check_files_で足すページも見る(env, tmp_path):
 @pytest.mark.parametrize("edit,why", [
     (lambda s: re.sub(r'<meta name="af-page"[^>]*>', "", s), "型の印"),                  # 印を外して検査を逃れる
     (lambda s: s.replace('content="blueprint"', 'content="zz-unknown"'), "知らない型"),
-    (lambda s: s.replace('content="blueprint"', 'content="mindmap"'), "page-check"),       # 検査を持たない型の名
+    (lambda s: s.replace('content="blueprint"', 'content="pdf-read"'), "page-check"),      # 検査を持たない型の名
 ])
 def test_page_check_印が無い_知らない型_検査の無い型は既定で止める(env, tmp_path, edit, why):
     out = hook(env, "pre", publish(page(tmp_path, "blueprint", edit)))

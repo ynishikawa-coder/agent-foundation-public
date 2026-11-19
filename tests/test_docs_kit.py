@@ -912,11 +912,11 @@ def test_理論モックの検査は_NG_なら最後に根治の入口を指し_
     tm = _load(SKILLS / "theory-mock" / "scripts" / "check_theory_mock.py", "check_theory_mock")
     page = tmp_path / "m.html"
     page.write_text("<html></html>", encoding="utf-8")
-    monkeypatch.setattr(tm, "find_chrome", lambda: "chrome")
-    monkeypatch.setattr(tm, "dump_dom", lambda cmd: (_dom(selftest), ""))
+    monkeypatch.setattr(tm.PS, "find_chrome", lambda: "chrome")
+    monkeypatch.setattr(tm.PS, "dump_dom", lambda cmd: (_dom(selftest), ""))
     assert tm.main(["x", str(page)]) == 1
     assert "細目 §3「まず構造を疑う」" in capsys.readouterr().out.strip().splitlines()[-1]
-    monkeypatch.setattr(tm, "dump_dom", lambda cmd: (_dom("SELFTEST OK 3 screens"), ""))
+    monkeypatch.setattr(tm.PS, "dump_dom", lambda cmd: (_dom("SELFTEST OK 3 screens"), ""))
     assert tm.main(["x", str(page)]) == 0
     assert "まず構造を疑う" not in capsys.readouterr().out
 
@@ -926,10 +926,10 @@ def test_Blueprint_の検査は_NG_なら最後に根治の入口を指し_OK_�
     bp = _load(SKILLS / "blueprint" / "scripts" / "check_blueprint.py", "check_blueprint")
     page = tmp_path / "b.html"
     page.write_text("<html></html>", encoding="utf-8")
-    monkeypatch.setattr(bp, "open_dom", lambda target, mode: _dom(selftest))
+    monkeypatch.setattr(bp.PS, "open_dom", lambda target, mode: _dom(selftest))
     assert bp.check(str(page)) == 1
     assert "細目 §3「まず構造を疑う」" in capsys.readouterr().out.strip().splitlines()[-1]
-    monkeypatch.setattr(bp, "open_dom", lambda target, mode: _dom("SELFTEST OK 1 tabs 2 steps"))
+    monkeypatch.setattr(bp.PS, "open_dom", lambda target, mode: _dom("SELFTEST OK 1 tabs 2 steps"))
     assert bp.check(str(page)) == 0
     assert "まず構造を疑う" not in capsys.readouterr().out
 
