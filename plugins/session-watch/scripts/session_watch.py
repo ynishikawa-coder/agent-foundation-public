@@ -35,6 +35,7 @@ import sys
 ASK = "AskUserQuestion"
 SET_TITLE_SUFFIX = "set_session_title"
 REMOTE_PREFIX = "mcp__claude-code-remote__"
+ROOT_CAUSE = "直し: 拾われた所を出し直すだけで済ませず、細目 §3「まず構造を疑う」で原因から直す"
 
 AI = "🤖"       # 返し先が別の窓か仕組み
 HUMAN = "🙋"    # 返し先がオーナー（オーナーが話しかける窓）
@@ -383,7 +384,7 @@ def check(log):
             and not READING.search(split_close(closing)[0]):
         body, _ = split_close(closing)
         last = [x.strip() for x in strip_code(body).splitlines() if x.strip()]
-        found.append(("plain", "問いを平文で書いた（選ぶ問いはモーダルで、開いた問いは AI の今の読みを添えて聞くか、推奨で決めて進む）: %s" % (last[-1][-60:] if last else "")))
+        found.append(("plain", "問いを平文で書いた（選ぶ問いはモーダルで、開いた問いは AI の今の読みを添えて聞くか、AI が決めて進む）: %s" % (last[-1][-60:] if last else "")))
 
     # 「分からない」の無いモーダルの問い（細目 §4）
     for k, v in log.events:
@@ -503,6 +504,8 @@ def main(argv):
     found = watch(argv[1])
     for code, msg in found:
         print("%s: %s" % (code, msg))
+    if found:
+        print(ROOT_CAUSE)
     return 1 if found else 0
 
 

@@ -7,6 +7,8 @@ description: 規律を足す・直す時の 1 本。最初に「これは止め�
 
 規律・skill・hook を書く前に通す（書いた後の点検ではない）。
 
+ミスから規律を足そうとしている時は、書く前に細目 §3「まず構造を疑う」で原因の段へ戻る（足す案が出た事が、根に届いていない合図）。
+
 ## repo ごとの値（config/skill-values.json）
 
 repo の根の `config/skill-values.json` の `dev-flow.register-rule.<鍵>` から読む。**鍵が無い・値が空なら右の既定で動く**。
@@ -30,7 +32,7 @@ repo の根の `config/skill-values.json` の `dev-flow.register-rule.<鍵>` か
 
 止める物かを決めたら、続けてその規律の根治の形を 2 つ書く（中身は核 §3・細目 §3）:
 
-- **誤りが入れない形のどれか** — 写す工程を無くす／誤った物が入れない／正しい道だけが外へ出す／防げない物は名指しで人の関所へ。文を足すだけで、どれにも当たらないなら足す前に構造を疑う。
+- **誤りが入れない形のどれか** — 写す工程を無くす／誤った物が入れない／正しい道だけが外へ出す／防げない物は名指しで人の関所へ。文を足すだけで、どれにも当たらないなら原因の段へ戻る。
 - **注入の試験** — その規律が防ぐ誤りの類を窓の作業場でわざと入れ、仕組みが拒む（赤・止まる）事と、外すと声が消える事を確かめる（消えないなら既に別の歯が守っている＝統合）。試験は回す口（CI・物差し）に載せ、結果を PR 本文に 1 行。
 
 ## Step 2: 重複
@@ -47,7 +49,7 @@ grep -rn "<語 1>\|<語 2>" CLAUDE.md .claude/ plugins/ 2>/dev/null
 
 | 効く先 | 置き場 |
 |---|---|
-| 土台（両方の AI） | 常時要る原則は `plugins/core/核.md`、形・例は `細目.md`、作業の手順は土台の skill |
+| 土台（両方の AI） | 常時要る原則は `plugins/core/核.md`、AI の癖と逆を求める振る舞いの既定は `振る舞い.md`（核と一緒に毎回差し込む）、形・例は `細目.md`、作業の手順は土台の skill |
 | 各 repo の固有 | その repo の `CLAUDE.md`（常時）か、その repo の skill・文書（要る時） |
 
 - 迷ったら skill に書く。正本は 1 か所、他は指すだけ（言い換えの写しも置かない）。
@@ -56,7 +58,7 @@ grep -rn "<語 1>\|<語 2>" CLAUDE.md .claude/ plugins/ 2>/dev/null
 ## Step 4: 量と 1 入 1 出
 
 - **1 つ足したら 1 つ以上畳む**（同じ PR で）。畳んだ物を PR 本文に書く。
-- 核と各 repo の `CLAUDE.md` は `python3 plugins/core/scripts/kaku.py check [--claude <path>]` で照らす。越えるなら常時へ足さず、細目・skill へ移して常時からは指す 1 行にする。
+- 核・振る舞いの既定と各 repo の `CLAUDE.md` は `python3 plugins/core/scripts/kaku.py check [--claude <path>]` で照らす。越えるなら常時へ足さず、細目・skill へ移して常時からは指す 1 行にする。
 - skill の description は「何を・いつ使うか」の 1〜2 行。合計は `desc_budget_bytes` で測る。
 
 ## Step 5: 規律の形
@@ -69,7 +71,7 @@ grep -rn "<語 1>\|<語 2>" CLAUDE.md .claude/ plugins/ 2>/dev/null
 
 - 読み返して直す: 言い換えの無い専門用語・説明の無い ID・5 段以上の手順・80 字以上の文の連続。
 - 書いた後、常時読む物（核・細目・`CLAUDE.md`・skill の description）を見て、重複は 1 か所に寄せ、死んだ参照は消す。食い違いで意味が変わる物はオーナーに聞く。
-- 失敗・学びは `learning_record` へ（repo の md に積まない）。同じ種類の失敗が 2 度なら、文を足す前に構造を疑う。
+- 失敗・学びは `learning_record` へ（repo の md に積まない）。
 
 ## 出力の形
 
