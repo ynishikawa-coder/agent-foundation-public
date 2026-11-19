@@ -79,9 +79,11 @@ def olds_table(path: Path = OLDS) -> list[dict]:
 
 
 def _tracked(project: Path, specs: list[str]) -> list[Path]:
+    """照らす file の全部。数で切らない（切ると残りを照らさず緑を返す）。時間の上限は find_olds_bounded が
+    process の外から掛け、越えたら打ち切ったと名指す。"""
     out = _git(str(project), "ls-files", "-z", "--", *specs, timeout=10)
     if out is not None:
-        return [project / n for n in out.split("\0") if n][:2000]
+        return [project / n for n in out.split("\0") if n]
     return [project / s for s in specs if "*" not in s]  # git でない dir は、名で書いた file だけ見る
 
 
@@ -155,7 +157,7 @@ def _tree_texts(project: Path, ref: str, only: set[tuple[str, str]] | None = Non
                    "--", *r["files"], timeout=10)
         if empty is None or out is None:
             raise OSError(f"main（{ref[:12]}）の木を読めない")
-        names = [n for n in out.split("\0") if n and "\n" not in n and (only is None or (r["id"], n) in only)][:2000]
+        names = [n for n in out.split("\0") if n and "\n" not in n and (only is None or (r["id"], n) in only)]
         if not names:
             return
         try:

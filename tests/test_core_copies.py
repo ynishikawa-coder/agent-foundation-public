@@ -1,4 +1,5 @@
 """plugin core の copies.py: 使う側の文に、土台の決まりのそのままの写しも言い換えた写しも拾うか（注入の試験）。"""
+import importlib.util
 import subprocess
 import sys
 from pathlib import Path
@@ -7,6 +8,15 @@ import pytest
 
 ROOT = Path(__file__).resolve().parent.parent
 TOOL = ROOT / "plugins" / "core" / "scripts" / "copies.py"
+def _load(name, path):
+    spec = importlib.util.spec_from_file_location(name, path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+REFS = _load("af_refs_for_copies", ROOT / "plugins" / "core" / "scripts" / "refs.py")
+
 KAKU = (ROOT / "plugins" / "core" / "核.md").read_text(encoding="utf-8")
 ORIGINAL = "戻せない操作の前に人に聞く — 強制 push・DB の削除・人の手が入った物や git に無い一点物の削除。"
 
@@ -30,7 +40,8 @@ def test_土台の決まりの写しは言い換えても拾い_根治の入口�
     res = run(tmp_path, "# 作り物の repo の決まり\n\n- " + text + "\n")
     assert res.returncode == 1, (label, res.stdout)
     assert "使う側の決まり.md:3 が土台の 核.md:" in res.stdout, label
-    assert "細目 §3「まず構造を疑う」" in res.stdout.strip().splitlines()[-1]
+    last = res.stdout.strip().splitlines()[-1]
+    assert "まず構造を疑う" in last and not REFS.check_text(REFS.contract(ROOT), last), last  # 根治の入口を名で指し、指しが合う
 
 
 def test_関係の無い決まりは拾わない(tmp_path):
