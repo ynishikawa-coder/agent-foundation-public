@@ -6,7 +6,7 @@
 # 回った試験が 0 本・飛ばした試験が 1 本でもあれば赤（照らしていないのに緑と言わない）。
 set -uo pipefail
 cd "$(dirname "$0")/../.."
-out=$(python3 -m pytest -q --noconftest -p no:cacheprovider -W ignore::pytest.PytestUnknownMarkWarning \
+out=$(bash scripts/pytest.sh -q --noconftest -p no:cacheprovider -W ignore::pytest.PytestUnknownMarkWarning \
   -rs tests/test_real_claude_on_ci.py 2>&1)
 code=$?
 printf '%s\n' "$out" | tail -n 15

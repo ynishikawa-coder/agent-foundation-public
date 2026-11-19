@@ -3,6 +3,9 @@
 前の形: `a[2] not in json.dumps(s)`＝目録の出所を JSON の文字列にして、土台の名が中に在るかで見ていた。
 fork（`<名>-fork`）や、名を道に含む別の出所も「今の目録」と見なして外さず、古い目録から入った。
 今の形: 目録の `repo`（GitHub の短い名）か `url` が、`marketplace add` に渡す名と同じ時だけ今の目録と見なす。
+字の照らし（json.dumps の形が戻っていないか）と動きの照らし（外すか）は別の試験に分ける。字の照らしを取り出す所で
+先に止めると、文書を丸ごと戻した時に動きの試験がどれも同じ所で止まり、動きの歯が効いているかが結果から読めない
+（字は tests/test_setup_stale_catalog_source_text.py。tests/test_setup_stale_catalog_source_teeth.py が片方ずつ壊して照らす）。
 本物の claude は要らない（外す命令は印を打つ殻に替え、外すかの決め方だけを回す）。
 """
 import json
@@ -17,17 +20,25 @@ DOC = ROOT / "docs" / "核の届け方.md"
 NAME = "ynishikawa-coder/agent-foundation-public"
 
 
-def decide_part():
-    """塊の頭から外す行までを取り、外す命令を印を打つ echo に替える。"""
+def decide_text():
+    """塊の頭から外す行まで（docs/核の届け方.md の字のまま）。"""
     b = re.search(r"<!-- setup-script.*?-->\s*```bash\n(.*?)\n\s*```", DOC.read_text(encoding="utf-8"), re.S).group(1)
     lines = [s.strip() for s in b.splitlines()]
     end = next(i for i, s in enumerate(lines) if "marketplace remove agent-foundation" in s)
-    part = "\n".join(lines[: end + 1])
-    assert "json.dumps" not in part, "出所を文字列の包含で見る形が戻った"
-    return part.replace("claude plugin marketplace remove agent-foundation", "echo REMOVED")
+    return "\n".join(lines[: end + 1])
 
 
-def removes(tmp_path, source, entry=True):
+def decide_part():
+    """外すかを決める所を動かせる形にする（動きの試験が回す）。外す行の書き方には頼らない。
+
+    外す命令は印の file を作る touch に替え、誤りを黙らせる 2>/dev/null は全部外す（python の誤りで黙って
+    「外さない」に倒れる形を見えるようにする）。行の書き方が変わっても字の照らしで止めない（字は _text の file）。
+    """
+    part = decide_text().replace("claude plugin marketplace remove agent-foundation", 'touch "$HOME/REMOVED"')
+    return re.sub(r"\s2>/dev/null(?=\s)", "", part)
+
+
+def run_part(tmp_path, part, source, entry=True):
     home = tmp_path / "home"
     loc = tmp_path / "cat"
     (loc / "scripts").mkdir(parents=True)
@@ -36,12 +47,13 @@ def removes(tmp_path, source, entry=True):
     (home / ".claude" / "plugins").mkdir(parents=True)
     (home / ".claude" / "plugins" / "known_marketplaces.json").write_text(json.dumps(
         {"agent-foundation": {"source": source, "installLocation": str(loc)}}), encoding="utf-8")
-    # 外す行の 2>/dev/null を外し、python の誤りで黙って「外さない」に倒れる形を見えるようにする
-    part = decide_part().replace(' 2>/dev/null && echo REMOVED >/dev/null 2>&1', ' && echo REMOVED')
-    assert '"$af_e" && echo REMOVED' in part, "外す行の形が変わった（試験の替え方を合わせる）"
     r = subprocess.run(["bash", "-c", part], capture_output=True, text=True, env={"HOME": str(home), "PATH": "/usr/bin:/bin"})
-    assert "Traceback" not in r.stderr, r.stderr
-    return "REMOVED" in r.stdout
+    assert "Error" not in r.stderr, r.stderr
+    return (home / "REMOVED").exists()
+
+
+def removes(tmp_path, source, entry=True):
+    return run_part(tmp_path, decide_part(), source, entry)
 
 
 def test_合格_今の目録は外さない(tmp_path):
@@ -68,13 +80,4 @@ def test_合格_url_で足した目録は渡した名と同じなら外さない
     url = "https://example.invalid/o/agent-foundation-public.git"
     part = decide_part().replace(NAME, url)
     assert part.count(url) == 1
-    home = tmp_path / "home"
-    loc = tmp_path / "cat"
-    (loc / "scripts").mkdir(parents=True)
-    (loc / "scripts" / "setup_plugins.py").write_text("", encoding="utf-8")
-    (home / ".claude" / "plugins").mkdir(parents=True)
-    (home / ".claude" / "plugins" / "known_marketplaces.json").write_text(json.dumps(
-        {"agent-foundation": {"source": {"source": "git", "url": url}, "installLocation": str(loc)}}), encoding="utf-8")
-    r = subprocess.run(["bash", "-c", part.replace(' 2>/dev/null && echo REMOVED >/dev/null 2>&1', ' && echo REMOVED')],
-                       capture_output=True, text=True, env={"HOME": str(home), "PATH": "/usr/bin:/bin"})
-    assert "Traceback" not in r.stderr and "REMOVED" not in r.stdout, r.stdout + r.stderr
+    assert not run_part(tmp_path, part, {"source": "git", "url": url})
