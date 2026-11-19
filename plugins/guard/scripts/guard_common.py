@@ -41,7 +41,7 @@ def declared(path):
                 if isinstance(t, ast.Name) and t.id in ("HOOKS", "VALUES"):
                     try:
                         out[t.id] = ast.literal_eval(n.value)
-                    except ValueError:
+                    except (ValueError, TypeError, SyntaxError, MemoryError, RecursionError):
                         pass
     return out
 
