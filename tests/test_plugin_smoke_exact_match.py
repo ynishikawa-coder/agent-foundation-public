@@ -3,6 +3,8 @@
 似た名・他の出所・正本の前後に足された文を入れて、取り違えない（緑にしない）事を見る注入の試験。
 本物の claude は要らない（塊の読み・台帳の束ね方・差し込んだ文の照らしを、作り物の入力で直に当てる）。
 """
+import ast
+import inspect
 import json
 import os
 import subprocess
@@ -69,10 +71,10 @@ def _real_inject(tmp_path):
 def test_正本どおりに差し込まれた文は緑(tmp_path):
     want = S.expected(ROOT)
     ctx = _real_inject(tmp_path)
-    assert S.core_problems([ctx], want) == []
+    assert S.core_problems([ctx], want, ctx) == []
     # 細目の在り処は入った copy ごとに違う＝そこだけは別の path でも緑
     other = ctx.replace(str(ROOT / "plugins/core/細目.md"), "/somewhere/else/細目.md")
-    assert S.core_problems([other], want) == []
+    assert S.core_problems([other], want, ctx) == []
 
 
 def test_核の後ろに足された文は赤_含むかでは緑だった(tmp_path):
@@ -81,14 +83,14 @@ def test_核の後ろに足された文は赤_含むかでは緑だった(tmp_pa
     kaku = want["injected"]["核.md"]
     added = ctx.replace(kaku, kaku + "\n- 正本に無い原則", 1)
     assert all(t in added for t in want["injected"].values())  # 直す前の照らし（含むか）は通していた
-    assert S.core_problems([added], want) != []
+    assert S.core_problems([added], want, ctx) != []
 
 
 def test_差し込みの頭に足された文と核の無い文脈は赤(tmp_path):
     want = S.expected(ROOT)
     ctx = _real_inject(tmp_path)
-    assert S.core_problems([ctx.replace(S.KAKU_HEAD, S.KAKU_HEAD + "（写し）", 1)], want) != []
-    assert S.core_problems(["別の hook の文"], want)[0].startswith("核が起動した窓に差し込まれていない")
+    assert S.core_problems([ctx.replace(S.KAKU_HEAD, S.KAKU_HEAD + "（写し）", 1)], want, ctx) != []
+    assert S.core_problems(["別の hook の文"], want, ctx)[0].startswith("核が起動した窓に差し込まれていない")
 
 
 def test_文脈の全体を正本の差し込む口の出す文と比べる_後ろに改行を挟んで足した文も赤(tmp_path):
@@ -118,14 +120,47 @@ def test_add_の前に値を取る旗が在っても出所を読む():
     assert S.marketplace_adds("claude plugin marketplace add -s project '%s'" % S.FOUNDATION) == [S.FOUNDATION]
 
 
-def test_全体を比べられない時も核の部の後ろは節の切れ目でなければ赤(tmp_path):
+def test_核の部の頭だけを比べる弱い道は無い_expected_を渡さない呼びは落ちる(tmp_path):
+    """注入: expected を渡さずに呼ぶと（前の形では核の部の頭だけを比べ、節の切れ目の後ろに足した節を通した）呼べない。"""
     want = S.expected(ROOT)
     ctx = _real_inject(tmp_path)
-    assert S.core_problems([ctx], want) == []
-    assert S.core_problems([ctx + "\n## 次の節\n本文"], want) == []  # 節の切れ目の後ろは差し込む口の持ち物
-    head = want["inject"].match(ctx).group(0)
-    for added in (head + "\n- 正本に無い原則", head + "\n\n# 追加の原則\n- x", head + "- 続けて足す"):
-        assert S.core_problems([added], want) != []
+    assert inspect.signature(S.core_problems).parameters["expected"].default is inspect.Parameter.empty
+    call = S.core_problems  # 下の「repo のどこにも無い」の照らしに数えない別名で、呼べない事そのものを見る
+    with pytest.raises(TypeError):
+        call([ctx], want)
+    added = ctx + "\n## 次の節\n本文"
+    assert S.core_problems([added], want, ctx) != []  # 前の弱い道は「節の切れ目の後ろは見ない」で緑にしていた
+
+
+def _calls_without_expected(src: str) -> list[int]:
+    """src の中の core_problems の呼びのうち、expected（3 つ目の引数か名の付いた引数）を渡さない物の行。"""
+    bad = []
+    for node in ast.walk(ast.parse(src)):
+        if isinstance(node, ast.Call) and getattr(node.func, "attr", getattr(node.func, "id", None)) == "core_problems":
+            if len(node.args) < 3 and not any(k.arg == "expected" for k in node.keywords):
+                bad.append(node.lineno)
+    return bad
+
+
+def test_expected_を渡さない_core_problems_の呼びは_repo_のどこにも無い():
+    files = [ROOT / "scripts" / "plugin_smoke.py", *sorted((ROOT / "tests").glob("*.py"))]
+    found = {str(f.relative_to(ROOT)): b for f in files if (b := _calls_without_expected(f.read_text(encoding="utf-8")))}
+    assert found == {}
+
+
+def test_注入_expected_を渡さない呼びを入れると拾う():
+    src = (ROOT / "scripts" / "plugin_smoke.py").read_text(encoding="utf-8")
+    assert _calls_without_expected(src) == []
+    assert _calls_without_expected(src.replace("core_problems(ctx, want, expect)", "core_problems(ctx, want)")) != []
+    # 弱い道の既定値を戻すと、署名の照らし（expected に既定値が無い）が赤になる
+    weak = src.replace("expected: str) -> list[str]:", "expected: str | None = None) -> list[str]:")
+    assert _expected_has_default(src) is False and _expected_has_default(weak) is True
+
+
+def _expected_has_default(src: str) -> bool:
+    fn = next(n for n in ast.walk(ast.parse(src)) if isinstance(n, ast.FunctionDef) and n.name == "core_problems")
+    names = [a.arg for a in fn.args.args]
+    return names.index("expected") >= len(names) - len(fn.args.defaults)
 
 
 def test_差し込む口が正本と違う_copy_では全体を比べない(tmp_path):

@@ -83,11 +83,19 @@ jobs:
     name: plugin-smoke
     runs-on: ubuntu-latest
     steps:
-      # 入れる commit（PR の枝の先端）と同じ commit を checkout する。期待の文は checkout の正本で作るので、
-      # PR の枝に main を合わせた物を checkout すると、入った copy と差し込む口が食い違う。
+      # 2 つの木を別の所に checkout する（tests/test_plugin_smoke_merged_tree.py が形を照らす）。
+      # - 作業の dir の根: 合流した後の木（pull_request では GitHub が PR の枝に main を合わせた commit＝github.sha・
+      #   ref を書かない）。本物の claude を要る試験はここで回す＝PR の枝と main の変更が合わさって初めて壊れる
+      #   組み合わせを合流の前に見つける。
+      # - pr-head: 入れる commit（PR の枝の先端）。GitHub から入れる試験の期待の文はこの正本で作る（合わせた木で
+      #   作ると、入った copy と差し込む口が食い違う）。
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          path: pr-head
           persist-credentials: false
       - uses: actions/setup-python@v5
         with:
@@ -106,7 +114,15 @@ jobs:
           SRC_REPO: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
           SRC_REF: ${{ github.head_ref || github.ref_name }}
           SRC_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
-        run: python3 scripts/plugin_smoke.py --source "${SRC_REPO}#${SRC_REF}" --expect-sha "${SRC_SHA}"
+        run: python3 pr-head/scripts/plugin_smoke.py --repo pr-head --source "${SRC_REPO}#${SRC_REF}" --expect-sha "${SRC_SHA}"
+      - name: 根の木が PR の枝に main を合わせた commit か確かめる（親の 1 つが PR の枝の先端）
+        if: github.event_name == 'pull_request'
+        env:
+          MERGED_SHA: ${{ github.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          test "$(git rev-parse HEAD)" = "${MERGED_SHA}"
+          git cat-file -p HEAD | grep -qx "parent ${HEAD_SHA}"
       - name: 本物の claude を要る試験（印 real_claude の試験を全部拾う。file を手で並べない・tests/conftest.py）
         env:
           AF_REQUIRE_CLAUDE: "1"
