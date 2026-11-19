@@ -2,7 +2,8 @@
 """会話ログ（transcript の JSONL）だけを読む点検（手で回す点検と、返事の形の崩れだけを AI へ差し戻す Stop の hook）。
 
 拾う物（どれも会話ログの中だけで決まる＝外の台帳・get_session の返りを見ない。値の表で外す形だけ読む）:
-  title    … 窓の題の目印（`<種類><状態> <作業名>`）が決まりどおりか
+  title    … 窓の題の目印（`<種類><状態> <作業名>`）が決まりどおりか（題だけで決まる形は title_shape。
+             guard の outbound が題を付ける口・窓を立てる口でもこれを直に呼ぶ＝題の形の正本）
   close    … 返事の最後が締めの 2 行（`AI がこの後やること: …`／`あなたがやること: …`）か。あなたがやることが「なし」なら窓を閉じてよいかを、
              「なし」でなければ「これが済むまで <何> に進めません」を書いているか
   card     … 返事の 1 行目が 4 札（✅❓⏳🛑）のどれかで始まるか
@@ -326,6 +327,25 @@ def split_title(title):
     return kind, mark, t.strip()
 
 
+def title_shape(title):
+    """題そのものの形の崩れ [説明]（会話ログを見ずに題だけで決まる物）。題を付ける口・立てる口（guard の outbound）も
+    これを直に呼ぶ＝題の形の決まりの正本はここ 1 つ。"""
+    kind, mark, name = split_title(title)
+    out = []
+    if kind is None:
+        out.append("題の頭に種類（%s／%s）が無い（題: %s）" % (AI, HUMAN, title))
+    if not name:
+        out.append("題に作業名が無い（題: %s）" % title)
+    if kind == HUMAN and mark == DONE:
+        out.append("%s の窓に %s は付けない（閉じるかはオーナーが決める）" % (HUMAN, DONE))
+    if HAND_TITLE.match(name):
+        if kind != HUMAN or mark != WAITING:
+            out.append("手の窓の題は `%s%s 手: <何を>`（題: %s）" % (HUMAN, WAITING, title))
+        if not HAND_TITLE.sub("", name).strip():
+            out.append("手の窓の題の `手:` の後に何を頼むかが無い（題: %s）" % title)
+    return out
+
+
 def split_close(text):
     """末尾の締めの 2 行を外す。(上の本文, 締めの 2 行 or None)。"""
     lines = [ln for ln in (text or "").rstrip().splitlines() if ln.strip()]
@@ -556,12 +576,9 @@ def check(log, closing=None, data=None):
                                    "（同じ題でもよい。会話ログに載れば照らせる）"))
         if title is not None:
             tk, tm, _ = split_title(title)
-            if tk is None:
-                found.append(("title", "題の頭に種類（%s／%s）が無い（題: %s）" % (AI, HUMAN, title)))
-            elif kind and tk != kind:
+            found += [("title", m) for m in title_shape(title)]
+            if tk is not None and kind and tk != kind:
                 found.append(("title", "題の種類が %s だが、この窓の返し先から種類は %s（題: %s）" % (tk, kind, title)))
-            if tk == HUMAN and tm == DONE:
-                found.append(("title", "%s の窓に %s は付けない（閉じるかはオーナーが決める）" % (HUMAN, DONE)))
             if tm == ASKING and not open_ask and answered:
                 found.append(("title", "答えが返ったのに題に %s が残っている" % ASKING))
             # ✅ は「終わった」（核 §7）の印。AI の手が尽きた（AI がこの後やること: なし）とは結ばない。
