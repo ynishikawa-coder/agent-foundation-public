@@ -6,6 +6,7 @@
 
 見る所:
 - 各 SKILL.md の「repo ごとの値」の表の行が、既定に核・細目を挙げる＝土台に正本が在る規律の写し → 赤。
+- 使う所が「…の正本」で既定が本文の規律（無しでない）＝表の値が本文の規律に勝つ写しの入れ物 → 赤。
 - 本文が `common.rules` を読ませる → 赤（会社の規律の写しの入れ物）。
 注入の試験: 畳んだ行・文を正本の写しに戻すと赤になるのを確かめる。
 """
@@ -41,6 +42,9 @@ def problems(text):
     for key, use, default in value_rows(text):
         if CANON_REF.search(default):
             out.append(f"表の鍵 {key} の既定が土台の正本（{default}）＝規律の写しを表に置かせている")
+        elif use.endswith("正本") and not default.startswith("無し"):
+            # 本文が既定の規律を持つのに、表の値を「正本」として本文に勝たせる＝写しの入れ物
+            out.append(f"表の鍵 {key} が本文の規律（{default}）に勝つ正本を表に置かせている")
     for i, line in enumerate(text.splitlines(), 1):
         if RULE_BUCKET.search(line):
             out.append(f"{i} 行目が common.rules（会社の規律の写し）を読ませる: {line.strip()[:80]}")
@@ -97,6 +101,12 @@ def test_注入_4_状態の定義の写しの鍵を戻すと赤():
 
 def test_注入_本文が会社の規律の写しを読ませると赤():
     text = MINDMAP.read_text(encoding="utf-8") + "\n会社の規律は表の `common.rules.no_confirm`。\n"
+    assert problems(text)
+
+
+def test_注入_本文の規律に勝つ正本の鍵を戻すと赤():
+    text = _insert_row(VERIFY.read_text(encoding="utf-8"),
+                       "| `code_done_rule` | コードの完了の決め方の正本 | PR の CI 緑＋別の窓のレビュー 1 回 |")
     assert problems(text)
 
 
