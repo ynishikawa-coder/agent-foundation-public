@@ -1,0 +1,187 @@
+"""PreToolUse — 選択肢の画面（AskUserQuestion）の問いを、画面が人に出る前に照らす。崩れていれば AI だけを止めて書き直させる。
+
+なぜ在るか: 確認ページには qa-html の検査（check.mjs）があるのに、選択肢の画面は文の決まり（核 §2・細目 §4）だけで、
+照らす物が無かった。そのため、題が長い（背景を問いの文に詰め込む）・AI の中の言葉や番号や file 名が出る・関係ない話題を
+1 画面にまとめる、が人に届いていた（オーナー同意 2026-11-19: 出す直前に照らし、AI だけ止めて書き直させる）。
+止まるのは AI の呼び出しだけ（画面はまだ人に出ていない）。人の操作は何も止めない。
+
+照らす物（どれも値の表 config/skill-values.json の "guard" で変えられる・決め打ちしない）:
+  long   … 問いの文（question）が ask_question_max_chars 字を越える、または文が ask_question_max_sentences を越える
+  inner  … 問い・見出し・選択肢（label と description）に、AI の中の言葉らしい字が在る
+            （番号・版・file 名・path・識別子・窓の id・commit の印・`…` で囲んだ字）。足しは ask_inner_terms_extra
+  topic  … 1 画面に 2 問以上あり、問いと見出しの語（漢字・カタカナ・英字の 2 字の並び）を共にしない組に分かれる
+誤って止めた時: 値の表 ask_shape_exempt（問いの文に当てる正規表現）に当たる問いは照らさない。ask_term_allow（見つけた字に
+当てる正規表現）に当たる字は中の言葉と数えない。値の表は PR とレビューを通る＝窓の一存では外れない。
+見分けは字の形の推し量り（意味は読まない）。残る穴は SKILL（guard-rules）と PR に書く。
+"""
+from __future__ import annotations
+
+import re
+
+ASK_TOOL = "AskUserQuestion"
+
+_URL = re.compile(r"https?://\S+")
+# AI の中の言葉らしい字（名 → 形）。人に向けた問いに出るなら日常の言葉に替える。
+INNER = (
+    ("番号", re.compile(r"(?<![A-Za-z0-9])[A-Z]{1,5}\d{2,}(?:[-_]\d+)*(?![A-Za-z0-9])")),       # E02・Q202611-67
+    ("番号", re.compile(r"[#＃]\d+")),                                                            # #616
+    ("版の番号", re.compile(r"(?<![A-Za-z0-9])[vV]\d+(?:\.\d+)+")),                              # v0.21.0
+    ("file 名", re.compile(r"[\w\-]+\.(?:py|md|json|jsonl|mjs|cjs|js|ts|tsx|jsx|html|ya?ml|sh|txt|csv|tsv|xlsx|toml|ini|cfg)"
+                          r"(?![A-Za-z0-9])", re.I)),
+    ("path", re.compile(r"(?:^|(?<=[\s(（「]))(?:~|\.{1,2})?/[A-Za-z0-9_.\-]+(?:/[A-Za-z0-9_.\-]*)*"
+                       r"|(?<![A-Za-z0-9_.\-])(?=[A-Za-z0-9_.\-/]*[A-Za-z])[A-Za-z0-9_.\-]+(?:/[A-Za-z0-9_.\-]+){2,}")),
+    ("識別子", re.compile(r"(?<![A-Za-z0-9])[a-z][a-z0-9]*(?:_[a-z0-9]+)+(?![A-Za-z0-9])")),  # snake_case
+    ("識別子", re.compile(r"[ぁ-んァ-ヶ一-龠ー]+_\d+")),                                         # 直し_0020
+    ("窓の id", re.compile(r"session_[A-Za-z0-9]+")),
+    ("commit の印", re.compile(r"(?<![A-Za-z0-9])(?=[0-9a-f]*\d)(?=[0-9a-f]*[a-f])[0-9a-f]{7,40}(?![A-Za-z0-9])")),
+    ("コードの字", re.compile(r"`[^`]+`")),
+)
+_SENT = re.compile(r"[^。．？?！!]+[。．？?！!]*")
+# 送り仮名（置き場・作り物・取り扱い）を詰めて 1 語にする。助詞（の・を・が…）を挟む所は詰めない。
+_OKURI = re.compile(r"(?<=[一-龠々])(?:(?![のをがはにでともへやかよ])[ぁ-ゔ]){1,2}(?=[一-龠々])")
+_RUN = re.compile(r"[一-龠々]{2,}|[ァ-ヶー]{2,}|[A-Za-z]{3,}")
+# 話題を問わず問いに出る語（共にしても同じ話題とは言えない）。足しは ask_topic_stopwords_extra。
+STOP = {
+    "推奨", "確認", "場合", "今回", "必要", "選択", "選択肢", "問題", "質問", "対応", "作業", "方法", "内容", "理由", "結果",
+    "予定", "今後", "現在", "以下", "以上", "前提", "判断", "決定", "変更", "追加", "削除", "一覧", "全部", "両方",
+    "可能", "不要", "本当", "今日", "明日", "了解", "希望", "設定",
+}
+
+
+def _text(v):
+    return re.sub(r"\s+", " ", str(v or "")).strip()
+
+
+def _inner_hits(text, vals):
+    allow = [p for p in (vals.get("ask_term_allow") or []) if isinstance(p, str) and p]
+    extra = [("中の言葉", p) for p in (vals.get("ask_inner_terms_extra") or []) if isinstance(p, str) and p]
+    body = _URL.sub(" ", text)
+    hits = []
+    for name, pat in INNER + tuple(extra):
+        for m in re.finditer(pat, body):
+            tok = m.group(0).strip()
+            if not tok or any(re.search(a, tok) for a in allow):
+                continue
+            if (name, tok) not in hits:
+                hits.append((name, tok))
+    return hits
+
+
+def _words(q, vals):
+    """問いの文と見出しの語を 2 字の並びにして返す（共にする並びがあれば同じ話題とみなす）。"""
+    stop = STOP | {w for w in (vals.get("ask_topic_stopwords_extra") or []) if isinstance(w, str)}
+    grams = set()
+    body = _OKURI.sub("", _text(q.get("question")) + " " + _text(q.get("header")))
+    for run in _RUN.findall(body):
+        run = run.lower()
+        if run in stop:
+            continue
+        if run.isascii():
+            grams.add(run)
+            continue
+        for i in range(len(run) - 1):
+            g = run[i:i + 2]
+            if g not in stop:
+                grams.add(g)
+    return grams
+
+
+def topic_groups(qs, vals):
+    """問いを、語を共にする組へ分ける（つながりで束ねる）。戻り値＝組ごとの問いの番号の並び。"""
+    ws = [_words(q, vals) for q in qs]
+    parent = list(range(len(qs)))
+    # 語が 1 つも取れない問い（「どちらにしますか」だけ等）は話題を決められない＝どの組にも数えない（誤って止めない）
+
+    def root(i):
+        while parent[i] != i:
+            parent[i] = parent[parent[i]]
+            i = parent[i]
+        return i
+
+    for i in range(len(qs)):
+        for j in range(i + 1, len(qs)):
+            if ws[i] & ws[j]:
+                parent[root(i)] = root(j)
+    groups = {}
+    for i in range(len(qs)):
+        if ws[i]:
+            groups.setdefault(root(i), []).append(i)
+    return sorted(groups.values())
+
+
+def _exempt(text, vals):
+    return any(isinstance(p, str) and p and re.search(p, text) for p in (vals.get("ask_shape_exempt") or []))
+
+
+def findings(qs, vals):
+    """崩れの一覧 [(札, 文)]。無ければ []。"""
+    max_chars = int(vals.get("ask_question_max_chars") or 0)
+    max_sent = int(vals.get("ask_question_max_sentences") or 0)
+    out = []
+    checked = []
+    for q in qs:
+        if not isinstance(q, dict):
+            continue
+        text = _text(q.get("question"))
+        if not text or _exempt(text, vals):
+            continue
+        checked.append(q)
+        short = text[:40] + ("…" if len(text) > 40 else "")
+        sents = [s for s in _SENT.findall(text) if s.strip()]
+        why = []
+        if max_chars and len(text) > max_chars:
+            why.append("%d 字（上限 %d 字）" % (len(text), max_chars))
+        if max_sent and len(sents) > max_sent:
+            why.append("%d 文（上限 %d 文）" % (len(sents), max_sent))
+        if why:
+            out.append(("long", "「%s」— 問いの文が長い: %s" % (short, "・".join(why))))
+        fields = [("問い", text), ("見出し", _text(q.get("header")))]
+        for o in q.get("options") or []:
+            if isinstance(o, dict):
+                fields.append(("選択肢「%s」" % _text(o.get("label"))[:20], _text(o.get("label")) + " " + _text(o.get("description"))))
+        hits = []
+        for where, t in fields:
+            for name, tok in _inner_hits(t, vals):
+                hits.append("%s の %s「%s」" % (where, name, tok[:40]))
+        if hits:
+            out.append(("inner", "「%s」— AI の中の言葉らしい字: %s" % (short, "／".join(hits[:6])
+                                                                + ("（ほか %d 件）" % (len(hits) - 6) if len(hits) > 6 else ""))))
+    if len(checked) >= 2:
+        groups = topic_groups(checked, vals)
+        if len(groups) >= 2:
+            shown = [" と ".join("「%s」" % _text(checked[i].get("question"))[:24] for i in g) for g in groups]
+            out.append(("topic", "1 画面の問いが、語を共にしない %d つの話題に分かれている: %s" % (len(groups), "／".join(shown))))
+    return out
+
+
+HOW = {
+    "long": "問いの文は「何を決めるか」の 1 文にする。背景・前提・材料は画面を出す前にチャットで見せ、違いと選ぶとどうなるかは"
+            "選択肢の説明（description）に書く（細目 §4）。",
+    "inner": "番号・版・file 名・path・識別子は、それが何かを日常の言葉で言い換える（例: 「Q202611-67」→「先週聞いた"
+             "資料の置き場の問い」・「v0.21.0 の値」→「先週足した不足の時間の数え方」）。どうしても要る時は説明の文と一緒に"
+             "チャットで見せ、画面には言い換えだけを出す。",
+    "topic": "1 画面は 1 つの話題にする。話題ごとに画面を分けて続けて出す（どれも全部聞く・捨てない）。同じ話題なのに分かれて"
+             "見えたなら、問いか見出しにその話題の語（例: 「置き場」）を入れる。",
+}
+
+
+def check(data, vals):
+    """止めるなら理由、通すなら ""。"""
+    if str(data.get("tool_name") or "") != ASK_TOOL:
+        return ""
+    ti = data.get("tool_input")
+    qs = ti.get("questions") if isinstance(ti, dict) else None
+    if not isinstance(qs, list) or not qs:
+        return ""
+    found = findings(qs, vals)
+    if not found:
+        return ""
+    lines = ["[guard] 選択肢の画面の問いが読みにくい形なので、画面を出す前に止めた（オーナー同意 2026-11-19・人の操作は"
+             "止めていない・画面はまだ人に出ていない）。直して出し直す。"]
+    lines += ["- [%s] %s" % (code, msg) for code, msg in found]
+    lines.append("直し方:")
+    for code in dict.fromkeys(c for c, _ in found):
+        lines.append("- [%s] %s" % (code, HOW[code]))
+    lines.append("誤って止めた時（日常の言葉の中で字の形だけ当たった等）: 値の表の guard.ask_term_allow（字）か "
+                 "guard.ask_shape_exempt（問いの文）に正規表現を足す（PR とレビューを通す）。細目は skill `guard:guard-rules`。")
+    return "\n".join(lines)
