@@ -12,7 +12,7 @@ from test_session_watch import CLOUD, LOGS, OK_REPLY, rows, set_title, stop_data
 
 def test_返し先が別の窓の子窓には親が付けた題を付け直すよう知らせる():
     """親が create_session で付けた題は会話ログに無く、返事の差し戻しが照らせない＝付け直させる。"""
-    text = sw.remind({"prompt": "作り物を見て（親窓 session_X の子）"}, CLOUD)
+    text = sw.remind({"prompt": "作り物を見て（親窓 session_01X の子）"}, CLOUD)
     assert text and "set_session_title" in text and "付け直す" in text
 
 

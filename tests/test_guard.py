@@ -861,8 +861,9 @@ def test_ask_shape_判定の値は値の表で変えられ誤って止まる形�
     env["SKILL_VALUES"] = str(table)
     table.write_text(json.dumps({"guard": {"ask_question_max_chars": 120}}), encoding="utf-8")
     assert deny_reason(env, long_q) == ""
-    table.write_text(json.dumps({"guard": {"ask_term_allow": ["^ISO\\d+$"]}}), encoding="utf-8")
-    assert deny_reason(env, ask_pre(q("ISO9001 の書き方に合わせますか"))) == ""
+    assert "B202" in deny_reason(env, ask_pre(q("B202 の部屋で会いますか")))
+    table.write_text(json.dumps({"guard": {"ask_term_allow": ["^B\\d+$"]}}), encoding="utf-8")
+    assert deny_reason(env, ask_pre(q("B202 の部屋で会いますか"))) == ""
     assert "E02" in deny_reason(env, ask_pre(q("E02 を入れますか")))
     table.write_text(json.dumps({"guard": {"ask_shape_exempt": ["^作り物の例外"]}}), encoding="utf-8")
     assert deny_reason(env, ask_pre(q("作り物の例外 E02 を入れますか"))) == ""

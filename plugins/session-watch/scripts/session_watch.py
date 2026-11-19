@@ -55,7 +55,7 @@ PLUGIN_ROOT = os.path.dirname(HERE)
 
 
 # ── 隣の正本（写さず直に呼ぶ）──────────────────────────────────
-#  中の言葉 … plugin guard の scripts/ask_shape.py（inner_terms・文の区切り sentences）
+#  中の言葉・「分からない」の見分け・文の区切り … plugin guard の scripts/ask_shape.py（inner_terms・is_dunno・sentences）
 #  値の表 … 在り処探しをせず、この plugin の lib/skill_values.py（土台の skill-values/ への symlink）を直に読む（values_reader）
 #  秘密の形 … 公開の検査 public-guard/guard.py（secret_labels。plugin の外＝市場の写しから読む）
 #  探す順: 環境変数 → 同じ repo（plugins/session-watch の隣）→ 入れた plugin の同じ版 → 市場の写し → 入れた plugin の新しい版
@@ -192,8 +192,6 @@ COND = re.compile(r"(なら|たら|れば|場合)[^。]*(教えて|声をかけ�
 #   中身が空・置き場の印・「なし」の類なら添えていないと同じ（札だけ置いて平文の問いを通さない）。
 READING = re.compile(r"AI\s*の\s*(?:今の)?\s*読み\s*(?:は|[:：])?\s*(?P<body>.*)$")
 _READING_NONE = re.compile(r"^(?:特に)?(?:なし|無し|ナシ|ありません|無い|ない)[。.]?$|^(?:none|n/?a|nil|null)$", re.I)
-# 選択肢モーダルのどの問いにも置く選択肢（細目 §4）。
-IDK = "分からない"
 CARD_LINE = re.compile(r"^[#>*\s]*(✅|❓|⏳|🛑)")
 DONE_LINE = re.compile(r"^[#>*\s]*✅(?!\s*終わった\s*[（(]\s*一部)")   # 終わった（「✅終わった（一部）」は除く・核 §7）
 # 一言で済む返事（細目 §5）の行数の上限。札で始めた返事・問いを出したターンは長さに関わらず札と締めを見る。
@@ -349,9 +347,12 @@ class Log(object):
                     items = [q for q in inp.get("questions") or [] if isinstance(q, dict)]
                     qs = [_norm(q.get("question")) for q in items]
                     self.events.append(("ask", [q for q in qs if q]))
-                    lack = [_norm(q.get("question")) for q in items if not has_idk(q)]
+                    idk = [(q, has_idk(q)) for q in items]
+                    lack = [_norm(q.get("question")) for q, ok in idk if ok is False]
                     if lack:
                         self.events.append(("noidk", lack))
+                    if any(ok is None for _, ok in idk):
+                        self.events.append(("noidk_blind", True))
                 else:
                     self.events.append(("tool", name))
                     if moves(name, inp):
@@ -373,11 +374,12 @@ class Log(object):
 
 
 def has_idk(question):
-    """選択肢の中に「分からない」が在るか。"""
-    for o in question.get("options") or []:
-        if isinstance(o, dict) and IDK in str(o.get("label") or ""):
-            return True
-    return False
+    """選択肢の中に「分からない」（細目 §4）が在るか。見分けは plugin guard の ask_shape.is_dunno を直に呼ぶ（写さない）。
+    正本が見つからない時は None（見分けられない＝在るとも無いとも言わず、neighbor の札で知らせる）。"""
+    A = neighbor("ask_shape")
+    if A is None or not hasattr(A, "is_dunno"):
+        return None
+    return any(isinstance(o, dict) and A.is_dunno(o.get("label")) for o in question.get("options") or [])
 
 
 def _norm(text):
@@ -511,10 +513,11 @@ QUOTED = re.compile(r"「[^」\n]*」|『[^』\n]*』|\"[^\"\n]*\"")
 #   字は先に全角→半角へ寄せ（NFKC）、時刻は HH:MM（秒・小数つきも）と ○時○分・○時半・○時 の 2 つの形で読む。
 #   時差は名の列挙でなく形で読む: Z・時差の略の形（英大字 2〜3 字＋T＝PST・CEST・GMT の形と UTC）・±hh:mm。
 #   （英大字 3〜4 字を全部読むと「10:30 MTG」「API」を時差と誤る。T で終わらない略〔MSK 等〕は残る穴）
-CLOCK = re.compile(r"(?<![\d:])(\d{1,2})(?::(\d{2})(?::\d{2})?(?:\.\d+)?|時(?:(\d{1,2})分|(半))?(?!間))(?!\d)")
+CLOCK = re.compile(r"(?<![\d:])(\d{1,2})(?::(\d{2})(?::\d{2})?(?:\.\d+)?|\s*時\s*(?:(\d{1,2})\s*分|(半))?(?!間))(?!\d)")
 ZONE = re.compile(r"^\s*[(]?\s*(Z(?![A-Za-z])|(?:[A-Z]{2,3}T|UTC)(?![A-Za-z])|[+-]\d{2}:?\d{2}(?!\d))")
 JST_ZONE = re.compile(r"^\s*[(]?\s*(?:JST(?![A-Za-z])|\+09:?00)")
-JST_LINE = re.compile(r"日本時間|JST|\+09:?00")      # 同じ行に印があれば、その行の印の無い時刻は日本時間と読む
+JST_MARK = re.compile(r"日本時間|JST|\+09:?00")
+CLAUSE = re.compile(r"[^、。,，;；！？!?\n]+")   # 句。時刻を持つ句の印はその句の時刻だけに掛かる（別の句の時刻を日本時間と読まない）
 DATE_BEFORE = re.compile(r"(\d{4}[-/年]\d{1,2}[-/月]\d{1,2}日?|(?<![\d/])\d{1,2}/\d{1,2}|\d{1,2}月\d{1,2}日)"
                          r"\s*(?:[(][月火水木金土日][)])?\s*T?\s*$")
 
@@ -523,6 +526,9 @@ HEDGE = re.compile(r"ほぼ|大体|だいたい|たぶん|多分|おそらく|�
 FINISH = re.compile(r"終わ|済ん|済み|完了|直っ|直り|直せ|直した|でき|出来|通っ|通る|通り|緑|動い|動く|効い|効く|揃っ|片付")
 AHEAD = re.compile(r"次の|次回|来週|来月|明日|今後|あとで|後で|予定|見込み")   # 先の事の見込みは完了の言い切りでない
 PAST = re.compile(r"た\s*$|た[、,）)」]|ました|でした|済み|完了")   # 過去の言い切り（見込みの語が在っても数える）
+#   照らす単位は 2 段: 見込みかどうか（AHEAD・PAST）は句（、で切る）ごとに見て見込みの句だけを外し、
+#   言い切らない語と終わりの語の重なりは残りの文で見る。「書き直した、次の版はたぶん来週できる。」の「た、」は
+#   見込みの句に掛からず、「直った、と思います。」のように 2 つの語が「、」をまたぐ言い切りは拾う。
 
 
 def reply_exempt(data=None):
@@ -545,33 +551,39 @@ def prose(text, exempt=()):
 
 
 def time_hits(body):
-    """日本時間でない時刻・日付つきで印の無い時刻の並び [(字, 訳)]。"""
+    """日本時間でない時刻・日付つきで印の無い時刻の並び [(字, 訳)]。日本時間の印は時刻と同じ句の中だけを見る。"""
     import unicodedata
     hits = []
     for ln in unicodedata.normalize("NFKC", body).splitlines():
-        for m in CLOCK.finditer(ln):
-            minute = m.group(2) or m.group(3) or ("30" if m.group(4) else "0")
-            if int(m.group(1)) > 23 or int(minute) > 59:
-                continue
-            after, before = ln[m.end():m.end() + 24], ln[max(0, m.start() - 24):m.start()]
-            z = ZONE.match(after)
-            if z and not JST_ZONE.match(after):
-                hits.append((m.group(0) + z.group(1), "日本時間でない"))
-            elif not z and DATE_BEFORE.search(before) and not JST_LINE.search(ln):
-                hits.append(((DATE_BEFORE.search(before).group(1) + " " + m.group(0)).strip(), "日本時間の印が無い"))
+        clauses = list(CLAUSE.finditer(ln))
+        # 時刻を持たない句の印（「〜まで、日本時間で。」）は行の時刻全部に掛かる。時刻を持つ句の印はその句の時刻だけ。
+        loose = any(JST_MARK.search(c.group(0)) and not CLOCK.search(c.group(0)) for c in clauses)
+        for c in clauses:
+            cl = c.group(0)
+            for m in CLOCK.finditer(cl):
+                minute = m.group(2) or m.group(3) or ("30" if m.group(4) else "0")
+                if int(m.group(1)) > 23 or int(minute) > 59:
+                    continue
+                after, before = ln[c.start() + m.end():c.start() + m.end() + 24], cl[max(0, m.start() - 24):m.start()]
+                z = ZONE.match(after)
+                if z and not JST_ZONE.match(after):
+                    hits.append((m.group(0) + z.group(1), "日本時間でない"))
+                elif not z and DATE_BEFORE.search(before) and not (loose or JST_MARK.search(cl)):
+                    hits.append(((DATE_BEFORE.search(before).group(1) + " " + m.group(0)).strip(), "日本時間の印が無い"))
     return hits
 
 
 def hedge_hits(body):
-    """終わりの語と同じ文にある言い切らない語の並び（「」の中の言葉＝引いた言葉は数えない）。
+    """見込みの句を外した文に、終わりの語と並んで在る言い切らない語の並び（「」の中の言葉＝引いた言葉は数えない）。
     文の区切りは plugin guard の ask_shape.sentences（文の数の読み手の正本）を直に呼ぶ。無ければ LookupError。"""
     A = neighbor("ask_shape")
     if A is None or not hasattr(A, "sentences"):
         raise LookupError("文の区切りの正本（plugin guard の ask_shape.sentences）が見つからない")
     out = []
     for sent in A.sentences(QUOTED.sub(" ", body)):
-        h = HEDGE.search(sent)
-        if h and FINISH.search(sent) and not (AHEAD.search(sent) and not PAST.search(sent)):
+        kept = "、".join(c for c in CLAUSE.findall(sent) if not (AHEAD.search(c) and not PAST.search(c)))
+        h = HEDGE.search(kept)
+        if h and FINISH.search(kept):
             out.append(sent.strip()[:40])
     return out
 
@@ -706,7 +718,13 @@ def check(log, closing=None, data=None):
                     found.append(("title", "%s の窓が %s終わった で報告するのに、題の状態が %s でない" % (AI, DONE, DONE)))
                 elif not done and tm == DONE:
                     found.append(("title", "%s の窓が 終わった でない札（止まった・一部・待ち・問い）で締めるのに、題が %s" % (AI, DONE)))
-            if tm == WAITING and HAND_TITLE.match(split_title(title)[2]) and closing.strip():
+            # 手の窓（細目 §4）: 済んだ目印を確かめたら頼んだ窓へ返して閉じる。✅ で締めるのに、このターンに頼んだ窓へ
+            #   返した跡（send_message）が無ければ、済んだ手の窓が頼んだ窓に済んだと分からないまま残る。
+            hand_done = bool(DONE_LINE.match(first)) and bool(HAND_TITLE.match(split_title(title)[2]))
+            if hand_done and not any(k == "move" and str(v).endswith("send_message") for k, v in log.turn):
+                found.append(("title", "手の窓が %s終わった で締めるのに、頼んだ窓へ済んだ目印を返した跡（send_message）が"
+                                       "このターンに無い（返してから締め、自分を閉じる）" % DONE))
+            if tm == WAITING and HAND_TITLE.match(split_title(title)[2]) and closing.strip() and not hand_done:
                 lack = hand_lack(closing)
                 if lack:
                     found.append(("hand", "手の窓の返事に %s が無い（目的・手順〔貼る文は全部〕・済んだ目印・済んだ後を書く）"
@@ -760,6 +778,8 @@ def check(log, closing=None, data=None):
         if k == "noidk":
             for q in v:
                 found.append(("idk", "選択肢の画面の問いに「分からない」の選択肢が無い（足して出す）: %s" % q[:60]))
+    if any(k == "noidk_blind" for k, _ in log.events):
+        found.append(("neighbor", "「分からない」の見分けの正本（plugin guard の ask_shape.is_dunno）が見つからず、選択肢の画面の問いを照らせない"))
 
     # 答えの無い問い（一度も答えが返っていない問い）
     asked, answered = [], set()

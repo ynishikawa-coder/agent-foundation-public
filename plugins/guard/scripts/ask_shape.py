@@ -32,7 +32,9 @@ ASK_TOOL = "AskUserQuestion"
 _URL = re.compile(r"https?://\S+")
 # AI の中の言葉らしい字（名 → 形）。人に向けた問いに出るなら日常の言葉に替える。
 INNER = (
-    ("番号", re.compile(r"(?<![A-Za-z0-9])[A-Z]{1,5}\d{2,}(?:[-_]\d+)*(?![A-Za-z0-9])")),       # E02・Q202611-67
+    # 番号の頭は 1〜2 字（E02・Q202611-67・PR12）。3 字以上の頭に数の続く名（COVID19・SHA256・ISO9001）は固有名として数えない。
+    #   3 字以上の頭でも [-_] で数が続けば番号（ABC123-4）。
+    ("番号", re.compile(r"(?<![A-Za-z0-9])(?:[A-Z]{1,2}\d{2,}(?:[-_]\d+)*|[A-Z]{3,5}\d{2,}(?:[-_]\d+)+)(?![A-Za-z0-9])")),
     ("番号", re.compile(r"[#＃]\d+")),                                                            # #616
     ("版の番号", re.compile(r"(?<![A-Za-z0-9])[vV]\d+(?:\.\d+)+")),                              # v0.21.0
     ("file 名", re.compile(r"[\w\-]+\.(?:py|md|json|jsonl|mjs|cjs|js|ts|tsx|jsx|html|ya?ml|sh|txt|csv|tsv|xlsx|toml|ini|cfg)"
@@ -85,6 +87,14 @@ _SENT_END = re.compile(r"[。．？?！!；;…⋯\n]|\.{3}")
 def sentences(text):
     """文の並び（中身の無い切れ端は数えない）。文の数の読み手の正本（session-watch の完了の言い切りも直に呼ぶ）。"""
     return [s.strip() for s in _SENT_END.split(str(text or "")) if s.strip()]
+
+
+def is_dunno(label):
+    """選択肢の見出しが「分からない」の選択肢か（細目 §4）。見分けの正本はこの 1 か所: session-watch の「分からない」の無い問いの
+    見張り（has_idk）も直に呼び、qa-html の型が出す「分からない」の見出し（check.mjs の RULES.unknown.label）もこれに当たる
+    （tests/test_doc_tool_values.py が照らす）。"""
+    return bool(_DUNNO.search(str(label or "")))
+
 # 送り仮名（置き場・作り物・取り扱い）を詰めて 1 語にする。助詞（の・を・が…）を挟む所は詰めない。
 _OKURI = re.compile(r"(?<=[一-龠々])(?:(?![のをがはにでともへやかよ])[ぁ-ゔ]){1,2}(?=[一-龠々])")
 _RUN = re.compile(r"[一-龠々]{2,}|[ァ-ヶー]{2,}|[A-Za-z]{3,}")
@@ -195,7 +205,7 @@ def _rec_findings(q):
     late = [lb for i, lb in marked if i != 0]
     if late:
         why.append("1 つ目でない選択肢に在る（%s）" % "・".join("「%s」" % lb[:20] for lb in late))
-    dunno = [lb for _, lb in marked if _DUNNO.search(lb)]
+    dunno = [lb for _, lb in marked if is_dunno(lb)]
     if dunno:
         why.append("「分からない」の選択肢に在る（%s）" % "・".join("「%s」" % lb[:20] for lb in dunno))
     return why
