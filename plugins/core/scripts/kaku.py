@@ -7,6 +7,7 @@
                                       開いた repo の古い形（古い形.json の一覧・核の写しの枠など）／CLAUDE.md の量の上限越え／
                                       古い形の setup script（土台の入口 scripts/setup_plugins.py を通っていない）／入っていない plugin。
                                       あわせて、窓の最初の 1 回だけ、入った土台が main の先端と同じかを見て窓ごとに覚える（古ければ知らせる）。
+                                      古さが setup script の形の誤りか、目録を取り直した後に main へ入っただけかを見分け、後者は知らせだけにする。
   python3 kaku.py fresh               UserPromptSubmit の hook が呼ぶ。起動の後に main の先端の plugin が変わったら、
                                       この窓を新しい窓へ引き継いで閉じるよう AI に知らせる（人の作業は止めない）。
   python3 kaku.py check [--claude P]  核と振る舞いの既定が在り、上限の内かを照らす。--claude を渡すと、その CLAUDE.md が各社固有の上限の内で
@@ -41,6 +42,9 @@ LIMITS = {"核": 4800, "振る舞い": 2400, "各社固有": 3000}
 MARKET = "agent-foundation"
 # 土台の振る舞いを運ぶ path。ここが変わった時だけ「古い土台」と見る（文書・試験・CI だけの変更では窓を替えない）。
 CARRIERS = ("plugins", ".claude-plugin")
+# 目録を取り直した時と main への合流の時を比べる時の時計のずれの許し（秒）。取り直しより後に合流した差だけを
+# 「取り直しの後に入った差」と見る（この幅より前に合流していたのに入っていない＝setup script の形の誤り）。
+LATE_SKEW = 60
 FRESH_INTERVAL = 900  # 起動の後に main の先端を見に行く間（秒）。毎回の問いごとに外へ出ない。
 # 起動の時の古い形の見張りに使ってよい時間（秒）。越えたら打ち切って名指しする（hook の上限に当たって核の差し込みごと落ちない）。
 WATCH_BUDGET = 5
@@ -205,7 +209,7 @@ def installed_sha() -> str | None:
 
 
 def freshness() -> dict | None:
-    """{installed, main, plugins}（plugins が空でなければ古い）。比べられない時は None。
+    """{installed, main, plugins, landed}（plugins が空でなければ古い・landed は間の合流の時の epoch 秒）。比べられない時は None。
 
     GitHub から入れた時だけ見る（手元の dir から入れた試し・CI は main の先端と比べる物が無い）。
     main の先端は、入れた時の marketplace の clone へ main だけを取って来て比べる（鍵は要らない・public）。"""
@@ -220,14 +224,38 @@ def freshness() -> dict | None:
     if not tip:
         return None
     if tip == have:
-        return {"installed": have, "main": tip, "plugins": []}
+        return {"installed": have, "main": tip, "plugins": [], "landed": []}
     names = _git(loc, "diff", "--name-only", have, tip, "--", *CARRIERS)
     if names is None:      # 入った commit が clone に無い＝比べられないが先端とは違う。古いと見る（既定で知らせる側）
         plugins = ["（どれか分からない）"]
     else:
         plugins = sorted({n.split("/")[1] if n.startswith("plugins/") and n.count("/") >= 2 else n.split("/")[0]
                           for n in names.splitlines() if n})
-    return {"installed": have, "main": tip, "plugins": plugins}
+    # main へ合流した時（first-parent の commit の時＝合流の時）。浅く取った clone では先端の 1 つだけになる（先端は一番遅い）
+    times = _git(loc, "log", "--first-parent", "--format=%ct", f"{have}..{tip}") or _git(loc, "log", "-1", "--format=%ct", tip)
+    landed = [int(t) for t in (times or "").split() if t.isdigit()]
+    return {"installed": have, "main": tip, "plugins": plugins, "landed": landed}
+
+
+def landed_after_fetch(f: dict) -> bool:
+    """古さが「setup script は正しい形で、目録を取り直した後に main へ合流した差」だけかを見る（既定は False＝形の誤り）。
+
+    正しい形の印が全部揃う時だけ True: 入口の印（setup.json）が在り・取り直せた・入れ損ね/版の揃わない物が無い・
+    入った commit が取り直した名簿の版と同じ・目録が版（tag・枝・SHA）を指していない・入った物と先端の間の合流が全部
+    取り直しの時より後（時計のずれ LATE_SKEW の内）。どれかが分からない時は形の誤りと見る（引き継ぎの手順を残す）。"""
+    state = _read_json(_home() / "af-foundation" / "setup.json")
+    m = (_read_json(_home() / "plugins" / "known_marketplaces.json") or {}).get(MARKET) or {}
+    src = m.get("source") or {}
+    if not isinstance(state, dict) or state.get("refreshed") is not True or state.get("missing") or state.get("stale"):
+        return False
+    if src.get("ref") or src.get("sha") or "#" in str(src.get("repo") or ""):
+        return False  # 版を指した目録は取り直しても先端へ進まない
+    if not f.get("installed") or state.get("catalog_sha") != f["installed"]:
+        return False
+    fetched, landed = state.get("fetched"), f.get("landed") or []
+    if not isinstance(fetched, (int, float)) or isinstance(fetched, bool) or not landed:
+        return False
+    return min(landed) > fetched - LATE_SKEW
 
 
 def _state_path(session: str) -> Path:
@@ -269,6 +297,14 @@ def stale_at_start_text(f: dict) -> str:
             "UTC の環境なら連絡板の issue で setup script の直しを頼み、オーナーへ「核と守りが古い形で動いている」と 1 行知らせてから頼みを続ける。\n")
 
 
+def late_text(f: dict) -> str:
+    return ("## 土台が取り直しの後に新しくなった（知らせ・引き継がない）\n"
+            f"この窓は main の先端より古い土台で立った（{_short(f)}）が、setup script は正しい形で、"
+            "目録を取り直した後に main へ合流した差（取り直しの後に入った差）だけが入っていない。"
+            "setup script に直す物は無い（次に立つ窓は先端を入れる）。この窓は引き継がず閉じずに頼みを続ける"
+            "（変わった plugin の新しい振る舞いは、この窓では効かず次に立つ窓から効く）。\n")
+
+
 def handover_text(f: dict) -> str:
     return ("## 土台が新しくなった — この窓を引き継いで閉じる\n"
             f"この窓が立った後に、土台の main の先端で窓の振る舞いが変わった（{_short(f)}）。"
@@ -308,11 +344,19 @@ def inject() -> int:
             f = freshness()
         except Exception:  # noqa: BLE001  新しさの見張りが壊れても核の差し込みは止めない
             f = None
+        late = False
+        if f and f["plugins"]:
+            try:
+                late = landed_after_fetch(f)
+            except Exception:  # noqa: BLE001  見分けが壊れたら形の誤りと見る（引き継ぎの手順を残す）
+                late = False
         if session:
             _save_state(session, {"checked": time.time(), "stale_at_start": bool(f and f["plugins"]),
-                                  "comparable": f is not None, "start": f})
+                                  "comparable": f is not None, "start": f, "late": late})
     if f and f["plugins"]:
-        parts.append(stale_at_start_text(f))
+        # 取り直しの後に入った差は知らせだけ（窓を替えない）。2 回目の SessionStart も起動の時の見分けを使う
+        late_now = state.get("late") if isinstance(state, dict) else late
+        parts.append(late_text(f) if late_now else stale_at_start_text(f))
     if parts:
         out = {"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": "\n".join(parts)}}
         sys.stdout.write(json.dumps(out, ensure_ascii=False))
@@ -322,7 +366,8 @@ def inject() -> int:
 def fresh() -> int:
     """起動の後に土台が新しくなったかを見る。新しくなっていれば、引き継いで閉じる手順を AI に知らせる。
 
-    起動の時から古かった窓（setup script が古い物を入れた）はここでは扱わない（inject の知らせが setup script を直してから引き継がせる）。"""
+    起動の時から古かった窓はここでは扱わない（setup script の形の誤りは inject の知らせが直してから引き継がせ、
+    目録を取り直した後に合流しただけの差は知らせだけで窓を替えない）。"""
     data = _hook_input()
     session = data.get("session_id")
     if not session:

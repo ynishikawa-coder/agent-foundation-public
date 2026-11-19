@@ -13,7 +13,8 @@
      目録の clone の HEAD（＝名簿の版）と同じかを照らす。取り直しに失敗した時も名指す（古い名簿で入れたと分かるように）。
   3. 入っていない・名簿の版に揃っていない物があれば、窓が起動時に必ず読む `~/.claude/CLAUDE.md` に名指しの知らせを 1 行書く（全部入れば消す）。
   4. この入口で入れた印を `~/.claude/af-foundation/setup.json` に書く（plugin core の起動の hook が、印の無い窓＝
-     古い形の setup script で立った窓を名指しする）。
+     古い形の setup script で立った窓を名指しする）。印には目録を取り直した時（fetched・epoch 秒）も書く（起動の hook が、
+     取り直しの後に main へ入った差と setup script の形の誤りを見分ける）。
 
 使い方（setup script の形は docs/核の届け方.md）: python3 <目録の checkout>/scripts/setup_plugins.py
   CLAUDE_BIN で claude の場所を差し替えられる（既定 claude）。
@@ -140,6 +141,7 @@ def main() -> int:
     try:
         market, _ = catalog()
         fresh = refresh(market)
+        fetched = time.time()  # 目録を取り直した時（起動の hook が、この後に main へ入った差を形の誤りと見分ける）
         market, names = catalog()  # 取り直した名簿を読み直す
     except ValueError as e:
         notice(f"土台の plugin を入れられなかった: {e}。核と守りの hook がこの窓で効いていない。最初にオーナーへ知らせる。")
@@ -165,7 +167,7 @@ def main() -> int:
     else:
         notice(None)
     save_state({"entry": "scripts/setup_plugins.py", "market": market, "plugins": names, "missing": lack,
-                "stale": stale, "refreshed": fresh, "catalog_sha": tip, "at": time.strftime("%Y-%m-%dT%H:%M:%S%z")})
+                "stale": stale, "refreshed": fresh, "catalog_sha": tip, "fetched": fetched, "at": time.strftime("%Y-%m-%dT%H:%M:%S%z")})
     print(("✗ " + "。".join(bad) + "。 " + ROOT_CAUSE) if bad else f"✅ 土台の plugin {len(names)} 本が名簿の版 {tip[:12]} で入った")
     return 1 if bad else 0
 
