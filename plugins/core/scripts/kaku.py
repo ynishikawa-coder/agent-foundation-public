@@ -77,19 +77,31 @@ def _tracked(project: Path, specs: list[str]) -> list[Path]:
     return [project / s for s in specs if "*" not in s]  # git でない dir は、名で書いた file だけ見る
 
 
-def find_olds(project: Path, rows: list[dict] | None = None, deadline: float | None = None) -> list[tuple[dict, str]]:
-    """開いた repo に残る古い形の (行, 当たった file の相対 path)。deadline（time.monotonic）を越えたら TimeoutError（黙って一部だけにしない）。"""
+def find_olds(project: Path, rows: list[dict] | None = None) -> list[tuple[dict, str]]:
+    """開いた repo に残る古い形の (行, 当たった file の相対 path)。"""
     found = []
     for r in rows if rows is not None else olds_table():
         for f in _tracked(project, r["files"]):
-            if deadline is not None and time.monotonic() > deadline:
-                raise TimeoutError(f"{WATCH_BUDGET} 秒で見終わらず打ち切った（{r['id']} の途中・見た所までの当たり {len(found)} 件）")
             try:
                 if f.is_file() and f.stat().st_size <= 1_000_000 and r["re"].search(f.read_text(encoding="utf-8", errors="replace")):
                     found.append((r, str(f.relative_to(project))))
             except OSError:
                 pass
     return found
+
+
+def find_olds_bounded(project: Path, budget: float = WATCH_BUDGET, table: Path = OLDS) -> list[tuple[dict, str]]:
+    """find_olds を別の process で走らせ、budget 秒で殺す。1 つの file の正規表現の照らしは途中で止められないので、
+    時間の上限は file の合間でなく process の外から掛ける。越えたら TimeoutError（黙って一部だけにしない）。"""
+    cmd = [sys.executable, str(Path(__file__).resolve()), "olds", "--json", "--table", str(table), str(project)]
+    try:
+        p = subprocess.run(cmd, capture_output=True, text=True, timeout=budget)
+    except subprocess.TimeoutExpired:
+        raise TimeoutError(f"{budget} 秒で見終わらず打ち切った（古い形の照らしの途中）") from None
+    if p.returncode not in (0, 1):
+        raise ValueError((p.stdout + p.stderr).strip() or f"olds が {p.returncode} で抜けた")
+    rows = {r["id"]: r for r in olds_table(table)}
+    return [(rows[i], f) for i, f in json.loads(p.stdout)]
 
 
 def olds_text(found: list[tuple[dict, str]], project: Path) -> str:
@@ -273,7 +285,7 @@ def inject() -> int:
         parts.append(inject_text())
     except UNREADABLE as e:
         print(f"plugin core: 核.md が読めない（{e}）＝核は差し込まれていない", file=sys.stderr)
-    for name, make in (("古い形", lambda: (lambda f: olds_text(f, project) if f else None)(find_olds(project, deadline=time.monotonic() + WATCH_BUDGET))),
+    for name, make in (("古い形", lambda: (lambda f: olds_text(f, project) if f else None)(find_olds_bounded(project))),
                        ("CLAUDE.md の量", lambda: claude_md_text(project)), ("入れ方", setup_text)):
         try:
             t = make()
@@ -409,11 +421,11 @@ def grow(ref: str) -> int:
     return 0
 
 
-def olds(dirs: list[Path]) -> int:
+def olds(dirs: list[Path], table: Path = OLDS, as_json: bool = False) -> int:
     try:
-        rows = olds_table()
+        rows = olds_table(table)
     except (OSError, ValueError) as e:
-        print(f"✗ {OLDS.name} が読めない: {e}")
+        print(f"✗ {table.name} が読めない: {e}")
         return 2
     bad = 0
     for d in (x.resolve() for x in dirs):
@@ -421,9 +433,11 @@ def olds(dirs: list[Path]) -> int:
             print(f"✗ {d} が無い")
             return 2
         found = find_olds(d, rows)
-        for r, f in found:
+        if as_json:
+            print(json.dumps([[r["id"], f] for r, f in found], ensure_ascii=False))
+        for r, f in [] if as_json else found:
             print(f"✗ {d.name}/{f}: {r['id']}（{r['what']}）")
-        if not found:
+        if not found and not as_json:
             print(f"✅ {d.name}: 古い形 0（見た形: {'・'.join(r['id'] for r in rows)}）")
         bad += len(found)
     return 1 if bad else 0
@@ -440,6 +454,8 @@ def main(argv=None) -> int:
     g.add_argument("--base", required=True, help="比べる元の git の ref（例: main との分かれ目）")
     o = sub.add_parser("olds", help="使う側の checkout に古い形が残っていないかを照らす")
     o.add_argument("dirs", type=Path, nargs="+")
+    o.add_argument("--table", type=Path, default=OLDS, help="古い形の一覧（既定は plugin の 古い形.json）")
+    o.add_argument("--json", action="store_true", help="当たりを [[id, path], …] で出す（起動の hook が別の process で呼ぶ）")
     a = ap.parse_args(argv)
     if a.cmd == "inject":
         return inject()
@@ -448,7 +464,7 @@ def main(argv=None) -> int:
     if a.cmd == "fresh":
         return fresh()
     if a.cmd == "olds":
-        return olds(a.dirs)
+        return olds(a.dirs, a.table, a.json)
     return check(a.claude)
 
 
