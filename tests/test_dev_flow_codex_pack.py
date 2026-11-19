@@ -57,6 +57,7 @@ def test_秘密が混じると書かずに止まる(repo, tmp_path):
     res = run(repo, out, "--file", "tools/leak.py")
     assert res.returncode == 1
     assert "秘密の形を検出" in res.stderr
+    assert "細目 §3「まず構造を疑う」" in res.stderr.strip().splitlines()[-1], "中止の理由だけを返す古い形に戻った"
     assert fake not in res.stdout + res.stderr
     assert not (out / "t1").exists()
 
