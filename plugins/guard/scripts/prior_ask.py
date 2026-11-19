@@ -8,15 +8,15 @@
 
 跡とは: 会話ログ（transcript_path）の、今の頼みの中の道具の呼び出しのうち、引く先の跡の形に名と入力の欄が当たり、
   かつ走った証が在る物。走ったかは頼んだ字で決めず、同じ tool_use_id の返り（tool_result）の在る印で見る
-  （guard_common.tool_use_ran）: 返りが無い・拒まれた・hook に止められた・中断した・Bash で is_error の欄が無い・
-  背景に回した呼び出しは数えない。
+  （guard_common.tool_use_ran〔1 本の口・PR #77 が持つ〕の上に ran_of が厳しさを積む）: 返りが無い・同じ id の返りが
+  2 つ以上・拒まれた・hook に止められた・中断した・Bash で is_error の欄が無いか真偽でない・背景に回した呼び出しは数えない。
   （形は guard_common の trace_matchers。新しい形は入力を JSON の字に直して当てない＝その字を入力に含むだけの呼び出しは
   跡でない。文字列の古い形は壊れる 1 段目として今までどおり字に当て、起動の時に古い形と名指す）。
   頼みの境は guard_common.new_request（人の行で、頼みの印 promptId が今の頼みと違う物。hook の差し戻しの行は境でない）。
 Bash の呼び出しは、引く命令 1 つだけの時に限る（single_command）: 前に `cd <字>` を 1 つ置くのは可。管・;・&・&&・||・
-  出力の向け替え・run_in_background・bash -c と eval の中・読み切れない形（guard_common.parse_shell の unknowns）が在れば
+  出力の向け替え・run_in_background・bash -c と eval の中・読み切れない形（guard_common.parse_shell の unknowns・code で見る）が在れば
   数えない＝返りが「呼び出し全体」の物で、引く命令 1 つの物と言えないから。shell の読みは parse_shell（1 本の読み口・
-  PR #77 と同じ中身）に任せ、数えるかの厳しさはここが持つ。
+  PR #77 が持つ）に任せ、数えるかの厳しさはここが持つ。
 引く先（どこから読むか・上から順に最初に在る物）:
   1. 値の表 guard.ask_prior_lookup（会社ごとに違うので、名は値の表から読む＝ここに決め打ちしない）。Bash の跡は上の 1 つの
      命令の形で、0 で終えた時だけ。Bash の外の道具は誤りでない返りの時。
@@ -50,6 +50,8 @@ PRIOR_MARK = re.compile(r"prior-check: \d+ 件")   # check.mjs --run-prior が�
 EMPTY_OUTPUT = {"", "(No content)", "(Bash completed with no output)", "(no output)"}
 STDIN_REDIRS = ("<", "<<", "<<-", "<<<")     # 入力の向け替え（返りの字を変えない）
 CD_SEPS = ("&&", ";", "\n")                  # 前の cd <字> と命令の間に置ける区切り
+BACKGROUND = re.compile(r"Command running in background with ID|Command was moved to the background")
+EXIT_N = re.compile(r"\AExit code (-?\d+)\b")
 ASSIGN = re.compile(r"[A-Za-z_][A-Za-z0-9_]*=")   # 命令の前に置ける物は VAR=値 だけ（env・sudo・command 等の前置きは数えない）
 
 
@@ -90,10 +92,10 @@ def single_command(block):
     cmd = inp["command"].strip()
     cmds, unknowns = G.parse_shell(cmd)
     if unknowns:
-        return None, "読み切れない形（%s）" % "・".join(unknowns[:3])
+        return None, "読み切れない形（%s）" % "・".join(sorted({u.code for u in unknowns}))
     segs = [(w, op) for w, op in _seg_words(G._lex(cmd, [])) if w or op not in ("\n", "")]
     if len(segs) == 2 and segs[0][1] in CD_SEPS and [str(x) for x in segs[0][0][:1]] == ["cd"] \
-            and len(segs[0][0]) == 2 and not segs[0][0][1].dyn:
+            and len(segs[0][0]) == 2 and not G.is_dyn(segs[0][0][1]):
         segs = segs[1:]
         cmds = cmds[1:] if cmds and cmds[0][:1] == ["cd"] else cmds
     if len(segs) != 1 or segs[0][1] not in ("", "\n"):
@@ -103,9 +105,37 @@ def single_command(block):
     if len(cmds) != 1 or not cmds[0] or [str(x) for x in top[-len(cmds[0]):]] != cmds[0]:
         return None, "bash -c・eval の中の命令（上の段の命令 1 つでない）"
     pre = top[:len(top) - len(cmds[0])]
-    if any(x.dyn or not ASSIGN.match(x) for x in pre):
+    if any(G.is_dyn(x) or not ASSIGN.match(x) for x in pre):
         return None, "前置き（%s）を付けた（command -v 等で走らない形を数えない）" % " ".join(str(x) for x in pre)[:60]
     return cmds[0], ""
+
+
+def ran_of(rows, block):
+    """(走ったか, 返りの字, 理由)。guard_common.tool_use_ran（1 本の口・PR #77 が持つ）の上に、跡に数える側の厳しさを積む:
+    同じ tool_use_id の返りが 2 つ以上・is_error が真偽でない・Bash を背景に回した（run_in_background・BACKGROUND の返り）は
+    走った証にしない。Bash が 0 でない数で終えた時は reason を「Exit code N」にする（呼ぶ側が 0 で終えたかを分ける）。
+    Bash の外の道具（MCP 等）は実の会話ログで is_error の欄を持たない返りが在るので、欄が無ければ誤りでない返りと読む。"""
+    tid = block.get("id")
+    res = [r for row in rows for r in G.tool_results(row) if r.get("tool_use_id") == tid]
+    bash = block.get("name") == "Bash"
+    if len(res) > 1:
+        return False, "", "同じ tool_use_id の返りが 2 つ以上（どれが走った証か決まらない）"
+    if res and "is_error" in res[0] and not isinstance(res[0]["is_error"], bool):
+        return False, "", "返りの is_error が真偽でない（%s）" % json.dumps(res[0]["is_error"], ensure_ascii=False)[:40]
+    if res and not bash and "is_error" not in res[0]:
+        return True, G.result_text(res[0]), ""
+    ran, text, why = G.tool_use_ran(rows, tid)
+    if not ran:
+        return False, text, why
+    inp = block.get("input") if isinstance(block.get("input"), dict) else {}
+    if bash and (G.truthy(inp.get("run_in_background")) or BACKGROUND.search(text)):
+        return False, text, "背景に回した（命令は終わっておらず、出力も返りに無い）"
+    if res[0].get("is_error"):
+        m = EXIT_N.match(text)
+        if not (bash and m):
+            return False, text, "拒まれた・止められた・中断した返り（走っていない）"
+        return True, text, "Exit code %s" % m.group(1)
+    return True, text, ""
 
 
 def _last_line(text):
@@ -121,7 +151,7 @@ def _proof_lookup(matchers):
             argv, why = single_command(b)
             if argv is None:
                 return False, "引く Bash の呼び出しを数えない: %s＝%s" % (why, _PLAIN)
-        ran, _, why = G.tool_use_ran(rows, b.get("id"))
+        ran, _, why = ran_of(rows, b)
         if not ran or why:
             return False, "%s の呼び出しの返り: %s" % (b.get("name"), why or "走った証が無い")
         return True, ""
@@ -153,14 +183,14 @@ def _proof_cmd(cmd):
             near = RUN_PRIOR[0] in text or any(w and w[0] in text for w in want)
             return False, ("引く命令の呼び出しを数えない: %s＝%s" % (why, _PLAIN)) if near and why else ""
         if _is_run_prior(argv):
-            ran, out, why = G.tool_use_ran(rows, b.get("id"))
+            ran, out, why = ran_of(rows, b)
             if not ran:
                 return False, "check.mjs --run-prior の返り: " + why
             if not PRIOR_MARK.fullmatch(_last_line(out)):
                 return False, "check.mjs --run-prior の返りの最後の行が「prior-check: <n> 件」でない（引き終えていない）"
             return True, ""
         if len(want) == 1 and argv == want[0]:
-            ran, out, why = G.tool_use_ran(rows, b.get("id"))
+            ran, out, why = ran_of(rows, b)
             if not ran or why:
                 return False, "引く命令の返り: " + (why or "走った証が無い")
             if out.strip() in EMPTY_OUTPUT:
@@ -183,14 +213,14 @@ def lookups(vals, payload):
         runs, unk = G.parse_shell(cmd)
         bad = [] if len(runs) == 1 and not unk else [
             "prior_check_cmd が素の命令 1 つでない（%s）＝check.mjs --run-prior だけを跡に数える"
-            % "・".join(unk or (["命令が無い"] if not runs else ["命令が %d 個" % len(runs)]))]
+            % "・".join(sorted({u.code for u in unk}) or (["命令が無い"] if not runs else ["命令が %d 個" % len(runs)]))]
         return [_proof_cmd(cmd)], bad, "docs-kit.qa-html.prior_check_cmd"
     return [], [], ""
 
 
 def scan(tpath, proofs):
     """(今の頼みの印, 跡が在るか, 数えなかった理由の並び)。今の頼みの中の道具の呼び出しを、同じ tool_use_id の返りに結んで見る
-    （guard_common.tool_use_ran）。"""
+    （ran_of）。"""
     turn, pid, rows = "", None, []
     for i, row in enumerate(G.iter_rows(tpath)):
         if G.new_request(row, pid):

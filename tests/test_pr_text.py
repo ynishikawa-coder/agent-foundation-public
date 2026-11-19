@@ -27,7 +27,39 @@ def env(tmp_path):
     return e
 
 
+RULER_LAST = "check_all: 緑 (4 本)"
+
+
+RULER_CMD = "bash scripts/check_all.sh"
+
+
+def transcript_rows(results, command=RULER_CMD, tool="Bash"):
+    """作り物の会話ログの行: 道具の呼び出し（名 tool・命令 command）と、tool_use の id で結んだ結果の対。"""
+    rows = []
+    for i, r in enumerate(results):
+        inp = {"command": command} if tool == "Bash" else {"owner": "fake-owner", "repo": "fake-private", "pullNumber": 1}
+        rows.append({"type": "assistant", "message": {"role": "assistant", "content": [
+            {"type": "tool_use", "id": "t%d" % i, "name": tool, "input": inp}]}})
+        rows.append({"type": "user", "message": {"role": "user", "content": [
+            {"type": "tool_result", "tool_use_id": "t%d" % i, "content": r, "is_error": False}]}})
+    return rows
+
+
+def write_rows(path, rows):
+    path.write_text("\n".join(json.dumps(r, ensure_ascii=False) for r in rows) + "\n", encoding="utf-8")
+    return path
+
+
+def with_transcript(env, payload, results=(RULER_LAST,), command=RULER_CMD, tool="Bash"):
+    """作り物の会話ログ（物差しを回した Bash の結果に物差しの最後の行）を payload に付ける。在れば上書きしない。"""
+    if "transcript_path" in payload:
+        return payload
+    log = write_rows(Path(env["CLAUDE_PROJECT_DIR"]).parent / "transcript.jsonl", transcript_rows(results, command, tool))
+    return dict(payload, transcript_path=str(log))
+
+
 def deny_reason(env, payload):
+    payload = with_transcript(env, payload)
     p = subprocess.run([sys.executable, str(GUARD), "pre"], input=json.dumps(payload, ensure_ascii=False),
                        capture_output=True, text=True, env=env, timeout=60)
     assert p.returncode == 0, p.stderr
@@ -50,14 +82,34 @@ def gh(tool, owner="fake-owner", repo="fake-private", **ti):
 FAKE_HEAD = "0123456789ab" + "c" * 28
 
 
-def _fake_gh(env, head=FAKE_HEAD, writer=WRITER, fail=False):
-    """作り物の gh（PR の先端と本文の `書いた窓:` を返す）を PATH の頭に置く。実の GitHub へは出ない。"""
+def _fake_gh(env, head=FAKE_HEAD, writer=WRITER, fail=False, private="true", files=("a.md",), board=None):
+    """作り物の gh を PATH の頭に置く。実の GitHub へは出ない。引く path ごとに答える:
+    repos/<r>（.private）・pulls/<n>（先端と本文の `書いた窓:`）・pulls/<n>/files と compare（差分の file）・issues（連絡板）。"""
     bindir = Path(env["CLAUDE_PROJECT_DIR"]).parent / "fakebin"
     bindir.mkdir(exist_ok=True)
     gh_path = bindir / "gh"
-    body = "書いた窓: %s\\n" % writer if writer else "作り物の本文\\n"
-    gh_path.write_text("#!/bin/sh\n" + ("echo 'not found' >&2; exit 1\n" if fail else
-                       "printf '%%s\\n%%s' '%s' '%s'\n" % (head, body)), encoding="utf-8")
+    body = "書いた窓: %s\n" % writer if writer else "作り物の本文\n"
+    spec = {"fail": fail, "private": private, "head": head, "body": body, "files": list(files), "board": board}
+    gh_path.write_text("#!%s\nimport json, re, sys\nS = json.loads(%r)\n" % (sys.executable, json.dumps(spec)) + r"""
+a = sys.argv[1:]
+path = a[1] if len(a) > 1 else ""
+if S["fail"]:
+    sys.stderr.write("not found\n"); sys.exit(1)
+if re.fullmatch(r"repos/[^/]+/[^/]+", path):
+    p = S["private"]
+    print(p.get(path.rsplit("/", 1)[1], "true") if isinstance(p, dict) else p)
+elif re.search(r"/pulls/\d+/files$", path) or "/compare/" in path:
+    print("\n".join(S["files"]))
+elif re.search(r"/pulls/\d+$", path):
+    sys.stdout.write(S["head"] + "\n" + S["body"])
+elif re.search(r"/issues/\d+$", path):
+    b = S["board"]
+    print(("連絡板: 作り物\n" + b) if b else "普通の issue\n作り物")
+elif "/issues?" in path:
+    print("連絡板: 作り物" if S["board"] else "普通の issue")
+else:
+    sys.stderr.write("unknown path " + path + "\n"); sys.exit(1)
+""", encoding="utf-8")
     gh_path.chmod(0o755)
     env["PATH"] = str(bindir) + os.pathsep + env.get("PATH", "")
     return env
@@ -71,6 +123,8 @@ def verdict_comment(judged="green", head="0123456789ab", fail=None, stop=False, 
     rows = []
     for no, name in sorted(points.items()):
         val = "書いた窓 %s ≠ この窓" % WRITER if no == 3 else ("fail" if no == fail else "pass")
+        if no == 4:
+            val += "（%s）" % RULER_LAST
         rows.append("- %d %s: %s" % (no, name, val))
     first = line1 or "レビューした窓: %s 判定: %s" % (REVIEWER, judged)
     fix = [verdict_form.ROOT_CAUSE] if judged == "red" else []
@@ -222,6 +276,7 @@ MAIL = "someone" + "@" + "gmail.com"
 
 
 def test_pr_text_公開の_repo_へは置かない物の在る文を出す前に止める(env, tmp_path):
+    _fake_gh(env, private={"fake-public": "false"})
     _fake_public_repo(Path(env["CLAUDE_PROJECT_DIR"]), PUBLIC_WORD)
     pub = dict(repo="fake-public")
     why = deny_reason(env, gh("add_issue_comment", issue_number=1, body="連絡は %s へ" % MAIL, **pub))
@@ -242,6 +297,7 @@ def test_pr_text_公開の_repo_へは置かない物の在る文を出す前に
 
 
 def test_pr_text_公開の_repo_で検査が見つからない時も止める(env, tmp_path):
+    _fake_gh(env, private={"fake-public": "false"})
     _fake_public_repo(Path(env["CLAUDE_PROJECT_DIR"]), PUBLIC_WORD)
     env["AF_PUBLIC_GUARD"] = str(tmp_path / "無い.py")
     why = deny_reason(env, gh("add_issue_comment", issue_number=1, body="作り物の確かめ", repo="fake-public"))
@@ -252,13 +308,19 @@ def test_pr_text_公開の_repo_で検査が見つからない時も止める(en
     assert "[public]" in why and "置かない語の表" in why and "無く" in why
 
 
-def test_pr_text_手元に取り出しの無い公開の_repo_は値の表で足せる(env, tmp_path):
+def test_pr_text_手元に取り出しの無い公開の_repo_も_GitHub_から公開と引いて照らす(env, tmp_path):
+    """取り出しの workflow に頼る古い形（別の repo の窓から公開の repo へ出す文を照らさない）に戻すと赤。"""
+    p = gh("add_issue_comment", issue_number=1, body="連絡は %s へ" % MAIL, repo="far-public")
+    _fake_gh(env, private={"far-public": "false"})
+    assert "[public]" in deny_reason(env, p)
+    _fake_gh(env)                                                  # 非公開
+    assert deny_reason(env, p) == ""
+    _fake_gh(env, fail=True)                                       # 引けない時は止める（欠けた材料で通さない）
+    assert "公開かを GitHub から引けず" in deny_reason(env, p)
     table = tmp_path / "values.json"
     env["SKILL_VALUES"] = str(table)
-    p = gh("add_issue_comment", issue_number=1, body="連絡は %s へ" % MAIL, repo="far-public")
-    assert deny_reason(env, p) == ""
     table.write_text(json.dumps({"guard": {"public_repos_extra": ["^fake-owner/far-public$"]}}), encoding="utf-8")
-    assert "[public]" in deny_reason(env, p)
+    assert "[public]" in deny_reason(env, p)                      # 引けない時の値の表の足しは残る
 
 
 def test_pr_text_照らしの途中で壊れたら黙って通さず止める(env, tmp_path):
@@ -266,6 +328,7 @@ def test_pr_text_照らしの途中で壊れたら黙って通さず止める(en
     blocker = tmp_path / "置き場でない"
     blocker.write_text("file なので dir を作れない", encoding="utf-8")
     env["AF_GUARD_TMP"] = str(blocker)
+    _fake_gh(env, private={"fake-public": "false"})
     _fake_public_repo(Path(env["CLAUDE_PROJECT_DIR"]), PUBLIC_WORD)
     why = deny_reason(env, gh("add_issue_comment", issue_number=1, body="作り物の確かめ", repo="fake-public"))
     assert "[broken]" in why and "照らせない文は出さない" in why
@@ -288,7 +351,8 @@ def test_pr_text_判定の材料は_PR_から引き_引けなければ止め_先
     env["PATH"] = str(Path(env["CLAUDE_PROJECT_DIR"]).parent / "空")   # gh が無い
     why = deny_reason(env, p)
     assert "判定の材料" in why and "gh" in why
-    assert deny_reason(env, gh("add_issue_comment", issue_number=1, body="作り物の確かめを足しました")) == ""
+    # gh が無ければ普通のコメントも、出す先が公開かを引けないので止める（欠けた材料で通さない）
+    assert "公開かを GitHub から引けず" in deny_reason(env, gh("add_issue_comment", issue_number=1, body="作り物の確かめを足しました"))
 
 
 def test_pr_text_の値の鍵は値の表の知らない鍵の見張りが知っている():

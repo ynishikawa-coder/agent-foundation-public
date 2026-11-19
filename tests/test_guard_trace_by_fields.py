@@ -257,7 +257,8 @@ def test_外す形の壊れた正規表現1本で見張りごと黙って通ら�
     assert "引いた跡が会話ログに無い" in deny_reason(env, ask_with(log(tmp_path)))
 
 
-NOT_REGEX = {"unattended_env", "paid_markers_extra", "ask_topic_stopwords_extra"}
+# pr_ruler_trace は pr_text が guard_common.tool_matchers（PR #77 の口）で読む跡の形＝この分けの外
+NOT_REGEX = {"unattended_env", "paid_markers_extra", "ask_topic_stopwords_extra", "pr_ruler_trace"}
 
 
 def test_値の表の並びの鍵は全部壊れの名指しの分けに載る():
@@ -293,7 +294,7 @@ NOT_COUNTED = [
     ("改行で書いた if false の枝", [call("Bash", {"command": "if false\nthen\n%s\nfi" % CMD}, out="")],
      "命令 1 つだけの形でない"),
     ("while false の中", [call("Bash", {"command": "while false\ndo\n%s\ndone" % CMD}, out="")], "命令 1 つだけの形でない"),
-    ("呼ばない関数の本体", [call("Bash", {"command": "f() {\n%s\n}" % CMD}, out="")], "関数の定義"),
+    ("呼ばない関数の本体", [call("Bash", {"command": "f() {\n%s\n}" % CMD}, out="")], "function_def"),
     ("$(…) の中", [call("Bash", {"command": "x=$(%s)" % RUN}, out="")], "$(…)"),
     ("`…` の中", [call("Bash", {"command": "x=`%s`" % CMD}, out="")], None),
     ("shell への管", [call("Bash", {"command": "echo '%s' | bash" % CMD}, out=MARKED)], None),
@@ -448,15 +449,18 @@ def test_値の表の引く先の跡もBashは命令1つと在る印で見る(en
                                      sid="Lok")) == ""
 
 
-def test_tool_use_ran_は在る印だけで走ったと言う():
+def test_ran_of_は在る印だけで走ったと言う():
+    import prior_ask as PA
     u = use("Bash", {"command": CMD})
-    tid = u["message"]["content"][0]["id"]
-    assert G.tool_use_ran([u, result(tid, LOOKED)], tid) == (True, LOOKED, "")
-    assert G.tool_use_ran([u, result(tid, "Exit code 3\nx", True)], tid) == (True, "Exit code 3\nx", "Exit code 3")
-    for rows in ([u], [u, bare(tid, LOOKED)], [u, bare(tid, LOOKED, is_error=None)], [u, result(tid, MOVED)],
-                 [u, result(tid, DENIED, True)], [u, result(tid, "a"), result(tid, "b")], [result(tid, LOOKED)]):
-        ran, _, why = G.tool_use_ran(rows, tid)
+    blk = u["message"]["content"][0]
+    tid = blk["id"]
+    assert PA.ran_of([u, result(tid, LOOKED)], blk) == (True, LOOKED, "")
+    assert PA.ran_of([u, result(tid, "Exit code 3\nx", True)], blk) == (True, "Exit code 3\nx", "Exit code 3")
+    for rows in ([u], [u, bare(tid, LOOKED)], [u, bare(tid, LOOKED, is_error="true")], [u, result(tid, MOVED)],
+                 [u, result(tid, DENIED, True)], [u, result(tid, "a"), result(tid, "b")]):
+        ran, _, why = PA.ran_of(rows, blk)
         assert not ran and why, rows
     m = use(LOOKUP_TOOL, {"q": "会議"})
-    mid = m["message"]["content"][0]["id"]
-    assert G.tool_use_ran([m, bare(mid, LOOKED)], mid)[0], "Bash の外の道具は欄の無い返りを誤りでないと読む"
+    mblk = m["message"]["content"][0]
+    assert PA.ran_of([m, bare(mblk["id"], LOOKED)], mblk)[0], "Bash の外の道具は欄の無い返りを誤りでないと読む"
+    assert not PA.ran_of([m, result(mblk["id"], "作り物の誤り", True)], mblk)[0]
