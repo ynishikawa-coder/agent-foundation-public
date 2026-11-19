@@ -401,9 +401,11 @@ URL = re.compile(r"https?://\S+")
 QUOTED = re.compile(r"「[^」\n]*」|『[^』\n]*』|\"[^\"\n]*\"")
 
 # 時刻（核 §6）: 人に見せる時刻は日本時間。印は「日本時間」「JST」「+09:00」。
-CLOCK = re.compile(r"(?<![\d:])(\d{1,2})[:：](\d{2})(?:[:：]\d{2})?(?:\.\d+)?(?![\d])")
+CLOCK = re.compile(r"(?<![\d:])(\d{1,2})(?:[:：](\d{2})(?:[:：]\d{2})?(?:\.\d+)?(?![\d])|\s*時\s*(\d{1,2})\s*分)")
+#   「17:53」と「17時53分」の 2 つの書き方（字の形が違うだけで同じ時刻）。
 ZONE = re.compile(r"^\s*(Z(?![A-Za-z])|UTC|GMT|[+-]\d{2}:?\d{2}(?!\d))")
-JST_LINE = re.compile(r"日本時間|JST|\+09:?00")      # 同じ行に印があれば、その行の印の無い時刻は日本時間と読む
+JST_MARK = re.compile(r"日本時間|JST|\+09:?00")
+CLAUSE = re.compile(r"[^、。,，;；！？!?\n]+")   # 句。時刻を持つ句の印はその句の時刻だけに掛かる（別の句の時刻を日本時間と読まない）
 DATE_BEFORE = re.compile(r"(\d{4}[-/年]\d{1,2}[-/月]\d{1,2}日?|(?<![\d/])\d{1,2}/\d{1,2}|\d{1,2}月\d{1,2}日)"
                          r"\s*(?:[（(][月火水木金土日][)）])?\s*T?\s*$")
 
@@ -411,8 +413,11 @@ DATE_BEFORE = re.compile(r"(\d{4}[-/年]\d{1,2}[-/月]\d{1,2}日?|(?<![\d/])\d{1
 HEDGE = re.compile(r"ほぼ|大体|だいたい|たぶん|多分|おそらく|恐らく|はず(?![しすさせれ])|と思(?:う|い|われ)|かもしれ")
 FINISH = re.compile(r"終わ|済ん|済み|完了|直っ|直り|直せ|直した|でき|出来|通っ|通る|通り|緑|動い|動く|効い|効く|揃っ|片付")
 AHEAD = re.compile(r"次の|次回|来週|来月|明日|今後|あとで|後で|予定|見込み")   # 先の事の見込みは完了の言い切りでない
-PAST = re.compile(r"た\s*$|た[、,）)」]|ました|でした|済み|完了")   # 過去の言い切り（見込みの語が在っても数える）
+PAST = re.compile(r"た\s*$|た[）)」]|ました|でした|済み|完了")   # 過去の言い切り（見込みの語が在っても数える）
 SENTENCE = re.compile(r"[^。！？!?\n]+")
+#   照らす単位は 2 段: 見込みかどうか（AHEAD・PAST）は句（、で切る）ごとに見て見込みの句だけを外し、
+#   言い切らない語と終わりの語の重なりは残りの文で見る。「書き直した、次の版はたぶん来週できる。」の「た、」は
+#   見込みの句に掛からず、「直った、と思います。」のように 2 つの語が「、」をまたぐ言い切りは拾う。
 
 
 def reply_exempt(data=None):
@@ -445,27 +450,33 @@ def prose(text, exempt=()):
 
 
 def time_hits(body):
-    """日本時間でない時刻・日付つきで印の無い時刻の並び [(字, 訳)]。"""
+    """日本時間でない時刻・日付つきで印の無い時刻の並び [(字, 訳)]。日本時間の印は時刻と同じ句の中だけを見る。"""
     hits = []
     for ln in body.splitlines():
-        for m in CLOCK.finditer(ln):
-            if int(m.group(1)) > 23 or int(m.group(2)) > 59:
-                continue
-            after, before = ln[m.end():m.end() + 24], ln[max(0, m.start() - 24):m.start()]
-            z = ZONE.match(after)
-            if z and not re.match(r"^\s*\+09:?00", after):
-                hits.append((m.group(0) + z.group(1), "日本時間でない"))
-            elif not z and DATE_BEFORE.search(before) and not JST_LINE.search(ln):
-                hits.append(((DATE_BEFORE.search(before).group(1) + " " + m.group(0)).strip(), "日本時間の印が無い"))
+        clauses = list(CLAUSE.finditer(ln))
+        # 時刻を持たない句の印（「〜まで、日本時間で。」）は行の時刻全部に掛かる。時刻を持つ句の印はその句の時刻だけ。
+        loose = any(JST_MARK.search(c.group(0)) and not CLOCK.search(c.group(0)) for c in clauses)
+        for c in clauses:
+            cl = c.group(0)
+            for m in CLOCK.finditer(cl):
+                hh, mm = m.group(1), m.group(2) or m.group(3)
+                if int(hh) > 23 or int(mm) > 59:
+                    continue
+                after, before = ln[c.start() + m.end():c.start() + m.end() + 24], cl[max(0, m.start() - 24):m.start()]
+                z = ZONE.match(after)
+                if z and not re.match(r"^\s*\+09:?00", after):
+                    hits.append((m.group(0) + z.group(1), "日本時間でない"))
+                elif not z and DATE_BEFORE.search(before) and not (loose or JST_MARK.search(cl)):
+                    hits.append(((DATE_BEFORE.search(before).group(1) + " " + m.group(0)).strip(), "日本時間の印が無い"))
     return hits
 
 
 def hedge_hits(body):
-    """終わりの語と同じ文にある言い切らない語の並び（「」の中の言葉＝引いた言葉は数えない）。"""
+    """見込みの句を外した文に、終わりの語と並んで在る言い切らない語の並び（「」の中の言葉＝引いた言葉は数えない）。"""
     out = []
     for sent in SENTENCE.findall(QUOTED.sub(" ", body)):
-        h = HEDGE.search(sent)
-        if h and FINISH.search(sent) and not (AHEAD.search(sent) and not PAST.search(sent)):
+        kept = "、".join(c for c in CLAUSE.findall(sent) if not (AHEAD.search(c) and not PAST.search(c)))
+        if HEDGE.search(kept) and FINISH.search(kept):
             out.append(sent.strip()[:40])
     return out
 
@@ -494,6 +505,9 @@ def words(log, closing, data=None):
         except Exception as e:      # noqa: BLE001
             found.append(("neighbor", "%s の照らしが壊れて照らせない（%s: %s）" % (name, type(e).__name__, str(e)[:60])))
 
+    if neighbor("guard_common") is None:   # 値の表を空とみなして黙って進めない（外す形・足す形が効かないまま照らす）
+        found.append(("neighbor", "値の表の正本（plugin guard の guard_common）が見つからず、値の表の reply_exempt・"
+                                  "ask_term_allow・ask_inner_terms_extra を読めないまま照らした"))
     exempt, bad = reply_exempt(data)
     if bad:
         found.append(("neighbor", "値の表 session-watch.watch-log.reply_exempt に正規表現として読めない形がある（捨てて照らした）: %s"
@@ -513,9 +527,11 @@ def words(log, closing, data=None):
         if ai_window(log):
             return
         A, G = neighbor("ask_shape"), neighbor("guard_common")
-        if A is None or not hasattr(A, "inner_terms") or G is None:
-            found.append(("neighbor", "中の言葉の正本（plugin guard の ask_shape・guard_common）が見つからず、返事の言葉を照らせない"))
+        if A is None or not hasattr(A, "inner_terms"):
+            found.append(("neighbor", "中の言葉の正本（plugin guard の ask_shape）が見つからず、返事の言葉を照らせない"))
             return
+        if G is None:
+            return            # 値の表が読めない事は上で名指した（外す形の無いまま照らすと正しい返事を差し戻す）
         vals = G.values(data)
         bad = A.bad_patterns(vals) if hasattr(A, "bad_patterns") else []
         if bad:
@@ -592,7 +608,13 @@ def check(log, closing=None, data=None):
                     found.append(("title", "%s の窓が %s終わった で報告するのに、題の状態が %s でない" % (AI, DONE, DONE)))
                 elif not done and tm == DONE:
                     found.append(("title", "%s の窓が 終わった でない札（止まった・一部・待ち・問い）で締めるのに、題が %s" % (AI, DONE)))
-            if tm == WAITING and HAND_TITLE.match(split_title(title)[2]) and closing.strip():
+            # 手の窓（細目 §4）: 済んだ目印を確かめたら頼んだ窓へ返して閉じる。✅ で締めるのに、このターンに頼んだ窓へ
+            #   返した跡（send_message）が無ければ、済んだ手の窓が頼んだ窓に済んだと分からないまま残る。
+            hand_done = bool(DONE_LINE.match(first)) and bool(HAND_TITLE.match(split_title(title)[2]))
+            if hand_done and not any(k == "move" and str(v).endswith("send_message") for k, v in log.turn):
+                found.append(("title", "手の窓が %s終わった で締めるのに、頼んだ窓へ済んだ目印を返した跡（send_message）が"
+                                       "このターンに無い（返してから締め、自分を閉じる）" % DONE))
+            if tm == WAITING and HAND_TITLE.match(split_title(title)[2]) and closing.strip() and not hand_done:
                 lack = [p for p in HAND_PARTS if p not in closing]
                 if lack:
                     found.append(("hand", "手の窓の返事に %s が無い（目的・手順〔貼る文は全部〕・済んだ目印・済んだ後を書く）"
