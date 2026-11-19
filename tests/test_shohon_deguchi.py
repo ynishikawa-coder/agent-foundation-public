@@ -144,7 +144,7 @@ def test_番号の形は_1_か所にあり_ask_shape_と_check_mjs_が直に読�
         assert x["正規表現"] not in (SCRIPTS / "ask_shape.py").read_text(encoding="utf-8")
 
 
-@pytest.mark.parametrize("text", ["Q-12 の答えで決める", "#616 の続き", "Q2026.11-3 と同じ"])
+@pytest.mark.parametrize("text", ["Q-12 の答えで決める", "Q12 の続き", "Q2026.11-3 と同じ"])
 def test_同じ番号は選択肢の画面でも確認ページでも止まる(text, tmp_path):
     ask = load("ask_shape_t", SCRIPTS / "ask_shape.py")
     assert any(n == "番号" for n, _ in ask._inner_hits(text, {}))
@@ -158,11 +158,18 @@ def test_同じ番号は選択肢の画面でも確認ページでも止まる(t
     assert "番号「" in res.stdout, res.stdout[-400:]
 
 
-def test_資料のセルの番地は確認ページで止めない(tmp_path):
+@pytest.mark.parametrize("text", ["Q1 の売上の目標", "第 Q4 の数字"])
+def test_四半期の言葉は選択肢の画面で番号と見ない(text):
+    ask = load("ask_shape_t", SCRIPTS / "ask_shape.py")
+    assert not any(n == "番号" for n, _ in ask._inner_hits(text, {}))
+
+
+@pytest.mark.parametrize("lead", ["作り物の表の AB120 の欄を見ました。", "作り物の注文番号 #1024 の行を見ました。"])
+def test_資料のセルの番地と資料の番号は確認ページで止めない(tmp_path, lead):
     if shutil.which("node") is None:
         pytest.skip("node が無い")
     page = json.loads((ROOT / "tests" / "docs_kit" / "good.json").read_text(encoding="utf-8"))
-    page["lead"] = (page.get("lead") or "") + "作り物の表の AB120 の欄を見ました。"
+    page["lead"] = (page.get("lead") or "") + lead
     f = tmp_path / "p.json"
     f.write_text(json.dumps(page, ensure_ascii=False), encoding="utf-8")
     res = subprocess.run(["node", str(CHECK_MJS), str(f), "--json"], capture_output=True, text=True)
@@ -224,6 +231,7 @@ def test_outbound_番号だけの頼みは欄の名と_gh_curl_で拾う(env, pa
     tool("SendMessage", to="w", message="E02 は済み"),
     tool("Bash", command="gh pr comment 3 --body '#7 は直した'"),
     tool("Bash", command="git status"),
+    tool("Bash", command="gh pr checkout 72 -b E02"),
 ])
 def test_outbound_済んだ知らせと頼みでない命令は通す(env, payload):
     assert not denied(env, payload)
@@ -248,6 +256,35 @@ def test_outbound_鍵の正本が読めない時は外への出口だけ止め�
 ])
 def test_paid_upstream_試験を回して_log_を書くだけの命令は止めない(env, cmd):
     assert not denied(env, bash(cmd))
+
+
+@pytest.mark.parametrize("cmd", [
+    "echo \"import os; k=os.environ['" + "OPENAI" + "_API_KEY']\" > tests/test_x.py",
+    "echo \"a | " + "OPENAI" + "_API_KEY\" > tests/test_x.py",
+    "echo " + "OPENAI" + "_API_KEY 2>&1 | tee tests/test_y.py",
+    "echo \"" + "OPENAI" + "_API_KEY > tests/test_z.py",          # 引用符が閉じない＝切らずに見る
+])
+def test_paid_upstream_引用符と_redirect_の中の区切りで中身を見落とさない(env, cmd):
+    assert "有料の上流" in deny_reason(env, bash(cmd))
+
+
+def test_outbound_番号の形の正本が欠けても鍵の照らしは外れない(env, tmp_path):
+    plug = tmp_path / "plug" / "guard"
+    shutil.copytree(ROOT / "plugins" / "guard", plug, symlinks=False, ignore=shutil.ignore_patterns("__pycache__"))
+    (plug / "lib" / "number_shapes.json").unlink()
+    e = dict(env, AF_PUBLIC_GUARD=str(ROOT / "public-guard" / "guard.py"))
+    res = subprocess.run([sys.executable, str(plug / "scripts" / "guard.py"), "pre"], capture_output=True, text=True,
+                         input=json.dumps(tool("mcp__github__add_issue_comment", body="鍵 " + KEY)), env=e)
+    assert "鍵・認証情報の形" in res.stdout
+
+
+def test_印の読み方は_intermixed_でも_2_度書きを止める():
+    sa = load("af_strict_args_t", SHARED / "strict_args.py")
+    ap = sa.ArgumentParser(prog="x")
+    ap.add_argument("--a")
+    ap.add_argument("rest", nargs="*")
+    with pytest.raises(SystemExit):
+        ap.parse_intermixed_args(["--a", "1", "x", "--a", "2"])
 
 
 def test_paid_upstream_試験へ書く中身に印があれば止める(env):

@@ -36,7 +36,6 @@ import os
 import re
 import shlex
 
-import ask_shape
 import guard_common as G
 
 HOOKS = {"pre": "check"}
@@ -48,6 +47,7 @@ CURL_FIELDS = ("text", "message", "body", "content")
 # 外へ送る Bash の命令（鍵の形の正本が読めない時に止める物）
 OUT_BASH = re.compile(r"(?:^|[\s;&|(`])(?:gh|curl|wget|ssh|scp|rsync|nc|ncat|http|https|xh)\s|\bgit\s+push\b")
 GH_TEXT = re.compile(r"^(?:pr|issue)$")
+GH_WRITE = ("create", "comment", "edit", "review")
 # 済んだ事を知らせる文の終わり（頼みでない）
 REPORT_END = re.compile(r"(?:した|った|んだ|いた|いだ|えた|れた|せた|てた|ました|でした|済み|済んだ|終わった|完了|合流済|done|merged|closed)"
                         r"\s*[)）」』]*\s*$", re.I)
@@ -159,7 +159,7 @@ def bash_out(cmd, data):
     out = []
     for seg in _segments(_words(cmd)):
         prog = os.path.basename(seg[0]) if seg else ""
-        if prog == "gh" and len(seg) > 2 and GH_TEXT.match(seg[1]):
+        if prog == "gh" and len(seg) > 2 and GH_TEXT.match(seg[1]) and seg[2] in GH_WRITE:
             for v in _opt_values(seg, ("--title", "-t", "--body", "-b")):
                 out.append(("gh %s %s の文" % (seg[1], seg[2]), v, True))
             for f in _opt_values(seg, ("--body-file", "-F")):
@@ -281,6 +281,7 @@ def check_secret(data, vals):
 # ── number ──
 def number_only(text, vals):
     """番号だけで中身の名の無い文の並び。"""
+    import ask_shape     # ここで読む: 番号の形の正本が欠けて落ちても、鍵の照らしは道連れにしない
     exempt = [p for p in (vals.get("number_request_exempt") or []) if isinstance(p, str) and p]
     v2 = dict(vals)
     v2["ask_topic_stopwords_extra"] = list(vals.get("ask_topic_stopwords_extra") or []) + sorted(REQUEST_WORDS)

@@ -36,8 +36,17 @@ class ArgumentParser(argparse.ArgumentParser):
         self.register("action", "store", _Once)
 
     def parse_known_args(self, args=None, namespace=None):
-        self._af_seen = {}
+        return self._watched(super().parse_known_args, args, namespace)
+
+    def parse_known_intermixed_args(self, args=None, namespace=None):
+        return self._watched(super().parse_known_intermixed_args, args, namespace)
+
+    def _watched(self, parse, args, namespace):
+        outer = getattr(self, "_af_seen", None) is not None     # intermixed は中で parse_known_args を呼ぶ＝見張りを続ける
+        if not outer:
+            self._af_seen = {}
         try:
-            return super().parse_known_args(args, namespace)
+            return parse(args, namespace)
         finally:
-            self._af_seen = None
+            if not outer:
+                self._af_seen = None

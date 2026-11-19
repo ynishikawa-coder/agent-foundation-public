@@ -80,9 +80,45 @@ _INPLACE = re.compile(r"\b(?:sed|perl)\s+[^;&|]*?-i\S*[^;&|]*?\s([^\s;&|<>()]+)\
 
 
 _HEREDOC = re.compile(r"<<-?\s*(['\"]?)([A-Za-z_][A-Za-z0-9_]*)\1")
-_SEP = re.compile(r"(\|\||&&|;|\||&(?!>))")
 _ASSIGN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
 _PRINTERS = ("echo", "printf")
+
+
+def _split(line):
+    """1 行を段と区切り（; && || | &）に分ける。引用符の中と、redirect の & （2>&1・&>・>&）では切らない。
+    引用符が閉じていない行は切らずに 1 段にする（読めない所で中身を見落とさない）。"""
+    parts, cur, q, i = [], "", "", 0
+    while i < len(line):
+        c = line[i]
+        if q:
+            if c == "\\" and q == '"' and i + 1 < len(line):
+                cur += line[i:i + 2]
+                i += 2
+                continue
+            if c == q:
+                q = ""
+            cur += c
+        elif c in "'\"":
+            q = c
+            cur += c
+        elif c == "\\" and i + 1 < len(line):
+            cur += line[i:i + 2]
+            i += 2
+            continue
+        elif line.startswith(("&&", "||"), i):
+            parts += [cur, line[i:i + 2]]
+            cur = ""
+            i += 2
+            continue
+        elif c in ";|" or (c == "&" and not (cur.endswith(">") or line.startswith("&>", i))):
+            parts += [cur, c]
+            cur = ""
+        else:
+            cur += c
+        i += 1
+    if q:
+        return [line]
+    return parts + [cur]
 
 
 def _segments(cmd):
@@ -101,7 +137,7 @@ def _segments(cmd):
                 i += 1
             i += 1
             bodies.append("\n".join(body))
-        parts = _SEP.split(line)
+        parts = _split(line)
         prev = ""
         for j in range(0, len(parts), 2):
             seg = parts[j]
