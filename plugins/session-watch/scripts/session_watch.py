@@ -28,7 +28,9 @@
   手の窓（作業名が `手:` で始まる窓）は返し先によらず 🙋 ／ それ以外は最初の頼みの文に書かれた返し先で
   `返し先=オーナー` → 🙋 ／ `返し先=session_…` → 🤖 ／ `（親窓 session_… の子）` → 🤖 ／ 書いていない → 決めない。
   別の窓を指す返し先は手で書いた写しなので、頼みの行の記録（origin.kind が人でない・promptSource が system＝
-  別の窓や仕組みから来た頼み。行がまだ無い最初の知らせでは窓の環境の CLAUDE_CODE_CHILD_SESSION）と合う時だけ数える。
+  別の窓や仕組みから来た頼み）と合う時だけ数える。行がまだ無い最初の知らせでは記録を読めないので決めず、サーバの記録
+  （get_session の parent_session_id）を AI に読ませる。窓の環境の CLAUDE_CODE_CHILD_SESSION は Claude Code が hook・Bash の
+  子プロセス全部に付ける印（公式の文書 env-vars）＝どの窓でも 1 なので見分けに使わない。
   記録の読み方と人の印の表の正本は隣の plugin guard の guard_common.seeded_by_record（写さない）。オーナーが引き継ぎの文を貼った窓は 🤖 にしない。
 
 使い方:
@@ -207,12 +209,12 @@ def text_of(row):
     return ""
 
 
-def seeded_by_record(row, env=None):
-    """子の窓の見分けの記録（頼みの行の origin・行が無い時は窓の環境の印）。正本は隣の plugin guard の
+def seeded_by_record(row):
+    """子の窓の見分けの記録（頼みの行の origin）。正本は隣の plugin guard の
     guard_common.seeded_by_record（人の印の表もそこ 1 か所＝写さない）。隣が無い時は False（文だけで子の窓と決めない。
     返事の差し戻しが neighbor の札で名指す）。"""
     G = neighbor("guard_common")
-    return bool(G.seeded_by_record(row, env)) if G is not None else False
+    return bool(G.seeded_by_record(row)) if G is not None else False
 
 
 def is_owner_text(row):
@@ -333,7 +335,7 @@ def _norm(text):
 # 窓の種類の決まりの文（skill title-mark はこの文をそのまま載せ、細目 §4 は skill を指す＝試験が照らす）。決め方は window_kind。
 KIND_RULE = ("種類の決め方は 2 段: まず手の窓（作業名が `手:` で始まる窓）は返し先によらず `🙋`（相手はオーナー）。"
              "それ以外は窓の最初の頼みの文に書いた返し先だけで決める: `返し先=オーナー` → `🙋`／"
-             "`返し先=session_…` か `（親窓 session_… の子）` → `🤖`（別の窓を指す返し先は手で書いた写しなので、頼みの行の記録（行がまだ無い最初の知らせでは窓の環境の印）が人の打った物でない時＝別の窓や仕組みから来た頼みの時だけ数える。オーナーが引き継ぎの文を貼った窓は `🤖` にしない）／どれも無い → 窓が自分で決める（点検は種類の食い違いを拾わない）。")
+             "`返し先=session_…` か `（親窓 session_… の子）` → `🤖`（別の窓を指す返し先は手で書いた写しなので、頼みの行の記録が人の打った物でない時（行がまだ無い最初の知らせでは get_session の `parent_session_id`＝別の窓が立てた記録が在る時）＝別の窓や仕組みから来た頼みの時だけ数える。オーナーが引き継ぎの文を貼った窓は `🤖` にしない）／どれも無い → 窓が自分で決める（点検は種類の食い違いを拾わない）。")
 
 
 def kind_of(first_prompt, seeded=False):
@@ -741,6 +743,12 @@ REMIND = (
     "session_id を省いて読む）。種類: %s。形の細目は skill `session-watch:title-mark`。")
 
 
+REMIND_PARENT = ("[session-watch] 最初の頼みの文の返し先が別の窓を指すが、頼みの行の記録をまだ読めない（文は人が貼った写しかもしれない）。"
+                 "最初の返事の前に `get_session` を session_id を省いて読み、`parent_session_id` が在れば（別の窓が立てた記録）🤖 の窓"
+                 "として、親が付けた今の題を `set_session_title` で付け直す（親が付けた題は会話ログに載らず、返事の差し戻しが照らせない）。"
+                 "`parent_session_id` が無ければ人が立てた窓なので 🙋 で題を付ける。形の細目は skill `session-watch:title-mark`。")
+
+
 REMIND_CHILD = ("[session-watch] 親が付けた題は会話ログに載らず、返事の差し戻し（Stop）が照らせない。最初の返事の前に "
                 "`get_session` を session_id を省いて読み、今の題を `set_session_title` で付け直す（形が合っていれば同じ題でよい）。")
 
@@ -787,15 +795,22 @@ def remind(data, env=None):
         return None
     path = data.get("transcript_path") or ""
     log = Log(read_rows(path)) if path and os.path.exists(path) else Log([])
-    out = [t for t in (remind_title(log, data, env), remind_hand(log)) if t]
+    out = [t for t in (remind_title(log, data), remind_hand(log)) if t]
     return "\n".join(out) if out else None
 
 
-def remind_title(log, data, env=None):
+def remind_title(log, data):
     if titled(log):
         return None
-    kind = (window_kind(log.first_prompt, None, log.first_seeded) if log.first_prompt
-            else window_kind(str(data.get("prompt") or ""), None, seeded_by_record(None, env)))
+    if log.first_prompt:
+        kind = window_kind(log.first_prompt, None, log.first_seeded)
+    else:
+        # 頼みの行がまだ無い（最初の頼みを受けた hook）: 記録を読めないので文だけで子の窓と決めない（人の窓の側へ倒す）。
+        # 文が別の窓を指す時だけ、サーバの記録（parent_session_id）で決めさせる。窓の環境の印は読まない（どの窓でも 1）。
+        prompt = str(data.get("prompt") or "")
+        kind = window_kind(prompt, None, False)
+        if kind is None and kind_of(prompt, True) == AI:
+            return REMIND_PARENT
     if kind == AI:
         return REMIND_CHILD   # 親が create_session で付けた題は会話ログに無い＝返事の差し戻しで照らせないので、付け直させる
     which = ("%s（最初の頼みの返し先から）" % kind) if kind else (

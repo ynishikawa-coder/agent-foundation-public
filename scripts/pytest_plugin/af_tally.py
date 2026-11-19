@@ -7,6 +7,8 @@
 - 入口 scripts/pytest.sh が必ずこの plugin を読む（-p af_tally）。AF_PYTEST_TALLY=<file> の時、試験ごとの結果
   （passed / failed / skipped / xfailed / xpassed / error）・飛ばした理由・待つ path（tests/waits.py の wait_for が
   例外に持たせた値。理由の文は読まない）・外した試験と印・集めたのに回らなかった試験を JSON に書く。
+- 集めた試験の全部（collect の報告）を正本にし、回った・外したと名乗った物の和と照らす。外しの hook を通らずに
+  items から黙って抜いた試験も赤にする。
 - `python3 af_tally.py judge <file>` が JSON だけを読んで数え、緑に数えない物を名指す。JSON が無い・壊れた・
   終わりまで書かれていない時は exit 2（数える段が止まった＝check_all は赤）。
 """
@@ -32,6 +34,7 @@ class _Tally:
         self.collect_skips = []  # module の段の飛ばし（中の本数は分からないので module ごとに 1 つ）
         self.deselected = []
         self.items = []
+        self.collected = []      # 集めた試験の全部（collect の報告の result が正本。外しの hook を通ったかに頼らない）
 
     def set(self, nodeid, outcome, reason="", wait=None):
         cur = self.results.get(nodeid)
@@ -65,6 +68,7 @@ class _Tally:
             self.set(report.nodeid, "passed")
 
     def pytest_collectreport(self, report):
+        self.collected += [x.nodeid for x in (report.result or []) if isinstance(x, pytest.Item)]
         if report.skipped:
             self.collect_skips.append({"nodeid": report.nodeid, "outcome": "skipped", "reason": _reason(report),
                                        "wait": None})
@@ -78,7 +82,10 @@ class _Tally:
 
     def pytest_sessionfinish(self, session, exitstatus):
         unrun = [n for n in self.items if n not in self.results]
-        data = {"finished": True, "exitstatus": int(exitstatus), "collected": len(self.items),
+        kept = set(self.items) | {d["nodeid"] for d in self.deselected}
+        dropped = [n for n in dict.fromkeys(self.collected) if n not in kept]
+        data = {"finished": True, "exitstatus": int(exitstatus), "collected": len(set(self.collected)),
+                "dropped": dropped,
                 "results": [dict(nodeid=k, **v) for k, v in self.results.items()] + self.collect_skips,
                 "deselected": self.deselected, "unrun": unrun}
         tmp = self.path + ".tmp"
@@ -144,6 +151,8 @@ def judge(data, root, ci, only_passed=False):
             bad.append(f"{d['nodeid']}: CI の外で印 {REAL_CLAUDE} の試験を外した")
         else:
             n["deselected_real_claude"] += 1
+    for d in data["dropped"]:
+        bad.append(f"{d}: 集めたのに外しの印も無く黙って外した（conftest などが items から抜いた）")
     for u in data["unrun"]:
         bad.append(f"{u}: 集めたのに回らないまま終わった（pytest.exit などで止めた）")
     if n["passed"] == 0:

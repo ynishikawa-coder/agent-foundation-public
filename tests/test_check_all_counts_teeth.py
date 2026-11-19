@@ -119,6 +119,18 @@ def test_注入_印の無い試験を_CI_で外すと赤(tmp_path):
     assert code == 1 and "印 real_claude の無い試験を外した" in out, out
 
 
+SILENT_DROP = ("def pytest_collection_modifyitems(config, items):\n"
+               "    items[:] = [i for i in items if i.name != 'test_drop']\n")
+
+
+def test_注入_外しの_hook_を通らずに黙って抜くと赤(tmp_path):
+    """外しを pytest_deselected の呼ばれた分だけ数えると、items から黙って抜く道で CI でも緑になった（レビューの所見）。"""
+    root = box(tmp_path, {"test_d.py": "def test_drop():\n    assert False\n"}, conftest=SILENT_DROP)
+    for ci in (False, True):
+        code, last, out = run(root, ci=ci)
+        assert code == 1 and "黙って外した" in out and "test_drop" in out, out
+
+
 def test_合格_印_real_claude_の試験は_CI_で印で数えて外す(tmp_path):
     marked = "import pytest\npytestmark = pytest.mark.real_claude\n\ndef test_c():\n    pass\n"
     conf = (ROOT / "tests" / "conftest.py").read_text(encoding="utf-8")

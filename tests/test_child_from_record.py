@@ -57,5 +57,6 @@ def test_注入_人が貼った引き継ぎの文では子窓の知らせにし�
     log.write_text(json.dumps(row, ensure_ascii=False) + "\n", encoding="utf-8")
     text = sw.remind({"prompt": row["message"]["content"], "transcript_path": str(log)}, CLOUD)
     assert text and "付け直す" not in text
-    assert sw.remind({"prompt": row["message"]["content"]}, CLOUD) and "付け直す" not in sw.remind(
-        {"prompt": row["message"]["content"]}, CLOUD)
+    # 行がまだ無い最初の知らせ: 文だけで子の窓と言い切らず、サーバの記録（parent_session_id）で決めさせる
+    first = sw.remind({"prompt": row["message"]["content"]}, CLOUD)
+    assert first and sw.REMIND_CHILD not in first and "parent_session_id" in first, first

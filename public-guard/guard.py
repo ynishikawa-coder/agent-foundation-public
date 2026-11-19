@@ -20,9 +20,12 @@
         python3 guard.py --text <場所の名>=<file> [--text …] [--deny-words-file F]
   --text は、GitHub へ出す前の文（PR の題・本文・コメント）だけを同じ表で照らす（中身・歴史は見ない）。
   守りの hook（plugin guard の pr_text）が出す前に呼ぶ。手元で顧客の語が無い時は顧客の語だけ飛ばす（CI でも止めない）。
-  --range の既定: CI では event（PR は base..head・push は before..after）、手元では origin/main..HEAD。
+  --range の既定: CI では event（PR は base..head・push は before..after）、手元では <出所の今の main>..HEAD。
+  出所の今の main は scripts/pr_shape.py の fresh_main（出所へ先端を聞き、手元の origin/main が違えば取り直す）。
+  fetch していない手元の origin/main は古いことがあり、main で入った commit を枝の物として照らすので比べる元にしない。
+  聞けない・揃わない時は照らさずに止める（exit 2）。
   ALL は全ての commit（公開の前に歴史ごと照らす時）。
-exit: 0=当たり 0 / 1=当たりあり・CI に顧客の語が無い / 2=使い方・束の形が違う /
+exit: 0=当たり 0 / 1=当たりあり・CI に顧客の語が無い / 2=使い方・束の形が違う・比べる元の main が取れない /
       3=照らしていない（手元で顧客の語が無く、その照合を飛ばした。ほかの当たりは 0。--text の口は 0 のまま）
 """
 from __future__ import annotations
@@ -264,7 +267,7 @@ class Guard:
             before, after = event.get("before") or "", event["after"]
             # 新しい枝（before が 0 の並び）は先端の 1 つだけを見る
             return ["-1", after] if (not before or set(before) == {"0"}) else [f"{before}..{after}"]
-        return ["origin/main..HEAD"]
+        return [f"{fresh_main(self.repo)}..HEAD"]
 
     def check_history(self, revs: list[str]) -> list[str]:
         """各 commit で足された行（ファイルの名と行）。merge の commit も各親との差で見る（-m）。
@@ -310,6 +313,25 @@ class Guard:
             hits += self.text_hits(f"commit {sha} の名義", f"{an}\n{cn}")
             hits += self.text_hits(f"commit {sha} の説明", body)
         return hits
+
+
+class NoBase(Exception):
+    """手元の既定の範囲の元（出所の今の main）が取れない。古いかもしれない手元の origin/main で黙って比べない。"""
+
+
+def fresh_main(repo: Path) -> str:
+    """出所の今の main の commit。正本は scripts/pr_shape.py の fresh_main（同じ checkout の物を直に読む・写さない）。"""
+    src = Path(__file__).resolve().parent.parent / "scripts" / "pr_shape.py"
+    if not src.is_file():
+        raise NoBase(f"比べる元を決める道具 {src} が無い（土台の checkout 一式から回す）")
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("af_pr_shape", src)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    try:
+        return mod.fresh_main(repo)
+    except OSError as e:
+        raise NoBase(str(e)) from None
 
 
 UNREADABLE_PATH = "名を読めないファイル"
@@ -425,6 +447,9 @@ def main(argv=None) -> int:
         print("（手元: 顧客の語が環境に無いので、顧客の語の照合だけ飛ばす）")
     try:
         hits = run(repo, a.rev_range, a.deny_words_file, a.pattern_skip, files_only=a.files_only)
+    except NoBase as e:
+        print(f"✗ 照らせない: 手元の範囲の元（出所の今の main）が取れない — {e}（--range で範囲を渡すこともできる）")
+        return 2
     except subprocess.CalledProcessError as e:
         print(f"✗ git が照らす範囲を読めない（force push の後で前の commit が無い・取り出しが浅い等）: {' '.join(e.cmd[1:4])}")
         if not in_ci():  # 手元の窓は枝だけ・浅い clone が多い。取り方を言う（照らす範囲は main からの差）

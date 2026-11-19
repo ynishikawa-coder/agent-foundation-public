@@ -455,11 +455,12 @@ def test_照らす範囲が読めない時は理由を出して赤(tmp_path):
 
 
 def test_手元で照らす範囲が読めない時は_main_の取り方を言う(tmp_path):
-    """注入: main の無い手元の clone で回す → 赤のまま、取り方の 1 行を出す（CI では出さない＝CI の取り出しは ci.yml が決める）。"""
+    """注入: 出所（origin）の無い手元の clone で回す → 緑にせず「照らせない」で止める（手元の範囲の元は出所の今の main で、
+    聞けない時に手元の物で黙って比べない）。CI では取り方の 1 行を出さない（CI の取り出しは ci.yml が決める）。"""
     repo = _repo(tmp_path)
     env = {k: v for k, v in os.environ.items() if k not in ENV_KEYS}
     r = subprocess.run([sys.executable, str(GUARD), "--repo", str(repo)], capture_output=True, text=True, env=env, timeout=60)
-    assert r.returncode == 1 and "照らす範囲を読めない" in r.stdout and "git fetch origin main" in r.stdout
+    assert r.returncode == 2 and "照らせない" in r.stdout and "出所の今の main" in r.stdout, r.stdout
     r = subprocess.run([sys.executable, str(GUARD), "--repo", str(repo)], capture_output=True, text=True,
                        env={**env, "GITHUB_ACTIONS": "true"}, timeout=60)
     assert "git fetch origin main" not in r.stdout
