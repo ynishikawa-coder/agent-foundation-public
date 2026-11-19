@@ -19,6 +19,7 @@ TEST = "tests/test_setup_stale_catalog_source.py"
 TEXT = "tests/test_setup_stale_catalog_source_text.py"
 DOC = "docs/核の届け方.md"
 NOW = '(s.get("repo") or s.get("url"))!=a[2]'
+REMOVE = "2>/dev/null && claude plugin marketplace remove agent-foundation >/dev/null 2>&1 || true"
 
 BROKEN = {
     # 字だけ壊す: 動きは今のまま、外すかの決め方に使わない json.dumps を足す
@@ -27,6 +28,11 @@ BROKEN = {
     "動きだけ": (lambda t: t.replace(NOW, 'a[2] not in str(s)'), {"動き"}),
     # 文書を丸ごと前の形へ戻す: 字も動きも赤
     "丸ごと前の形": (lambda t: t.replace(NOW, 'a[2] not in json.dumps(s)'), {"字", "動き"}),
+    # 外す行の書き方だけ変える（動きは同じ）: どの照らしも赤にしない（試験の替え方が行の字に頼らない）
+    "外す行の書き方だけ": (lambda t: t.replace(REMOVE, REMOVE.replace(
+        "claude plugin marketplace remove agent-foundation", "{ claude plugin marketplace remove agent-foundation; }")), set()),
+    # python の書き損じ（SyntaxError は Traceback の見出しを出さない）: 動きが赤
+    "python の書き損じ": (lambda t: t.replace(NOW, NOW + ")"), {"動き"}),
 }
 
 
@@ -58,6 +64,7 @@ def test_合格_今の文書では字も動きも緑(tmp_path):
 def test_注入_片方ずつ壊すとその照らしだけが赤(tmp_path, name):
     broken, want = BROKEN[name]
     text = (ROOT / DOC).read_text(encoding="utf-8")
-    assert NOW in text, "文書の外す行の形が変わった（壊し方を合わせる）"
+    assert NOW in text and REMOVE in text, "文書の外す行の形が変わった（壊し方を合わせる）"
+    assert broken(text) != text, f"{name}: 壊し方が文書に当たらない"
     ran, red, out = run_box(tmp_path, broken(text))
     assert ran >= 5 and red == want, f"{name}: 赤になった照らし {red}（求める {want}）\n{out}"

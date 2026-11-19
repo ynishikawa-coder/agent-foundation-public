@@ -5,7 +5,7 @@ pytest は repo の pytest.ini・pyproject.toml・tox.ini・setup.cfg の addopt
 addopts に `--co`（集めるだけ）を置くと 1 本も回らず exit 0 で「緑」、`--deselect`・`--ignore`・`-k` は黙って減らす。
 conftest_teeth の --noconftest は conftest だけを外すので、この道は照らしの外だった。
 今の形: 試験はどこからも 1 つの入口 scripts/pytest.sh で回し、入口が設定の file と PYTEST_ADDOPTS を読まない
-（`-c /dev/null`）。設定で減らす道そのものが無い。
+（`-c /dev/null`）。tests/ の外の conftest・PYTEST_PLUGINS・plugin の自動の読み込みも読まない。設定で減らす道そのものが無い。
 """
 import os
 import re
@@ -42,7 +42,7 @@ def box(tmp_path, config=None):
 
 
 def check_all(root, **env):
-    e = {k: v for k, v in os.environ.items() if k != "PYTEST_ADDOPTS"}
+    e = {k: v for k, v in os.environ.items() if k not in ("PYTEST_ADDOPTS", "PYTEST_PLUGINS")}
     e.update(env)
     r = subprocess.run(["bash", "scripts/check_all.sh"], cwd=root, capture_output=True, text=True, env=e, timeout=120)
     return r.returncode, r.stdout + r.stderr
@@ -63,6 +63,23 @@ def test_注入_設定の_file_の_addopts_で回さない形は効かず赤の�
                                   "--ignore=tests/test_box.py"])
 def test_注入_PYTEST_ADDOPTS_で減らす形は効かず赤のまま(tmp_path, opts):
     code, out = check_all(box(tmp_path), PYTEST_ADDOPTS=opts)
+    assert code != 0 and "1 failed, 1 passed" in out, out
+
+
+NARROW = "def pytest_collection_modifyitems(config, items):\n    items[:] = [i for i in items if '通る' in i.name]\n"
+
+
+def test_注入_tests_の外の_conftest_で絞る形は効かず赤のまま(tmp_path):
+    root = box(tmp_path)
+    (root / "conftest.py").write_text(NARROW, encoding="utf-8")
+    code, out = check_all(root)
+    assert code != 0 and "1 failed, 1 passed" in out, out
+
+
+def test_注入_PYTEST_PLUGINS_で絞る形は効かず赤のまま(tmp_path):
+    root = box(tmp_path)
+    (root / "narrow_plugin.py").write_text(NARROW, encoding="utf-8")
+    code, out = check_all(root, PYTEST_PLUGINS="narrow_plugin", PYTHONPATH=str(root))
     assert code != 0 and "1 failed, 1 passed" in out, out
 
 
