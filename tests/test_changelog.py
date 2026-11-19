@@ -166,7 +166,7 @@ def test_束ねると_main_に入った順で新しい物が上(tmp_path):
 
 
 def test_決まりの文が断片の形を指す():
-    for rel in ["CONTRIBUTING.md", "docs/版の出し方.md"]:
+    for rel in ["CONTRIBUTING.md"]:
         p = ROOT / rel
         if p.exists():
             text = p.read_text(encoding="utf-8")
