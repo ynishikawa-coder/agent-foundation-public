@@ -1,6 +1,6 @@
 ---
 name: verify
-description: 主張を真実源で 1 度確かめる。着手前は受けた self-report（引き継ぎ・完了報告・memory）と自分の「止まった/未着手」断定・「原因は X」の因果診断を、終わる前はゴールの完了を Completion Report（4 状態）で確かめる。コードの完了は PR の CI 緑＋別窓レビューが決める＝ここはコードの外（外の文書・本番 URL・表示層）。「確認して」「抜け漏れない？」「嘘ない？」「本当に完了？」で起動。合言葉:「抜け漏れない?」「原因を調べて」「なぜこうなった」「diagnose」「調べて直して」「原因究明」「何が原因?」「本当に完了?」。
+description: 主張を真実源で 1 度確かめる。着手前は受けた self-report（引き継ぎ・完了報告・memory）と自分の「止まった/未着手」断定・「原因は X」の因果診断を、終わる前はゴールの完了を Completion Report（4 状態）で確かめる。コードの完了と main へ入れる条件は核 §7（別窓レビュー green・試験が緑・実物を合意済みの全体の絵と照らす）が決める＝ここはコードの外（外の文書・本番 URL・表示層）。「確認して」「抜け漏れない？」「嘘ない？」「本当に完了？」で起動。合言葉:「抜け漏れない?」「原因を調べて」「なぜこうなった」「diagnose」「調べて直して」「原因究明」「何が原因?」「本当に完了?」。
 ---
 
 # /verify — 確かめてから言う
@@ -16,7 +16,7 @@ repo ごとに違う値は、repo の根（`git rev-parse --show-toplevel`）の
 | `completion_sop` | 上位の完了判定の正本 | 無し |
 | `report_writer` | Completion Report を書く役（書かない窓） | この窓が書く |
 | `report_place` | Completion Report の置き場の決まり | 会話の返事の中 |
-| `learning_record` | Stopped / Failed の学びの書き先 | 無し（返事の中に 1 行） |
+| `learning_record` | Stopped / Failed の学びの書き先 | 各社の CLAUDE.md が名指す原因の台帳の行 |
 
 ## 範囲（クラウドが主）
 
@@ -59,6 +59,7 @@ repo ごとに違う値は、repo の根（`git rev-parse --show-toplevel`）の
 3. **設計と実物の差分を必ず書く**（無ければ「差分なし」と項目名つきで）。差分は「[改修] <案件>: 設計は X → 実物は Y（<設計書 path/版>）」の 1 行で原因の台帳の行にする。
 4. **確かめは申告でなく記録で見る**（核 §7・細目 §7）: Verification Results の各行に、真実源（§1 の表）を読んだ記録（試験の結果・正しい道の証明・取り直した出力・本番 URL の HTTP 実測）の所在を書く。記録の無い行（「確認した」「OK だった」の申告だけ）は Unverified Items へ回す。UI を変えたゴールは主要導線の実ブラウザ完走・console/network の重大エラー 0・空/エラー/読み込み中の状態・SP=375 を含む画面幅を足す（Playwright か Claude-in-Chrome）。
 5. MCP も直接の手段も無い時は人が運ぶ（逐語のコピペか原画像が記録。人の「確認 OK」の要約は申告）。
+6. **根治の仕事は原因の台帳を引いて決める**（細目 §7「根治の終わり」）: その仕事の行が全部 `直した` か `直さない` の時だけ Completed。`直す窓` の行が残れば Partially（残りの行と直す窓の URL を書く）。引いた結果（行の数と行き先ごとの数）を Verification Results の記録に付ける。
 
 ```markdown
 # Goal Completion Report — <タスク名>
@@ -71,7 +72,7 @@ repo ごとに違う値は、repo の根（`git rev-parse --show-toplevel`）の
 ## オーナーの業務がどう変わったか（真の完了条件）
 ```
 
-置き場は表の `report_place`。締めは核 §5 の 2 行（AI がこの後やること／あなたがやること）。Stopped / Failed の時は、学びを表の `learning_record` へ（無ければ返事の中に 1 行）。
+置き場は表の `report_place`。締めは核 §5 の 2 行（AI がこの後やること／あなたがやること）。Stopped / Failed の時は、学びを表の `learning_record` へ（無ければ各社の原因の台帳の行にする＝細目 §3・核 §8。返事の中だけに置かない）。
 
 ## やりがちな間違い
 
