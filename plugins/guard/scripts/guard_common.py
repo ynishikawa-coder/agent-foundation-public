@@ -9,6 +9,7 @@
 """
 from __future__ import annotations
 
+import glob
 import json
 import os
 import re
@@ -143,6 +144,9 @@ def state_dir(vals, payload=None):
             return ""
         d = os.path.join(root, d)
     return d
+
+
+GUARD_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
 def now_utc():

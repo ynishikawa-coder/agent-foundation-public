@@ -106,6 +106,18 @@
         "number_request_exempt": {
           "type": "list",
           "default": []
+        },
+        "pr_cleanup_exempt_repos": {
+          "type": "list",
+          "default": []
+        },
+        "pr_words_exempt_repos": {
+          "type": "list",
+          "default": []
+        },
+        "public_repos_extra": {
+          "type": "list",
+          "default": []
         }
       }
     },
