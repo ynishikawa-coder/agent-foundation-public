@@ -2,10 +2,10 @@
 """核を窓の起動時に差し込む口と、常に読まれる量の上限を照らす口（plugin core の道具はこの 1 本）。
 
 使い方:
-  python3 kaku.py inject              SessionStart の hook が呼ぶ。核（同じ plugin の 核.md）を窓の文脈へ差し込み、
-                                      細目（細目.md）の在り処を知らせる。開いた repo の根の CLAUDE.md に
+  python3 kaku.py inject              SessionStart の hook が呼ぶ。核（同じ plugin の 核.md）と振る舞いの既定
+                                      （振る舞い.md）を窓の文脈へ毎回差し込み、形の細目（細目.md）の在り処を知らせる。開いた repo の根の CLAUDE.md に
                                       写しの枠（AF-CORE:BEGIN）がまだ在る時は、核が二重に入らないよう何もしない。
-  python3 kaku.py check [--claude P]  核が上限の内かを照らす。--claude を渡すと、その CLAUDE.md（写しの枠が在れば
+  python3 kaku.py check [--claude P]  核と振る舞いの既定が在り、上限の内かを照らす。--claude を渡すと、その CLAUDE.md（写しの枠が在れば
                                       枠の外だけ）が各社固有の上限の内かも照らす。
 exit: inject は何が起きても 0（窓の起動を止めない）。check は 0=緑 / 1=上限を越えた / 2=読めない。
 """
@@ -19,11 +19,12 @@ from pathlib import Path
 
 PLUGIN = Path(__file__).resolve().parent.parent
 KAKU = PLUGIN / "核.md"
+FURUMAI = PLUGIN / "振る舞い.md"
 SAIMOKU = PLUGIN / "細目.md"
 FRAME_BEGIN = "<!-- AF-CORE:BEGIN"
 FRAME_END = "<!-- AF-CORE:END -->"
 # 常に読まれる量の上限（バイト・UTF-8）。数はここの 1 か所だけに置く。
-LIMITS = {"核": 4800, "各社固有": 3000}
+LIMITS = {"核": 4800, "振る舞い": 2400, "各社固有": 3000}
 
 
 def size(text: str) -> int:
@@ -47,8 +48,15 @@ def outside_frame(text: str) -> str:
 
 def inject_text() -> str:
     kaku = KAKU.read_text(encoding="utf-8").rstrip("\n")
-    return (kaku + "\n\n"
-            + f"（この核は土台の plugin core が起動時に差し込んだ。細目は {SAIMOKU} の同じ番号の節。形に迷った時に Read する）\n")
+    try:
+        furumai = FURUMAI.read_text(encoding="utf-8").rstrip("\n")
+    except OSError as e:
+        # 欠けたまま黙って核だけにしない: 窓の起動は止めず、欠けた事を文脈に名指しで出す
+        print(f"plugin core: 振る舞い.md が読めない（{e}）", file=sys.stderr)
+        furumai = f"（振る舞いの既定 {FURUMAI} が読めず、差し込まれていない。最初にオーナーへ知らせる）"
+    return (kaku + "\n\n" + furumai + "\n\n"
+            + "（この核と振る舞いの既定は土台の plugin core が起動時に差し込んだ。"
+            + f"返事・問い・手の窓などの形の細目は {SAIMOKU} の同じ番号の節。その形を書く時に Read する）\n")
 
 
 def inject() -> int:
@@ -74,6 +82,13 @@ def check(claude: Path | None) -> int:
         return 2
     if n > LIMITS["核"]:
         bad.append(f"核（{KAKU.name}）が上限を越えた: {n} > {LIMITS['核']} バイト（細目へ移す）")
+    try:
+        f = size(FURUMAI.read_text(encoding="utf-8"))
+    except OSError as e:
+        print(f"✗ 振る舞い.md が読めない: {e}")
+        return 2
+    if f > LIMITS["振る舞い"]:
+        bad.append(f"振る舞いの既定（{FURUMAI.name}）が上限を越えた: {f} > {LIMITS['振る舞い']} バイト（癖と逆を求めない物を細目へ移す）")
     if claude is not None:
         try:
             m = size(outside_frame(claude.read_text(encoding="utf-8")))
