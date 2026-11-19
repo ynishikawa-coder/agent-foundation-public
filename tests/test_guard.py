@@ -787,3 +787,11 @@ def test_同じ選択肢で物だけ違う問いを閉じず重ねもしない(e
     hook(env, "post", _ask_post(right, labels, False, "s4"))
     again = hook(env, "start", {"session_id": "s5"}).get("additionalContext", "")
     assert "2 件あります" in again and left in again and right in again
+
+
+def test_推奨の印の崩れと1つだけ選ばせる問いが両方当たれば理由を両方つないで返す(env):
+    """ask_shape の rec と pick_one は同じ pre で走る。片方の理由が他方を消すと、AI が片方だけ直して 2 度止まる。"""
+    why = deny_reason(env, ask_pre(q("どれを進めますか", header="進め方", labels=("作り物の A", "作り物の B（推奨）", "分からない"))))
+    assert "[rec]" in why and "1 つ目でない" in why, why
+    assert "ask_pick_one_exempt" in why and "細目 §4「推奨の印」" in why, why
+    assert why.strip().splitlines()[-1].endswith("細目 §3「まず構造を疑う」で探して直す"), why
