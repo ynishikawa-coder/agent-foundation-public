@@ -11,7 +11,7 @@ description: チェック役として、書いた窓と別の窓（レビュー�
 
 - **read-only**: 直さない・commit しない・push しない。判定だけ。直しは書いた窓へ返す。Bash は読むのと物差しを回すのにだけ使う（`git fetch`・`git diff`・`git grep`・物差しの命令・`verdict_form.py`）。
 - **見る点が読めない時は判定しない**: この skill が読めない時は判定を書かず「見る点が読めない（path）」の 1 行で止まる（見る点なしの green を出さない）。
-- **別の目**: 判定を書くのは書いた窓と別の窓（レビューの窓）。助手（Agent）は立てた窓の中で動くので、助手の判定は立てた窓の session id で書く＝書いた窓が立てた助手の判定は書いた窓の判定と同じで、別の目にならない（`verdict_form.py` が `--writer` と照らして誤りにする）。PR 本文の `書いた窓:` と、merge でない commit の `Claude-Session:` の窓を自分の session id と照らす: 書いた窓と同じ窓は判定を書かない（名乗りが無い・合わない時は `red（blocked: …）`）。green を出さない。
+- **別の目**: 判定を書くのは書いた窓と別の窓（レビューの窓）。助手（Agent）は立てた窓の中で動くので、助手の判定は立てた窓の session id で書く＝書いた窓が立てた助手の判定は書いた窓の判定と同じで、別の目にならない（`verdict_form.py` が `--writer` と照らして誤りにする）。判定を出す時は、守りの hook（guard の `pr_text`）が出す窓の本物の id を窓の環境の記録から読み `--reviewer` で渡し、1 行目の名乗りの字はその写しとして照らす（名乗りを作っても通らない）。書いた窓は PR の commit 全部の `Claude-Session:` の窓の組（途中の commit を書いた窓も書いた側）。PR 本文の `書いた窓:` と、merge でない commit の `Claude-Session:` の窓を自分の session id と照らす: 書いた窓と同じ窓は判定を書かない（名乗りが無い・合わない時は `red（blocked: …）`）。green を出さない。
 - **都度取り直す**: 書いた窓の要約を信じない。依頼の本文（親窓が貼った物）と PR の今の先端を毎回取り直す。2 回目からは同じ PR の前回の判定のコメントだけを読み、前回の `[止める｜…]` が直ったかと、前回の `見た先端` から今の先端までの差分を見る。
 
 ## 手順
@@ -19,8 +19,8 @@ description: チェック役として、書いた窓と別の窓（レビュー�
 1. **差分を取る**: `git fetch origin main <枝> && git diff <積んだ基点 か origin/main>...origin/<枝>`（PR 本文に `積んだ基点:` があればそこから）。
 2. **点で見る**（下の表）。依頼の「やる物」・完了の条件の各行を 1 行ずつ照らし、1 行ごとに所見を書く（問題なしも 1 行）。
 3. **物差しを自分で回す**: 依頼の物差し（この repo なら `bash scripts/check_all.sh`）を PR の先端で回す。赤なら点 4 の fail（blocked ではない）。
-4. **判定を PR のコメントに残す**（下の形）。出す前に `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/verdict_form.py" <下書き> --writer <書いた窓> --head <PR の先端>` で形を見る（exit 0 で出す）。出す道具（GitHub のコメント）の前でも、守りの hook（guard の `pr_text`）が同じ道具を直に呼び、崩れていれば止める。
-5. **返す**: green は依頼した窓へ、red は書いた窓へ直に 1 行。行は手で組まず、出した判定から `verdict_form.py <判定> --writer <書いた窓> --head <先端> --return-line --pr <番号> --branch <枝> --ruler <物差しの最後の行>` が組んだ物をそのまま送る（形は `verdict_form.py` の `RETURN_LINE`）。red の所見は直す行の一覧でなく根治の入口: 書いた窓は細目 §3「まず構造を疑う」で原因から直す。
+4. **判定を PR のコメントに残す**（下の形）。出す前に `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/verdict_form.py" <下書き> --writer <書いた窓の組> --head <PR の先端>` で形を見る（書いた窓の組は `python3 scripts/pr_writer.py --writers --head <先端> --base origin/main` が `,` で並べて出す）（exit 0 で出す）。出す道具（GitHub のコメント）の前でも、守りの hook（guard の `pr_text`）が同じ道具を直に呼び、崩れていれば止める。
+5. **返す**: green は依頼した窓へ、red は書いた窓へ直に 1 行。行は手で組まず、出した判定から `verdict_form.py <判定> --writer <書いた窓の組> --head <先端> --return-line --pr <番号> --branch <枝> --ruler <物差しの最後の行>` が組んだ物をそのまま送る（形は `verdict_form.py` の `RETURN_LINE`）。red の所見は直す行の一覧でなく根治の入口: 書いた窓は細目 §3「まず構造を疑う」で原因から直す。
 
 ## 見る点
 

@@ -80,8 +80,11 @@ def test_中の言葉の見分けは窓の_id_の正本を使う():
 
 
 # ── 窓の種類: guard も同じ正本（手の窓は返し先が窓でも 🙋＝人のいる窓）──
-def write_log(tmp_path, first, title=None):
+def write_log(tmp_path, first, title=None, origin="task-notification"):
+    """作り物の会話ログ。頼みの行の記録（origin.kind）は既定で別の窓から来た頼み。None なら記録なし。"""
     rows = [{"type": "user", "message": {"role": "user", "content": first}}]
+    if origin:
+        rows[0]["origin"] = {"kind": origin}
     if title:
         rows.append({"type": "assistant", "message": {"role": "assistant", "content": [
             {"type": "tool_use", "id": "t1", "name": "mcp__claude-code-remote__set_session_title",
@@ -103,14 +106,21 @@ def test_guard_は手の窓を子の窓と見ない(G, tmp_path):
     assert G.is_child_window(write_log(tmp_path, first)) is True       # 手の窓でなければ今までどおり子の窓
     assert G.is_child_window(write_log(tmp_path, "作り物（親窓 %s の子）" % REAL)) is True
     assert G.is_child_window(write_log(tmp_path, "作り物（返し先=オーナー）")) is False
+    # 返し先の文は写し: 頼みの行の記録が人・記録なしなら子の窓にしない（オーナーが引き継ぎの文を貼った窓）
+    for origin in ("human", None):
+        assert G.is_child_window(write_log(tmp_path, "作り物（親窓 %s の子）" % REAL, origin=origin)) is False
 
 
 def test_session_watch_と_guard_は同じ種類を返す(G, tmp_path):
     sw = load("sw_one_source", SW)
     for first, title in [("（親窓 %s の子）" % REAL, "🙋⏳ 手: 作り物"), ("（親窓 %s の子）" % REAL, None),
                          ("返し先=オーナー", None), ("頼み", None)]:
-        assert G.window_kind_of_log(write_log(tmp_path, first, title)) == sw.window_kind(first, title)
+        for origin, seeded in (("task-notification", True), ("human", False)):
+            got = G.window_kind_of_log(write_log(tmp_path, first, title, origin))
+            assert got == sw.window_kind(first, title, seeded), (first, title, origin)
     assert sw.window_kind.__module__ == "window_shape"   # 写しでなく正本を読む
+    assert sw.seeded_by_record is G.W.seeded_by_record or sw.seeded_by_record.__module__ == "window_shape"
+    assert not hasattr(G, "seeded_by_record") and not hasattr(G, "HUMAN_ORIGINS")   # 記録の見分けも写さない
 
 
 # ── ⏳ の意味と閉じる決まり: 決まりの文は正本の文をそのまま載せ、ほかの所で言い直さない ──
@@ -143,3 +153,36 @@ def test_人の窓に終わりの印の差し戻しは閉じる決まりを指�
     sw = load("sw_one_source_done", SW)
     msg = " ".join(sw.title_shape("🙋✅ 作り物"))
     assert "細目 §5「閉じる窓」" in msg
+
+
+# ── 頼みの行の記録の見分けと commit の書き手の行の形も正本 1 か所（#93 が各所に 1 つずつ写して足した物を畳んだ）──
+COPY_SHAPES = (r"HUMAN_ORIGINS\s*=\s*\(", r"def seeded_by_record\(", r"Claude-Session:\\s")
+
+
+def copies_outside_source(files):
+    import re
+    found = []
+    for f in files:
+        text = f.read_text(encoding="utf-8")
+        for pat in COPY_SHAPES:
+            if re.search(pat, text):
+                found.append("%s: %s" % (f.name, pat))
+    return found
+
+
+def source_files():
+    root = PLUGINS.parent
+    files = [p for p in PLUGINS.glob("*/scripts/*.py")] + [p for p in (root / "scripts").glob("*.py")]
+    return [p for p in files if not p.is_symlink()]
+
+
+def test_記録の見分けと書き手の行の形は正本の外に無い():
+    assert copies_outside_source(source_files()) == []
+
+
+def test_注入_記録の見分けを写すと赤(tmp_path):
+    for leak in ('HUMAN_ORIGINS = ("human",)\n', "def seeded_by_record(row):\n    return False\n",
+                 'X = re.compile(r"^Claude-Session:\\s*(\\S+)")\n'):
+        f = tmp_path / "leak.py"
+        f.write_text(leak, encoding="utf-8")
+        assert copies_outside_source([f]), leak

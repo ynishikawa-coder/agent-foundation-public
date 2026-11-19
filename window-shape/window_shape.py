@@ -14,6 +14,9 @@ import re
 # 窓の id の形（`session_01…`）。`session_watch`・`session_id` のような名は窓の id でない（`0` の後に 15 字以上）。
 SESSION_ID_PAT = r"session_0[A-Za-z0-9]{15,}"
 SESSION_ID = re.compile(SESSION_ID_PAT)
+# commit の書き手の記録（窓が commit の度に付ける `Claude-Session: <URL か id>` の行）。書いた窓の組はこれで読む
+# （guard の pr_text・土台の scripts/pr_writer.py）。
+COMMIT_SESSION = re.compile(r"^Claude-Session:\s*\S*?(%s)\s*$" % SESSION_ID_PAT, re.M)
 
 # ── 種類と状態の印 ──
 AI = "🤖"       # 別の窓か仕組みへ返す窓
@@ -28,6 +31,9 @@ STATES = (ASKING, WAITING, DONE)
 RETURN_TO = re.compile(r"返し先\s*[=＝:：]\s*(オーナー|%s)" % SESSION_ID_PAT)
 CHILD_OF = re.compile(r"（親窓\s*%s\s*の子）" % SESSION_ID_PAT)
 
+# 人が打った頼みの記録（会話ログの行の origin.kind。Claude Code が頼みを受けた口で付ける＝文の中身では変わらない）。
+HUMAN_ORIGINS = ("human", "person")
+
 # 手の窓（題 `🙋⏳ 手: <何を>`）の作業名の頭と、頼みの文に書く 4 つ。
 HAND_TITLE = re.compile(r"^手[:：]")
 HAND_PARTS = ("目的", "手順", "済んだ目印", "済んだ後")
@@ -38,7 +44,7 @@ SET_TITLE_SUFFIX = "set_session_title"
 # 窓の種類の決まりの文（skill title-mark はこの文をそのまま載せる＝試験が照らす）。決め方は window_kind。
 KIND_RULE = ("種類の決め方は 2 段: まず手の窓（作業名が `手:` で始まる窓）は返し先によらず `🙋`（相手はオーナー）。"
              "それ以外は窓の最初の頼みの文に書いた返し先だけで決める: `返し先=オーナー` → `🙋`／"
-             "`返し先=session_…` か `（親窓 session_… の子）` → `🤖`／どれも無い → 窓が自分で決める（点検は種類の食い違いを拾わない）。")
+             "`返し先=session_…` か `（親窓 session_… の子）` → `🤖`（別の窓を指す返し先は手で書いた写しなので、頼みの行の記録が人の打った物でない時＝別の窓や仕組みから来た頼みの時だけ数える。オーナーが引き継ぎの文を貼った窓は `🤖` にしない）／どれも無い → 窓が自分で決める（点検は種類の食い違いを拾わない）。")
 
 # 状態 ⏳ の決まりの文（正本はここ。skill title-mark はこの文をそのまま載せる＝試験が照らす。細目 §4 の窓の題の節は skill を指すだけで文を載せない）。見張りは ⏳ の窓を「待ちの窓」と読む
 # （締めの残りを動かす手が無くても拾わない）。
@@ -64,12 +70,27 @@ def split_title(title):
     return kind, mark, t.strip()
 
 
-def kind_of(first_prompt):
-    """最初の頼みの文に書かれた返し先で種類を決める。書いていなければ None（決めない）。手の窓は見ない＝window_kind を使う。"""
+def seeded_by_record(row):
+    """頼みの行が、人が打った物でなく別の窓・仕組みから来た事を、行の記録が示すか。
+    記録: origin.kind が人の物でない（別の窓の create_session・send_message・知らせ等）か promptSource が system。
+    記録が無い・読めない時は False（文だけで別の窓へ返す窓と決めない）。"""
+    if not isinstance(row, dict):
+        return False
+    origin = row.get("origin")
+    if isinstance(origin, dict) and isinstance(origin.get("kind"), str) and origin["kind"]:
+        return origin["kind"] not in HUMAN_ORIGINS
+    return row.get("promptSource") == "system"
+
+
+def kind_of(first_prompt, seeded=False):
+    """最初の頼みの文に書かれた返し先で種類を決める。書いていなければ None（決めない）。手の窓は見ない＝window_kind を使う。
+    別の窓を指す返し先（写し）は、頼みの行の記録が人の打った物でない時（seeded＝seeded_by_record）だけ数える。"""
     m = RETURN_TO.search(first_prompt or "")
-    if m:
-        return HUMAN if m.group(1) == "オーナー" else AI
-    if CHILD_OF.search(first_prompt or ""):
+    if m and m.group(1) == "オーナー":
+        return HUMAN
+    if not seeded:
+        return None
+    if m or CHILD_OF.search(first_prompt or ""):
         return AI
     return None
 
@@ -79,11 +100,12 @@ def is_hand_title(title):
     return bool(HAND_TITLE.match(split_title(title)[2]))
 
 
-def window_kind(first_prompt, title=None):
-    """窓の種類の正本（KIND_RULE）。手の窓（作業名が `手:`）は返し先によらず 🙋、ほかは最初の頼みの返し先。"""
+def window_kind(first_prompt, title=None, seeded=False):
+    """窓の種類の正本（KIND_RULE）。手の窓（作業名が `手:`）は返し先によらず 🙋、ほかは最初の頼みの返し先
+    （別の窓を指す返し先は seeded の時だけ数える）。"""
     if is_hand_title(title):
         return HUMAN
-    return kind_of(first_prompt)
+    return kind_of(first_prompt, seeded)
 
 
 def title_in_tool(name, inp):
