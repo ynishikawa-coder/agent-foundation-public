@@ -6,6 +6,7 @@
   close    … 返事の最後が締めの 2 行（`AI がこの後やること: …`／`あなたがやること: …`）か。あなたがやることが「なし」なら窓を閉じてよいかを、
              「なし」でなければ「これが済むまで <何> に進めません」を書いているか
   card     … 返事の 1 行目が 4 札（✅❓⏳🛑）のどれかで始まるか
+             （close と card は、一言で済む返事＝札も締めも無く SHORT_LINES 行以下・このターンに問いを出していない返事を見ない・細目 §5）
   plain    … 答えを求める問いを、選択肢モーダル（AskUserQuestion）でなく平文で書き、AI の今の読みも添えていないか
              （開いた問い＝意味・考え・前提はチャットで聞いてよい。その時は「AI の今の読み」を添える・細目 §4）
   idk      … 選択肢モーダルの問いに「分からない」の選択肢が無いか
@@ -68,6 +69,8 @@ READING = re.compile(r"AI の(今の)?読み")
 # 選択肢モーダルのどの問いにも置く選択肢（細目 §4）。
 IDK = "分からない"
 CARD_LINE = re.compile(r"^[#>*\s]*(✅|❓|⏳|🛑)")
+# 一言で済む返事（細目 §5）の行数の上限。札で始めた返事・問いを出したターンは長さに関わらず札と締めを見る。
+SHORT_LINES = 3
 
 # AI がこの後やることを動かす手（子窓や背で走る助手に頼む・PR を見張る・自分を後で起こす）。名の末尾で見る。
 MOVE_TOOLS = ("create_session", "send_message", "send_later", "create_trigger", "fire_trigger",
@@ -347,8 +350,9 @@ def check(log):
         found.append(("hand", HAND_ASK))
 
     # 締めの 2 行と 1 行目の札（このターンに返事がある時だけ）
-    if closing.strip():
-        lines = [ln.strip() for ln in closing.splitlines() if ln.strip()]
+    lines = [ln.strip() for ln in closing.splitlines() if ln.strip()]
+    short = bool(lines) and not CARD_LINE.match(lines[0]) and close is None and len(lines) <= SHORT_LINES and not log.turn_asked()
+    if lines and not short:
         if not CARD_LINE.match(lines[0]):
             found.append(("card", "返事の 1 行目が 4 札（%s）で始まらない: %s" % ("／".join(CARDS), lines[0][:40])))
         if close is None:

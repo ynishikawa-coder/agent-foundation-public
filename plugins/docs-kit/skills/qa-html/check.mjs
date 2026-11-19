@@ -9,17 +9,17 @@
 //   前提（3 段）: 読んだ資料の一覧（.docs の li[data-doc]）・答えるまでの扱い（.hold）が無い／資料にリンク（data-url）も
 //     リンクが無い訳（data-no-url）も無い／まとまりの 1 行（.glead）が
 //     各まとまりの最初の問いに 1 つでない／1 問の 4 欄（何について .about・見つけた事 .known と data-docs・なぜ聞くか .why・
-//     くわしく details.more）のどれかが空・上限超え・見つけた事が一覧に無い資料を指す／なぜ聞くかが決まった 4 文でない／
+//     くわしく details.more）のどれかが空・上限超え・見つけた事が一覧に無い資料を指す／なぜ聞くかが決まった 5 文でない／
 //     切り抜き（figure.clip）が 3 枚以上・一覧に無い資料・問いの人の外の名が写る／選択肢にこの答えで変わる事（small.chg）が無い
 //   根拠と読み: 根拠（.evidence の li[data-doc][data-where]）が無い・場所が空・一覧に無い資料／実物（切り抜きか原文の引用 .quote）が
 //     1 つも無い／AI の読み（.reading）が無い・4 行以上／選択肢に印（おすすめ・recommended）／AI の今の見込み（.estimate）の
 //     根拠（data-basis）が空・選択肢より前／見込みの言葉を見込みの枠の外で使う／「前の問い」など、ほかの問いに頼る言い方
-//   問い: 問いの形（data-kind）が 4 つ以外／並び（data-group）が 会社の決まり→人ごとの事実→今回だけの事→先に決めておきたい事 でない／
+//   問い: 問いの形（data-kind）が 5 つ以外／並び（data-group）が 会社の決まり→人ごとの事実→今回だけの事→先に決めておきたい事 でない／
 //     先に決めておきたい事（later）の 1 行が決まった文でない／
-//     内部の言葉／番号で過去の問いを指す／数を書かせる問い／長さ・問いの数の上限超え／選択肢が 1 つだけ／
+//     内部の言葉／番号で過去の問いを指す／数を書かせる問い（資料の外の事実で数を打つ欄の時を除く）／長さ・問いの数の上限超え／選択肢が 1 つだけ／
 //     選択肢に A・B などの記号／選択肢の鍵（value）の形・重なり／「分からない」（__unknown__）が無い・最後でない／
 //     答えずに送れる（required が無い）／1 問に 2 つ以上／「合っていますか」を食い違いの外で使う／
-//     資料の外の事実に「当てはまらない」が無い／ひとこと（supp_鍵）が無い／鍵の重なり
+//     資料の外の事実に「当てはまらない」が無い／資料がそろっているかの問いに足りない資料を書かせる選択肢が無い／ひとこと（supp_鍵）が無い／鍵の重なり
 //   前の答え: 引いた結果（--prior・ページの隣の <名>.prior.json）の answered に在る鍵が問いに残っている／引いた結果が読めない・
 //     形が違う・命令が落ちた・別の版のページで引いた／--prior に渡した file が無い／値の表に prior_check_cmd が在る時だけ、
 //     引いた結果が無い・引いた結果の無い問いがある（値の表に無く引いた結果も無ければ見ない＝今までどおり）
@@ -62,12 +62,13 @@ export const RULES = {
     "estimate_chars": 40,
     "basis_chars": 60
   },
-  // なぜ聞くか（決まった 4 文）。会社の表の docs-kit.qa-html.why で文だけ替えられる（例 once を「この月だけの事を確かめます」）
+  // なぜ聞くか（決まった 5 文）。会社の表の docs-kit.qa-html.why で文だけ替えられる（例 once を「この月だけの事を確かめます」）
   "why": {
     "mismatch": "資料どうしで食い違っています",
     "missing": "資料に書いてありません",
     "law": "今の決まりが法律の決まりと合っていません",
-    "once": "今回だけの事を確かめます"
+    "once": "今回だけの事を確かめます",
+    "ambiguous": "資料の書き方が 2 通りに読めます"
   },
   // この答えで変わる事を書かなくてよい選択肢＝ひとことに書かせる逃げ道だけ（鍵と見出しの両方が合う時）
   "free_options": { "other": ["ほかの答え", "別の決め方"], "none": ["当てはまらない"] },
@@ -77,7 +78,8 @@ export const RULES = {
     "choose": "どちらが正しいですか＝こちらが計算した候補を並べる（候補 2 つ以上）",
     "mismatch": "資料どうしが食い違う＝「合っていますか」を使ってよいのはここだけ（候補 2 つ以上）",
     "fact": "資料の外にしか無い事実（「当てはまらない」を必ず置く）",
-    "judge": "読んでも決まりが分からない時の判断（候補 2 つ以上）"
+    "judge": "読んでも決まりが分からない時の判断（候補 2 つ以上）",
+    "complete": "読んだ資料で全部か（「これで全部」と、足りない資料の名をひとことに書かせる選択肢〔supp: need〕を置く）"
   },
   "groups": {
     "rule": "会社の決まり（全員に効く）",
@@ -92,7 +94,7 @@ export const RULES = {
   "estimate_word": "見込み|予測",
   // 1 画面 1 問＝ほかの問いの答えに頼らない（「前の問いの答えで決まります」の類は赤）
   "prior_ref": "(?:前|上|ひとつ前|1\\s*つ前|さっき)の(?:問(?!い合)|質問|設問|答え|回答)|前問",
-  "unknown": { "value": "__unknown__", "label": "分からない・社内で確かめてから答える" },
+  "unknown": { "value": "__unknown__", "label": "分からない・確かめてから答える" },
   "fact_must_have": [
     "当てはまらない"
   ],
@@ -503,6 +505,7 @@ export function readHtml(raw) {
       choices: inputs.length || sel.length,
       oneChoice: (inputs.length > 0 && inputs.length < 2) || (!inputs.length && sel.length === 1),
       freeInput: freeInputs.length > 0,
+      numberInput: freeInputs.some((t) => /\btype\s*=\s*["']?number\b/i.test(t)),
       // radio と入力の欄は required で送れなくする。checkbox は required にすると「その 1 つを必ず選ぶ」になる＝型の JS が見る
       required: inputs.every((t) => /type\s*=\s*["']?checkbox/i.test(t)) && !freeInputs.length ? inputs.length > 0 : [...inputs, ...freeInputs].some((t) => hasAttr(t, "required")),
       checkboxRequired: inputs.some((t) => /type\s*=\s*["']?checkbox/i.test(t) && hasAttr(t, "required")),
@@ -572,6 +575,7 @@ export function readJson(data) {
         choices: options.length,
         oneChoice: options.length === 1,
         freeInput: ["text", "date", "month", "number"].includes(q.input),
+        numberInput: q.input === "number",
         required: true, // 型の側が付ける
         unknownLast: true, // 型の側が足す
         supp: q.supp !== false,
@@ -738,14 +742,17 @@ export function checkPage(page, { valuesPath = null, prior = null } = {}) {
     for (const l of q.known) if (len(l) > limits.known_line_chars) red.push(`${id}: 見つけた事の 1 行が ${len(l)} 字（1 行 ${limits.known_line_chars} 字まで）: ${l.slice(0, 30)}…`);
     if (q.tableRows > limits.known_table_rows) red.push(`${id}: 数字の表が ${q.tableRows} 行（見出しを入れて ${limits.known_table_rows} 行まで）`);
     const asked = [qtext, ...q.known].join(" ");
+    // 数を書かせてよいのは資料の外にしか無い数だけ（資料の外の事実 fact の問いで、数を打つ欄 number の時）。計算できる数は候補に出す
     const num = rx("number_ask").exec(asked);
-    if (num) red.push(`${id}: 数を書かせる問い「${num[0]}」（こちらで計算した候補を並べて「どちらが正しいですか」にする）`);
+    if (num && !(q.kind === "fact" && q.numberInput))
+      red.push(`${id}: 数を書かせる問い「${num[0]}」（資料から計算できる数は候補を並べて「どちらが正しいですか」にする・資料の外にしか無い数だけ data-kind="fact" と数を打つ欄 type="number" で聞く）`);
     const conf = rx("confirm").exec(asked);
     if (conf && q.kind !== "mismatch") red.push(`${id}: 「${conf[0]}」は資料どうしが食い違う時だけ（data-kind="mismatch"）`);
     const sym = rx("symbol_ref").exec(asked);
     if (sym) red.push(`${id}: 記号「${sym[0]}」で選択肢を指している（中身の言葉で書く）`);
 
-    if (q.oneChoice) red.push(`${id}: 選択肢が 1 つだけ（「分からない」の外に 2 つ以上）`);
+    // 選択肢 1 つでよいのは、資料の外にしか無い数を数の欄で聞く時だけ（「当てはまらない」1 つと数の欄で答えが決まる）
+    if (q.oneChoice && !(q.kind === "fact" && q.numberInput)) red.push(`${id}: 選択肢が 1 つだけ（「分からない」の外に 2 つ以上）`);
     if (!q.choices && !q.freeInput) red.push(`${id}: 答える欄が無い`);
     if (!q.required) red.push(`${id}: 答えずに送れる（最初の選択肢か入力の欄に required を付ける）`);
     if (q.checkboxRequired) red.push(`${id}: checkbox に required を付けない（その 1 つを選ばないと送れなくなる）`);
@@ -776,6 +783,8 @@ export function checkPage(page, { valuesPath = null, prior = null } = {}) {
         else if (!q.unknownLast) red.push(`${id}: 「分からない」は選択肢の最後に置く`);
       }
     }
+    if (q.kind === "complete" && !q.options.some((o) => o.value !== UNKNOWN && o.needSupp))
+      red.push(`${id}: 資料がそろっているかの問いに、足りない資料の名をひとことに書かせる選択肢（${page.format === "html" ? 'data-supp="need"' : '"supp": "need"'}）が無い`);
     if (q.kind === "fact") {
       for (const must of RULES.fact_must_have) if (!q.options.some((o) => o.all.includes(must))) red.push(`${id}: 資料の外の事実の問いに「${must}」の選択肢が無い`);
     }
