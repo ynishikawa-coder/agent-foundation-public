@@ -177,11 +177,12 @@ _読む口 = {   # path: その file が読む値の表の枠
     "plugins/docs-kit/skills/make-deck/scripts/finish_deck.py": ("docs-kit", "make-deck"),
     "plugins/docs-kit/skills/make-deck/scripts/render_prompt.py": ("docs-kit", "make-deck"),
     "plugins/session-watch/scripts/session_watch.py": ("session-watch", "watch-log"),
+    "plugins/checker/scripts/verdict_form.py": ("checker", "review-pr"),
     **{f"plugins/guard/scripts/{p.name}": ("guard",) for p in (ROOT / "plugins/guard/scripts").glob("*.py")},
 }
 _読まない口 = {   # 値の表に触れるが鍵を読まない file: 理由
     **{f"plugins/{p}/lib/skill_values.py": "読む口の本体（土台の skill-values/ への symlink・鍵は呼ぶ側が渡す）"
-       for p in ("dev-flow", "docs-kit", "guard")},
+       for p in ("dev-flow", "docs-kit", "guard", "checker")},
 }
 _値の表に触れる = re.compile(r"skill-values|skill_values|SKILL_VALUES|guard_common|\bvals\b")
 _鍵を読む形 = [

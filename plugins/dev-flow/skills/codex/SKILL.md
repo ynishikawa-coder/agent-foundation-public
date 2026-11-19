@@ -11,7 +11,7 @@ description: Codex（OpenAI の外部レビュアー）との往復の 1 本。C
 
 ## repo ごとの値（config/skill-values.json）
 
-repo ごとに違う値は、repo の根（`git rev-parse --show-toplevel`）の `config/skill-values.json` の `dev-flow.codex.<鍵>` と `common.<鍵>` から読む。**鍵が無い・値が空なら右の既定で動く**。知らない鍵・畳んだ鍵・型の違う値は黙って捨てない（道具は名指しで止まり、窓の起動の時に guard が名指しで知らせる。表の探し方と鍵の一覧の正本は土台の `skill-values/`。鍵を足す時はそこへ足す）。
+repo ごとに違う値は、repo の根（`git rev-parse --show-toplevel`）の `config/skill-values.json` の `dev-flow.codex.<鍵>` から読む。**鍵が無い・値が空なら右の既定で動く**。知らない鍵・畳んだ鍵・型の違う値は黙って捨てない（道具は名指しで止まり、窓の起動の時に guard が名指しで知らせる。表の探し方と鍵の一覧の正本は土台の `skill-values/`。鍵を足す時はそこへ足す）。
 
 | 鍵 | 使う所 | 無い時の既定 |
 |---|---|---|
@@ -20,7 +20,7 @@ repo ごとに違う値は、repo の根（`git rev-parse --show-toplevel`）の
 | `clients` | 顧客の物を出す許し `{<名>: {opt_in, no_training_tier, expires, paths}}` | 無し＝既定 deny |
 | `egress_log` | 送り出しの記録（jsonl・本文と秘密は書かず、時刻・task・送り先・file の path・結果・件数・パックの sha256 だけ） | 無し（記録しない） |
 | `entropy_allow` | 誤って止まる高エントロピーの塊を外す並び（`sha256:<指紋 12 字以上>` か塊の全体に当てる正規表現） | 無し＝全部止める |
-| `pack_local` | repo だけの起動の仕方・Codex を回す口・builder の注意（行の並び・在る時だけ上から読んで従う） | 無し（下の §往き の芯だけ） |
+| `pack_local` | repo だけの起動の仕方・Codex を回す口・builder の注意（行の並び・在る時だけ上から読んで従う） | 無し（下の §往き の芯だけ・オーナーが pack.md を Codex に渡す） |
 | `rounds_cmd` | 収束の機械判定の命令（`<task>` を渡す） | 無し＝下の判定の語で手で判定し、PR 本文に 1 行 |
 | `contract_doc` | Codex 側の完了報告の形の在処 | 下の §戻り の 7 欄 |
 
@@ -62,7 +62,7 @@ Codex 側の作業の約束はパックへの同梱 1 本で渡す（目的／�
    - `--measured-at "…"` = 所見の元になった**実測の時点**。パックに `## 6. 実測とコードの時点` を出し、コードの HEAD とのずれを Codex に見せる（古い実測を「まだ壊れている」と誤診させない）。省くと「仮説扱い＝再測してから採否」と書かれる。
    - `--dry-run` = 書かずに判定と要約だけ（秘密・送り先の事前の確かめ）。
 3. exit 0 なら `<pack_dir>/<task>/pack.md` と `goal.txt`（起点ゴールの錨）ができる。exit 1 は中止（理由が出る）。
-4. Codex を回す口は表の `pack_local`（無ければオーナーが pack.md を Codex に渡す）。**顧客の物の dir で Codex の CLI を直に起動しない**＝Codex が直に読むと送り先の門を通らず外へ出る（門が守れるのは builder が組んだパックだけ）。
+4. Codex を回す口は表の `pack_local`（既定は表）。**顧客の物の dir で Codex の CLI を直に起動しない**＝Codex が直に読むと送り先の門を通らず外へ出る（門が守れるのは builder が組んだパックだけ）。
 5. Codex の返しを受けたら **下の §戻り（intake）を通す**。
 6. **収束は起点ゴールの錨＋差分で決める**: 表の `rounds_cmd` があれば回し、無ければ手で次の語で判定し PR 本文に 1 行書く。
    - **CONVERGED**＝未解決の Blocker/Major が 0 **かつ** 起点ゴールを達成（退けた Minor/Nit をまとめて片付けて終わる）
@@ -88,7 +88,7 @@ Codex 側の作業の約束はパックへの同梱 1 本で渡す（目的／�
 - **なぜ全文コピーしないか**: Codex の生の返し（ターミナルの出力）は長く・形が無く・第三者の文。そのまま次の受け手に渡すと引き継ぎが切れる／指示の差し込み（injection）が混じる。この窓が読んで採否を付け、引き継ぎの形に書き直す。
 - **出力はチャットの中のコピペ用コードブロック 1 個**（`compose-message` があればその型）。引用（blockquote）にしない。
 
-Codex 側の完了報告の形 = 表の `contract_doc`（無ければ Status / 対象 / やったこと / 検証 / 指摘・所見〔ACCEPT/MODIFY/REJECT/DEFER〕/ スコープ外 / 要人間確認）。
+Codex 側の完了報告の形 = 表の `contract_doc`。表の既定の 7 欄は（Status / 対象 / やったこと / 検証 / 指摘・所見〔ACCEPT/MODIFY/REJECT/DEFER〕/ スコープ外 / 要人間確認）。
 
 ### 入力（どちらでも可）
 

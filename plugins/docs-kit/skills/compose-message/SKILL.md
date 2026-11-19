@@ -24,9 +24,9 @@ repo の根（`git rev-parse --show-toplevel`）の `config/skill-values.json` �
 
 | 鍵 | 使う所 | 無い時の既定 |
 |---|---|---|
-| `docs-kit.compose-message.recipient_rules` | 相手ごとの決まり（配列: `{相手, 決まり, 伏せる語?}`） | 下の §相手ごとの決まり の一般の決まりだけ |
-| `docs-kit.compose-message.send` | 送る口（`media`＝媒体の名・`send_cmd`＝送る命令・`credentials`＝鍵の置き場の説明・`consult_heading`＝相談の見出し） | 送らない（コピペの形で返す） |
-| `docs-kit.compose-message.sources` | 外へ出す文面の前に読む、案件の最新の記録の置き場 | 会話と手元のファイルだけで書く |
+| `recipient_rules` | 相手ごとの決まり（配列: `{相手, 決まり, 伏せる語?}`） | 下の §相手ごとの決まり の一般の決まりだけ |
+| `send` | 送る口（`media`＝媒体の名・`send_cmd`＝送る命令・`credentials`＝鍵の置き場の説明・`consult_heading`＝相談の見出し） | 送らない（コピペの形で返す） |
+| `sources` | 外へ出す文面の前に読む、案件の最新の記録の置き場 | 会話と手元のファイルだけで書く |
 | `common.glossary` | 本文の語の意味 | 語の一般の意味 |
 
 ## 入力に要る 3 つ

@@ -15,7 +15,9 @@
     "checker": {
       "skills": {
         "review-pr": {
-          "keys": {}
+          "keys": {
+            "extra_points": "dict"
+          }
         }
       }
     },

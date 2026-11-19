@@ -58,6 +58,7 @@ NEIGHBORS = {
     "ask_shape": ("AF_ASK_SHAPE", "plugins/guard/scripts/ask_shape.py", "guard", "scripts/ask_shape.py"),
     "guard_common": ("AF_GUARD_COMMON", "plugins/guard/scripts/guard_common.py", "guard", "scripts/guard_common.py"),
     "public_guard": ("AF_PUBLIC_GUARD", "public-guard/guard.py", None, None),
+    "saimoku": ("AF_SAIMOKU", "plugins/core/細目.md", "core", "細目.md"),
 }
 _loaded = {}
 
@@ -135,7 +136,28 @@ COND = re.compile(r"(なら|たら|れば|場合)[^。]*(教えて|声をかけ�
 # 開いた問いをチャットで聞く時に添える AI の読み（細目 §4）。これが在る平文の問いは拾わない。
 READING = re.compile(r"AI の(今の)?読み")
 CARD_LINE = re.compile(r"^[#>*\s]*(✅|❓|⏳|🛑)")
-DONE_LINE = re.compile(r"^[#>*\s]*✅(?!\s*終わった\s*[（(]\s*一部)")   # 終わった（「✅終わった（一部）」は除く・核 §7）
+# 完了の 4 状態と 1 行目の札の対応の正本は細目 §7 の表の「返事の 1 行目」の欄（ここに形を写さない）。
+STATE_ROW = re.compile(r"^\|\s*(終わった|一部|止めた|続けられない)\s*\|[^|]*\|\s*`([^`]+)`\s*\|\s*$")
+
+
+def state_lines(path=None):
+    """細目 §7 の表から {状態: 1 行目}。読めない・4 つ揃わない時は None（呼ぶ側が neighbor で名指す）。"""
+    path = path or neighbor_path("saimoku")
+    try:
+        from pathlib import Path
+        rows = dict(m.groups() for m in map(STATE_ROW.match, Path(path).read_text(encoding="utf-8").splitlines()) if m)
+    except Exception:  # noqa: BLE001  読めない正本は無い物として扱う（neighbor の札で知らせる）
+        return None
+    return rows if len(rows) == 4 else None
+
+
+def done_line(rows):
+    """「終わった」の 1 行目だけに当たる形（ほかの状態の 1 行目が同じ頭で始まっても当てない）。"""
+    done = rows["終わった"]
+    others = [v[len(done):] for k, v in rows.items() if k != "終わった" and v.startswith(done)]
+    tail = "(?!%s)" % "|".join(r"\s*" + re.escape(o.strip()) for o in others) if others else ""
+    loose = r"\s*".join(re.escape(c) for c in (done[0], done[1:]))   # 札と言葉の間の空白は許す（「✅ 終わった」）
+    return re.compile(r"^[#>*\s]*" + loose + tail)
 # 一言で済む返事（細目 §5）の行数の上限。札で始めた返事・問いを出したターンは長さに関わらず札と締めを見る。
 SHORT_LINES = 3
 
@@ -615,15 +637,22 @@ def check(log, closing=None, data=None):
                 found.append(("title", "答えが返ったのに題に %s が残っている" % ASKING))
             # ✅ は「終わった」（核 §7）の印。AI の手が尽きた（AI がこの後やること: なし）とは結ばない。
             first = next((ln.strip() for ln in closing.splitlines() if ln.strip()), "")
-            if (kind or tk) == AI and CARD_LINE.match(first):
-                done = bool(DONE_LINE.match(first))
+            rows = state_lines() if (kind or tk) == AI and CARD_LINE.match(first) else None
+            if (kind or tk) == AI and CARD_LINE.match(first) and rows is None:
+                found.append(("neighbor", "完了の 4 状態と 1 行目の対応（細目 §7 の表）が読めず、題の ✅ を照らせない"))
+            elif rows is not None:
+                done = bool(done_line(rows).match(first))
                 if done and tm != DONE:
                     found.append(("title", "%s の窓が %s終わった で報告するのに、題の状態が %s でない" % (AI, DONE, DONE)))
                 elif not done and tm == DONE:
                     found.append(("title", "%s の窓が 終わった でない札（止まった・一部・待ち・問い）で締めるのに、題が %s" % (AI, DONE)))
             # 手の窓（細目 §4）: 済んだ目印を確かめたら頼んだ窓へ返して閉じる。✅ で締めるのに、このターンに頼んだ窓へ
             #   返した跡（send_message）が無ければ、済んだ手の窓が頼んだ窓に済んだと分からないまま残る。
-            hand_done = bool(DONE_LINE.match(first)) and bool(HAND_TITLE.match(split_title(title)[2]))
+            is_hand = bool(HAND_TITLE.match(split_title(title)[2]))
+            hrows = rows if rows is not None else (state_lines() if is_hand and CARD_LINE.match(first) else None)
+            if is_hand and CARD_LINE.match(first) and hrows is None and rows is None and (kind or tk) != AI:
+                found.append(("neighbor", "完了の 4 状態と 1 行目の対応（細目 §7 の表）が読めず、手の窓の ✅ を照らせない"))
+            hand_done = is_hand and bool(hrows) and bool(done_line(hrows).match(first))
             if hand_done and not any(k == "move" and str(v).endswith("send_message") for k, v in log.turn):
                 found.append(("title", "手の窓が %s終わった で締めるのに、頼んだ窓へ済んだ目印を返した跡（send_message）が"
                                        "このターンに無い（返してから締め、自分を閉じる）" % DONE))
@@ -795,8 +824,10 @@ def hook_remind(stdin):
 
 # ── 差し戻す（Stop の hook・止まるのは AI だけ）────────────────
 STOP_CODES = ("title", "card", "close", "plain", "inner", "time", "done", "secret", "neighbor")
-#   差し戻す札（核 §1・§2・§4・§5・§6・§7 の、AI が読み飛ばすとそのまま人に届く所）。ほか（idk・unanswered・rest・hand）は
-#   手で回す点検と知らせるだけ。neighbor（隣の正本が見つからない）は窓ごとに 1 回だけ差し戻す（AI には直せない＝回さない）。
+NOTE_CODES = ("idk", "unanswered", "rest", "hand")
+#   STOP_CODES は差し戻す札（核 §1・§2・§4・§5・§6・§7 の、AI が読み飛ばすとそのまま人に届く所・止めるのは AI の締めだけ）。
+#   NOTE_CODES は手で回す点検と知らせるだけ。check() が出す札はどちらか 1 つに必ず載る（載らない札は試験が赤＝黙って
+#   止める物にも知らせる物にもならない）。STOP_CODES を変える PR は変更の記録の断片に「止める物:」の行が要る（scripts/pr_shape.py）。neighbor（隣の正本が見つからない）は窓ごとに 1 回だけ差し戻す（AI には直せない＝回さない）。
 STOP_MAX = 2                              # 同じターンで差し戻す回数の上限（越えたら通して届ける＝窓が回り続けない）
 STOP_OFF = "AF_SESSION_WATCH_STOP"        # 0／false で差し戻しを切る（見張りが壊れた時の逃げ道・人の手でだけ設定する）
 STOP_HEAD = ("[session-watch] 返事の形が崩れているので、まだ届けていない。下を直して、返事を頭から全部書き直す"
@@ -808,7 +839,7 @@ STOP_HOW = {
     "inner": "番号・窓の id・`直し_0020` の形の名・commit の印は、それが何かを日常の言葉で言い換える（例: 「#616」→「昨日出した"
              "置き場の直し」と URL）。コード・path・file 名は数えていない（どうしても要る字は `…` で囲む）。",
     "time": "時刻は「YYYY-MM-DD HH:MM 日本時間」で書く（UTC の時刻は 9 時間足す）。記録をそのまま見せる時はコードの囲みに入れる（核 §6）。",
-    "done": "確かめた事だけを言い切る。確かめ切れていない所があれば 1 行目を「一部」「止めた」の形にし、何が残るかを書く（核 §7）。"
+    "done": "確かめた事だけを言い切る。確かめ切れていない所があれば 1 行目を細目 §7 の表の「返事の 1 行目」（一部・止めた・続けられない）の形にし、何が残るかを書く。"
             "人の言葉を引くだけなら「」で囲む。",
     "secret": "鍵・トークンの値を返事から消し、在り処（環境の値の名・設定の場所）だけを書く。出てしまった鍵は人に作り直しを頼む（核 §1）。",
     "neighbor": "上の行が名指す原因を直す: 値の表の読めない形なら、その形を直す PR を出すか、あなたがやることに書く。隣の正本が"

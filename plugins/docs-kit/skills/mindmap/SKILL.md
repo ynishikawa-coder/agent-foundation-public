@@ -21,8 +21,8 @@ repo ごとに違う値は、repo の根（`git rev-parse --show-toplevel`）の
 
 | 鍵 | 使う所 | 無い時の既定 |
 |---|---|---|
-| `docs-kit.mindmap.save_dir`（無ければ `common.save_dir`）/ `common.save_dir_avoid` | 作り方 5 の置き場・置かない所 | 窓の scratchpad（git の外・作業中の repo に置かない） |
-| `docs-kit.mindmap.delivery`（無ければ `common.delivery`） | 作り方 6 の渡し方 | `file:///…` の絶対パスを 1 行 |
+| `save_dir`（無ければ `common.save_dir`）/ `common.save_dir_avoid` | 作り方 5 の置き場・置かない所 | 窓の scratchpad（git の外・作業中の repo に置かない） |
+| `delivery`（無ければ `common.delivery`） | 作り方 6 の渡し方 | `file:///…` の絶対パスを 1 行 |
 | `common.glossary` | 本文の語（オーナー 等）の意味 | 語の一般の意味 |
 
 ## いつ使うか（判断）

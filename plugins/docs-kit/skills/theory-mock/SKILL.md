@@ -24,7 +24,7 @@ repo ごとに違う値は、repo の根（`git rev-parse --show-toplevel`）の
 | 鍵 | 使う所 | 無い時の既定 |
 |---|---|---|
 | `common.save_dir` / `common.save_dir_avoid` | 作り方 7 の置き場・置かない所 | 窓の scratchpad（git の外・PR に載せない・窓と一緒に片付く） |
-| `common.delivery` | 作り方 9 の渡し方 | Artifact で publish（非公開のまま）か `file:///…` の絶対パスを 1 行 |
+| `common.delivery` | 作り方 9 の渡し方 | Artifact で publish（非公開のまま・共有しない）か `file:///…` の絶対パスを 1 行 |
 | `common.glossary` | 本文の語（オーナー・窓 等）の意味 | 語の一般の意味 |
 
 ## いつ使うか（判断）
@@ -45,9 +45,9 @@ repo ごとに違う値は、repo の根（`git rev-parse --show-toplevel`）の
 4. **質問（`Q`）は作り方の分かれ道（画面・データ・流れをどう作るか）だけを置き、必ず推奨と「なぜ決めるか」を埋める**。意図・考え（何のためか・なぜこの形か）を聞く問いは `Q` に置かず、推奨を付けずにチャットで聞く（細目 §4 の推奨の印）＝たたき台を 8 割まで作る（空欄の質問を渡さない＝オーナーは○を付けるか直す方が速い）。「すり合わせ（全質問）」画面は枠が末尾に自動で足す＝中身に書かない。
 5. **ダミーデータは実名・実額にしない**（従業員A・サンプル会社・丸めた架空の額）。会社名・人名・Drive/Sheet の ID を中身に書かない（リンクが要る時も共有前提のものだけ）。
 6. **Q 番号と画面 id は作り直しでも変えない**（貼り戻しと保存済み回答の鍵）。消す時は欠番にし、詰め直さない。`META.storageKey` も同じ題材なら変えない（前の回答が残る）。
-7. **保存** = `確認_<件名>_理論モック_<YYYYMMDD>.html`。置き場は表の `common.save_dir`（無ければ窓の scratchpad＝git の外・PR に載せない）。`common.save_dir_avoid` には置かない。
+7. **保存** = `確認_<件名>_理論モック_<YYYYMMDD>.html`。置き場は表の `common.save_dir`（既定は表）。`common.save_dir_avoid` には置かない。
 8. **検査してから渡す** = `python3 <この skill>/scripts/check_theory_mock.py <保存した html>` で `SELFTEST OK <n> screens`（exit 0）を取る。NG なら細目 §3「まず構造を疑う」で原因（枠の使い方・題材の組み方）から直してから（NG 行＝画面 id と例外。飛び先の無い `data-go`・`Q` に無い番号・`LINKS` に無いキーも NG）。exit 2 は Chrome が無い／起動できない＝検査できていない（OK と言わない）。
-9. **渡す** = 検査を通した html を表の `common.delivery` で渡す（無ければ Artifact で publish し非公開のまま・共有しない／`file:///…` の絶対パスでもよい）。チャットには URL 1 行と「見どころ」数行（特に答えてほしい Q・迷った画面）だけ。HTML の中身をチャットに再展開しない。
+9. **渡す** = 検査を通した html を表の `common.delivery` で渡す（既定は表）。チャットには URL 1 行と「見どころ」数行（特に答えてほしい Q・迷った画面）だけ。HTML の中身をチャットに再展開しない。
 
 ## 貼り戻しの受け方
 

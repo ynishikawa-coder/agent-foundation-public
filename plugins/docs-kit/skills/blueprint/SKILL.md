@@ -24,7 +24,7 @@ repo ごとに違う値は、repo の根（`git rev-parse --show-toplevel`）の
 | 鍵 | 使う所 | 無い時の既定 |
 |---|---|---|
 | `common.save_dir` / `common.save_dir_avoid` | 作り方 6 の置き場・置かない所 | 窓の scratchpad（git の外・PR に載せない・窓と一緒に片付く） |
-| `common.delivery` | 作り方 8 の渡し方 | Artifact で publish（非公開のまま）か `file:///…` の絶対パスを 1 行 |
+| `common.delivery` | 作り方 8 の渡し方 | Artifact で publish（非公開のまま・共有しない）か `file:///…` の絶対パスを 1 行 |
 | `common.glossary` | 本文の語（窓 等）の意味 | 語の一般の意味 |
 
 ## いつ使うか（判断）
@@ -55,9 +55,9 @@ repo ごとに違う値は、repo の根（`git rev-parse --show-toplevel`）の
 3. **設計版は理論モック・要件カード・設計書から起こす**。段ごとに `basis` へ要件・決定の番号を書く。番号が引けない段は `basis` を空のまま置く。
 4. **名前は画面の言葉に合わせる**。段の `name` は理論モック・本番画面で使っている言葉にする（`compare` の突き合わせの鍵＝現状版と設計版で同じ物は同じ `name`）。段 id とタブ id は作り直しでも変えない。
 5. **表の中の値は形を見せる作り値**（人名・金額は架空）。列名・置き場所・書く順番は実物どおり。
-6. **保存**＝`Blueprint_<件名>_<現状版｜設計版>_<YYYYMMDD>.html`。置き場は表の `common.save_dir`（無ければ窓の scratchpad＝git の外・PR に載せない）。`common.save_dir_avoid` には置かない。
+6. **保存**＝`Blueprint_<件名>_<現状版｜設計版>_<YYYYMMDD>.html`。置き場は表の `common.save_dir`（既定は表）。`common.save_dir_avoid` には置かない。
 7. **検査してから渡す**＝`python3 <この skill>/scripts/check_blueprint.py <保存した html>` で `SELFTEST OK <n> tabs <m> steps`（exit 0）を取る。NG 行（`<タブid>/<段id>: <理由>`）が出たら細目 §3「まず構造を疑う」で原因（材料の読み方・段の組み方）から直してから渡す。NG になるのは、例外・console.error、飛び先の無い `data-go`／`data-tab-go`、`HOLES` に無い穴番号、現状版で根拠が空か `path:行` の形でない段、段 id の重複。exit 2 は Chrome が無い・起動できない＝検査できていない（OK と言わない）。
-8. **渡す**＝検査を通した html を表の `common.delivery` で渡す（無ければ Artifact で publish し非公開のまま・共有しない／`file:///…` の絶対パスでもよい）。チャットには URL 1 行と「見どころ」数行（大きい穴・未定の数）だけ。HTML の中身をチャットに再展開しない。
+8. **渡す**＝検査を通した html を表の `common.delivery` で渡す（既定は表）。チャットには URL 1 行と「見どころ」数行（大きい穴・未定の数）だけ。HTML の中身をチャットに再展開しない。
 
 ## 比較（設計版を作ったら、現状版と並べる）
 

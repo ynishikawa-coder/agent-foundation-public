@@ -1,0 +1,39 @@
+name: merge-gate
+# 合流の関所（plugins/checker/scripts/merge_gate.py）。今の先端に書いた窓と別の窓の green が在るかを、
+# PR の本文・commit・コメント・出来事から機械で照らし、先端の commit の状態 `merge-gate` に書く。
+# 判定のコメントが付いた時・先端が動いた時・本文や base が変わった時に回る。合流の窓は `merge-gate` が success の PR だけを入れる。
+#
+# pull_request_target で回す: この yml と照らす道具は main の物で回り、PR の枝の yml・道具では回らない
+# （PR の枝がこの yml や merge_gate.py を書き換えても、この関所の中身は変わらない）。PR の枝のコードは checkout も実行もしない。
+# 残る穴: PR の枝に別の workflow を足すと、その workflow の GITHUB_TOKEN で同じ名の状態を書ける（出元は同じ GitHub Actions）。
+# 塞ぐには、main からしか使えない environment の鍵（GitHub App）で状態を書き、main の守りの必須をその App に結ぶ（オーナーの手）。
+on:
+  pull_request_target:
+    types: [opened, edited, synchronize, reopened]
+  issue_comment:
+    types: [created, edited, deleted]
+permissions:
+  contents: read
+  pull-requests: read
+  issues: read
+  statuses: write
+concurrency:
+  # 同じ PR の回は 1 本ずつ・新しい回が来たら古い回を止める（古い材料の回が後から状態を上書きしない）
+  group: merge-gate-${{ github.event.pull_request.number || github.event.issue.number }}
+  cancel-in-progress: true
+jobs:
+  gate:
+    if: github.event_name == 'pull_request_target' || github.event.issue.pull_request
+    runs-on: ubuntu-latest
+    steps:
+      # 照らす道具は main の物（PR の枝のコードは取らない）
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+      - name: 照らして先端の状態に書く
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number || github.event.issue.number }}
+          REPO: ${{ github.repository }}
+        run: python3 plugins/checker/scripts/merge_gate.py --github "${REPO}" --pr "${PR_NUMBER}" --status

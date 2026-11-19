@@ -55,7 +55,7 @@ def test_記録の既定の照らしは古い形を拒む():
 
 
 def test_本文の記録の行き先も返事の中や_PR_本文にしない():
-    for path, pat in [(VERIFY, r"learning_record` へ（無ければ([^）]*)）"), (REGISTER, r"decision_record`（無ければ([^）]*)）"), (REGISTER, r"learning_record` へ（無ければ([^）]*)）")]:
+    for path, pat in [(VERIFY, r"learning_record` へ（無ければ([^）]*)）"), (REGISTER, r"learning_record` へ（無ければ([^）]*)）")]:
         m = re.search(pat, read(path))
         assert m, "%s に記録の行き先の文が無い" % path.parent.name
         assert "PR 本文" not in m.group(1) and "返事の中に 1 行" not in m.group(1), m.group(0)
@@ -64,7 +64,7 @@ def test_本文の記録の行き先も返事の中や_PR_本文にしない():
 
 def done_mark_ok(row):
     """題の ✅ が「終わった」（核 §7）に結ばれ、締めの 1 行（AI の手が尽きた）に結ばれていないか。"""
-    return "核 §7" in row and "終わった" in row and "AI がこの後やること: なし" not in row
+    return ("核 §7" in row or "細目 §7 の表" in row) and "終わった" in row and "AI がこの後やること: なし" not in row
 
 
 def test_題の完了の印は終わったに結ぶ():
