@@ -22,6 +22,8 @@ log = os.environ["FAKE_LOG"]
 with open(log, "a") as f:
     f.write(" ".join(sys.argv[1:]) + "\n")
 broken = set(os.environ.get("FAKE_BROKEN", "").split())
+if sys.argv[1:4] == ["plugin", "marketplace", "update"] and os.environ.get("FAKE_UPDATE_FAIL"):
+    sys.exit(1)   # 網・権限で目録の写しを進められない
 if sys.argv[1:3] == ["plugin", "list"]:
     got = [l.split()[2] for l in open(log) if l.startswith("plugin install ")]
     print(json.dumps([{"id": g, "scope": "user", "enabled": True} for g in got if g.split("@")[0] not in broken]))
@@ -56,12 +58,18 @@ def foundation(tmp_path, names):
     return root
 
 
-def run(tmp_path, root, broken="", **fake_env):
+def run(tmp_path, root, broken="", source="directory", **fake_env):
+    """source: 目録の台帳 known_marketplaces.json に書く目録の出所（directory＝手元の dir から足した試し・None＝台帳なし）。"""
     fake = tmp_path / "claude"
     fake.write_text(FAKE, encoding="utf-8")
     fake.chmod(0o755)
     home = tmp_path / "home"
     home.mkdir(exist_ok=True)
+    if source:
+        km = home / ".claude" / "plugins" / "known_marketplaces.json"
+        km.parent.mkdir(parents=True, exist_ok=True)
+        km.write_text(json.dumps({"agent-foundation": {"source": {"source": source}, "installLocation": str(root)}}),
+                      encoding="utf-8")
     env = dict(os.environ, HOME=str(home), CLAUDE_BIN=str(fake), FAKE_LOG=str(tmp_path / "log"), FAKE_BROKEN=broken, **fake_env)
     r = subprocess.run([sys.executable, str(root / "scripts" / "setup_plugins.py")], capture_output=True, text=True,
                        env=env, timeout=60)
@@ -119,7 +127,7 @@ def test_合格_古い版が残った容器でも目録を進め_入った_commi
     """注入: 前の setup の古い commit が入り、update が動かない（作り置きの容器）→ 入口が先端に入れ替える。"""
     root, head = git_foundation(tmp_path, ["core", "guard"])
     pj = old_container(tmp_path, ["core", "guard"])
-    r, log, note, home = run(tmp_path, root, FAKE_HEAD=head, FAKE_STUCK="1", FAKE_OLD="0" * 40)
+    r, log, note, home = run(tmp_path, root, source="github", FAKE_HEAD=head, FAKE_STUCK="1", FAKE_OLD="0" * 40)
     assert r.returncode == 0, r.stdout
     lines = log.splitlines()
     assert lines[0] == "plugin marketplace update agent-foundation"   # 何より先に目録の写しを進める
@@ -133,7 +141,7 @@ def test_合格_古い版が残った容器でも目録を進め_入った_commi
 def test_入れ直しても先端に揃わない_plugin_は名指しで知らせる(tmp_path):
     root, head = git_foundation(tmp_path, ["core", "guard"])
     old_container(tmp_path, ["core", "guard"])
-    r, _, note, _ = run(tmp_path, root, FAKE_HEAD=head, FAKE_STUCK="1", FAKE_OLD="0" * 40, FAKE_PIN="guard")
+    r, _, note, _ = run(tmp_path, root, source="github", FAKE_HEAD=head, FAKE_STUCK="1", FAKE_OLD="0" * 40, FAKE_PIN="guard")
     assert r.returncode == 1
     assert f"目録の先端（{head[:12]}）に揃わない: guard" in note and "core" not in note.split("揃わない:")[1]
 
@@ -142,10 +150,12 @@ def test_入った_commit_を照らす段を外すと古い版のまま緑にな
     """誤りの類の注入: 入っているかだけを見る前の形（照らしの段を外した入口）は古い版のまま 0 で抜ける＝上の試験が拾う故障。"""
     root, head = git_foundation(tmp_path, ["core"])
     src = (root / "scripts" / "setup_plugins.py").read_text(encoding="utf-8")
-    (root / "scripts" / "setup_plugins.py").write_text(src.replace("    if not head:\n        return []\n",
-                                                                   "    return []\n"), encoding="utf-8")
+    cut = src.replace("    return [n for n in names if f\"{n}@{market}\" in got and got[f\"{n}@{market}\"] != head]\n",
+                      "    return []\n")
+    assert cut != src, "照らしの段の形が変わった（注入の置き換えを合わせる）"
+    (root / "scripts" / "setup_plugins.py").write_text(cut, encoding="utf-8")
     pj = old_container(tmp_path, ["core"])
-    r, _, _, _ = run(tmp_path, root, FAKE_HEAD=head, FAKE_STUCK="1", FAKE_OLD="0" * 40)
+    r, _, _, _ = run(tmp_path, root, source="github", FAKE_HEAD=head, FAKE_STUCK="1", FAKE_OLD="0" * 40)
     assert r.returncode == 0
     assert json.loads(pj.read_text(encoding="utf-8"))["plugins"]["core@agent-foundation"][0]["gitCommitSha"] == "0" * 40
 

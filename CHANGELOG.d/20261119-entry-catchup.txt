@@ -1,1 +1,2 @@
 - 直した: 土台の入口 `scripts/setup_plugins.py` は、最初に `claude plugin marketplace update` で目録の写しを main の先端へ進めて配りの器を読み直し、入れた後に入った commit（`installed_plugins.json` の `gitCommitSha`）を目録の写しの先端と照らして、違う plugin を uninstall → install で入れ直す。入れ直しても揃わない plugin は `~/.claude/CLAUDE.md` に名指しする（作り置きの容器に前の setup の古い版が残り、`marketplace add` が在る目録を足し直さないため古いまま通っていた）。使う側がやる事: なし（setup script の 3 行は同じ）。
+- 直した: 入口は照らせない時（目録の写しを先端へ進められない・先端の commit が引けない・入った commit の台帳が読めない）に黙って緑にせず、~/.claude/CLAUDE.md に名指しして exit 1。手元の dir から足した試し（目録の台帳の source が directory）だけは照らさない。入れた印に `blind` を足した。

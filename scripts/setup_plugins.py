@@ -80,13 +80,28 @@ def head_commit(root: Path = ROOT) -> str | None:
     return sha if r.returncode == 0 and len(sha) == 40 else None
 
 
-def installed_commits() -> dict[str, str]:
-    """<plugin>@<目録> → user scope で入った commit（Claude Code の台帳 installed_plugins.json）。読めなければ空。"""
-    base = Path(os.environ["CLAUDE_CONFIG_DIR"]) if os.environ.get("CLAUDE_CONFIG_DIR") else home()
+def config_dir() -> Path:
+    return Path(os.environ["CLAUDE_CONFIG_DIR"]) if os.environ.get("CLAUDE_CONFIG_DIR") else home()
+
+
+def trial(market: str) -> bool:
+    """目録を手元の dir から足した試しか（Claude Code の目録の台帳 known_marketplaces.json の source が directory）。
+    読めない・載っていない時は試しと見ない＝照らす側（照らせなければ止める）に倒す。"""
     try:
-        raw = json.loads((base / "plugins" / "installed_plugins.json").read_text(encoding="utf-8")).get("plugins") or {}
+        m = json.loads((config_dir() / "plugins" / "known_marketplaces.json").read_text(encoding="utf-8"))[market]
+        return m["source"]["source"] == "directory"
+    except (OSError, ValueError, KeyError, TypeError):
+        return False
+
+
+def installed_commits() -> dict[str, str] | None:
+    """<plugin>@<目録> → user scope で入った commit（Claude Code の台帳 installed_plugins.json）。読めなければ None（照らせない）。"""
+    try:
+        raw = json.loads((config_dir() / "plugins" / "installed_plugins.json").read_text(encoding="utf-8")).get("plugins")
     except (OSError, ValueError, AttributeError):
-        return {}
+        return None
+    if not isinstance(raw, dict):
+        return None
     out = {}
     for k, recs in raw.items():
         for rec in recs if isinstance(recs, list) else []:
@@ -95,11 +110,12 @@ def installed_commits() -> dict[str, str]:
     return out
 
 
-def stale(names: list[str], market: str, head: str | None) -> list[str]:
-    """入った commit が目録の写しの先端と違う plugin（入っていない物は数えない＝enabled の照らしが拾う）。"""
-    if not head:
-        return []
+def stale(names: list[str], market: str, head: str | None) -> list[str] | None:
+    """入った commit が目録の写しの先端と違う plugin（入っていない物は数えない＝enabled の照らしが拾う）。
+    先端か台帳が読めなければ None（照らせない＝黙って 0 本にしない）。"""
     got = installed_commits()
+    if not head or got is None:
+        return None
     return [n for n in names if f"{n}@{market}" in got and got[f"{n}@{market}"] != head]
 
 
@@ -135,7 +151,8 @@ def main() -> int:
         notice(f"土台の plugin を入れられなかった: {e}。核と守りの hook がこの窓で効いていない。最初にオーナーへ知らせる。")
         print(f"✗ {e} {ROOT_CAUSE}")
         return 2
-    claude("plugin", "marketplace", "update", market)  # 作り置きの容器に残った古い目録の写しを main の先端へ進める
+    # 作り置きの容器に残った古い目録の写しを main の先端へ進める。進められなければ照らせない（古い先端と照らして揃う）
+    upd = claude("plugin", "marketplace", "update", market)
     try:
         market, names = catalog()  # 進んだ写しの配りの器を読み直す（土台が足した plugin も入る）
     except ValueError as e:
@@ -146,10 +163,16 @@ def main() -> int:
     for n in names:
         claude("plugin", "install", f"{n}@{market}", "--scope", "user")
         claude("plugin", "update", f"{n}@{market}")  # 前の setup で入った古い物を main の先端へ追いつかせる
-    for n in stale(names, market, head):  # update が動かなくても、入った commit が先端と違えば入れ直す
+    for n in stale(names, market, head) or []:  # update が動かなくても、入った commit が先端と違えば入れ直す
         claude("plugin", "uninstall", f"{n}@{market}", "--scope", "user")
         claude("plugin", "install", f"{n}@{market}", "--scope", "user")
-    old = stale(names, market, head)
+    got = stale(names, market, head)
+    old = got or []
+    # 照らせない形（欠けた材料）は、手元の dir から足した試しの外では黙って緑にせず名指しして止める
+    blind = [] if trial(market) else [why for bad, why in (
+        (upd is None or upd.returncode != 0, "目録の写しを main の先端へ進められなかった（marketplace update が失敗）"),
+        (not head, "目録の写しの先端の commit が引けない（写しが git でないか壊れた）"),
+        (head and got is None, "入った commit の台帳（installed_plugins.json）が読めない")) if bad]
     have = enabled()
     lack = [n for n in names if f"{n}@{market}" not in have]
     says = []
@@ -159,14 +182,19 @@ def main() -> int:
     if old:
         says.append(f"土台の plugin が入れ直しても目録の先端（{head[:12]}）に揃わない: {' '.join(old)}（目録 {market}）。"
                     "その plugin は古い版の決まりと守りの hook で動く。")
+    if blind:
+        says.append(f"土台の plugin が新しい版かを照らせない: {'・'.join(blind)}（目録 {market}）。古い版の決まりと守りの hook で"
+                    "動いているかもしれない。")
     notice(" ".join(says) + "最初にオーナーへ知らせる。" if says else None)
     save_state({"entry": "scripts/setup_plugins.py", "market": market, "plugins": names, "missing": lack, "stale": old,
-                "commit": head, "at": time.strftime("%Y-%m-%dT%H:%M:%S%z")})
+                "blind": blind, "commit": head, "at": time.strftime("%Y-%m-%dT%H:%M:%S%z")})
     bad = lack + [n for n in old if n not in lack]
-    if not head:
+    if not head and not blind:
         print("⚠ 目録の写しが git でない＝入った commit を照らせない（手元の dir から足した試し）")
+    for why in blind:
+        print(f"✗ 照らせない: {why} {ROOT_CAUSE}")
     print(("✗ 入っていないか古い: " + " ".join(bad) + " " + ROOT_CAUSE) if bad else f"✅ 土台の plugin {len(names)} 本が入った")
-    return 1 if bad else 0
+    return 1 if bad or blind else 0
 
 
 if __name__ == "__main__":
