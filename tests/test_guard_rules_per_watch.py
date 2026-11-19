@@ -155,7 +155,8 @@ def test_見張りの無い直し方の_file_は赤(copy):
 def test_既定は皆の鍵と各見張りの_VALUES_から組む(copy):
     G = _common(GUARD)
     assert G.DEFAULTS["context_limit"] == 300_000 and G.DEFAULTS["state_dir"].endswith("af-guard")
-    _edit(copy / "scripts" / "context_size.py", '{"context_limit": 300_000}', '{"context_limit": 123}')
+    assert G.DEFAULTS["context_stop_max"] == 2 and G.DEFAULTS["ask_prior_lookup"] == []
+    _edit(copy / "scripts" / "context_size.py", '"context_limit": 300_000,', '"context_limit": 123,')
     assert _common(copy).DEFAULTS["context_limit"] == 123
     _common(GUARD)
 
