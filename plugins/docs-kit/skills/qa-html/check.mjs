@@ -503,8 +503,7 @@ export function readHtml(raw) {
       tableRows: knownTables.reduce((n, t) => n + (t[0].match(/<tr\b/gi) ?? []).length, 0),
       options: opts,
       choices: inputs.length || sel.length,
-      // 入力の欄（数・日付など）が在れば、それも答えの 1 つ（「当てはまらない」1 つと数の欄で足りる）
-      oneChoice: !freeInputs.some((t) => /^<input\b/i.test(t)) && ((inputs.length > 0 && inputs.length < 2) || (!inputs.length && sel.length === 1)),
+      oneChoice: (inputs.length > 0 && inputs.length < 2) || (!inputs.length && sel.length === 1),
       freeInput: freeInputs.length > 0,
       numberInput: freeInputs.some((t) => /\btype\s*=\s*["']?number\b/i.test(t)),
       // radio と入力の欄は required で送れなくする。checkbox は required にすると「その 1 つを必ず選ぶ」になる＝型の JS が見る
@@ -574,7 +573,7 @@ export function readJson(data) {
         tableRows: table.length,
         options,
         choices: options.length,
-        oneChoice: options.length === 1 && !["text", "date", "month", "number"].includes(q.input),
+        oneChoice: options.length === 1,
         freeInput: ["text", "date", "month", "number"].includes(q.input),
         numberInput: q.input === "number",
         required: true, // 型の側が付ける
@@ -747,13 +746,13 @@ export function checkPage(page, { valuesPath = null, prior = null } = {}) {
     const num = rx("number_ask").exec(asked);
     if (num && !(q.kind === "fact" && q.numberInput))
       red.push(`${id}: 数を書かせる問い「${num[0]}」（資料から計算できる数は候補を並べて「どちらが正しいですか」にする・資料の外にしか無い数だけ data-kind="fact" と数を打つ欄 type="number" で聞く）`);
-    if (q.kind === "fact" && q.numberInput && !q.known.length) red.push(`${id}: 資料の外の数を聞くなら、見つけた事に探した資料と、どこにも無い事を書く`);
     const conf = rx("confirm").exec(asked);
     if (conf && q.kind !== "mismatch") red.push(`${id}: 「${conf[0]}」は資料どうしが食い違う時だけ（data-kind="mismatch"）`);
     const sym = rx("symbol_ref").exec(asked);
     if (sym) red.push(`${id}: 記号「${sym[0]}」で選択肢を指している（中身の言葉で書く）`);
 
-    if (q.oneChoice) red.push(`${id}: 選択肢が 1 つだけ（「分からない」の外に 2 つ以上）`);
+    // 選択肢 1 つでよいのは、資料の外にしか無い数を数の欄で聞く時だけ（「当てはまらない」1 つと数の欄で答えが決まる）
+    if (q.oneChoice && !(q.kind === "fact" && q.numberInput)) red.push(`${id}: 選択肢が 1 つだけ（「分からない」の外に 2 つ以上）`);
     if (!q.choices && !q.freeInput) red.push(`${id}: 答える欄が無い`);
     if (!q.required) red.push(`${id}: 答えずに送れる（最初の選択肢か入力の欄に required を付ける）`);
     if (q.checkboxRequired) red.push(`${id}: checkbox に required を付けない（その 1 つを選ばないと送れなくなる）`);

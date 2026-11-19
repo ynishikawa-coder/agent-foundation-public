@@ -846,3 +846,19 @@ def test_資料の外にしか無い数は事実の問いの数の欄でだけ�
     for i, (kind, input_) in enumerate([("fact", "text"), ("fact", None), ("judge", "number")]):
         red = _json_page(tmp_path, _overtime(kind, input_), f"q{i}.json")
         assert any(r.startswith("問い q3: 数を書かせる問い「時間を教えて」") for r in red), (kind, input_, red)
+
+
+@needs_node
+def test_選択肢_1_つは資料の外の数の欄の時だけ(tmp_path):
+    """数の欄を足した問いの選択肢 1 つを、ほかの形・ほかの欄へ広げない（レビューで見つけた穴の注入）。"""
+    def one(kind, input_):
+        def m(q):
+            q.update(kind=kind, why="missing", options=[NONE_OPT] if kind == "fact" else [q["options"][0]])
+            q.pop("estimate", None)
+            if input_:
+                q["input"] = input_
+        return m
+    assert _json_page(tmp_path, _overtime("fact", "number")) == []
+    for i, (kind, input_) in enumerate([("choose", "text"), ("judge", "text"), ("judge", "number"), ("fact", "text"), ("fact", "date")]):
+        red = _json_page(tmp_path, one(kind, input_), f"o{i}.json")
+        assert any(r.startswith("問い q3: 選択肢が 1 つだけ") for r in red), (kind, input_, red)
