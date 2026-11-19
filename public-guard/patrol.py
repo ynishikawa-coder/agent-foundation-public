@@ -67,13 +67,26 @@ def top_block(text: str, key: str) -> list[str]:
     return out
 
 
+def local_step(text: str) -> set[str]:
+    """`uses: ./public-guard` の step の中の行（字下げが step の `-` より深い間）。"""
+    lines, out = body_lines(text), set()
+    for i, ln in enumerate(lines):
+        if LOCAL_CALL.search(ln):
+            dash = len(ln) - len(ln.lstrip(" -"))  # uses の字の位置
+            for nxt in lines[i + 1:]:
+                if len(nxt) - len(nxt.lstrip(" ")) < dash:
+                    break
+                out.add(nxt.strip())
+    return out
+
+
 def foundation_drift(ci_text: str, template: str) -> list[str]:
     """土台の ci.yml が雛形の on・permissions と with の行を全部持つか（土台は自分の枝の action を呼ぶので全文は比べない）。"""
-    have = set(body_lines(ci_text))
     probs = [f"{k}: が雛形と違う" for k in ("on", "permissions") if top_block(ci_text, k) != top_block(template, k)]
     tl = body_lines(template)
     withs = [ln.strip() for ln in tl[tl.index(next(x for x in tl if x.strip() == "with:")) + 1:]]
-    missing = [w for w in withs if not any(h.strip() == w for h in have)]
+    step = local_step(ci_text)
+    missing = [w for w in withs if w not in step]
     if missing:
         probs.append("job public-guard に雛形の with の行が無い: " + "・".join(f"`{m.split(':')[0]}`" for m in missing))
     return probs

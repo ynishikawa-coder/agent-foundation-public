@@ -39,6 +39,7 @@ import subprocess
 import sys
 import unicodedata
 import urllib.error
+import urllib.parse
 import urllib.request
 from pathlib import Path
 
@@ -172,7 +173,8 @@ def source_of(owner: str | None) -> dict | None:
 
 def fetch_source_text(src: dict, token: str) -> str:
     """正本の置き場から束の 1 行を読む（GitHub の contents API・読むだけの鍵）。"""
-    url = f"{API}/repos/{src['repo']}/contents/{src['path']}?ref={src['ref']}"
+    q = urllib.parse.quote
+    url = f"{API}/repos/{q(src['repo'], safe='/')}/contents/{q(src['path'], safe='/')}?ref={q(src['ref'], safe='')}"
     req = urllib.request.Request(url)
     req.add_header("Accept", "application/vnd.github.raw")
     req.add_header("User-Agent", "public-guard")
@@ -464,11 +466,17 @@ def main(argv=None) -> int:
     except SourceError as e:
         print(f"✗ {e}")
         return e.code
-    try:
-        env_bundle()
-    except ValueError as e:
-        print(f"✗ AF_DENY_BUNDLE の形が違う（pct1.<鍵>.<束> の 1 行）: {e}")
-        return 2
+    if bundle is None:  # 正本を読めた時は写しを使わない＝写しの形も問わない
+        try:
+            env_bundle()
+        except ValueError as e:
+            print(f"✗ AF_DENY_BUNDLE の形が違う（pct1.<鍵>.<束> の 1 行）: {e}")
+            return 2
+    if customer_source_missing() and a.text is not None:
+        # 出す前の文は顧客の語を出さないための道なので、材料が欠けたら緑にしない（手元でも）
+        print("✗ 顧客の語が渡っていないので出す前の文を照らせない（AF_DENY_SOURCE_TOKEN か AF_DENY_BUNDLE を環境に。"
+              "語の表と形の照らしだけで緑にしない）")
+        return 1
     if customer_source_missing():
         if in_ci():
             print(f"✗ 顧客の語がどこからも渡っていない（{CUSTOMER_HINT}）")
