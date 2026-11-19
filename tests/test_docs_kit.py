@@ -751,7 +751,9 @@ REC_HTML_RED = [
 @pytest.mark.parametrize("name, dest, mutate, expect", REC_HTML_RED, ids=[m[0] for m in REC_HTML_RED])
 def test_推奨の印の付け方が崩れると赤(tmp_path, name, dest, mutate, expect):
     red = _rec_page(tmp_path, dest, mutate)
-    assert len(red) == 1 and red[0].startswith(expect), (name, red)
+    # 入口の止め（書き方の赤）は 1 つの書き方に幾つか重なってよい。印の付け方の赤は、その 1 つだけ
+    hits = [r for r in red if r.startswith(expect)]
+    assert hits and (len(red) == 1 or all(not r.startswith("問い ") for r in red)), (name, red)
 
 
 @needs_node
@@ -781,6 +783,10 @@ REC_HIDE = [
     ("small の中の small に印", lambda r: _mark(0)(r).replace(REC, "", 1).replace('</small></span></label>', REC + '</small></span></label>', 1),
      "<small> の中に <small> を入れない"),
     ("label の中の label の後に印", lambda r: _mark(0)(r).replace(REC, "<label></label>" + REC, 1), "<label> の中に <label> を入れない"),
+    ("値の中の </label> と > で印を隠す", lambda r: _mark(0)(r).replace(REC, '<span data-x="</label>"></span><small title=">" class="rec">理由</small>', 1),
+     "属性「data-x」の値に < > を書かない"),
+    ("class の NBSP の区切り", lambda r: _mark(0)(r).replace('<small class="rec">', '<small class="x\u00a0rec">', 1),
+     "class の値は半角英数字"),
     ("</ と空白の崩れたタグ", lambda r: _mark(0)(r).replace(REC, '</ x <!-- >' + REC + '<!-- -->', 1), "検査が読めない < の書き方"),
 ]
 

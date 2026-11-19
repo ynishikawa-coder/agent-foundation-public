@@ -325,6 +325,8 @@ const WS = "[ \\t\\n\\f\\r]";
 // 型の外の字の並びを、検査が読み切れる書き方だけにする（読みの道筋を 1 つ: 検査はページを正規表現で読むので、
 //   ブラウザと読みが分かれる書き方を入口で止める）。通すのは: 先頭の <!doctype html>・ふつうのコメント <!-- … -->・
 //   決まった形の開きタグ（属性は空白で区切り値は引用符で囲む）・閉じタグ </名>。textarea・title の中に < を書かない。
+// class に rec を持つか（区切りは HTML の空白だけ＝ブラウザと同じ・印の読みはこの 1 つ）
+const hasRec = (tag) => /(?:^|[ \t\n\f\r])rec(?:[ \t\n\f\r]|$)/.test(attr(tag, "class") ?? "");
 function tokenReds(outside) {
   const red = [];
   if (!/^\uFEFF?[ \t\n\f\r]*<!doctype html>/i.test(outside)) red.push("先頭に <!doctype html> が要る（無いとブラウザが古い読み方になり、class の大小を区別しない）");
@@ -374,6 +376,8 @@ function allowlistReds(outside) {
       //   ＝検査の読み（attr・class）がブラウザと同じ値を読むように、読みが分かれる書き方を入口で止める
       if (a[2] != null && /^["']/.test(a[2])) {
         if (/\s[A-Za-z_:][-A-Za-z0-9_:.]*\s*=/.test(val)) red.push(`属性「${name}」の値の中に「名=」の形を書かない（検査とブラウザで読む属性が分かれる）: ${show}`);
+        if (/[<>]/.test(val)) red.push(`属性「${name}」の値に < > を書かない（検査がタグとして読み、ブラウザと中身の切り方が分かれる）: ${show}`);
+        if (name === "class" && !/^[A-Za-z0-9_ -]*$/.test(val)) red.push(`class の値は半角英数字・_・- と空白だけ（区切りの読みを検査とブラウザでそろえる）: ${show}`);
         if (/&(?!(?:nbsp|lt|gt|quot|amp|#39);)(?:#|[A-Za-z][A-Za-z0-9]*;)/.test(val)) red.push(`属性「${name}」の値に文字参照（&#…; など）を書かない（字のまま書く）: ${show}`);
       }
       if (name in attrs) red.push(`同じ属性「${name}」が 2 回ある（ブラウザは前の値を使う）: ${show}`);
@@ -489,7 +493,7 @@ export function readHtml(raw) {
       const b = /<b\b[^>]*>([\s\S]*?)<\/b>/i.exec(o[1]);
       const smalls = [...o[1].matchAll(/<small\b[^>]*>([\s\S]*?)<\/small>/gi)];
       const chg = smalls.find((x) => /\bclass\s*=\s*["'][^"']*\bchg\b/i.test(x[0]));
-      const recs = smalls.filter((x) => /(?:^|\s)rec(?:\s|$)/.test(attr(x[0], "class") ?? ""));
+      const recs = smalls.filter((x) => hasRec(x[0]));
       const small = smalls.find((x) => x !== chg && !recs.includes(x));
       return {
         value: attr(inp, "value"),
@@ -568,7 +572,7 @@ export function readHtml(raw) {
   const gleadIn = questions.reduce((n, q) => n + q.gleads.length, 0);
   if (gleadAll !== gleadIn) shape.push(`まとまりの 1 行（.glead）が問いの箱の外に ${gleadAll - gleadIn} つある（説明を問いの間に挟まない）`);
   // 推奨の印はページ全体で数え、問いの選択肢の決まった所で読めた数と合わなければ赤（問いの外・選択肢の外に置いて判定を逃れさせない）
-  const recAll = [...html.matchAll(/<[A-Za-z][A-Za-z0-9-]*\b[^>]*>/g)].filter((t) => /(?:^|[ \t\n\f\r])rec(?:[ \t\n\f\r]|$)/.test(attr(t[0], "class") ?? "")).length;
+  const recAll = [...html.matchAll(/<[A-Za-z][A-Za-z0-9-]*\b[^>]*>/g)].filter((t) => hasRec(t[0])).length;
   const recRead = questions.reduce((n, q) => n + q.options.reduce((k, o) => k + (o.recCount ?? 0), 0), 0);
   if (recAll !== recRead) shape.push(`推奨の印（class="rec"）が問いの選択肢（label.opt の中の small）の外に在る（ページに ${recAll}・選択肢の中に ${recRead}）`);
   return { format: "html", version, dest, holes, shape, brand, docs, hold, texts: [...visible, ...attrTexts], estTexts, questions };
