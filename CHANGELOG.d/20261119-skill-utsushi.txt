@@ -1,0 +1,1 @@
+- 畳んだ: verify の完了の 4 状態の名を英語（Completed／Partially Completed／Stopped／Failed）から核 §7 の名（終わった／一部／止めた／続けられない）にそろえた。preimpl-cleanup の SKILL.md と整地受領証の型から、細目 §3 の中身（原因を探す所・誤りが入れない形・行き先・一時しのぎ）の写しを畳み、細目 §3 を指す形にした（4 欄の書き方と 5 つの穴は skill に固有なので残す）。

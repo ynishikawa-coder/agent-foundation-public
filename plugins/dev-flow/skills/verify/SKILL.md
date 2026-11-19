@@ -16,7 +16,7 @@ repo ごとに違う値は、repo の根（`git rev-parse --show-toplevel`）の
 | `completion_sop` | 上位の完了判定の正本 | 無し |
 | `report_writer` | Completion Report を書く役（書かない窓） | この窓が書く |
 | `report_place` | Completion Report の置き場の決まり | 会話の返事の中 |
-| `learning_record` | Stopped / Failed の学びの書き先 | 各社の CLAUDE.md が名指す原因の台帳の行 |
+| `learning_record` | 止めた・続けられない の学びの書き先 | 各社の CLAUDE.md が名指す原因の台帳の行 |
 
 ## 範囲（クラウドが主）
 
@@ -54,29 +54,29 @@ repo ごとに違う値は、repo の根（`git rev-parse --show-toplevel`）の
 
 ## 2. 終わる前（Completion Report）
 
-1. **4 状態で機械的に判定**: Completed / Partially Completed / Stopped / Failed（定義の正本は核 §7・細目 §7、上位の完了判定は表の `completion_sop`＝在る時だけ）。Completion Criteria を 1 項目ずつ yes/no で照らす。「概ね完了」「総合的に見て」は書かない。
-2. **一時しのぎを含めば Partially**（当て物を含んで Completed にしない）。抜け・不一致・一時しのぎは戻すだけで済ませず、細目 §3「まず構造を疑う」で原因を探して原因の台帳に行き先つきで持つ（恒久の対応も原因の台帳の行にする）。
+1. **4 状態で機械的に判定**: 終わった／一部／止めた／続けられない（定義の正本は核 §7・細目 §7、上位の完了判定は表の `completion_sop`＝在る時だけ）。Completion Criteria を 1 項目ずつ yes/no で照らす。「概ね完了」「総合的に見て」は書かない。
+2. **一時しのぎを含めば 一部**（当て物を含んで 終わった にしない）。抜け・不一致・一時しのぎは戻すだけで済ませず、細目 §3「まず構造を疑う」で原因を探して原因の台帳に行き先つきで持つ（恒久の対応も原因の台帳の行にする）。
 3. **設計と実物の差分を必ず書く**（無ければ「差分なし」と項目名つきで）。差分は「[改修] <案件>: 設計は X → 実物は Y（<設計書 path/版>）」の 1 行で原因の台帳の行にする。
 4. **確かめは申告でなく記録で見る**（核 §7・細目 §7）: Verification Results の各行に、真実源（§1 の表）を読んだ記録（試験の結果・正しい道の証明・取り直した出力・本番 URL の HTTP 実測）の所在を書く。記録の無い行（「確認した」「OK だった」の申告だけ）は Unverified Items へ回す。UI を変えたゴールは主要導線の実ブラウザ完走・console/network の重大エラー 0・空/エラー/読み込み中の状態・SP=375 を含む画面幅を足す（Playwright か Claude-in-Chrome）。
 5. MCP も直接の手段も無い時は人が運ぶ（逐語のコピペか原画像が記録。人の「確認 OK」の要約は申告）。
-6. **根治の仕事は原因の台帳を引いて決める**（細目 §7「根治の終わり」）: その仕事の行が全部 `直した` か `直さない` の時だけ Completed。`直す窓` の行が残れば Partially（残りの行と直す窓の URL を書く）。引いた結果（行の数と行き先ごとの数）を Verification Results の記録に付ける。
+6. **根治の仕事は原因の台帳を引いて決める**（細目 §7「根治の終わり」）: その仕事の行が全部 `直した` か `直さない` の時だけ 終わった。`直す窓` の行が残れば 一部（残りの行と直す窓の URL を書く）。引いた結果（行の数と行き先ごとの数）を Verification Results の記録に付ける。
 
 ```markdown
 # Goal Completion Report — <タスク名>
-## Goal Status: Completed / Partially Completed / Stopped / Failed
+## Goal Status: 終わった／一部／止めた／続けられない
 ## Completed Criteria / Unmet Criteria（未達は何が・なぜ）
 ## 設計と実物の差分
 ## Verification Results（Check｜Status｜真実源｜記録の所在）
 ## Unverified Items（確かめられなかった物と理由・無ければ「なし」）
-## Runtime Stop Conditions Triggered（Stopped の時だけ）
+## Runtime Stop Conditions Triggered（止めた の時だけ）
 ## オーナーの業務がどう変わったか（真の完了条件）
 ```
 
-置き場は表の `report_place`。締めは核 §5 の 2 行（AI がこの後やること／あなたがやること）。Stopped / Failed の時は、学びを表の `learning_record` へ（無ければ各社の原因の台帳の行にする＝細目 §3・核 §8。返事の中だけに置かない）。
+置き場は表の `report_place`。締めは核 §5 の 2 行（AI がこの後やること／あなたがやること）。止めた・続けられない の時は、学びを表の `learning_record` へ（無ければ各社の原因の台帳の行にする＝細目 §3・核 §8。返事の中だけに置かない）。
 
 ## やりがちな間違い
 
 1. ❌ 「実装完了」を信じて即着手 → ✅ 着手前に 1 度確かめる
-2. ❌ 「概ね完了」「全体としては OK」 → ✅ 4 状態のどれかで書き、Partially なら未達を並べる
+2. ❌ 「概ね完了」「全体としては OK」 → ✅ 4 状態のどれかで書き、一部 なら未達を並べる
 3. ❌ 確かめられなかった物・申告だけの物を「確認済」に丸める → ✅ Unverified Items に書く
-4. ❌ Stopped を Completed に丸める → ✅ Runtime Stop Conditions に当たれば Stopped
+4. ❌ 止めた を 終わった に丸める → ✅ Runtime Stop Conditions に当たれば 止めた
