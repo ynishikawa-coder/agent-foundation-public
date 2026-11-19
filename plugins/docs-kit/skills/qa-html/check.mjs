@@ -338,6 +338,16 @@ function tokenReds(outside) {
     if (open.test(at) || /^<[A-Za-z][A-Za-z0-9-]*(?:"[^"]*"|'[^']*'|[^'">])*>/.test(at) || /^<\/[A-Za-z][A-Za-z0-9-]*[ \t\n\f\r]*>/.test(at) || /^<!--(?:>|->)/.test(at)) continue;
     red.push(`検査が読めない < の書き方（<? <! </ の崩れ・閉じないコメント・崩れたタグ）: ${at.slice(0, 40)}`);
   }
+  // 検査が中身を切る要素（選択肢の label・印や変わる事の small）は入れ子にしない＝検査は最初の閉じタグで切るので、
+  //   入れ子にすると検査とブラウザで「どの選択肢・どの欄の中か」が分かれる
+  for (const t of ["label", "small"]) {
+    let depth = 0;
+    for (const m of rest.matchAll(new RegExp(`<(/?)${t}(?=[ \\t\\n\\f\\r/>])`, "gi"))) {
+      depth += m[1] ? -1 : 1;
+      if (depth > 1) { red.push(`<${t}> の中に <${t}> を入れない（検査とブラウザで中身の切り方が分かれる）`); break; }
+      if (depth < 0) depth = 0;
+    }
+  }
   return red;
 }
 
@@ -557,6 +567,10 @@ export function readHtml(raw) {
   const gleadAll = byClass(html, "glead").length;
   const gleadIn = questions.reduce((n, q) => n + q.gleads.length, 0);
   if (gleadAll !== gleadIn) shape.push(`まとまりの 1 行（.glead）が問いの箱の外に ${gleadAll - gleadIn} つある（説明を問いの間に挟まない）`);
+  // 推奨の印はページ全体で数え、問いの選択肢の決まった所で読めた数と合わなければ赤（問いの外・選択肢の外に置いて判定を逃れさせない）
+  const recAll = [...html.matchAll(/<[A-Za-z][A-Za-z0-9-]*\b[^>]*>/g)].filter((t) => /(?:^|[ \t\n\f\r])rec(?:[ \t\n\f\r]|$)/.test(attr(t[0], "class") ?? "")).length;
+  const recRead = questions.reduce((n, q) => n + q.options.reduce((k, o) => k + (o.recCount ?? 0), 0), 0);
+  if (recAll !== recRead) shape.push(`推奨の印（class="rec"）が問いの選択肢（label.opt の中の small）の外に在る（ページに ${recAll}・選択肢の中に ${recRead}）`);
   return { format: "html", version, dest, holes, shape, brand, docs, hold, texts: [...visible, ...attrTexts], estTexts, questions };
 }
 

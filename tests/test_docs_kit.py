@@ -778,6 +778,9 @@ REC_HIDE = [
      "<textarea> の中に < を書かない"),
     ("<? で始めた崩れたコメント", lambda r: _mark(0)(r).replace(REC, '<?x <!-- ?>' + REC + '<!-- -->', 1), "検査が読めない < の書き方"),
     ("<! で始めた崩れたコメント", lambda r: _mark(0)(r).replace(REC, '<!x <!-- >' + REC + '<!-- -->', 1), "検査が読めない < の書き方"),
+    ("small の中の small に印", lambda r: _mark(0)(r).replace(REC, "", 1).replace('</small></span></label>', REC + '</small></span></label>', 1),
+     "<small> の中に <small> を入れない"),
+    ("label の中の label の後に印", lambda r: _mark(0)(r).replace(REC, "<label></label>" + REC, 1), "<label> の中に <label> を入れない"),
     ("</ と空白の崩れたタグ", lambda r: _mark(0)(r).replace(REC, '</ x <!-- >' + REC + '<!-- -->', 1), "検査が読めない < の書き方"),
 ]
 
@@ -787,6 +790,15 @@ REC_HIDE = [
 def test_印を検査から隠す書き方は赤(tmp_path, name, mutate, expect):
     red = _rec_page(tmp_path, "send", mutate)
     assert red and red[0].startswith(expect), (name, red)
+
+
+@needs_node
+def test_問いの外の印は赤(tmp_path):
+    page = tmp_path / "確認.html"
+    page.write_text(filled_template("send").replace('<input type="hidden" name="__受付番号__" value="">',
+                    '<input type="hidden" name="__受付番号__" value=""><label class="opt"><span><b>x</b>' + REC + '</span></label>', 1), encoding="utf-8")
+    red = run_check(page)["red"]
+    assert any(r.startswith("推奨の印（class=\"rec\"）が問いの選択肢") for r in red), red
 
 
 @needs_node
