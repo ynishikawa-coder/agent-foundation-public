@@ -4,6 +4,7 @@
   guard.py pre    … PreToolUse:  irreversible（離席中の戻せない操作）＋ paid_upstream（試験から有料の上流）
                                 ＋ qa_page（問いのページを Artifact で出す前の qa-html の検査）
                                 ＋ ask_shape（選択肢の画面の問いの形: 題の長さ・中の言葉・話題の混ざり・推奨の印の付け方）
+                                ＋ pick_one（選択肢の画面で作業・論点・原因を 1 つだけ選ばせる問い）
                                 ＋ values_keys（値の表に土台が読まない鍵を残す書き込み）
   guard.py post   … PostToolUse: unanswered の capture（答えの無い問いの台帳）＋ context_size（文脈の量）
   guard.py start  … SessionStart: unanswered の resurface（持ち越した問いの出し直し）＋ values_keys（値の表の知らない鍵の知らせ）
@@ -36,7 +37,7 @@ def _run(module, func, data, vals):
 
 
 WATCHERS = {
-    "pre": [("irreversible", "check"), ("paid_upstream", "check"), ("qa_page", "check"), ("ask_shape", "check"), ("values_keys", "check")],
+    "pre": [("irreversible", "check"), ("paid_upstream", "check"), ("qa_page", "check"), ("ask_shape", "check"), ("pick_one", "check"), ("values_keys", "check")],
     "post": [("unanswered", "capture"), ("context_size", "check")],
     "start": [("unanswered", "resurface"), ("values_keys", "resurface")],
 }

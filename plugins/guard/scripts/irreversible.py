@@ -26,6 +26,7 @@ import tempfile
 import guard_common as G
 import unanswered as UQ
 
+STEMS_SHOWN = 3   # 止めの文に載せる閉じた問いの数（越えた分は「ほか N 件」と置き場を出す）
 RM_WHY = "git で戻せない再帰の削除"
 _RM = re.compile(r"-[a-zA-Z]*[rR][a-zA-Z]*|--recursive")
 _BASH = [
@@ -238,7 +239,10 @@ def check(data, vals):
         UQ.close_away(session_id)
         return ""
     qs = win.get("questions") or []
-    stems = " / ".join("「%s」" % str(q)[:48] for q in qs[:3]) or "(問いの控えなし)"
+    stems = " / ".join("「%s」" % str(q)[:48] for q in qs[:STEMS_SHOWN]) or "(問いの控えなし)"
+    if len(qs) > STEMS_SHOWN:
+        stems += "（ほか %d 件。全部は離席の印 %s と台帳 %s）" % (
+            len(qs) - STEMS_SHOWN, UQ.away_path(session_id), UQ.ledger_path(vals, data) or "(置き場を決められず)")
     return (
         "答えを聞けないまま閉じた問いが %d 件あり、オーナーは席を外しているとみなしています。"
         "その間は戻せない操作（%s）を行いません。\n"
