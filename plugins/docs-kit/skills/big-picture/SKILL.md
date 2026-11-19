@@ -34,7 +34,7 @@ HTML の型は `references/template.html`（手で直さない・外の物を読
 | `meta.drawn_from`・`meta.drawn_by` | 文字列 | 実物を描いた元（`<repo>@<SHA12>`）と描いた窓（`実物` に要る） |
 | `tabs.<ctx｜flow｜arch>` | `{w, h, lanes?, areas?}` | 1. 全体の文脈／2. ワークフロー／3. 仕組みの構成。4. 決めた事と意図 は箱から自動で表にする。`lanes`＝`[{t, y, h}]`（流れの帯）・`areas`＝`[{t, k, x, y, w, h}]`（共通と個別の点線の枠） |
 | `boxes[]` | `{id, tab, t, k, side, role?, x, y, w, h, what, why, intent}` | `k`＝`owner`（人）・`ai`（AI の窓）・`part`（部品）・`store`（置き場・記録）・`ext`（外の物）。`what`＝何か・`why`＝記録にある理由（AI の文・出所つき）・`intent`＝**オーナーの意図（聞いた物だけ・聞いていなければ `null`）** |
-| `arrows[]` | `{from, to, label?}` | 同じタブの箱どうし |
+| `arrows[]` | `{from, to, label?}` | 同じタブの箱どうし。箱の間でコードが実際に配る・呼ぶ・読む流れは全部描く（代表の 1 本で済ませない＝照らす時に実物の絵と同じ粗さにするため） |
 | `problems[]` | `{id, title, date, at[], cause, via[], origin, why_here}` | 起きた問題の層（意図とは分ける）。`at`＝起きた所の箱・`cause`＝原因の箱・`via`＝原因から起きた所までの間の箱・`origin`＝`構造`／`単発`・`why_here`＝なぜここから起きたか |
 
 - **意図は作らない**: 意図はオーナーに問うしか得られない。記録から拾った理由は `why` に置き、`intent` は `null` のまま＝**赤い点**（check が「意図をまだ聞いていない」と 1 行ずつ出す）。記録の解決策を意図として書かない。意図を問う時は核 §4 の選択肢の画面で、前提を 1〜2 文・選択肢は短く・推奨の印なし・1 画面 2〜3 問。

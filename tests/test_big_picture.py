@@ -210,3 +210,24 @@ def test_review_pr_の点_13_が道具を指す():
     assert "| 13 全体の絵 |" in skill
     assert "big_picture.py compare" in skill and "docs/全体の絵.json" in skill
     assert "書いた窓の申告" in skill
+
+
+@pytest.mark.parametrize("mutate", [
+    lambda p: p.update(meta=[]), lambda p: p.update(boxes={}), lambda p: p["arrows"].append("a2>a3"),
+    lambda p: p.update(tabs=[]),
+])
+def test_形の崩れた_JSON_は落ちずに照らせないで止まる(tmp_path, mutate):
+    a = agreed()
+    mutate(a)
+    errs, _ = bp.check(a)
+    assert errs
+    r = run("compare", write(tmp_path, "a.json", a), write(tmp_path, "x.json", actual_from(agreed())))
+    assert r.returncode == 2 and "照らせない" in r.stdout, r.stdout + r.stderr
+
+
+def test_土台の絵は配りの器から全部の_plugin_へ流れを描く():
+    """代表の 1 本で済ませない（実物の絵と同じ粗さ）。plugin の箱は配りの器から全部繋がる。"""
+    pic = agreed()
+    parts = {b["id"] for b in pic["boxes"] if b["tab"] == "arch" and b["k"] == "part" and b["id"] != "a2"}
+    fed = {a["to"] for a in pic["arrows"] if a["from"] == "a2"}
+    assert parts <= fed, parts - fed

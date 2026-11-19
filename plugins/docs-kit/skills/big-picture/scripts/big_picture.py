@@ -50,6 +50,12 @@ def check(pic):
     errs, reds = [], []
     if not isinstance(pic, dict):
         return ["絵が JSON の object でない"], []
+    if not isinstance(pic.get("meta", {}), dict) or not isinstance(pic.get("tabs", {}), dict):
+        return ["meta か tabs が object でない"], []
+    for key in ("boxes", "arrows", "problems"):
+        v = pic.get(key, [])
+        if not isinstance(v, list) or not all(isinstance(x, dict) for x in v):
+            return ["%s が object の並びでない" % key], []
     if pic.get("form") != FORM:
         errs.append("form が %s でない" % FORM)
     meta = pic.get("meta") or {}
