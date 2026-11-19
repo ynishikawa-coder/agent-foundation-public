@@ -16,7 +16,7 @@
   - ##! で始まる行はメタ（人間向け）＝出力に含めない。
   - template/values は skill-root（このファイルの2つ上）基準で絶対解決（cwd 非依存）。
   - case.json に無いスロットは埋めない（欠落は非0で止まる）。止まった時は、repo ごとの値の表（repo の根の
-    config/skill-values.json の docs-kit.make-deck.case_defaults・読み口は同じ dir の skill_values.py）に在る値を
+    config/skill-values.json の docs-kit.make-deck.case_defaults・読み口は plugin の lib/skill_values.py＝土台の正本）に在る値を
     「case.json に書く見本」として stderr に出すだけ（黙って埋めない）。
   - 生成プロンプトは stdout に表示（人間確認）＋ --out に書く。--out 無しは表示のみ。
 
@@ -35,8 +35,9 @@ import os
 import re
 import sys
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import skill_values  # noqa: E402  同じ dir の読み口（repo ごとの値の表）
+sys.dont_write_bytecode = True
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "..", "lib"))
+import skill_values  # noqa: E402  値の表の 1 本の口（plugin の lib/＝土台の skill-values/ への symlink）
 
 # 止まる時の最後の行（中身は細目 §3 が正本＝ここは指すだけ）
 ROOT_CAUSE = "直し: 欠けを埋めて出し直すだけで済ませず、欠けた原因（材料の受け方・型の欄）を細目 §3「まず構造を疑う」で探して直す"
@@ -292,7 +293,11 @@ def main():
     if args.self_test:
         sys.exit(self_test())
     if args.cmd == "render":
-        sys.exit(cmd_render(args))
+        try:
+            sys.exit(cmd_render(args))
+        except skill_values.ValuesError as e:   # 知らない鍵・畳んだ鍵・型の違う値は名指しして止める（黙って既定で動かない）
+            sys.stderr.write(str(e) + "\n")
+            sys.exit(2)
     build_parser().print_help()
     sys.exit(0)
 

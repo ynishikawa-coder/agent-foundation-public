@@ -25,8 +25,10 @@ def old_words_left(olds):
     hits = []
     for p in sorted(ROOT.rglob("*")):
         rel = p.relative_to(ROOT)
-        # 古い形.json は使う側に残る古い形を見つける一覧＝古い名を持つのが役目（見つけ方の正しさは古い形の試験が照らす）
-        if rel.parts[0] in {".git", "tests"} or p == PLUGIN / "古い形.json":
+        # 古い形.json は使う側に残る古い形を見つける一覧＝古い名を持つのが役目（見つけ方の正しさは古い形の試験が照らす）。
+        # 値の表の鍵の一覧（skill-values/schema.json と plugin の lib/ の symlink）も畳んだ鍵を名指す所（retired）なので同じ
+        if rel.parts[0] in {".git", "tests"} or p == PLUGIN / "古い形.json" or p.name == "schema.json" and (
+                rel.parts[0] == "skill-values" or "lib" in rel.parts):
             continue
         if p.is_file() and p.suffix in {".md", ".py", ".json", ".mjs", ".html"}:
             text = p.read_text(encoding="utf-8")
@@ -117,7 +119,7 @@ def test_plugin_を入れる行は綴りが違っても古い形に当たる(lin
 
 
 def test_入口を呼ぶ_setup_は古い形に当たらない():
-    """入口 scripts/setup_plugins.py を通る形（docs の 3 行）は、目録を足していても古い形ではない。"""
+    """入口 scripts/setup_plugins.py を通る形（docs の塊）は、目録を足していても古い形ではない。"""
     row = next(r for r in kaku.olds_table() if r["id"] == "plugin-name-copy")
     doc = (ROOT / "docs" / "核の届け方.md").read_text(encoding="utf-8")
     block = re.search(r"<!-- setup-script.*?-->\s*```bash\n(.*?)\n\s*```", doc, re.S).group(1)

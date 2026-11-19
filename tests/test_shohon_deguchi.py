@@ -61,7 +61,7 @@ def test_plugin_の_lib_は正本への_symlink():
     for p in links:
         target = p.resolve()
         assert target.is_file(), p
-        assert target.parent in (SHARED, ROOT / "public-guard", ROOT / "plugins" / "session-watch" / "scripts"), p
+        assert target.relative_to(ROOT).parts[0] != "plugins", p      # 正本は plugin の外の土台の根に 1 つ
 
 
 @pytest.mark.parametrize("argv", [["--a", "1", "--a", "2"], ["--a=1", "--a", "2"], ["--alp", "1"]])
@@ -104,7 +104,7 @@ def test_Codex_のための物は残っていない():
     hits = []
     for base in (".claude-plugin", ".github", "plugins", "scripts", "public-guard", "shared", "docs"):
         for p in (ROOT / base).rglob("*"):
-            if p.name == "古い形.json":     # 使う側に残る Codex の物を名指す表（古い形の見本として名を持つ）
+            if p.name in ("古い形.json", "schema.json"):   # 使う側に残る Codex の物を名指す表（古い形・畳んだ鍵）
                 continue
             if p.is_file() and "__pycache__" not in p.parts and p.suffix in (".md", ".py", ".json", ".mjs", ".yml", ".txt"):
                 if re.search(r"codex", p.read_text(encoding="utf-8", errors="replace"), re.I):

@@ -67,6 +67,19 @@ def expected(repo: Path) -> dict:
 
 DOC = "docs/核の届け方.md"
 FOUNDATION = "ynishikawa-coder/agent-foundation-public"
+# クラウドの窓の道具 update_environment が setup script を運べる上限（1 行のバイト数は改行を除く）。超える行があると
+# AI の窓が環境に貼れない（2026-11-19 に 207・317 バイトの行で貼れず、人の手で貼った）。
+LINE_BYTES, MAX_LINES = 200, 100
+
+
+def over_limits(script: str) -> list[str]:
+    """setup script が道具の上限を超える所を名指す（空なら収まる）。"""
+    lines = script.splitlines()
+    bad = [f"{i} 行目が {n} バイト（上限 {LINE_BYTES}）" for i, n in
+           ((i, len(s.encode("utf-8"))) for i, s in enumerate(lines, 1)) if n > LINE_BYTES]
+    if len(lines) > MAX_LINES:
+        bad.append(f"{len(lines)} 行（上限 {MAX_LINES}）")
+    return bad
 
 
 def setup_block(repo: Path) -> str:
@@ -75,7 +88,11 @@ def setup_block(repo: Path) -> str:
     m = re.search(r"<!-- setup-script.*?-->\s*```bash\n(.*?)\n\s*```", text, re.S)
     if not m or FOUNDATION not in m.group(1):
         raise ValueError(f"{DOC} に setup script の塊（印 setup-script の次の bash・{FOUNDATION} を足す行）が無い")
-    return "\n".join(line.strip() for line in m.group(1).splitlines())
+    block = "\n".join(line.strip() for line in m.group(1).splitlines())
+    bad = over_limits(block)
+    if bad:
+        raise ValueError(f"{DOC} の setup script の塊が道具（update_environment）の上限を超え、AI の窓が貼れない: " + "・".join(bad))
+    return block
 
 
 def sh(args, env, timeout=300):

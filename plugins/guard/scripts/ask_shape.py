@@ -55,6 +55,15 @@ _REC_CANON = re.compile(r"\s*[(（]\s*(?:推奨|recommended)\s*[)）]\s*$", re.I
 # 「分からない」の選択肢: 見出しの頭がそれである物だけ（「不明点を先に洗う」「unknowns を洗う」は数えない）
 _DUNNO = re.compile(r"^\s*(?:(?:よく|まだ|今は)?\s*(?:分から|わから|判ら)(?:ない|ん|ず)|(?:分かり|わかり)ません|知らない|知りません"
                     r"|不明\s*(?:$|[(（])|unknown\s*(?:$|[(（])|(?:i\s+)?don'?t\s+know|not\s+sure)", re.I)
+
+
+def is_dunno(label):
+    """選択肢の見出しが「分からない」の選択肢か（細目 §4）。見分けの正本はこの 1 か所: session-watch の「分からない」の無い問いの
+    見張り（has_idk）も直に呼び、qa-html の型が出す「分からない」の見出し（check.mjs の RULES.unknown.label）もこれに当たる
+    （tests/test_doc_tool_values.py が照らす）。"""
+    return bool(_DUNNO.search(str(label or "")))
+
+
 _SENT = re.compile(r"[^。．？?！!]+[。．？?！!]*")
 # 送り仮名（置き場・作り物・取り扱い）を詰めて 1 語にする。助詞（の・を・が…）を挟む所は詰めない。
 _OKURI = re.compile(r"(?<=[一-龠々])(?:(?![のをがはにでともへやかよ])[ぁ-ゔ]){1,2}(?=[一-龠々])")
@@ -175,7 +184,7 @@ def _rec_findings(q):
     late = [lb for i, lb in marked if i != 0]
     if late:
         why.append("1 つ目でない選択肢に在る（%s）" % "・".join("「%s」" % lb[:20] for lb in late))
-    dunno = [lb for _, lb in marked if _DUNNO.search(lb)]
+    dunno = [lb for _, lb in marked if is_dunno(lb)]
     if dunno:
         why.append("「分からない」の選択肢に在る（%s）" % "・".join("「%s」" % lb[:20] for lb in dunno))
     return why

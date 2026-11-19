@@ -30,8 +30,8 @@
 （: under-coverage を self-test で赤にできるまで既定を縮めない＝端クリップ見逃しを防ぐ）。
 
 会社ごとの既定（--accent・--company・--logo を省いた時）: repo の根の config/skill-values.json の
-  docs-kit.make-deck.{accent, cover_company, cover_logo}（読み口は同じ dir の skill_values.py）。
-  表が無い・空なら中立の既定（DEFAULT_ACCENT・社名なし・ロゴなし）。
+  docs-kit.make-deck.{accent, cover_company, cover_logo}（読み口は plugin の lib/skill_values.py＝土台の正本）。
+  表が無い・鍵が無い・空なら中立の既定（DEFAULT_ACCENT・社名なし・ロゴなし）。知らない鍵・畳んだ鍵・型の違う値は名指しして止める。
 
 依存: PyMuPDF (import fitz)・numpy（透かし判定のラスタ解析）。日本語は MuPDF 内蔵 CJK "japan"。
       うまく出ない環境は --font <日本語TTF/TTC path> で差し替え。
@@ -47,8 +47,9 @@ import argparse
 import os
 import sys
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import skill_values  # noqa: E402  同じ dir の読み口（repo ごとの値の表）
+sys.dont_write_bytecode = True
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "..", "lib"))
+import skill_values  # noqa: E402  値の表の 1 本の口（plugin の lib/＝土台の skill-values/ への symlink）
 
 # 止まる時の最後の行（中身は細目 §3 が正本＝ここは指すだけ）
 ROOT_CAUSE = "直し: 当て直して出し直すだけで済ませず、要確認が出た原因（材料・型・検査の形）を細目 §3「まず構造を疑う」で探して直す"
@@ -332,7 +333,8 @@ def cover_defaults(args):
     accent = args.accent or skill_values.get(*mk, "accent", default=DEFAULT_ACCENT)
     logo = args.logo or skill_values.get(*mk, "cover_logo", default=None)
     if logo and not os.path.isabs(logo):
-        root = skill_values._repo_root()
+        table = skill_values.find()
+        root = os.path.dirname(os.path.dirname(table)) if table else None
         if root and os.path.isfile(os.path.join(root, logo)):
             logo = os.path.join(root, logo)   # 表の path は repo の根から
     return company, accent, logo
@@ -652,7 +654,11 @@ def main():
     if args.self_test:
         sys.exit(self_test())
     if args.cmd == "finish":
-        sys.exit(finish(args))
+        try:
+            sys.exit(finish(args))
+        except skill_values.ValuesError as e:   # 知らない鍵・畳んだ鍵・型の違う値は名指しして止める（黙って既定で動かない）
+            sys.stderr.write(str(e) + "\n")
+            sys.exit(2)
     build_parser().print_help()
     sys.exit(0)
 

@@ -46,8 +46,27 @@
         ":(exclude)**/CHANGELOG.md"
       ],
       "pattern": "(?s)\\A(?=.*setup_plugins\\.py)(?=.*?marketplace\\s+add\\b[^\\n]*agent-foundation)(?!.*marketplace\\s+update\\b)",
-      "fix": "土台の docs/核の届け方.md の setup script の 1 行目（marketplace add の後に claude plugin marketplace update agent-foundation）に替える",
+      "fix": "土台の docs/核の届け方.md の setup script の marketplace add の行（add の後に claude plugin marketplace update agent-foundation）に替える",
       "example": "claude plugin marketplace add o/agent-foundation-public --scope user || true; python3 \"$af/scripts/setup_plugins.py\" || true"
+    },
+    {
+      "id": "no-stale-catalog-remove",
+      "what": "土台の目録を足して入口 scripts/setup_plugins.py を呼ぶが、前の目録（版や枝に止めた・出所の違う・入口を持たない）を外さない setup（作り置きの容器に前の目録が残ると add が飛ばされ、古い目録から入る）。この形の 3 行は 1 行が 200 バイトを超え、クラウドの窓の道具 update_environment で貼れない",
+      "files": [
+        "*.sh",
+        "*.md",
+        "*.yml",
+        "*.yaml",
+        "*.py",
+        ":(exclude)tests/**",
+        ":(exclude)**/tests/**",
+        ":(exclude)**/test_*.py",
+        ":(exclude)CHANGELOG.md",
+        ":(exclude)**/CHANGELOG.md"
+      ],
+      "pattern": "(?s)\\A(?=.*setup_plugins\\.py)(?=.*?marketplace\\s+add\\b[^\\n]*agent-foundation)(?!.*marketplace\\s+remove\\b)",
+      "fix": "土台の docs/核の届け方.md の setup script の塊（前の目録を外す marketplace remove の行つき・1 行 200 バイト以下）をそのまま貼り替える",
+      "example": "claude plugin marketplace add o/agent-foundation-public --scope user || true; claude plugin marketplace update agent-foundation || true; python3 \"$af/scripts/setup_plugins.py\" || true"
     },
     {
       "id": "atonobin-tag",
@@ -74,16 +93,6 @@
       "example": "## 他の窓へ回す"
     },
     {
-      "id": "cleanup-followup-key",
-      "what": "preimpl-cleanup の値の表の鍵 cleanup_followup（土台が畳んだ。[後片付け] は原因の台帳の行にする）",
-      "files": [
-        "config/skill-values.json"
-      ],
-      "pattern": "\"cleanup_followup\"\\s*:",
-      "fix": "鍵を消す。[後片付け] は原因の台帳の行にする（土台の dev-flow:preimpl-cleanup）",
-      "example": "      \"cleanup_followup\": \"…\""
-    },
-    {
       "id": "codex-skill",
       "what": "Codex（外の AI のレビュアー）へ渡す道の写し（skill dev-flow:codex・渡すパックの道具 codex_pack.py を呼ぶ・頼む文。土台はオーナーの決定で Codex を使わなくなり畳んだ）",
       "files": [
@@ -101,16 +110,6 @@
       "pattern": "dev-flow:codex|codex_pack\\.py",
       "fix": "行を消す。外のレビュアーへは渡さず、書いた窓と別の目のレビュー（skill checker:review-pr）を使う",
       "example": "python3 skills/codex/codex_pack.py --task t1"
-    },
-    {
-      "id": "codex-values-key",
-      "what": "値の表の Codex の鍵 dev-flow.codex（土台が Codex の道具ごと畳んだ）",
-      "files": [
-        "config/skill-values.json"
-      ],
-      "pattern": "\"codex\"\\s*:\\s*\\{",
-      "fix": "dev-flow の中の \"codex\" の枠を消す",
-      "example": "    \"codex\": {\"clients\": {}}"
     }
   ]
 }

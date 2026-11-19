@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from test_guard import (PLUGIN, ROOT, STATE_PAGE, bash, denied, deny_reason, env, publish)  # noqa: F401  （env は fixture）
+from test_guard import (PLUGIN, ROOT, STATE_PAGE, bash, denied, deny_reason, env, publish, without_check)  # noqa: F401  （env は fixture）
 
 
 # ── outbound（人や他の窓へ渡る道具の入力: 鍵・番号だけの頼み・窓の題と手の窓の 4 欄）──
@@ -172,7 +172,7 @@ def test_outbound_正本の在り処は_repo_の形と入れた_plugin_の形の
 def test_qa_page_files_で足した問いのページも見る(env, tmp_path):
     (tmp_path / "index.html").write_text("<p>表紙</p>", encoding="utf-8")
     (tmp_path / "kakunin.html").write_text(STATE_PAGE, encoding="utf-8")
-    env = dict(env, AF_QA_CHECK=str(tmp_path / "無い.mjs"))
+    env = without_check(env, tmp_path / "入れた", ver="v1")             # 同じ版の docs-kit が無い＝検査が見つからない
     for files in ({"q.html": "kakunin.html"}, {"q.html": {"from": "kakunin.html"}}, [{"path": "kakunin.html"}]):
         assert "緑を確かめられない" in deny_reason(env, publish("index.html", cwd=str(tmp_path), files=files)), files
     assert "緑を確かめられない" not in deny_reason(env, publish("index.html", cwd=str(tmp_path),
