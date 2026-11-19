@@ -21,7 +21,7 @@ green
 
 ## 点
 - 1 依頼の充足: pass
-- 2 宣言した path: pass
+- 2 触った path: pass
 - 3 別の目: 書いた窓 session_WRITER01 ≠ この窓
 - 4 回帰: pass（check_all: 緑）
 - 5 秘密・顧客の物: pass
@@ -46,7 +46,7 @@ red
 
 ## 点
 - 1 依頼の充足: fail（作り物の欠け）
-- 2 宣言した path: pass
+- 2 触った path: pass
 - 3 別の目: 書いた窓 session_WRITER01 ≠ この窓
 - 4 回帰: pass（check_all: 緑）
 - 5 秘密・顧客の物: pass
@@ -147,7 +147,7 @@ def test_点の節が無いと赤():
 
 def test_表に無い点と重なりと名の違いは赤():
     assert any("点 13" in e for e in vf.check(GREEN.replace("- 12 既定で止まる: N/A", "- 12 既定で止まる: N/A\n- 13 作り物: pass")))
-    assert any("2 度" in e for e in vf.check(GREEN.replace("- 2 宣言した path: pass", "- 2 宣言した path: pass\n- 2 宣言した path: pass")))
+    assert any("2 度" in e for e in vf.check(GREEN.replace("- 2 触った path: pass", "- 2 触った path: pass\n- 2 触った path: pass")))
     assert any("点 4 の名" in e for e in vf.check(GREEN.replace("- 4 回帰:", "- 4 回り:")))
 
 
@@ -179,9 +179,9 @@ def test_ファイルを2つ渡すと2つ目も照らす(tmp_path, capsys):
     good, bad = tmp_path / "a.md", tmp_path / "b.md"
     good.write_text(GREEN, encoding="utf-8")
     bad.write_text(GREEN.replace("## verdict\ngreen", "## verdict\nred"), encoding="utf-8")
-    assert vf.main(["verdict_form.py", str(good)]) == 0
+    assert vf.main(["verdict_form.py", str(good), "--writer", "session_WRITER01", "--head", "0123456789ab"]) == 0
     capsys.readouterr()
-    assert vf.main(["verdict_form.py", str(good), str(bad), "--writer", "session_WRITER01"]) == 1
+    assert vf.main(["verdict_form.py", str(good), str(bad), "--writer", "session_WRITER01", "--head", "0123456789ab"]) == 1
     out = capsys.readouterr().out
     assert str(bad) in out and "誤りのあるファイル 1" in out
 

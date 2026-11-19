@@ -19,6 +19,21 @@ spec.loader.exec_module(kaku)
 LIMITS = kaku.LIMITS
 
 
+def old_words_left(olds):
+    """土台の文（.md .py .json .mjs .html・試験と .git を除く）に残る古い言い回しを「path: 語」で返す。
+    変更の記録は CHANGELOG.d/ の .txt（経緯として古い語を持つ）なので、拡張子で外れる＝file 名で除かない。"""
+    hits = []
+    for p in sorted(ROOT.rglob("*")):
+        rel = p.relative_to(ROOT)
+        # 古い形.json は使う側に残る古い形を見つける一覧＝古い名を持つのが役目（見つけ方の正しさは古い形の試験が照らす）
+        if rel.parts[0] in {".git", "tests"} or p == PLUGIN / "古い形.json":
+            continue
+        if p.is_file() and p.suffix in {".md", ".py", ".json", ".mjs", ".html"}:
+            text = p.read_text(encoding="utf-8")
+            hits += [f"{rel}: {o}" for o in olds if o in text]
+    return hits
+
+
 def size(text: str) -> int:
     return len(text.encode("utf-8"))
 
@@ -286,28 +301,14 @@ def test_聞き方は見せてから聞き_前提の出所を分け_推奨の印
     assert "この答えに頼らない作業だけを進めて" in reminder
     olds = ["答えを待つ間も止まらない", "①決めること ②なぜ今 ③材料", "推奨を 1 つ目に `(推奨)`", "「終わった（推奨）」",
             "戻せる作業だけを推奨案で進めて", "答え待ちで推奨を採った", "質問（`Q`）は必ず推奨と", "推奨を 1 つ目・", "推奨を 1 つ目・1 画面 4 問まで", "推奨で決めて"]
-    hits = []
-    for p in sorted(ROOT.rglob("*")):
-        rel = p.relative_to(ROOT)
-        if rel.parts[0] in {".git", "tests"} or p.name == "CHANGELOG.md":
-            continue
-        if p.is_file() and p.suffix in {".md", ".py", ".json", ".mjs", ".html"}:
-            text = p.read_text(encoding="utf-8")
-            hits += [f"{rel}: {o}" for o in olds if o in text]
+    hits = old_words_left(olds)
     assert not hits, hits
 
 
 def test_古い根治と聞き方の言い回しが土台に残らない():
     olds = ["根治の 4 つの問い", "①構造の原因", "いつも選択肢の画面", "返事の中で平文の問いを出さない",
             "専門用語は日常の言葉にする", "専門の語は日常の言葉に言い換え", "名前・数字など選べない答えも候補を選択肢に置き"]
-    hits = []
-    for p in sorted(ROOT.rglob("*")):
-        rel = p.relative_to(ROOT)
-        if rel.parts[0] in {".git", "tests"} or p.name == "CHANGELOG.md":
-            continue                       # 試験の中の古い語の一覧と、変更の記録の経緯は除く
-        if p.is_file() and p.suffix in {".md", ".py", ".json", ".mjs", ".html"}:
-            text = p.read_text(encoding="utf-8")
-            hits += [f"{rel}: {o}" for o in olds if o in text]
+    hits = old_words_left(olds)
     assert not hits, hits
 
 
@@ -318,14 +319,7 @@ def test_一言の返事は札と締めを省き_窓の役に決まった一覧�
     s5d = _節((PLUGIN / "細目.md").read_text(encoding="utf-8"), 5)
     assert "**一言で済む返事**" in s5d and "札を付けたら締めも付ける" in s5d
     olds = ["の 5 つだけ。他の名を足さない", "親・書く・レビュー・調べ・手 の 5 つ", "社内で確かめてから答える", "問いの形（3 つだけ）", "決まった 4 文"]
-    hits = []
-    for p in sorted(ROOT.rglob("*")):
-        rel = p.relative_to(ROOT)
-        if rel.parts[0] in {".git", "tests"} or p.name == "CHANGELOG.md":
-            continue
-        if p.is_file() and p.suffix in {".md", ".py", ".json", ".mjs", ".html"}:
-            text = p.read_text(encoding="utf-8")
-            hits += [f"{rel}: {o}" for o in olds if o in text]
+    hits = old_words_left(olds)
     assert not hits, hits
 
 
@@ -480,14 +474,7 @@ def test_挙げた原因は全部台帳に行き先つきで持ち_全部済む�
     assert "**原因の台帳**" in _節(saimoku, 3) and "**選ばせない**" in _節(saimoku, 4) and "**根治の終わり**" in _節(saimoku, 7)
     assert "1 本の列にせず" in (PLUGIN / "振る舞い.md").read_text(encoding="utf-8"), "引き継ぎの残りが番号の列に戻った"
     olds = ["どれを今回直す", "一番手前の未決から取る", "どれから進めますか」と聞"]
-    hits = []
-    for p in sorted(ROOT.rglob("*")):
-        rel = p.relative_to(ROOT)
-        if rel.parts[0] in {".git", "tests"} or p.name == "CHANGELOG.md":
-            continue
-        if p.is_file() and p.suffix in {".md", ".py", ".json", ".mjs", ".html"}:
-            text = p.read_text(encoding="utf-8")
-            hits += [f"{rel}: {o}" for o in olds if o in text]
+    hits = old_words_left(olds)
     assert not hits, hits
 
 
@@ -541,15 +528,7 @@ def test_残りの受け皿は原因の台帳_1_つで_名だけの受け皿を�
     olds = ["他の窓へ回す", "後の便", "🎯箱 か PR 本文", "残りに書", "直す側へ回す", "必要になった段で足す",
             "論点として残す", "1つ選んで決めてもらう", "1 つ選んで決めてもらう", "残りを書いて引き継ぐ",
             "回す先", "cleanup_followup"]
-    hits = []
-    for p in sorted(ROOT.rglob("*")):
-        rel = p.relative_to(ROOT)
-        # 古い形.json は使う側に残る古い形を見つける一覧＝古い名を持つのが役目（見つけ方の正しさは古い形の試験が照らす）
-        if rel.parts[0] in {".git", "tests"} or p.name == "CHANGELOG.md" or p == PLUGIN / "古い形.json":
-            continue
-        if p.is_file() and p.suffix in {".md", ".py", ".json", ".mjs", ".html"}:
-            text = p.read_text(encoding="utf-8")
-            hits += [f"{rel}: {o}" for o in olds if o in text]
+    hits = old_words_left(olds)
     assert not hits, hits
 
 
@@ -597,14 +576,7 @@ def test_ミスが出たらまず構造を疑い_単発と言うのは絵の上�
     assert "細目 §3「まず構造を疑う」" in rr, "register-rule が規律を足す前に原因の段へ戻さない"
     assert "細目 §3「まず構造を疑う」" in (ROOT / "CONTRIBUTING.md").read_text(encoding="utf-8"), "red を単発の手直しで済ませる形に戻った"
     olds = ["同じ種類の失敗が 2 度なら", "原因は仕組み・設計が悪い前提で探し"]
-    hits = []
-    for p in sorted(ROOT.rglob("*")):
-        rel = p.relative_to(ROOT)
-        if rel.parts[0] in {".git", "tests"} or p.name == "CHANGELOG.md":
-            continue
-        if p.is_file() and p.suffix in {".md", ".py", ".json", ".mjs", ".html"}:
-            text = p.read_text(encoding="utf-8")
-            hits += [f"{rel}: {o}" for o in olds if o in text]
+    hits = old_words_left(olds)
     assert not hits, hits
 
 

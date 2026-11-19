@@ -1,25 +1,24 @@
 #!/usr/bin/env python3
 """守りの hook の入口（1 つの出来事に 1 つの process）。
 
-  guard.py pre    … PreToolUse:  irreversible（離席中の戻せない操作）＋ paid_upstream（試験から有料の上流）
-                                ＋ qa_page（問いのページを Artifact で出す前の qa-html の検査）
-                                ＋ ask_shape（選択肢の画面の問いの形: 題の長さ・中の言葉・話題の混ざり・推奨の印の付け方）
-                                ＋ pick_one（選択肢の画面で作業・論点・原因を 1 つだけ選ばせる問い）
-                                ＋ pr_text（GitHub へ出す前の PR の文: 判定の形・整地の欄・窓の id・公開の repo に置かない物）
-  guard.py post   … PostToolUse: unanswered の capture（答えの無い問いの台帳）＋ context_size（文脈の量）
-                                ＋ ask_shape の notice（推奨の印が済んだか・意図の問いに付いた知らせ）
-  guard.py start  … SessionStart: unanswered の resurface（持ち越した問いの出し直し）
+  guard.py pre    … PreToolUse（止める見張り）
+  guard.py post   … PostToolUse（隣に知らせる見張り）
+  guard.py start  … SessionStart（持ち越した問いの出し直し）
+  どの出来事でどの見張りが回るかは、各見張りの file の頭の HOOKS が正本（ここに一覧を写さない）。
 
 止めるのは pre だけ（permissionDecision=deny）。post と start は隣に文を出すだけ。
 どの見張りも壊れた時は黙って通す（1 つの故障で他の見張りや仕事を止めない）。exit は常に 0。
 """
+import ast
+import glob
 import importlib
 import json
 import os
 import sys
 
 sys.dont_write_bytecode = True    # 写しの置き場に __pycache__ を作らない（写しの照らしを汚さない）
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, HERE)
 
 import guard_common as G  # noqa: E402
 
@@ -37,11 +36,28 @@ def _run(module, func, data, vals):
         return ""
 
 
-WATCHERS = {
-    "pre": [("irreversible", "check"), ("paid_upstream", "check"), ("qa_page", "check"), ("ask_shape", "check"), ("pick_one", "check"), ("pr_text", "check")],
-    "post": [("unanswered", "capture"), ("context_size", "check"), ("ask_shape", "notice")],
-    "start": [("unanswered", "resurface")],
-}
+def watchers(event):
+    """この出来事で回す (module, 関数) の並び。同じ dir の各見張りが自分の頭に書く HOOKS = {出来事: 関数} を読む
+    （入口に一覧を持たない＝見張りを足す PR が同じ 1 行へ足して互いに衝突しない）。読むのは字の宣言だけで import しない
+    （import で壊れる見張りも、ここでは他を巻き込まない）。並びは module の名の順。"""
+    out = []
+    for path in sorted(glob.glob(os.path.join(HERE, "*.py"))):
+        name = os.path.basename(path)[:-3]
+        if name in ("guard", "guard_common"):
+            continue
+        try:
+            with open(path, encoding="utf-8") as f:
+                tree = ast.parse(f.read())
+            hooks = next(ast.literal_eval(n.value) for n in tree.body if isinstance(n, ast.Assign)
+                         and any(isinstance(t, ast.Name) and t.id == "HOOKS" for t in n.targets))
+        except StopIteration:
+            continue                     # 宣言の無い file は見張りでない（手伝いの部品）
+        except Exception as e:           # noqa: BLE001
+            sys.stderr.write("[guard] %s の HOOKS が読めない: %s\n" % (name, e))
+            continue
+        if isinstance(hooks, dict) and isinstance(hooks.get(event), str):
+            out.append((name, hooks[event]))
+    return out
 
 
 def run(event, data):
@@ -50,7 +66,7 @@ def run(event, data):
         vals = G.values(data)
     except Exception:          # noqa: BLE001
         vals = dict(G.DEFAULTS)
-    outs = [o for o in (_run(m, f, data, vals) for m, f in WATCHERS[event]) if o]
+    outs = [o for o in (_run(m, f, data, vals) for m, f in watchers(event)) if o]
     if not outs:
         return None
     if event == "pre":

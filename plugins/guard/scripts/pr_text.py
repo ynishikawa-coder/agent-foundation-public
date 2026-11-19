@@ -14,7 +14,8 @@ AI が自分で回すか、出した後に CI やレビューが拾うだけだ�
   commit … merge_pull_request（commit_title・commit_message）・push_files・create_or_update_file・delete_file（message）
            ＝MCP から出す commit の説明。公開の検査だけを当てる
 照らす物（見分けは正本を直に読む・呼ぶ。ここに決まりを写さない）:
-  verdict … コメントがレビューの判定（どの行かに `レビューした窓: … 判定: green|red` が揃うか、verdict の見出しが在る）なら、checker の
+  verdict … （材料: 出す先の PR の先端と、PR 本文の頭の `書いた窓:` を gh で引き、--writer・--head で渡す。引けなければ止める）
+            コメントがレビューの判定（どの行かに `レビューした窓: … 判定: green|red` が揃うか、verdict の見出しが在る）なら、checker の
             `scripts/verdict_form.py` をそのまま呼ぶ。赤なら止める。道具が見つからない・壊れた時も止める
   cleanup … PR の本文（本文を渡す時だけ）に、dev-flow の preimpl-cleanup の `整地受領証.template.md` の 4 つの見出し
             （`## 1.`〜`## 4.`。見出しの名は雛形から読む）が全部在り、雛形の `〔…〕` が残っていない事。整地の要らない PR
@@ -37,6 +38,8 @@ import subprocess
 import sys
 
 import guard_common as G
+
+HOOKS = {"pre": "check"}
 
 TIMEOUT = 30
 SHOWN = 12
@@ -104,6 +107,45 @@ def looks_verdict(body):
     return bool(VERDICT_LINE.search(body) or VERDICT_HEAD.search(body))
 
 
+WRITER_LINE = re.compile(r"^\s*書いた窓\s*[:：]\s*(session_[A-Za-z0-9]+)", re.M)
+NUMBER_KEYS = ("issue_number", "pullNumber", "pull_number")
+
+
+def _gh(args):
+    return subprocess.run(["gh", "api", *args], capture_output=True, text=True, timeout=TIMEOUT)
+
+
+def pr_facts(repo, ti):
+    """判定を出す先の PR の (先端の SHA, 書いた窓, 誤り)。GitHub から引く（判定の形の道具が要る材料・写さない）。
+
+    書いた窓は PR 本文の頭の決まった欄 `書いた窓: <session id>`（CONTRIBUTING §1 の PR の型）から読む。
+    引けない時は誤りを返す（欠けた材料で判定を通さない）。"""
+    if not repo:
+        return "", "", "出す先の repo（owner・repo）が道具の入力に無い"
+    number = next((ti.get(k) for k in NUMBER_KEYS if ti.get(k)), None)
+    try:
+        if not number and ti.get("comment_id"):
+            p = _gh(["repos/%s/issues/comments/%s" % (repo, ti["comment_id"]), "--jq", ".issue_url"])
+            number = p.stdout.strip().rsplit("/", 1)[-1] if p.returncode == 0 else None
+        if not number:
+            return "", "", "判定を出す先の PR の番号が分からない"
+        p = _gh(["repos/%s/pulls/%s" % (repo, number), "--jq", '.head.sha + "\\n" + (.body // "")'])
+    except FileNotFoundError:
+        return "", "", "GitHub の CLI（gh）が無く、PR の先端と書いた窓を引けない"
+    except (OSError, subprocess.SubprocessError) as e:
+        return "", "", "PR を引けなかった（%s）" % e.__class__.__name__
+    if p.returncode != 0:
+        return "", "", "PR #%s を引けなかった（判定は PR に出す・gh の認証か網を確かめる）: %s" % (
+            number, (p.stderr or "").strip().splitlines()[-1:] or "")
+    head, _, body = p.stdout.partition("\n")
+    m = WRITER_LINE.search(body)
+    if not re.fullmatch(r"[0-9a-f]{40}", head.strip()):
+        return "", "", "PR #%s の先端の SHA が読めない" % number
+    if not m:
+        return head.strip(), "", "PR #%s の本文の頭に `書いた窓: <session id>` が無く、別の目を照らせない（PR の型どおりに書く）" % number
+    return head.strip(), m.group(1), ""
+
+
 def check_verdict(body, data):
     if not looks_verdict(body):
         return []
@@ -111,8 +153,12 @@ def check_verdict(body, data):
     if not tool:
         return ["判定の形の道具（checker の verdict_form.py）が見つからず、形を確かめられない。plugin checker を入れる"
                 "（または AF_VERDICT_FORM に path）"]
+    ti = data.get("tool_input") or {}
+    head, writer, err = pr_facts(_repo_name(ti), ti)
+    if err:
+        return ["判定の材料: " + err]
     try:
-        p = _run([sys.executable, tool, _tmp_file(body, "verdict")])
+        p = _run([sys.executable, tool, _tmp_file(body, "verdict"), "--writer", writer, "--head", head])
     except (OSError, subprocess.SubprocessError) as e:
         return ["判定の形の道具が走らなかった: %s" % e.__class__.__name__]
     if p.returncode == 0:

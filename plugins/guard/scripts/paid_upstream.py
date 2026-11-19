@@ -35,6 +35,10 @@ WRITE_TOOLS = {"Write", "Edit", "MultiEdit", "NotebookEdit"}
 CONTENT_KEYS = ("content", "new_string", "new_source")
 
 
+
+# この見張りが回る出来事と関数（guard.py がこの宣言を読んで回す＝入口の一覧に足さない）
+HOOKS = {"pre": "check"}
+
 def _path_of(tool_input):
     for k in ("file_path", "notebook_path"):
         v = tool_input.get(k)

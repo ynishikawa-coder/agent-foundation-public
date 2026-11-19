@@ -62,6 +62,10 @@ _WS = re.compile(r"\s+")
 
 
 # ── 問いの同一性 ──
+
+# この見張りが回る出来事と関数（guard.py がこの宣言を読んで回す＝入口の一覧に足さない）
+HOOKS = {"post": "capture", "start": "resurface"}
+
 def norm(text):
     return _WS.sub(" ", text).strip() if isinstance(text, str) else ""
 
