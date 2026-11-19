@@ -29,9 +29,9 @@ GOOD = {
 }
 
 
-def answer(obj_or_text):
+def answer(obj_or_text, *more):
     src = obj_or_text if isinstance(obj_or_text, str) else json.dumps(obj_or_text, ensure_ascii=False)
-    p = subprocess.run([NODE, str(CHECK), "--answer", "-", "--json"], input=src, capture_output=True, text=True, timeout=60)
+    p = subprocess.run([NODE, str(CHECK), "--answer", "-", "--json", *more], input=src, capture_output=True, text=True, timeout=60)
     assert p.returncode in (0, 1), p.stderr
     out = json.loads(p.stdout)
     assert out["ok"] == (p.returncode == 0)
@@ -101,6 +101,15 @@ def test_形の違う答えは赤(name, change, expect):
 def test_欠けた鍵は赤(key):
     bad = {k: v for k, v in GOOD.items() if k != key}
     assert f"答えに鍵 {key} が無い" in answer(bad)["red"]
+
+
+@needs_node
+def test_配る口が足す鍵は名指しした物だけ通る():
+    mine = {**GOOD, "respondent": "作り物 花子"}
+    assert answer(mine)["red"] == ["答えに知らない鍵 respondent（形 qa-html/2 の鍵は form・title・version・receipt・answered_at・answers・labels・supp・free）"]
+    assert answer(mine, "--extra", "respondent")["red"] == []
+    assert answer({**mine, "sheet": "x"}, "--extra", "respondent")["red"][0].startswith("答えに知らない鍵 sheet")
+    assert answer(GOOD, "--extra", "form")["red"] == ["足す鍵 form は答えの形 qa-html/2 の鍵と重なる"]
 
 
 @needs_node

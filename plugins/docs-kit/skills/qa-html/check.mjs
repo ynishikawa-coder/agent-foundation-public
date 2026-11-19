@@ -32,7 +32,8 @@
 //   別の検査（配る口の検査など）からは import { checkQa, checkQaJson, checkFile } で呼ぶ。
 // 使う側（別の repo の作る道具・配る口）は型・検査・答えの形を写さず、この dir の物を直に読む（SKILL.md §配り方）:
 //   node check.mjs --template            … 型（references/template.html）をそのまま標準出力へ（作る道具が雛形として読む）
-//   node check.mjs --answer <file|->     … 答えの形（qa-html/2）の JSON を照らす（配る口・貼り戻しの道具が作った・受けた答え）。
+//   node check.mjs --answer <file|-> [--extra 鍵,鍵] … 答えの形（qa-html/2）の JSON を照らす（配る口・貼り戻しの道具が作った・受けた答え。
+//                                           配る口が足す自分の印の鍵は --extra で名指しした物だけ許す）。
 //                                           知らない形・知らない鍵・欠けた鍵・形の違う値は赤＝写した古い形のままなら止まる
 import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
@@ -809,11 +810,13 @@ export const ANSWER_KEYS = ["form", "title", "version", "receipt", "answered_at"
 const ANSWER_KEY_RE = /^[A-Za-z0-9_]+$/;
 const isObj = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
 const strList = (v) => Array.isArray(v) && v.every((x) => typeof x === "string");
-export function checkAnswer(ans) {
+// extra: 配る口が答えに足す自分の印（例 答えた方の名）の鍵。名指しした鍵だけ許す（名指しの無い鍵は知らない鍵＝赤）。
+export function checkAnswer(ans, { extra = [] } = {}) {
   const red = [];
   if (!isObj(ans)) return { ok: false, red: ["答えが JSON の物（{…}）でない"] };
+  for (const k of extra) if (ANSWER_KEYS.includes(k)) red.push(`足す鍵 ${k} は答えの形 ${ANSWER_FORM} の鍵と重なる`);
   if (ans.form !== ANSWER_FORM) red.push(`答えの形が ${ANSWER_FORM} でない（今 ${JSON.stringify(ans.form)}）＝写した古い形か知らない形`);
-  for (const k of Object.keys(ans)) if (!ANSWER_KEYS.includes(k)) red.push(`答えに知らない鍵 ${k}（形 ${ANSWER_FORM} の鍵は ${ANSWER_KEYS.join("・")}）`);
+  for (const k of Object.keys(ans)) if (!ANSWER_KEYS.includes(k) && !extra.includes(k)) red.push(`答えに知らない鍵 ${k}（形 ${ANSWER_FORM} の鍵は ${ANSWER_KEYS.join("・")}）`);
   for (const k of ANSWER_KEYS) if (!(k in ans)) red.push(`答えに鍵 ${k} が無い`);
   for (const k of ["title", "free"]) if (k in ans && typeof ans[k] !== "string") red.push(`${k} が文字でない`);
   if ("version" in ans && !(typeof ans.version === "string" && /^[0-9A-Za-z._-]+$/.test(ans.version))) red.push(`版（version）は半角英数字と . _ - だけ（今 ${JSON.stringify(ans.version)}）`);
@@ -947,8 +950,9 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
   if (args[0] === "--answer") {
     let res;
     try {
-      const src = args[1] == null || args[1] === "-" ? readFileSync(0, "utf8") : readFileSync(args[1], "utf8");
-      res = checkAnswer(JSON.parse(src));
+      const src = args[1] == null || args[1].startsWith("--") || args[1] === "-" ? readFileSync(0, "utf8") : readFileSync(args[1], "utf8");
+      const ex = args.indexOf("--extra") >= 0 ? String(args[args.indexOf("--extra") + 1] ?? "").split(",").map((x) => x.trim()).filter(Boolean) : [];
+      res = checkAnswer(JSON.parse(src), { extra: ex });
     } catch (e) {
       res = { ok: false, red: [`答えの JSON が読めない: ${e.message}`] };
     }
@@ -962,7 +966,7 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
   const takesValue = new Set(["--values", "--prior"]);
   const file = args.find((a, i) => !a.startsWith("--") && !takesValue.has(args[i - 1]));
   if (!file) {
-    console.error("使い方: check.mjs <file.html|file.json> [--json] [--values <skill-values.json>] [--prior <引いた結果.json>] [--run-prior] [--prior-input]／check.mjs --template／check.mjs --answer <file|-> [--json]");
+    console.error("使い方: check.mjs <file.html|file.json> [--json] [--values <skill-values.json>] [--prior <引いた結果.json>] [--run-prior] [--prior-input]／check.mjs --template／check.mjs --answer <file|-> [--extra 鍵,鍵] [--json]");
     process.exit(2);
   }
   const at = (flag) => (args.indexOf(flag) >= 0 ? args[args.indexOf(flag) + 1] : undefined);

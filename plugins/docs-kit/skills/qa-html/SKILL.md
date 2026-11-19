@@ -197,7 +197,7 @@ repo の根（`git rev-parse --show-toplevel`）の `config/skill-values.json` �
 
 ### 答えの形（qa-html/2・機械で戻す JSON）
 
-型の JS が作る形。正本は `check.mjs` の `ANSWER_FORM`・`ANSWER_KEYS`・`checkAnswer` の 1 か所（型の JS とこの例が合わなければ土台の試験が赤）。配る口・貼り戻しの道具は形を写して合わせず、自分が作る・受ける答えを `node check.mjs --answer <file|->` で照らす試験を持つ（知らない形・知らない鍵・欠けた鍵・形の違う値は赤＝写した古い形のままなら止まる）。写す形では貼り戻しの最後の行 `qa-json: {…}` に、確認のページでは `qa:submit` の `detail` に入る。配る口が JSON で受ける時もこの形にそろえる。
+型の JS が作る形。正本は `check.mjs` の `ANSWER_FORM`・`ANSWER_KEYS`・`checkAnswer` の 1 か所（型の JS とこの例が合わなければ土台の試験が赤）。配る口・貼り戻しの道具は形を写して合わせず、自分が作る・受ける答えを `node check.mjs --answer <file|->`（配る口が足す自分の印の鍵は `--extra 鍵,鍵` で名指し）で照らす試験を持つ（知らない形・知らない鍵・欠けた鍵・形の違う値は赤＝写した古い形のままなら止まる）。写す形では貼り戻しの最後の行 `qa-json: {…}` に、確認のページでは `qa:submit` の `detail` に入る。配る口が JSON で受ける時もこの形にそろえる。
 
 ```json
 {
