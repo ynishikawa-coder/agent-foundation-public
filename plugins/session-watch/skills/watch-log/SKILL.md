@@ -5,7 +5,7 @@ description: 会話ログ（transcript の JSONL）を手で点検にかけ、�
 
 # 会話ログの点検
 
-点検は会話ログだけを読む（環境の値・外の台帳・`get_session` の返りを見ない）。手で回す: `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/session_watch.py" <transcript.jsonl>`。拾った物を 1 行ずつ出し、拾えば exit 1（最後の行で細目 §3「まず構造を疑う」 を指す）。拾われた物は下の直し方で出し直すだけで済ませず、細目 §3「まず構造を疑う」で原因から直す。hook には載せない（返事を止めない）。
+点検は会話ログだけを読む（環境の値・外の台帳・`get_session` の返りを見ない）。手で回す: `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/session_watch.py" <transcript.jsonl>`。拾った物を 1 行ずつ出し、拾えば exit 1（最後の行で細目 §3「まず構造を疑う」 を指す）。知らない印・読めないログは exit 2 で止まる（拾う物なしの緑に化けない）。拾われた物は下の直し方で出し直すだけで済ませず、細目 §3「まず構造を疑う」で原因から直す。hook には載せない（返事を止めない）。
 
 ## 拾う物と直し方
 

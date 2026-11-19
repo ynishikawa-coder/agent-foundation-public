@@ -333,3 +333,9 @@ def test_拾えば最後の行で根治の入口を指し拾わなければ出�
     assert "細目 §3「まず構造を疑う」" in sw.ROOT_CAUSE
     ok = subprocess.run([sys.executable, str(SCRIPT), str(LOGS / "child_ok.jsonl")], capture_output=True, text=True)
     assert ok.returncode == 0 and sw.ROOT_CAUSE not in ok.stdout
+
+
+def test_知らない印と読めないログは拾う物なしに化けず止まる(tmp_path):
+    for arg in ("--remnd", str(tmp_path / "無いログ.jsonl")):
+        p = subprocess.run([sys.executable, str(SCRIPT), arg], capture_output=True, text=True)
+        assert p.returncode == 2 and p.stdout == "", arg
