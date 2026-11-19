@@ -18,6 +18,16 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 RULE_FILES = ["plugins/core/核.md", "plugins/core/振る舞い.md", "plugins/core/細目.md"]
 TABLE = ROOT / "tests" / "data" / "試験で守らない文.txt"
 _read = pathlib.Path.read_text
+_rglob_real = pathlib.Path.rglob
+_rglob_cache = {}
+
+
+def _rglob(self, pattern, *a, **k):
+    """文を消して回す間は file の並びが変わらない＝repo を歩くのは 1 度だけ（.git も歩く試験が多く、回すたびに歩くと遅い）。"""
+    key = (str(self), pattern)
+    if key not in _rglob_cache:
+        _rglob_cache[key] = [q for q in _rglob_real(self, pattern, *a, **k) if ".git" not in q.parts]  # どの試験も .git は飛ばす
+    return iter(_rglob_cache[key])
 
 
 def 文の並び(text):
@@ -90,6 +100,7 @@ def 穴(rel, text=None, only=None):
 
         caught = False
         pathlib.Path.read_text = fake
+        pathlib.Path.rglob = _rglob
         try:
             for f in funcs:
                 try:
@@ -99,6 +110,7 @@ def 穴(rel, text=None, only=None):
                     break
         finally:
             pathlib.Path.read_text = _read
+            pathlib.Path.rglob = _rglob_real
         if not caught:
             holes.append(s.strip())
     return holes

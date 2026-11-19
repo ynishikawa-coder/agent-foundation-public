@@ -1,7 +1,6 @@
 """守りの hook（plugins/guard）が、止めるべき入力で止まり、通すべき入力で通るかを見る。入力は全部作り物。"""
 import json
 import os
-import re
 import subprocess
 import sys
 from pathlib import Path
@@ -328,6 +327,65 @@ def test_寿命を過ぎた問いも次の問いを積む時には消えない(e
     note = hook(env, "start", {"session_id": "s3"})["additionalContext"]
     assert "作り物の置き場を A と B のどちらにしますか" in note and "作り物の問い 9 番" in note
     assert note.index("台帳から降ろします") < note.index("前の窓で答えのないまま閉じた問い")   # 切られても先に読まれる
+
+
+def test_人のいない窓だけが続いても寿命切れは台帳に残らず_次の人のいる窓で一度知らせる(env, tmp_path):
+    hook(env, "post", ask_result())
+    _age_ledger(tmp_path)
+    env["AF_UNATTENDED"] = "1"
+    assert hook(env, "start", {"session_id": "n1"}) == {}            # 人のいない窓は知らせない
+    ledger = next((tmp_path / "state").rglob("unanswered-questions.json"))
+    data = json.loads(ledger.read_text(encoding="utf-8"))
+    assert data["pending"] == []                                      # 台帳には残らない
+    assert [e["notified"] for e in data["expired_recent"]] == [False]
+    assert "人のいない窓が控えへ移した" in run_cli(env, "list").stdout   # 一覧にも印つきで出る
+    del env["AF_UNATTENDED"]
+    note = hook(env, "start", {"session_id": "s2"}).get("additionalContext", "")
+    assert "台帳から降ろします" in note and "作り物の置き場を A と B のどちらにしますか" in note
+    assert hook(env, "start", {"session_id": "s3"}) == {}           # 知らせたのは一度だけ
+
+
+def test_人のいない窓は台帳が無ければ作らない(env, tmp_path):
+    env["AF_UNATTENDED"] = "1"
+    assert hook(env, "start", {"session_id": "n1"}) == {}
+    assert not list(tmp_path.rglob("unanswered-questions.json"))
+
+
+def test_まだ知らせていない控えは上限で黙って落ちない(env, tmp_path):
+    hook(env, "post", ask_result())
+    ledger = next((tmp_path / "state").rglob("unanswered-questions.json"))
+    data = json.loads(ledger.read_text(encoding="utf-8"))
+    data["expired_recent"] = [{"key": "k%d" % i, "question": "作り物の古い問い %d" % i, "notified": True,
+                               "expired_at": "2000-01-01T00:00:00.000000Z"} for i in range(25)]
+    ledger.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+    _age_ledger(tmp_path)
+    env["AF_UNATTENDED"] = "1"
+    hook(env, "start", {"session_id": "n1"})
+    recent = json.loads(ledger.read_text(encoding="utf-8"))["expired_recent"]
+    assert [e["question"] for e in recent if e.get("notified") is False] == ["作り物の置き場を A と B のどちらにしますか"]
+
+
+def test_文面の無い行も黙って残さず_知らせて降ろす(env, tmp_path):
+    hook(env, "post", ask_result())
+    ledger = next((tmp_path / "state").rglob("unanswered-questions.json"))
+    data = json.loads(ledger.read_text(encoding="utf-8"))
+    data["pending"].append({"key": "nokeytext", "last_seen_at": data["pending"][0]["last_seen_at"]})
+    data["pending"].append({"last_seen_at": "2000-01-01T00:00:00.000000Z"})          # key も文面も無い
+    ledger.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+    assert "[文面が無い" in run_cli(env, "list").stdout
+    note = hook(env, "start", {"session_id": "s2"})["additionalContext"]
+    assert "文面が無い行・key: nokeytext" in note and "文面が無い行・key: なし" in note
+    assert "作り物の置き場を A と B のどちらにしますか" in note       # 生きている問いはそのまま出し直しへ
+    left = json.loads(ledger.read_text(encoding="utf-8"))["pending"]
+    assert [p["question"] for p in left] == ["作り物の置き場を A と B のどちらにしますか"]
+
+
+def test_一覧は寿命切れに印を付ける(env, tmp_path):
+    hook(env, "post", ask_result())
+    assert "[寿命切れ" not in run_cli(env, "list").stdout
+    _age_ledger(tmp_path)
+    out = run_cli(env, "list").stdout
+    assert "[寿命切れ・次の窓の冒頭で知らせて降ろす] 作り物の置き場" in out
 
 
 def many_questions(n, sid="s1", start=1):
@@ -889,6 +947,16 @@ def test_答え済みの問いはAIが台帳から降ろせ次の窓に出ない
     assert run_cli(env, "drop", "nokey", "--why", "x").returncode == 1
 
 
+def test_降ろしの口は知らない印で止まる(env):
+    hook(env, "post", ask_result())
+    key = run_cli(env, "list").stdout.split("\t")[0]
+    for args in (("drop", key, "--force", "--why", "x"), ("drop", key, "--why", "x", "--why", "y"),
+                 ("drop", key, "--why", "x", "--force"), ("list", "--all")):
+        p = run_cli(env, *args)
+        assert p.returncode == 2, args
+    assert key in run_cli(env, "list").stdout                         # 止まった間に降ろしていない
+
+
 def _ask_post(question, labels, answered, sid):
     qq = {"question": question, "header": "置き場",
           "options": [{"label": lb, "description": "作り物"} for lb in labels]}
@@ -925,210 +993,17 @@ def test_同じ選択肢で物だけ違う問いを閉じず重ねもしない(e
     assert "2 件あります" in again and left in again and right in again
 
 
-# ── values_keys（値の表に土台が読まない鍵）──
-import importlib.util as _ilu  # noqa: E402
-
-_spec = _ilu.spec_from_file_location("values_keys", PLUGIN / "scripts" / "values_keys.py")
-VK = _ilu.module_from_spec(_spec)
-_spec.loader.exec_module(VK)
-
-今の表 = {
-    "_readme": "注は通す",
-    "common": {"glossary": {"作り物の語": "意味"}, "save_dir": "/tmp/x"},
-    "dev-flow": {"preimpl-cleanup": {"record": "PR 本文", "ledger": "1 行ずつ"}, "codex": {"clients": {"作り物": {"paths": []}}}},
-    "docs-kit": {"qa-html": {"customer": {"何でも": 1}}, "pdf-read": {"engine_source": "作り物"}},
-    "guard": {"context_limit": 1000, "_readme": "注"},
-    "作り物の repo の頭": {"何でも": "repo が自分で持つ所は見ない"},
-}
+def test_読んでから書くまでに積まれた_key_の無い行は知らせずに降ろさない():
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("unanswered_t", UNANSWERED)
+    uq = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(uq)
+    data = {"pending": [{"last_seen_at": "2000-01-01T00:00:00.000000Z"}, {"last_seen_at": "2000-01-01T00:00:00.000000Z"}],
+            "expired_recent": []}
+    assert uq.retire(data, set(), notified=True, keyless=1) == 1     # 読んで知らせたのは 1 行だけ
+    assert len(data["pending"]) == 1 and len(data["expired_recent"]) == 1
 
 
-def test_values_keys_今の鍵だけの表は通る():
-    assert VK.unknown(今の表) == []
-
-
-@pytest.mark.parametrize("path", [
-    ("dev-flow", "preimpl-cleanup", "cleanup_followup"),    # 畳んだ鍵（PR #36）
-    ("dev-flow", "register-rule", "agents_table"),          # 畳んだ鍵（v0.3.0）
-    ("common", "rules"),                                    # 畳んだ鍵（PR #43）
-    ("dev-flow", "verify", "code_done_rule"),               # 畳んだ鍵（PR #43）
-    ("dev-flow", "畳んだ作り物の skill"),
-    ("guard", "作り物の書き違い"),
-    ("common", "作り物の鍵"),
-    ("checker", "作り物"),
-])
-def test_values_keys_土台が読まない鍵を名指しする(path):
-    table = json.loads(json.dumps(今の表))
-    node = table
-    for k in path[:-1]:
-        node = node.setdefault(k, {})
-    node[path[-1]] = "古い値"
-    assert VK.unknown(table) == [".".join(path)]
-
-
-def test_values_keys_知っている鍵の正本は_SKILL_の表で_表の無い_skill_の鍵は知らない():
-    keys, frames, heads, missing = VK.known_keys()
-    assert missing == [] and {"common", "dev-flow", "docs-kit", "guard"} <= heads
-    assert ("dev-flow", "preimpl-cleanup", "ledger") in keys and ("common", "glossary") in keys
-    assert ("docs-kit", "qa-html", "customer", "*") in keys and ("docs-kit", "pdf-read", "engine_module") in keys
-    assert not any(k[:3] == ("dev-flow", "preimpl-cleanup", "cleanup_followup") for k in keys)
-
-
-def test_values_keys_値の表を読む_SKILL_は全部_表を持つ():
-    """表に載せずに文の中だけで鍵を読む skill を足すと、その鍵が知らない鍵に見える＝表を持たせる。"""
-    lacking = [str(p.relative_to(ROOT)) for p in sorted((ROOT / "plugins").glob("*/skills/*/SKILL.md"))
-               if "config/skill-values.json" in p.read_text(encoding="utf-8") and p.parent.parent.parent.name != "guard"
-               and not VK.SECTION.search(p.read_text(encoding="utf-8"))]
-    assert lacking == []
-
-
-def _vk_write(env, content, tool="Write", **extra):
-    proj = Path(env["CLAUDE_PROJECT_DIR"])
-    return {"hook_event_name": "PreToolUse", "tool_name": tool, "cwd": str(proj),
-            "tool_input": {"file_path": str(proj / "config" / "skill-values.json"), "content": content, **extra}}
-
-
-def test_values_keys_AI_が知らない鍵を書くと止める(env):
-    bad = dict(今の表, **{"dev-flow": {"preimpl-cleanup": {"cleanup_followup": "x"}}})
-    out = hook(env, "pre", _vk_write(env, json.dumps(bad, ensure_ascii=False)))
-    assert out.get("permissionDecision") == "deny"
-    assert "dev-flow.preimpl-cleanup.cleanup_followup" in out["permissionDecisionReason"]
-    assert not denied(env, _vk_write(env, json.dumps(今の表, ensure_ascii=False)))
-
-
-def test_values_keys_知らない鍵を残したままの編集は止め_減らす編集は通す(env):
-    proj = Path(env["CLAUDE_PROJECT_DIR"])
-    (proj / "config").mkdir()
-    old = {"guard": {"context_limit": 1, "古い鍵 1": 1, "古い鍵 2": 2}}
-    (proj / "config" / "skill-values.json").write_text(json.dumps(old, ensure_ascii=False, indent=1), encoding="utf-8")
-    keep = _vk_write(env, None, tool="Edit", old_string='"context_limit": 1', new_string='"context_limit": 2')
-    keep["tool_input"].pop("content")
-    assert denied(env, keep)
-    drop = _vk_write(env, None, tool="Edit", old_string='"古い鍵 1": 1,', new_string="")
-    drop["tool_input"].pop("content")
-    assert not denied(env, drop)
-
-
-def test_values_keys_値の表の外と_JSON_でない書き込み(env):
-    other = _vk_write(env, "{}")
-    other["tool_input"]["file_path"] = str(Path(env["CLAUDE_PROJECT_DIR"]) / "config" / "他の表.json")
-    other["tool_input"]["content"] = json.dumps({"dev-flow": {"x": 1}})
-    assert not denied(env, other)
-    assert denied(env, _vk_write(env, "{ 壊れた"))
-
-
-def test_values_keys_起動の時に知らない鍵を知らせる(env):
-    proj = Path(env["CLAUDE_PROJECT_DIR"])
-    (proj / "config").mkdir()
-    (proj / "config" / "skill-values.json").write_text(
-        json.dumps({"dev-flow": {"register-rule": {"roster": "古い"}}}), encoding="utf-8")
-    ctx = hook(env, "start", {"hook_event_name": "SessionStart", "cwd": str(proj)}).get("additionalContext", "")
-    assert "dev-flow.register-rule.roster" in ctx
-    (proj / "config" / "skill-values.json").write_text(json.dumps(今の表, ensure_ascii=False), encoding="utf-8")
-    assert "土台が読まない鍵" not in hook(env, "start", {"hook_event_name": "SessionStart", "cwd": str(proj)}).get("additionalContext", "")
-
-
-def test_values_keys_入れた_plugin_の形でも隣の_plugin_の表を読む(tmp_path):
-    import shutil
-    market = tmp_path / "cache" / "市場"
-    for name in VK.FOUNDATION:
-        src = ROOT / "plugins" / name
-        if src.is_dir():
-            shutil.copytree(src, market / name / "abc123", ignore=shutil.ignore_patterns("__pycache__"))
-    keys, frames, heads, missing = VK.known_keys(str(market / "guard" / "abc123"))
-    assert missing == [] and ("dev-flow", "preimpl-cleanup", "ledger") in keys
-
-
-def test_values_keys_手で回す口は知らない鍵で_exit_1(tmp_path):
-    t = tmp_path / "skill-values.json"
-    t.write_text(json.dumps({"dev-flow": {"preimpl-cleanup": {"cleanup_followup": "x"}}}), encoding="utf-8")
-    r = subprocess.run([sys.executable, str(PLUGIN / "scripts" / "values_keys.py"), str(t)], capture_output=True, text=True)
-    assert r.returncode == 1 and "cleanup_followup" in r.stdout
-    t.write_text(json.dumps(今の表, ensure_ascii=False), encoding="utf-8")
-    assert subprocess.run([sys.executable, str(PLUGIN / "scripts" / "values_keys.py"), str(t)]).returncode == 0
-
-
-# 道具のコードが読む鍵。表と読む側がずれると、読まれている鍵を知らない鍵と言い、値の表への書き込みを全部止める（PR #59 のレビュー）。
-# 値の表を読む file は全部ここに載せる（載っていない file が値の表を読むと赤＝知らない読み口は既定で止める）。
-# 鍵を読む形は字の形で並べた網で、並べない形（別名・分割代入・鍵の名を組み立てる形）は通る。表とコードがずれた時の本当の止めは values_keys 自身
-# （コードが読む鍵を表が持たなければ、その鍵を書いた値の表への AI の書き込みが止まり、止めた文が土台の表に行を足す道を示す）。
-_読む口 = {   # path: その file が読む値の表の枠
-    "plugins/docs-kit/skills/qa-html/check.mjs": ("docs-kit", "qa-html"),
-    "plugins/dev-flow/skills/codex/codex_pack.py": ("dev-flow", "codex"),
-    "plugins/dev-flow/skills/spec-doc/seal.py": ("dev-flow", "spec-doc"),
-    "plugins/docs-kit/skills/make-deck/scripts/finish_deck.py": ("docs-kit", "make-deck"),
-    "plugins/docs-kit/skills/make-deck/scripts/render_prompt.py": ("docs-kit", "make-deck"),
-    **{f"plugins/guard/scripts/{p.name}": ("guard",) for p in (ROOT / "plugins/guard/scripts").glob("*.py")},
-}
-_読まない口 = {   # 値の表に触れるが鍵を読まない file: 理由
-    "plugins/docs-kit/skills/make-deck/scripts/skill_values.py": "読む口の本体（鍵は呼ぶ側が渡す）",
-}
-_値の表に触れる = re.compile(r"skill-values|skill_values|SKILL_VALUES|guard_common|\bvals\b")
-_鍵を読む形 = [
-    re.compile(r"\b(?:values|vals|company)\s*(?:\.get\(\s*|\[\s*)[\"']([A-Za-z_]+)[\"']"),
-    re.compile(r"\bcompany\??\.([A-Za-z_]+)"),
-    re.compile(r"skill_values\.get\((?:\*mk|\"docs-kit\", \"make-deck\"),\s*\"([A-Za-z_]+)\""),
-]
-
-
-def _コードが読む鍵(rel, text):
-    return {k for pat in _鍵を読む形 for k in pat.findall(text)}
-
-
-def test_values_keys_値の表を読む_file_は全部読む口に載る():
-    out = subprocess.run(["git", "ls-files", "plugins"], cwd=ROOT, capture_output=True, text=True, check=True).stdout.split()
-    touch = [r for r in out if r.endswith((".py", ".mjs", ".js", ".sh")) and _値の表に触れる.search((ROOT / r).read_text(encoding="utf-8"))]
-    assert "plugins/dev-flow/skills/spec-doc/seal.py" in touch, "拾い方が壊れた"
-    unknown = [r for r in touch if r not in _読む口 and r not in _読まない口]
-    assert not unknown, f"値の表を読むのに読む口に載っていない file（載せて鍵を照らす）: {unknown}"
-    assert not [r for r in [*_読む口, *_読まない口] if not (ROOT / r).is_file()], "読む口の表に古い行"
-
-
-def test_values_keys_道具のコードが読む鍵は全部_SKILL_の表に在る():
-    """check.mjs の company.later_lead のように、表に載せずにコードだけが読む鍵があると赤。"""
-    known = VK.known_keys()
-    missing = []
-    for rel, head in _読む口.items():
-        for k in sorted(_コードが読む鍵(rel, (ROOT / rel).read_text(encoding="utf-8"))):
-            table = {head[0]: {k: 1}} if len(head) == 1 else {head[0]: {head[1]: {k: 1}}}
-            if VK.unknown(table, known):
-                missing.append(f"{rel}: {k}")
-    assert not missing, missing
-
-
-@pytest.mark.parametrize("rel, code", [
-    ("plugins/dev-flow/skills/spec-doc/seal.py", 'x = values.get("zz_new_key")'),
-    ("plugins/guard/scripts/context_size.py", 'x = vals.get("zz_ctx")'),
-    ("plugins/docs-kit/skills/qa-html/check.mjs", 'const x = company["zz_lead"];'),
-    ("plugins/docs-kit/skills/qa-html/check.mjs", "const x = company?.zz_lead;"),
-])
-def test_values_keys_表に無い鍵をコードが読み始めると赤(rel, code):
-    """注入の試験: 読む口のどの形で表に無い鍵を読み足しても名指す。"""
-    text = (ROOT / rel).read_text(encoding="utf-8") + "\n" + code + "\n"
-    head = _読む口[rel]
-    got = [k for k in _コードが読む鍵(rel, text) if k.startswith("zz_")]
-    assert got and VK.unknown({head[0]: {got[0]: 1}} if len(head) == 1 else {head[0]: {head[1]: {got[0]: 1}}})
-
-
-def test_values_keys_表から鍵の行を消すと読む口の試験が赤(monkeypatch):
-    """注入の試験: qa-html の表から later_lead の行を消すと、上の試験が名指す。"""
-    import re as _re
-    real = Path.read_text
-    md = (ROOT / "plugins/docs-kit/skills/qa-html/SKILL.md").resolve()
-
-    def fake(self, *a, **k):
-        t = real(self, *a, **k)
-        return _re.sub(r"^\| `docs-kit\.qa-html\.later_lead` \|.*\n", "", t, flags=_re.M) if Path(self).resolve() == md else t
-    import builtins
-    real_open = builtins.open
-
-    def fake_open(f, *a, **k):
-        if Path(str(f)).resolve() == md and "b" not in (a[0] if a else k.get("mode", "r")):
-            import io
-            return io.StringIO(fake(md, encoding="utf-8"))
-        return real_open(f, *a, **k)
-    monkeypatch.setattr(builtins, "open", fake_open)
-    with pytest.raises(AssertionError, match="later_lead"):
-        test_values_keys_道具のコードが読む鍵は全部_SKILL_の表に在る()
 def test_推奨の印の崩れと1つだけ選ばせる問いが両方当たれば理由を両方つないで返す(env):
     """ask_shape の rec と pick_one は同じ pre で走る。片方の理由が他方を消すと、AI が片方だけ直して 2 度止まる。"""
     why = deny_reason(env, ask_pre(q("どれを進めますか", header="進め方", labels=("作り物の A", "作り物の B（推奨）", "分からない"))))

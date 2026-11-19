@@ -35,6 +35,7 @@ FOUNDATION = ("core", "checker", "dev-flow", "docs-kit", "guard", "session-watch
 SECTION = re.compile(r"^## repo ごとの値[^\n]*\n(.*?)(?=^## |\Z)", re.M | re.S)
 TICK = re.compile(r"`([^`]+)`")
 WRITE_TOOLS = ("Write", "Edit", "MultiEdit")
+HOOKS = {"pre": "check", "start": "resurface"}
 
 
 def _plugins_root(guard_root=None):

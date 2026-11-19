@@ -116,7 +116,17 @@ def adopt(source_text: str, target: Path, root: Path = ROOT) -> list[str]:
     return new
 
 
+USAGE = ("使い方: changelog.py ／ changelog.py check ／ changelog.py adopt <古い形の CHANGELOG.md|-> <断片の file>")
+
+
 def main(argv: list[str]) -> int:
+    # 知らない口・数の違う引数は既定で止める（一覧の表示へ落として成功で返すと、頼んだ移し・検査をしていないのに緑になる）
+    args = argv[1:]
+    ok = (args == [] or args == ["check"] or (len(args) == 3 and args[0] == "adopt"
+                                              and not any(a.startswith("--") for a in args[1:])))
+    if not ok:
+        print(USAGE, file=sys.stderr)
+        return 2
     if argv[1:2] == ["adopt"] and len(argv) == 4:
         src = sys.stdin.read() if argv[2] == "-" else Path(argv[2]).read_text(encoding="utf-8")
         moved = adopt(src, Path(argv[3]))

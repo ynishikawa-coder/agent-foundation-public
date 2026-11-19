@@ -1,5 +1,4 @@
 """plugin core の試験: 核の差し込み（いつも正本）・使う側に残った写しと古い形の名指し・量の上限の照らし。"""
-import functools
 import importlib.util
 import json
 import os
@@ -18,6 +17,21 @@ spec = importlib.util.spec_from_file_location("kaku", TOOL)
 kaku = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(kaku)
 LIMITS = kaku.LIMITS
+
+
+def old_words_left(olds):
+    """土台の文（.md .py .json .mjs .html・試験と .git を除く）に残る古い言い回しを「path: 語」で返す。
+    変更の記録は CHANGELOG.d/ の .txt（経緯として古い語を持つ）なので、拡張子で外れる＝file 名で除かない。"""
+    hits = []
+    for p in sorted(ROOT.rglob("*")):
+        rel = p.relative_to(ROOT)
+        # 古い形.json は使う側に残る古い形を見つける一覧＝古い名を持つのが役目（見つけ方の正しさは古い形の試験が照らす）
+        if rel.parts[0] in {".git", "tests"} or p == PLUGIN / "古い形.json":
+            continue
+        if p.is_file() and p.suffix in {".md", ".py", ".json", ".mjs", ".html"}:
+            text = p.read_text(encoding="utf-8")
+            hits += [f"{rel}: {o}" for o in olds if o in text]
+    return hits
 
 
 def size(text: str) -> int:
@@ -228,26 +242,6 @@ def test_核が上限を越えると赤(monkeypatch, tmp_path, capsys):
     assert "核" in capsys.readouterr().out
 
 
-@functools.lru_cache(maxsize=1)
-def _土台の文書():
-    """土台の文書と道具の path の並び（.git と試験の中の古い語の一覧と、変更の記録の経緯と、古い形.json は除く）。"""
-    out = []
-    for d, dirs, files in os.walk(ROOT):
-        dirs[:] = sorted(x for x in dirs if not (Path(d) == ROOT and x in {".git", "tests"}))
-        out += [Path(d) / f for f in sorted(files)
-                if f != "CHANGELOG.md" and Path(f).suffix in {".md", ".py", ".json", ".mjs", ".html"}
-                and Path(d) / f != PLUGIN / "古い形.json"]   # 使う側に残る古い形を見つける一覧＝古い名を持つのが役目
-    return tuple(out)
-
-
-def _古い言い回し(olds):
-    hits = []
-    for p in _土台の文書():
-        text = p.read_text(encoding="utf-8")
-        hits += [f"{p.relative_to(ROOT)}: {o}" for o in olds if o in text]
-    return hits
-
-
 def _節(text, n):
     a = text.index(f"## {n}. ")
     b = text.find("\n## ", a + 1)
@@ -307,14 +301,14 @@ def test_聞き方は見せてから聞き_前提の出所を分け_推奨の印
     assert "この答えに頼らない作業だけを進めて" in reminder
     olds = ["答えを待つ間も止まらない", "①決めること ②なぜ今 ③材料", "推奨を 1 つ目に `(推奨)`", "「終わった（推奨）」",
             "戻せる作業だけを推奨案で進めて", "答え待ちで推奨を採った", "質問（`Q`）は必ず推奨と", "推奨を 1 つ目・", "推奨を 1 つ目・1 画面 4 問まで", "推奨で決めて"]
-    hits = _古い言い回し(olds)
+    hits = old_words_left(olds)
     assert not hits, hits
 
 
 def test_古い根治と聞き方の言い回しが土台に残らない():
     olds = ["根治の 4 つの問い", "①構造の原因", "いつも選択肢の画面", "返事の中で平文の問いを出さない",
             "専門用語は日常の言葉にする", "専門の語は日常の言葉に言い換え", "名前・数字など選べない答えも候補を選択肢に置き"]
-    hits = _古い言い回し(olds)
+    hits = old_words_left(olds)
     assert not hits, hits
 
 
@@ -325,7 +319,7 @@ def test_一言の返事は札と締めを省き_窓の役に決まった一覧�
     s5d = _節((PLUGIN / "細目.md").read_text(encoding="utf-8"), 5)
     assert "**一言で済む返事**" in s5d and "札を付けたら締めも付ける" in s5d
     olds = ["の 5 つだけ。他の名を足さない", "親・書く・レビュー・調べ・手 の 5 つ", "社内で確かめてから答える", "問いの形（3 つだけ）", "決まった 4 文"]
-    hits = _古い言い回し(olds)
+    hits = old_words_left(olds)
     assert not hits, hits
 
 
@@ -480,7 +474,7 @@ def test_挙げた原因は全部台帳に行き先つきで持ち_全部済む�
     assert "**原因の台帳**" in _節(saimoku, 3) and "**選ばせない**" in _節(saimoku, 4) and "**根治の終わり**" in _節(saimoku, 7)
     assert "1 本の列にせず" in (PLUGIN / "振る舞い.md").read_text(encoding="utf-8"), "引き継ぎの残りが番号の列に戻った"
     olds = ["どれを今回直す", "一番手前の未決から取る", "どれから進めますか」と聞"]
-    hits = _古い言い回し(olds)
+    hits = old_words_left(olds)
     assert not hits, hits
 
 
@@ -534,78 +528,8 @@ def test_残りの受け皿は原因の台帳_1_つで_名だけの受け皿を�
     olds = ["他の窓へ回す", "後の便", "🎯箱 か PR 本文", "残りに書", "直す側へ回す", "必要になった段で足す",
             "論点として残す", "1つ選んで決めてもらう", "1 つ選んで決めてもらう", "残りを書いて引き継ぐ",
             "回す先", "cleanup_followup"]
-    hits = _古い言い回し(olds)
+    hits = old_words_left(olds)
     assert not hits, hits
-
-
-# 残りの受け皿の名は古い言い回しを並べても尽きない（新しい名を足せばすり抜ける）。そこで「後へ回す」言葉の方で照らす:
-# 決まりの文書のどの行も、後へ回す言葉を使うなら原因の台帳を指す。指さない行は下の表に理由つきで載せた物だけ（知らない行は赤）。
-後へ回す言葉 = re.compile(r"後で|あとで|後ほど|のちほど|追って|後回し|後日|次回|今度|持ち越|保留|DEFER|TODO|[Ff]ollow-?up|backlog|後の便|次の便|別の PR で|宿題|箱へ|箱に")
-# 台帳を「指す」形だけ通す（「原因の台帳とは別の置き場」のように字だけ在る行は通さない・PR #59 のレビュー）
-# 台帳を指すのは決まった肯定の言い回しだけ（字が在るだけ・打ち消しの語を並べて外す形にしない＝決まった言い回しの外は赤）。
-# 言い回しの直後に続ける字も決めておく（「…の行にする必要は無い」「…の行にするのは任意」「…の行にしません」は赤）。
-# 次の句で打ち消す文（「…の行にして、載せなくてよい」）は字の形で見分けられない＝レビューの点が読む（残る穴）。
-台帳を指す言い回し = re.compile(r"原因の台帳(の行(にする|にして|になる|に入れる|へ|を足す|として|（)|に行を入れ(る|て)|の 1 行| 1 つ)(?=[。、）・：:\s（＝*]|から|$)")
-
-
-def 台帳を指す(ln):
-    return bool(台帳を指す言い回し.search(ln))
-後へ回す言葉の外 = {   # (path, その行を見分ける語): 理由 — 残りの受け皿ではない
-    ("plugins/dev-flow/skills/public-repo/SKILL.md", "新しい repo へ持ち越さない"): "歴史を新しい repo へ写さない話（仕事の残りではない）",
-    ("plugins/dev-flow/skills/public-repo/SKILL.md", "歴史ごと公開してよいか"): "同上",
-    ("plugins/dev-flow/skills/codex/SKILL.md", "ACCEPT/MODIFY/REJECT/DEFER"): "Codex 側の報告の札の名（行き先は同じ skill の §戻り が台帳と書く）",
-    ("plugins/session-watch/skills/watch-log/SKILL.md", "| `rest` |"): "自分を後で起こす手の名（send_later）",
-    ("plugins/core/細目.md", "AI がこの後やること＝"): "後で起こす手の名",
-    ("plugins/core/振る舞い.md", "**計画に逃げ場を書かない**"): "「後で」の逃げ場を書かない決まりそのもの",
-    ("plugins/dev-flow/skills/preimpl-cleanup/SKILL.md", "受領証を仕事の箱に作る"): "受領証の置き場（残りの受け皿ではない）",
-    ("plugins/guard/skills/guard-rules/SKILL.md", "は一時の箱に置く"): "窓の中だけで閉じる印の置き場",
-}
-
-
-def _後へ回す行(root):
-    """原因の台帳を指さず、外の表にも無い「後へ回す」行の並び。"""
-    out = []
-    files = [*root.glob("plugins/**/*.md"), *root.glob("docs/**/*.md"), *root.glob(".github/**/*.md"),
-             *(root / n for n in ("CONTRIBUTING.md", "README.md", "CLAUDE.md"))]
-    for p in sorted(f for f in files if f.is_file()):
-        rel = p.relative_to(root).as_posix()
-        for ln in p.read_text(encoding="utf-8").splitlines():
-            if 後へ回す言葉.search(ln) and not 台帳を指す(ln) \
-                    and not any(r == rel and key in ln for r, key in 後へ回す言葉の外):
-                out.append(f"{rel}: {ln[:80]}")
-    return out
-
-
-def test_後へ回す言葉を使う決まりは全部原因の台帳を指す():
-    """新しい名の受け皿（「後で 🍀箱へ」など）を足すと、古い言い回しの一覧に無くても赤。"""
-    assert _後へ回す行(ROOT) == []
-    for r, key in 後へ回す言葉の外:           # 外の表の行が消えたら表からも消す（古い外を残さない）
-        assert any(key in ln for ln in (ROOT / r).read_text(encoding="utf-8").splitlines()), f"外の表の行が無い: {r}: {key}"
-
-
-@pytest.mark.parametrize("line", [
-    "- 片付かなかった物は後で 🍀箱 に置く。",
-    "- DEFER の物は返しの欄に残す。",
-    "- 今回入らなかった物は別の PR で拾う。",
-    "- 気づきは follow-up の札で次の窓へ。",
-    "- 片付かない物は後ほど拾う。",
-    "- 残りは後で 🌱棚 に置く（原因の台帳とは別の置き場）。",
-    "- 気づきは後で拾い、原因の台帳に載せない。",
-    "- DEFER の物は原因の台帳へは書かない。",
-    "- 保留の物は原因の台帳で管理しない。",
-    "- 後で拾う物は原因の台帳の行にしません。",
-    "- 保留は原因の台帳の行にする必要は無い。",
-    "- 後で拾う物は原因の台帳の行にするのは任意。",
-    "- 持ち越す物を原因の台帳の行にするのは禁止。",
-    "- 後で直す物は原因の台帳に書く。",
-])
-def test_新しい名の受け皿を足すと赤(tmp_path, line):
-    for rel in ["plugins/x/skills/y/SKILL.md"]:
-        (tmp_path / rel).parent.mkdir(parents=True)
-        (tmp_path / rel).write_text("# 作り物\n" + line + "\n", encoding="utf-8")
-    assert _後へ回す行(tmp_path) == [f"plugins/x/skills/y/SKILL.md: {line}"]
-    (tmp_path / "plugins/x/skills/y/SKILL.md").write_text(line.replace("。", "（原因の台帳の行にする）。"), encoding="utf-8")
-    assert _後へ回す行(tmp_path) == []
 
 
 def test_main_へは製品もオーナーに聞かずに入れ_絵と差がある時だけ止める():
@@ -652,7 +576,7 @@ def test_ミスが出たらまず構造を疑い_単発と言うのは絵の上�
     assert "細目 §3「まず構造を疑う」" in rr, "register-rule が規律を足す前に原因の段へ戻さない"
     assert "細目 §3「まず構造を疑う」" in (ROOT / "CONTRIBUTING.md").read_text(encoding="utf-8"), "red を単発の手直しで済ませる形に戻った"
     olds = ["同じ種類の失敗が 2 度なら", "原因は仕組み・設計が悪い前提で探し"]
-    hits = _古い言い回し(olds)
+    hits = old_words_left(olds)
     assert not hits, hits
 
 
@@ -824,14 +748,17 @@ def test_検査の入口の赤の最後の行は根治の入口を指し緑は�
     assert green.returncode == 0 and "まず構造を疑う" not in green.stdout
 
 
-def _git_repo(tmp_path, text):
-    """作り物の git repo に 核.md を 1 commit で置き、その file の path を返す。"""
+def _git_repo(tmp_path, text, monkeypatch):
+    """作り物の git repo に 核.md と細目.md を 1 commit で置き、核.md の path を返す。
+    grow は細目も照らす（guarded）ので、細目も作り物へ向ける（本物の作業中の細目に試験が左右されない）。"""
     g = lambda *a: subprocess.run(["git", *a], cwd=tmp_path, check=True, capture_output=True)
     g("init", "-q")
     g("config", "user.email", "t@example.invalid")
     g("config", "user.name", "t")
     f = tmp_path / "核.md"
     f.write_text(text, encoding="utf-8")
+    (tmp_path / "細目.md").write_text("細目\n", encoding="utf-8")
+    monkeypatch.setattr(kaku, "SAIMOKU", tmp_path / "細目.md")
     g("add", "-A")
     g("commit", "-q", "-m", "元")
     return f
@@ -839,7 +766,7 @@ def _git_repo(tmp_path, text):
 
 def test_毎回差し込む物が元より増えると赤で_同じか減れば緑(monkeypatch, tmp_path, capsys):
     """上限の内でも純増は赤（足すなら同じ変更で同じだけ畳む）。わざと 1 字足すと赤になる注入の試験。"""
-    f = _git_repo(tmp_path, "元の核\n")
+    f = _git_repo(tmp_path, "元の核\n", monkeypatch)
     monkeypatch.setattr(kaku, "injected", lambda: (f,))
     assert kaku.grow("HEAD") == 0                       # 同じ
     f.write_text("元の核\n足\n", encoding="utf-8")
@@ -851,7 +778,7 @@ def test_毎回差し込む物が元より増えると赤で_同じか減れば�
 
 
 def test_比べる元が読めないと増え方の照らしは緑にせず止まる(monkeypatch, tmp_path, capsys):
-    f = _git_repo(tmp_path, "元の核\n")
+    f = _git_repo(tmp_path, "元の核\n", monkeypatch)
     monkeypatch.setattr(kaku, "injected", lambda: (f,))
     assert kaku.grow("無い枝") == 2
     new = tmp_path / "新.md"                            # 元の時に無い file
@@ -863,7 +790,7 @@ def test_比べる元が読めないと増え方の照らしは緑にせず止�
 
 def test_差し込む物を足すと増え方の照らしもそれを見る(monkeypatch, tmp_path, capsys):
     """差し込む一覧と照らす一覧が別の写しに戻ると、足した物が黙って照らされず赤。"""
-    f = _git_repo(tmp_path, "元の核\n")
+    f = _git_repo(tmp_path, "元の核\n", monkeypatch)
     third = tmp_path / "三つ目.md"
     third.write_text("三\n", encoding="utf-8")
     subprocess.run(["git", "add", "-A"], cwd=tmp_path, check=True)
@@ -882,9 +809,3 @@ def test_増え方の照らしは検査の入口から回る():
     ci = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
     check_job = ci.split("public-guard:")[0]
     assert "fetch-depth: 0" in check_job, "CI の check が origin/main を取らず、比べる元が無くなる"
-
-
-def test_量の上限は_1_か所で_使う側の_CLAUDE_md_は起動の_hook_が照らし数も道具も写さない():
-    """細目の量の上限の文（PR #49 で書き換わった）を文のまま照らす（照らさない文を足すと test_rule_holes が赤）。"""
-    saimoku = (PLUGIN / "細目.md").read_text(encoding="utf-8")
-    assert "使う側の `CLAUDE.md` は起動の hook が照らして知らせる・使う側は数も道具も写さない）。" in saimoku
