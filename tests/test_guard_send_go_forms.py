@@ -82,6 +82,14 @@ FORMS = [
     ("$(…) の中", lambda f: "echo $(python3 %s --to グループ --text-file %s)" % (PROG, f)),
     ("ヒアドキュメントの python", lambda f: "python3 - <<'EOF'\nimport subprocess\nsubprocess.run(['%s'])\nEOF" % PROG),
     ("置き換えで隠した道具", lambda f: "P=$(ls /作り物/*.py); python3 $P --to グループ --text-file %s" % f),
+    # 走る道具の名を展開で組み立てる形（2026-11-19 の 4 回目のレビュー: 読み手の訳の言い回しで止めていたので、
+    # 言い回しの違う読み手の下で go なしに通った）。送る道具の名の字は命令に無い。
+    ("置き換えで名の一部を組み立てる", lambda f: "X=$(printf %%s 送); python3 /作り物/${X}る口.py --to グループ --text-file %s" % f),
+    ("変数で名の一部を組み立てる", lambda f: "X=送; python3 /作り物/${X}る口.py --to グループ --text-file %s" % f),
+    ("`…` で名の一部を組み立てる", lambda f: "python3 /作り物/`printf 送`る口.py --to グループ --text-file %s" % f),
+    ("置き換えで道具の全部を組み立てる", lambda f: "\"$(printf /作り物/送)る口.py\" --to グループ --text-file %s" % f),
+    ("deck: 置き換えで段の名を組み立てる", lambda f: "\"$V/notebooklm\" $(echo source) add nb1 %s" % f),
+    ("deck: 置き換えで道具の名を組み立てる", lambda f: "\"$V/$(echo note)booklm\" source add nb1 %s" % f),
     ("deck: 変数の道具", lambda f: "NB=$V/notebooklm; \"$NB\" source add nb1 %s" % f),
     ("deck: $V の下", lambda f: "\"$V/notebooklm\" source add nb1 %s" % f),
     ("deck: 包みと option", lambda f: "nohup %s --profile p source add nb1 %s" % (NB, f)),
@@ -197,3 +205,33 @@ def test_人の行の見分けは_1_つで_is_owner_row_も同じ(row):
     ok = U("go")
     assert G.is_human_prompt(ok) and G.is_owner_row(ok)
     assert G.is_human_prompt(U([{"type": "text", "text": "これで送って"}, {"type": "image", "source": {}}]))
+
+
+# ── 読み切れない形の止めは、読み手の訳の言い回しに頼らない ──
+def _send_go():
+    sys.path.insert(0, str(SCRIPTS))
+    try:
+        import send_go
+        return send_go
+    finally:
+        sys.path.remove(str(SCRIPTS))
+
+
+BUILT = [(n, f) for n, f in FORMS if "組み立てる" in n]
+COMPOSE_GATE = (PROG, ())
+DECK_GATE = ("notebooklm", ("source", "add"))
+
+
+@pytest.mark.parametrize("name,form", BUILT, ids=[n for n, _ in BUILT])
+def test_読み切れない形の止めは読み手の訳の言い回しに頼らない(monkeypatch, name, form):
+    """注入: 読み手が同じ形に別の言い回しの訳を返す（別の PR の読み手が同じ名で後ろに入った時の形）。止めるかは変わらない。"""
+    sg = _send_go()
+    real = sg.G.parse_shell
+
+    def reworded(cmd):
+        cmds, unknowns = real(cmd)
+        return cmds, [(u[0], "作り物の言い回し") if isinstance(u, (tuple, list)) else "作り物の言い回し" for u in unknowns]
+    monkeypatch.setattr(sg.G, "parse_shell", reworded)
+    gate = DECK_GATE if name.startswith("deck:") else COMPOSE_GATE
+    hits, why = sg.find_sends(form("/作り物/文面.txt"), gate)
+    assert hits or why, form("/作り物/文面.txt")

@@ -15,7 +15,9 @@
   - 走る命令のどの位置の語でも、名（basename か拡張子を外した名）が送る道具に当たれば送る命令（読むだけの道具 READERS の
     引数は除く）。送る段の名を宣言する口は、その並びが後ろに在る時だけ。
   - 読み切れない形（parse_shell の unknowns・引数の位置の変数・解釈の道具に字で渡すコード・標準入力で渡すコード）は、
-    送る道具の名が命令の字に在るか、走る道具の名が読めない時に止める（既定で止める）。
+    送る道具の名の字が命令のどこかに在るか、読み手が「走る道具を走る時に決める」印（Unknown.code）を返した時に止める
+    （既定で止める）。止めるかは印と命令の字の事実だけで決め、読み手の訳の言い回しには頼らない。読み手は parse_shell
+    の 1 つ（PR #77 が持つ。ここに写さない）。
   - 試しの形は、送る道具のその単純な命令の引数に `--dry-run` が在る時だけ（`; echo --dry-run`・注の中は数えない）。
 送る物は送る命令の引数から字のまま全部決める（決められなければ止める）:
   - option の名でない語と `--名=値` の値の全部。在る file は字の file なら中身、字でない file は絶対 path と sha256。
@@ -167,11 +169,29 @@ def _stdin_fed(cmd):
     return False
 
 
+# 読み手（guard_common.parse_shell）の読み切れない所の印（Unknown.code）のうち、走る道具を走る時に決める物と、値を隠せる物
+RUNTIME_PROGRAM = frozenset(("var_program", "unknown_wrapper", "exec_shell", "eval_dyn", "env_S", "pipe_to_shell",
+                             "heredoc_to_shell", "nesting_deep", "not_text"))
+HIDING = frozenset(("subst", "backtick", "process_subst"))
+
+
+def _code(u):
+    """読み切れない所 1 つの印。印の無い形（読み手が違う）は、走る道具を決められない側の印に倒す。"""
+    c = getattr(u, "code", None)
+    return c if isinstance(c, str) and c else "var_program"
+
+
+def _said(u):
+    """読み切れない所 1 つの人の読む訳（止めるかの決めには使わない）。"""
+    return str(getattr(u, "message", u))
+
+
 def find_sends(cmd, gate):
     """命令 cmd の中の送る命令: ([(単純な命令の位置, argv, 送る道具の位置)], [止める訳])。"""
     prog, sub = gate
     stem = os.path.splitext(os.path.basename(prog))[0]
-    named = bool(stem) and stem in cmd and all(s in cmd for s in sub)     # 送る道具の名（と送る段の名）の字が命令に在る
+    named_word = bool(stem) and stem in cmd                               # 送る道具の名の字が命令のどこかに在る
+    named = named_word and all(s in cmd for s in sub)                     # それと送る段の名の字も在る
     cmds, unknowns = G.parse_shell(cmd)
     hits, why = [], []
     for ci, argv in enumerate(cmds):
@@ -180,18 +200,19 @@ def find_sends(cmd, gate):
             if (k == 0 or not reader) and _is_prog(w, prog) and _has_seq(argv[k + 1:], sub):
                 hits.append((ci, argv, k))
                 break
-    if unknowns and named:
-        why.append("命令を読み切れない（%s）" % "・".join(unknowns))
-    # 走る道具の名そのものが変数・展開（`$P`・`"$NB"`・`"$V/<道具>"`・`python3 $P`）＝どの道具が走るか読めない
-    # （parse_shell はその命令を語に返さず unknowns に書く）。送る段の名を宣言する口は、その字が命令に在る時だけ。
-    # 送る段の名の無い口は、送る道具の名の字か、値を隠せる置き換え（$(…)・`…`）が命令に在る時だけ（同じ命令の中で
-    # 字のまま代入した変数は名の字が残る。窓の外から来る環境変数だけは見えない＝残る穴）。
-    hidden = any("$(…)" in u or "`…`" in u for u in unknowns)
-    if all(s in cmd for s in sub) and (sub or named or hidden):
-        for u in unknowns:
-            interp = re.match(r"表に無い命令 (\S+) の引数に変数の展開", u)
-            if u.startswith("命令の名が変数") or (interp and INTERP.match(interp.group(1))):
-                why.append("走る道具の名が変数・展開で読めない（%s）" % u)
+    # 読み切れない形の止めは、読み手が返す印（Unknown.code）と命令の字の事実だけで決め、訳の言い回しには頼らない
+    # （訳の字に正規表現を当てていたので、言い回しの違う読み手の下で止めが外れた＝2026-11-19 のレビュー）:
+    #  - 送る道具の名の字が命令のどこかに在る（語でも語の一部でも）なら、読み切れない所が 1 つでも在れば止める。
+    #  - 走る道具を走る時に決める印（RUNTIME_PROGRAM: 道具の名の展開・表に無い命令の引数の展開・シェルへ流す形など）が
+    #    在れば、名の字が無くても止める（`X=$(printf %s 送); python3 /…/${X}る口.py`）。送る段の名を宣言する口は、
+    #    その字が全部命令に在るか、値を隠せる印（HIDING: $(…)・`…`）が在る時だけ（`"$V/notebooklm" doctor` は通す）。
+    #  （値を隠せる印だけの命令〔`git commit -m "$(cat …)"`〕は止めない。置き換えの中で送る道具を走らせる形は、
+    #   名の字が在れば上で止まり、名を隠せば別の script を走らせる形と同じ残る穴）
+    codes = {_code(u) for u in unknowns}
+    step = not sub or all(s in cmd for s in sub) or bool(codes & HIDING)
+    if unknowns and (named_word or (codes & RUNTIME_PROGRAM and step)):
+        why.append("命令を読み切れず、%s（%s）" % (
+            "送る道具の名の字が在る" if named_word else "走る道具を走る時に決める形が在る", "・".join(map(_said, unknowns))))
     if named and not hits:
         for argv in cmds:
             name = os.path.basename(argv[0])
