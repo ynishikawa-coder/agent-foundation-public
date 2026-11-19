@@ -9,6 +9,7 @@
 """
 import json
 import os
+import shutil
 import subprocess
 import time
 
@@ -105,3 +106,75 @@ def test_入口は目録を取り直した時を印に書く(tmp_path):
     assert r.returncode == 0, r.stdout
     state = json.loads((home / ".claude" / "af-foundation" / "setup.json").read_text(encoding="utf-8"))
     assert isinstance(state.get("fetched"), (int, float)) and before - 1 <= state["fetched"] <= time.time() + 1
+
+
+def _shallow(f):
+    """目録の clone を本番の形（浅い・1 commit）に替える。"""
+    loc = f.home / ".claude" / "plugins" / "marketplaces" / "agent-foundation"
+    shutil.rmtree(loc)
+    subprocess.run(["git", "clone", "-q", "--depth=1", f"file://{f.remote}", str(loc)], check=True, capture_output=True)
+    head = subprocess.run(["git", "-C", str(loc), "rev-parse", "HEAD"], capture_output=True, text=True, check=True)
+    assert head.stdout.strip() == f.installed
+
+
+def _merges(tmp_path, times, shallow):
+    f = Foundation(tmp_path)
+    f.install()
+    if shallow:
+        _shallow(f)
+    _mark(f)
+    for i, at in enumerate(times):
+        _merge(f, {f"plugins/guard/x{i}.py": "x\n"}, at)
+    return f
+
+
+SHALLOW = pytest.mark.parametrize("shallow", [True, False], ids=["浅い clone", "浅くない clone"])
+
+
+@SHALLOW
+def test_間の合流が全部取り直しの後なら知らせだけ(tmp_path, shallow):
+    """注入: 合流 3 本が全部取り直しの後 → 浅い clone でも間を全部読み、知らせだけ。"""
+    f = _merges(tmp_path, [NOW - 600 + 3, NOW - 600 + 5, NOW - 600 + 9], shallow)
+    text = f.hook("inject")
+    assert "取り直しの後に入った差" in text and not [w for w in HANDOFF if w in text], text
+
+
+@SHALLOW
+def test_取り直しの前と後の合流が混ざれば引き継ぎを求める(tmp_path, shallow):
+    """注入: 取り直しの 1 時間前の合流＋取り直しの 3 秒後の合流 → 先端の時だけで代わりにせず、形の誤り（引き継ぎ）。"""
+    f = _merges(tmp_path, [NOW - 600 - 3600, NOW - 600 + 3], shallow)
+    text = f.hook("inject")
+    assert "土台が古いまま立った窓" in text and all(w in text for w in HANDOFF), text
+    assert "取り直しの後に入った差" not in text
+
+
+@SHALLOW
+def test_間の合流の時が読めなければ引き継ぎを求める(tmp_path, shallow):
+    """注入: main を入った commit の続きでない履歴へ書き換える（合流は取り直しの後）→ 先端から入った commit に
+    辿り着けず、間の合流の時を全部は読めない → 形の誤り（引き継ぎ）。"""
+    f = _merges(tmp_path, [], shallow)
+    env = dict(os.environ, GIT_COMMITTER_DATE=f"{NOW - 600 + 3} +0000", GIT_AUTHOR_DATE=f"{NOW - 600 + 3} +0000")
+    subprocess.run(["git", "checkout", "-q", "--orphan", "other"], cwd=f.work, check=True, capture_output=True)
+    (f.work / "plugins" / "guard").mkdir(parents=True, exist_ok=True)
+    (f.work / "plugins" / "guard" / "x.py").write_text("x\n", encoding="utf-8")
+    for args in (["add", "-A"], ["commit", "-q", "-m", "書き換え"], ["push", "-q", "-f", "origin", "HEAD:main"]):
+        subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@example.invalid", *args], cwd=f.work,
+                       env=env, check=True, capture_output=True)
+    text = f.hook("inject")
+    assert "土台が古いまま立った窓" in text and all(w in text for w in HANDOFF), text
+    assert "取り直しの後に入った差" not in text
+
+
+def test_知らせだけの窓も起動の後に入った_plugin_の変更では引き継ぎを求める(tmp_path):
+    """注入: 知らせだけの窓が立つ → 起動の時の先端までは数え済みで fresh は黙る → 文書だけの変更でも黙る →
+    main で plugin が変わる → fresh が引き継ぎを求める（圧縮の後も知らせは同じで、引き継ぎも消えない）。"""
+    f = _merges(tmp_path, [NOW - 600 + 3], shallow=True)
+    assert "取り直しの後に入った差" in f.hook("inject")
+    assert f.hook("fresh") == ""
+    _merge(f, {"docs/a.md": "2\n"}, NOW)
+    assert f.hook("fresh") == ""
+    _merge(f, {"plugins/core/y.py": "y\n"}, NOW)
+    text = f.hook("fresh")
+    assert "引き継いで閉じる" in text and all(w in text for w in ("create_session", "archive_session", "core")), text
+    assert "取り直しの後に入った差" in f.hook("inject", source="compact")
+    assert "引き継いで閉じる" in f.hook("fresh")
