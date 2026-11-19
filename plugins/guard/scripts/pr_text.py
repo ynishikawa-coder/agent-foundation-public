@@ -266,9 +266,8 @@ def check_public(texts, repo, data, vals):
 HOW = {
     "broken": "一時の置き場（TMPDIR・AF_GUARD_TMP）に書けるか・入れた plugin が揃っているかを確かめ、直してから出し直す。"
               "直せない時は止めた文を添えて親の窓へ返す（見張りを外して出さない）。",
-    "verdict": "判定のコメントは skill `checker:review-pr` の形で書き直す（1 行目 `レビューした窓: <session id> 判定: green|red`・"
-               "2 行目 `見た先端: <SHA12>`・`## verdict`・`## 点`〔見る点の表の全部〕・`## 所見`〔札 `- [止める|後の便|直った｜<段>]`〕）。"
-               "`python3 <verdict_form.py> <下書き> --writer <書いた窓> --head <PR の先端>` が exit 0 になってから出す。",
+    "verdict": "判定のコメントは skill `checker:review-pr` の「判定の形」で書き直す（形の正本はその SKILL.md と verdict_form.py・"
+               "ここに写さない）。`python3 <verdict_form.py> <下書き> --writer <書いた窓> --head <PR の先端>` が exit 0 になってから出す。",
     "cleanup": "PR 本文の「何をどう変えたか」の後に `## 整地（根治の 4 段）` を置き、skill `dev-flow:preimpl-cleanup` の雛形の 4 つの見出しで"
                "書く（中身は頭が書く・`〔…〕` を残さない）。振る舞いを変えない PR（誤字・記録だけ・版だけ等）なら、4 欄の代わりに "
                "`整地: 不要（<なぜ要らないか>）` の 1 行を書く（訳はレビューが照らす）。",

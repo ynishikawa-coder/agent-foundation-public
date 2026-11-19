@@ -656,7 +656,8 @@ def verdict_comment(judged="green", head="0123456789ab", fail=None, stop=False, 
     first = line1 or "レビューした窓: %s 判定: %s" % (REVIEWER, judged)
     fix = [verdict_form.ROOT_CAUSE] if judged == "red" else []
     lines = [first] + (["見た先端: " + head] if head else []) + ["", "## verdict", judged] + fix + ["", "## 点"] + rows
-    lines += ["", "## 所見", "- [止める｜実装] 作り物の欠け" if stop else "- [後の便｜実装] 作り物の後の便"]
+    later = [c for c in verdict_form.CARDS if c not in ("止める", "直った")][0]     # 止めない札の名も道具から読む
+    lines += ["", "## 所見", "- [止める｜実装] 作り物の欠け" if stop else "- [%s｜実装] 作り物の残り" % later]
     return "\n".join(lines) + "\n"
 
 
@@ -676,7 +677,7 @@ PR_BAD = [
                                     body=verdict_comment(line1="レビューした窓: %s の中の助手 判定: green" % REVIEWER)),
      "[verdict]", "1 行目"),
     ("1 行目の名乗りが無く節だけ在る判定", gh("add_issue_comment", issue_number=1,
-                                          body="判定: green\n\n## verdict\ngreen\n\n## 所見\n- [後の便｜実装] 作り物\n"),
+                                          body="判定: green\n\n## verdict\ngreen\n\n## 所見\n- [直った｜実装] 作り物\n"),
      "[verdict]", "1 行目"),
     ("整地の欄が無い", gh("create_pull_request", title="作り物", head="b", base="main",
                          body="親窓: x\n\n## 何をどう変えたか\n作り物。\n"), "[cleanup]", "1. 問題"),
