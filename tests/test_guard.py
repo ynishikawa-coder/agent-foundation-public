@@ -811,3 +811,46 @@ def test_values_keys_手で回す口は知らない鍵で_exit_1(tmp_path):
     assert r.returncode == 1 and "cleanup_followup" in r.stdout
     t.write_text(json.dumps(今の表, ensure_ascii=False), encoding="utf-8")
     assert subprocess.run([sys.executable, str(PLUGIN / "scripts" / "values_keys.py"), str(t)]).returncode == 0
+
+
+# 道具のコードが読む鍵（読み口ごとの形）。表と読む側がずれると、読まれている鍵を知らない鍵と言い、値の表への書き込みを全部止める。
+_読む口 = [
+    ("plugins/docs-kit/skills/qa-html/check.mjs", r"\bcompany\.([a-z_]+)", ("docs-kit", "qa-html")),
+    ("plugins/dev-flow/skills/codex/codex_pack.py", r"\bvalues\.get\(\"([a-z_]+)\"", ("dev-flow", "codex")),
+    ("plugins/docs-kit/skills/make-deck/scripts/finish_deck.py", r"skill_values\.get\(\*mk, \"([a-z_]+)\"", ("docs-kit", "make-deck")),
+    ("plugins/docs-kit/skills/make-deck/scripts/render_prompt.py", r"skill_values\.get\(\"docs-kit\", \"make-deck\", \"([a-z_]+)\"", ("docs-kit", "make-deck")),
+]
+
+
+def test_values_keys_道具のコードが読む鍵は全部_SKILL_の表に在る():
+    """check.mjs の company.later_lead のように、表に載せずにコードだけが読む鍵があると赤（PR #59 のレビュー）。"""
+    import re as _re
+    known = VK.known_keys()
+    missing = []
+    for rel, pat, head in _読む口:
+        found = set(_re.findall(pat, (ROOT / rel).read_text(encoding="utf-8")))
+        assert found, f"読む口の形が壊れた: {rel}"
+        missing += [f"{rel}: {k}" for k in sorted(found) if VK.unknown({head[0]: {head[1]: {k: 1}}}, known)]
+    assert not missing, missing
+
+
+def test_values_keys_表から鍵の行を消すと読む口の試験が赤(monkeypatch):
+    """注入の試験: qa-html の表から later_lead の行を消すと、上の試験が名指す。"""
+    import re as _re
+    real = Path.read_text
+    md = (ROOT / "plugins/docs-kit/skills/qa-html/SKILL.md").resolve()
+
+    def fake(self, *a, **k):
+        t = real(self, *a, **k)
+        return _re.sub(r"^\| `docs-kit\.qa-html\.later_lead` \|.*\n", "", t, flags=_re.M) if Path(self).resolve() == md else t
+    import builtins
+    real_open = builtins.open
+
+    def fake_open(f, *a, **k):
+        if Path(str(f)).resolve() == md and "b" not in (a[0] if a else k.get("mode", "r")):
+            import io
+            return io.StringIO(fake(md, encoding="utf-8"))
+        return real_open(f, *a, **k)
+    monkeypatch.setattr(builtins, "open", fake_open)
+    with pytest.raises(AssertionError, match="later_lead"):
+        test_values_keys_道具のコードが読む鍵は全部_SKILL_の表に在る()

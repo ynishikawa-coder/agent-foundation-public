@@ -416,7 +416,9 @@ def test_残りの受け皿は原因の台帳_1_つで_名だけの受け皿を�
 
 # 残りの受け皿の名は古い言い回しを並べても尽きない（新しい名を足せばすり抜ける）。そこで「後へ回す」言葉の方で照らす:
 # 決まりの文書のどの行も、後へ回す言葉を使うなら原因の台帳を指す。指さない行は下の表に理由つきで載せた物だけ（知らない行は赤）。
-後へ回す言葉 = re.compile(r"後で|あとで|後回し|後日|次回|今度|持ち越|保留|DEFER|TODO|[Ff]ollow-?up|backlog|後の便|次の便|別の PR で|宿題|箱へ|箱に")
+後へ回す言葉 = re.compile(r"後で|あとで|後ほど|のちほど|追って|後回し|後日|次回|今度|持ち越|保留|DEFER|TODO|[Ff]ollow-?up|backlog|後の便|次の便|別の PR で|宿題|箱へ|箱に")
+# 台帳を「指す」形だけ通す（「原因の台帳とは別の置き場」のように字だけ在る行は通さない・PR #59 のレビュー）
+台帳を指す = re.compile(r"原因の台帳(の行|へ|に|で|の 1 行| 1 つ)")
 後へ回す言葉の外 = {   # (path, その行を見分ける語): 理由 — 残りの受け皿ではない
     ("plugins/dev-flow/skills/public-repo/SKILL.md", "新しい repo へ持ち越さない"): "歴史を新しい repo へ写さない話（仕事の残りではない）",
     ("plugins/dev-flow/skills/public-repo/SKILL.md", "歴史ごと公開してよいか"): "同上",
@@ -437,7 +439,7 @@ def _後へ回す行(root):
     for p in sorted(f for f in files if f.is_file()):
         rel = p.relative_to(root).as_posix()
         for ln in p.read_text(encoding="utf-8").splitlines():
-            if 後へ回す言葉.search(ln) and "原因の台帳" not in ln \
+            if 後へ回す言葉.search(ln) and not 台帳を指す.search(ln) \
                     and not any(r == rel and key in ln for r, key in 後へ回す言葉の外):
                 out.append(f"{rel}: {ln[:80]}")
     return out
@@ -455,6 +457,8 @@ def test_後へ回す言葉を使う決まりは全部原因の台帳を指す()
     "- DEFER の物は返しの欄に残す。",
     "- 今回入らなかった物は別の PR で拾う。",
     "- 気づきは follow-up の札で次の窓へ。",
+    "- 片付かない物は後ほど拾う。",
+    "- 残りは後で 🌱棚 に置く（原因の台帳とは別の置き場）。",
 ])
 def test_新しい名の受け皿を足すと赤(tmp_path, line):
     for rel in ["plugins/x/skills/y/SKILL.md"]:
