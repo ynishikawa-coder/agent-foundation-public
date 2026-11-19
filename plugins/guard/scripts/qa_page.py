@@ -4,7 +4,8 @@
 道具の都合をそのまま問いにした物をオーナーに出した。宛先がオーナーでも、ページで聞くなら同じ型と検査を当てる
 （オーナー同意 2026-11-17）。
 
-見る物: Artifact の publish（action が無いか "publish"・asset の上げは除く）で、file_path が .html か .json の時だけ。
+見る物: Artifact の publish（action が無いか "publish"・asset の上げは除く）で、file_path と files で足す file のうち .html か .json の物。
+  （files の HTML は同じ Artifact の別のページとして開けるので、file_path と同じに見る）
 問いのページの見分け（誤検知を少なくするため、どれか 1 つが要る）:
   HTML: ① 型の印（<body data-dest="send|copy|artifact">・CustomEvent('qa:submit')）
         ② 選ぶ問い（radio）と、答えを外へ出す仕組み（form・qa:submit・sendPrompt・window.claude の書く呼び出し・POST 等の fetch・clipboard への書き込み）の両方
@@ -18,12 +19,13 @@
 """
 from __future__ import annotations
 
-import glob
 import json
 import os
 import re
 import shutil
 import subprocess
+
+import guard_common as G
 
 PAGE_EXT = (".html", ".htm", ".json")
 TIMEOUT = 30
@@ -84,20 +86,7 @@ def find_check(guard_root=None):
     env = os.environ.get("AF_QA_CHECK") or ""
     if env:
         return env if os.path.isfile(env) else ""
-    here = guard_root or os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    rel = os.path.join("skills", "qa-html", "check.mjs")
-    # repo の形: plugins/guard と plugins/docs-kit が隣
-    cand = os.path.join(os.path.dirname(here), "docs-kit", rel)
-    if os.path.isfile(cand):
-        return cand
-    # 入れた plugin の形: cache/<市場>/guard/<版> と cache/<市場>/docs-kit/<版>。同じ版を先に、無ければ新しい物
-    ver = os.path.basename(here)
-    market = os.path.dirname(os.path.dirname(here))
-    same = os.path.join(market, "docs-kit", ver, rel)
-    if os.path.isfile(same):
-        return same
-    found = sorted(glob.glob(os.path.join(market, "docs-kit", "*", rel)), key=os.path.getmtime, reverse=True)
-    return found[0] if found else ""
+    return G.sibling_plugin_file("docs-kit", os.path.join("skills", "qa-html", "check.mjs"), guard_root)
 
 
 def _resolve(path, data):
@@ -121,8 +110,32 @@ def reason(path, why, lines, chk=""):
     ).format(path, why, "\n".join(lines), chk or "<qa-html の check.mjs>", path)
 
 
+def _sources(ti, data):
+    """publish で出る file の path（file_path と files の元）。files は {公開の path: 元 | {from} | {artifact} | None} か [{path}]。"""
+    out = []
+    fp = ti.get("file_path")
+    if isinstance(fp, str):
+        out.append(_resolve(fp, data))
+    files = ti.get("files")
+    root = ti.get("root") if isinstance(ti.get("root"), str) else ""
+    items = []
+    if isinstance(files, dict):
+        for pub, src in files.items():
+            if isinstance(src, str):
+                items.append(src)
+            elif isinstance(src, dict) and isinstance(src.get("from"), str):
+                items.append(src["from"])          # {artifact, path} は別の Artifact の物＝ここでは読めない
+    elif isinstance(files, list):
+        items = [f.get("path") for f in files if isinstance(f, dict) and isinstance(f.get("path"), str)]
+    for src in items:
+        if root and not os.path.isabs(os.path.expanduser(src)):
+            src = os.path.join(root, src)
+        out.append(_resolve(src, data))
+    return out
+
+
 def check(data, vals):
-    """止めるなら理由、通すなら ""。"""
+    """止めるなら理由、通すなら ""。file_path も files で足すページも同じに見る（files の HTML は別のページとして開ける）。"""
     if str(data.get("tool_name") or "") != "Artifact":
         return ""
     ti = data.get("tool_input")
@@ -130,10 +143,16 @@ def check(data, vals):
         return ""
     if str(ti.get("action") or "publish") != "publish":
         return ""
-    fp = ti.get("file_path")
-    if not isinstance(fp, str) or not fp.lower().endswith(PAGE_EXT):
+    for path in _sources(ti, data):
+        why = check_page(path, vals)
+        if why:
+            return why
+    return ""
+
+
+def check_page(path, vals):
+    if not path.lower().endswith(PAGE_EXT):
         return ""
-    path = _resolve(fp, data)
     for pat in vals.get("qa_page_exempt") or []:
         if isinstance(pat, str) and pat and re.search(pat, path.replace(os.sep, "/")):
             return ""
