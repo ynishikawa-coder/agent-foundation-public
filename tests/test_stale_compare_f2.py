@@ -374,7 +374,8 @@ def test_手元の範囲の元を取っても手元の_origin_main_を書き換�
     from test_guard_local_range_fresh_main import guard, setup
     work, old = setup(tmp_path)
     r = guard(work)
-    assert r.returncode == 0, r.stdout + r.stderr
+    # 当たりは 0（手元は PR の題・本文を照らさないので exit 3＝照らしていない）
+    assert r.returncode == 3 and "当たりは 0" in r.stdout, r.stdout + r.stderr
     assert _git(work, "rev-parse", "refs/remotes/origin/main") == old
 
 

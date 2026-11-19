@@ -2,9 +2,15 @@
 """公開の検査の本体（土台に 1 つだけ置く。各公開 repo の CI は action `public-guard` を版を決めて呼ぶだけ）。
 
 公開の repo は、いつ誰に見られてもよい状態に保つ。世界に見える物を全部照らす:
-  - 中身: git の追跡するファイルの名と全行
-  - 歴史: 照らす範囲の各 commit で足された行（消しても歴史に残るため）
+  - 中身: git の追跡するファイルと、まだ git に入れていない新しいファイル（.gitignore の外）の名と全行。
+    UTF-8 で読めない字は置き換えて読む（ASCII の鍵の形は照らす）。作業の木で消した追跡のファイルは index の中身を照らす
+  - 歴史: 照らす範囲の各 commit で足された行（消しても歴史に残るため。バイナリの差分も字として照らす）
   - 外側: commit の説明・名義（名とメール）と PR の題・本文
+照らしていない物は緑と言わない: 照らす物が 0（置かない語の表に語が 0・範囲の commit が 0・ファイルが 0）・手元で PR の
+event が無く PR の題・本文を照らしていない・顧客の語の照合を飛ばした・submodule の中身、のどれかが在れば、当たり 0 でも
+exit 3（照らしていない）で何を照らしていないかを名指す。CI では exit 0 でない物は皆赤。
+照合の前の正規化は normalize() 1 つ（NFKC・書式の字〔幅の無い空白など〕を除く）。語の照合はその上で大文字と小文字を
+区別しない（fold()）。形・置かない語・顧客の語（平文と束）は皆これを通す（全角・互換の字ですり抜けない）。
 
 照らす物:
   - 秘密の形（鍵・トークン）と個人の情報の形（個人を指すメール・電話・郵便番号・Notion と Google の文書の URL）
@@ -13,21 +19,26 @@
   - 顧客の語（repo に書かない。環境から渡す。どちらか・両方でよい）
       AF_DENY_BUNDLE … 語を HMAC にした束 `pct1.<鍵>.<束>`（Javis の顧客の語の束と同じ形・同じ値を貼る）
       AF_DENY_WORDS（1 行 1 語）／AF_DENY_WORDS_FILE（その形のファイルの path）
-    CI（GITHUB_ACTIONS=true）でどれも無い時は黙って通さず止める。手元でどれも無い時だけ飛ばす。
+    CI（GITHUB_ACTIONS=true）でどれも無い時は黙って通さず止める。手元でどれも無い時だけ飛ばす（exit 3）。
 語そのものは出力に出さない（どこに当たったかだけを出す）。
+--pattern-skip に名指したファイルでも、形の照らしから外れるのは印 `public-guard: 形の見本` を書いた行の個人の情報の形
+だけ（秘密の形〔鍵・トークン〕は印の行でも外さない・印の無い行は全部照らす・置かない語と顧客の語は外さない）。
 
 使い方: python3 guard.py [--repo DIR] [--range REV|ALL] [--deny-words-file F] [--pattern-skip PATH ...] [--files-only]
         python3 guard.py --text <場所の名>=<file> [--text …] [--deny-words-file F]
   --text は、GitHub へ出す前の文（PR の題・本文・コメント）だけを同じ表で照らす（中身・歴史は見ない）。
-  守りの hook（plugin guard の pr_text）が出す前に呼ぶ。手元で顧客の語が無い時は顧客の語だけ飛ばす（CI でも止めない）。
-  --range の既定: CI では event（PR は <base の枝の今の先端>..head・push は before..after）、手元では <出所の今の main>..HEAD。
+  守りの hook（plugin guard の pr_text）が出す前に呼ぶ。顧客の語が無い・表に語が 0 の時はその照合を飛ばし、照らしていない事を
+  出力に名指す（✅ と言わない。exit は CI でも 0＝hook が 0 以外を止めるため。3 にするには hook の受けを先に直す）。
+  --range の既定: CI では event（PR は <base の枝の今の先端>..head・push は before..after。before が 0 の並び＝新しい枝は
+  <既定の枝の今の先端>..after、既定の枝そのものか先端を聞けない時は after の全ての歴史）、手元では <出所の今の main>..HEAD。
   出所の今の枝の先端は scripts/pr_shape.py の fresh_main（出所へ先端を聞き、手元に無ければ取って来る・手元の origin/main は
   動かさない）。PR の event の base.sha は event の時の先端で、枝が後の main を取り込むと main の commit まで照らすので元にしない。
   出所に出られない時は、PR は event の base.sha・手元は手元の origin/main から照らしてそう名指す（古い元は範囲を広くする
   だけ＝見落としは出ない）。手元の origin/main も無ければ照らさずに止める（exit 2）。
   ALL は全ての commit（公開の前に歴史ごと照らす時）。
-exit: 0=当たり 0 / 1=当たりあり・CI に顧客の語が無い / 2=使い方・束の形が違う・比べる元の main が取れない /
-      3=照らしていない（手元で顧客の語が無く、その照合を飛ばした。ほかの当たりは 0。--text の口は 0 のまま）
+exit: 0=当たり 0 で照らす物を全部照らした / 1=当たりあり・CI に顧客の語が無い /
+      2=使い方・束の形が違う・置かない語の表が無い・比べる元の main が取れない /
+      3=照らしていない（当たりは 0 だが照らしていない物が在り、それを名指す。--text の口は 0 のまま・緑とは言わない）
 """
 from __future__ import annotations
 
@@ -80,10 +91,22 @@ def parse_words(text: str) -> list[str]:
 
 
 def file_words(path: str | Path | None) -> list[str]:
-    """repo ごとの置かない語の表（無ければ空）。"""
+    """repo ごとの置かない語の表（path を渡さなければ空）。名指した表が無い・読めない時は OSError（空と取り違えない）。"""
     if not path:
         return []
     return parse_words(Path(path).read_text(encoding="utf-8"))
+
+
+# ---- 照合の前の正規化（全部の照合がここを通る。1 つだけ） --------------------------------
+
+def normalize(text: str) -> str:
+    """NFKC にし、書式の字（幅の無い空白・向きの印など Cf）を除く。形・語・束の照合は皆この後の字で照らす。"""
+    return "".join(ch for ch in unicodedata.normalize("NFKC", text or "") if unicodedata.category(ch) != "Cf")
+
+
+def fold(text: str) -> str:
+    """語の照合の字: normalize の上で大文字と小文字を区別しない（束の語の作り方〔lower〕と同じ）。"""
+    return normalize(text).lower()
 
 
 def env_deny_words() -> list[str]:
@@ -147,9 +170,9 @@ def env_bundle():
 
 
 def grams(line: str) -> set[str]:
-    text = unicodedata.normalize("NFKC", line)
+    text = fold(line)
     out = set()
-    words = [w.lower().replace(".", "") for w in WORD.findall(text)]
+    words = [w.replace(".", "") for w in WORD.findall(text)]
     for i in range(len(words)):
         for j in range(i + 1, min(i + MAX_W, len(words)) + 1):
             out.add("w:" + " ".join(words[i:j]))
@@ -181,27 +204,45 @@ def in_ci() -> bool:
 def secret_labels(text: str) -> list[str]:
     """秘密の形に当たった札の並び（値は返さない）。秘密の形の正本はここ 1 つ。
     返事の差し戻し（plugin session-watch の Stop の hook）もこれを直に呼ぶ（写さない）。"""
-    return [label for label, pat in SECRET_PATTERNS.items() if re.search(pat, text or "")]
+    text = normalize(text)
+    return [label for label, pat in SECRET_PATTERNS.items() if re.search(pat, text)]
+
+
+def personal_labels(text: str) -> list[str]:
+    """個人の情報の形に当たった札の並び（値は返さない）。"""
+    text = normalize(text)
+    labels = [label for label, pat in PERSONAL_PATTERNS.items() if re.search(pat, text)]
+    if any(not SAFE_EMAIL.search(m) for m in re.findall(EMAIL, text)):
+        labels.append("メールアドレス")
+    return labels
 
 
 def pattern_hits(where: str, text: str) -> list[str]:
     """秘密と個人の情報の形。"""
-    hits = [f"{where}: {label}" for label in secret_labels(text)]
-    hits += [f"{where}: {label}" for label, pat in PERSONAL_PATTERNS.items() if re.search(pat, text)]
-    if any(not SAFE_EMAIL.search(m) for m in re.findall(EMAIL, text)):
-        hits.append(f"{where}: メールアドレス")
-    return hits
+    return [f"{where}: {label}" for label in secret_labels(text) + personal_labels(text)]
+
+
+# --pattern-skip のファイルで、個人の情報の形の照らしから外す行の印（形の見本を書いた行にだけ付ける）
+SKIP_MARK = "public-guard: 形の見本"
+
+
+def skipped_pattern_hits(where: str, text: str) -> list[str]:
+    """--pattern-skip のファイルの形の照らし。外すのは印の行の個人の情報の形だけ（秘密の形は印の行でも照らす）。"""
+    lines = text.splitlines()
+    plain = "\n".join(ln for ln in lines if SKIP_MARK not in ln)
+    marked = "\n".join(ln for ln in lines if SKIP_MARK in ln)
+    return pattern_hits(where, plain) + [f"{where}: {label}" for label in secret_labels(marked)]
 
 
 def word_hits(where: str, text: str, words: list[str]) -> list[str]:
-    low = text.lower()
-    n = sum(1 for w in words if w.lower() in low)
+    low = fold(text)
+    n = sum(1 for w in words if fold(w) in low)
     return [f"{where}: 置かない語 {n} 個"] if n else []     # 語は出さない。数は出す（1 つ消して赤が残る往復をさせない）
 
 
 def customer_hits(where: str, text: str, words: list[str], bundle) -> list[str]:
-    low = text.lower()
-    if any(w.lower() in low for w in words):
+    low = fold(text)
+    if any(fold(w) in low for w in words):
         return [f"{where}: 顧客の語"]
     if bundle and any(bundle_hit(bundle, line) for line in text.splitlines() or [text]):
         return [f"{where}: 顧客の語"]
@@ -218,13 +259,20 @@ class Guard:
         self.words_home = words_home  # 置かない語の表そのもの（語の照らしから外す）
         self.cust_words = env_deny_words()
         self.bundle = env_bundle()
+        self.unchecked: list[str] = []   # 照らしていない物（在れば緑と言わない＝exit 3）
+        self.files_n = 0
+        self.commits_n = 0
 
     def git(self, *args: str) -> str:
-        return subprocess.run(["git", *args], cwd=self.repo, capture_output=True, text=True, check=True).stdout
+        # 字として読めないバイト（バイナリの差分・UTF-8 でない中身）は置き換えて読む（落とさず、ASCII の形は照らす）
+        out = subprocess.run(["git", *args], cwd=self.repo, capture_output=True, check=True).stdout
+        return out.decode("utf-8", errors="replace")
 
     def text_hits(self, where: str, text: str, path: str | None = None) -> list[str]:
         hits = []
-        if path not in self.skip:
+        if path in self.skip:
+            hits += skipped_pattern_hits(where, text)
+        else:
             hits += pattern_hits(where, text)
         if path != self.words_home:
             hits += word_hits(where, text, self.words)
@@ -239,20 +287,39 @@ class Guard:
 
     # 中身
     def tracked_files(self):
-        out = subprocess.run(["git", "ls-files", "-z"], cwd=self.repo, capture_output=True, check=True).stdout
-        for rel in filter(None, out.decode("utf-8").split("\0")):
+        """(path, 中身) の並び。追跡のファイル（index）と、まだ git に入れていない新しいファイル（.gitignore の外）。
+        中身は作業の木から読み、作業の木に無い・普通のファイルでない物（消した・symlink）は index の中身を読む。
+        UTF-8 で読めないバイトは置き換えて読む（中身を空にしない）。submodule は中身が別の repo なので名だけ照らし、名指す。"""
+        staged = subprocess.run(["git", "ls-files", "-z", "-s"], cwd=self.repo, capture_output=True, check=True).stdout
+        index = {}
+        for rec in filter(None, staged.split(b"\0")):
+            meta, _, rel = rec.partition(b"\t")
+            mode, blob = meta.split()[:2]
+            index[rel.decode("utf-8", errors="replace")] = (mode.decode(), blob.decode())
+        others = subprocess.run(["git", "ls-files", "-z", "--others", "--exclude-standard"], cwd=self.repo,
+                                capture_output=True, check=True).stdout
+        names = list(index) + [r for r in filter(None, others.decode("utf-8", errors="replace").split("\0"))
+                               if r not in index]
+        for rel in names:
             path = self.repo / rel
-            if not path.is_file():
-                continue
-            try:
-                yield rel, path.read_text(encoding="utf-8")
-            except UnicodeDecodeError:
-                yield rel, ""  # 文字でないファイルも名は照らす
+            mode, blob = index.get(rel, ("", ""))
+            if mode == "160000":
+                self.unchecked.append(f"中身: submodule {self.place(rel)} の中身（別の repo。名だけ照らした）")
+                yield rel, ""
+            elif path.is_file() and not path.is_symlink():
+                yield rel, path.read_bytes().decode("utf-8", errors="replace")
+            elif blob:
+                yield rel, self.git("cat-file", "blob", blob)
+            else:
+                yield rel, ""
 
     def check_files(self) -> list[str]:
         hits = []
         for rel, text in self.tracked_files():
+            self.files_n += 1
             hits += self.text_hits(self.place(rel), rel + "\n" + text, rel)
+        if not self.files_n:
+            self.unchecked.append("中身: 照らすファイルが 0")
         return hits
 
     # 歴史と外側
@@ -266,9 +333,28 @@ class Guard:
             return [f"{self.base_tip(pr)}..{pr['head']['sha']}"]
         if event.get("after"):
             before, after = event.get("before") or "", event["after"]
-            # 新しい枝（before が 0 の並び）は先端の 1 つだけを見る
-            return ["-1", after] if (not before or set(before) == {"0"}) else [f"{before}..{after}"]
+            if before and set(before) != {"0"}:
+                return [f"{before}..{after}"]
+            return self.new_branch_revs(event, after)
+        if not in_ci():
+            # 手元には PR の event が無い（GITHUB_EVENT_PATH を渡せば読む）。PR の題・本文は照らしていない
+            self.unchecked.append("外側: PR の題・本文（手元には PR の event が無い。CI の job public-guard と、出す前の守りの"
+                                  " hook pr_text が照らす）")
         return [f"{self.local_base()}..HEAD"]
+
+    def new_branch_revs(self, event: dict, after: str) -> list[str]:
+        """新しい枝の push（before が 0 の並び）の範囲。先端の 1 つだけでなく、既定の枝の今の先端に無い commit を全部見る。
+        既定の枝そのものの初めての push・先端を聞けない時は after の全ての歴史（広い側＝見落としは出ない）と名指す。"""
+        ref = str(event.get("ref") or "")
+        ref = ref[len("refs/heads/"):] if ref.startswith("refs/heads/") else ref
+        default = str((event.get("repository") or {}).get("default_branch") or "main")
+        if ref and ref != default:
+            try:
+                return [f"{fresh_main(self.repo, default)}..{after}"]
+            except NoBase as e:
+                print(f"public-guard: 知らせ — 新しい枝の push で {default} の今の先端を聞けず、{after[:12]} の全ての歴史を照らす"
+                      f"（範囲は広い側＝見落としは出ない）: {e}", file=sys.stderr)
+        return [after]
 
     def base_tip(self, pr: dict) -> str:
         """PR の範囲の元＝base の枝の今の先端（出所へ聞く）。event の base.sha は event の時の先端で、枝が後の main を
@@ -304,12 +390,14 @@ class Guard:
         （解けない名も行は捨てず、仮の名で照らす）。見出し（+++）は `diff --git` から最初の `@@` までの間でだけ読む
         （中身が `++ ` で始まる足された行を見出しと取り違えない）。"""
         hits = []
-        log = self.git("-c", "core.quotePath=false", "log", "-p", "-m", "--no-color", "--no-ext-diff",
-                       "--no-renames", "--format=\x1e%h", *revs)
-        for chunk in filter(None, log.split("\x1e")):
+        # バイナリの差分も字として出す（--text）。区切りは回すごとの乱れた印（中身の \x1e で区切りを取り違えない）
+        mark = "\x1e" + os.urandom(16).hex()
+        log = self.git("-c", "core.quotePath=false", "log", "-p", "-m", "--text", "--no-color", "--no-ext-diff",
+                       "--no-renames", f"--format={mark}%h", *revs)
+        for chunk in filter(None, log.split(mark)):
             sha, _, diff = chunk.partition("\n")
             path, in_header, added = None, False, {}
-            for line in diff.splitlines():
+            for line in diff.split("\n"):  # splitlines は \x1c-\x1e・\x85 でも切る＝バイナリの行を見失う
                 if line.startswith("diff --git "):
                     path, in_header = None, True
                 elif in_header:
@@ -335,11 +423,14 @@ class Guard:
         log = self.git("log", f"--format=%h{sep}%an{sep}%ae{sep}%cn{sep}%ce{sep}%B{end}", *revs)
         for rec in filter(None, (r.strip("\n") for r in log.split(end))):
             sha, an, ae, cn, ce, body = rec.split(sep, 5)
+            self.commits_n += 1
             for mail in {ae, ce}:
                 if mail and not NOREPLY_EMAIL.search(mail):
                     hits.append(f"commit {sha} の名義のメール: noreply でない（GitHub の noreply を使う）")
             hits += self.text_hits(f"commit {sha} の名義", f"{an}\n{cn}")
             hits += self.text_hits(f"commit {sha} の説明", body)
+        if not self.commits_n:
+            self.unchecked.append(f"歴史と外側: 照らす範囲 {' '.join(revs)} に commit が 0（照らす物が無い）")
         return hits
 
 
@@ -400,16 +491,30 @@ def load_event() -> dict:
     return {}
 
 
-def run(repo: Path, rev_range: str | None, words_file: str | None, skip: list[str], event: dict | None = None,
-        files_only: bool = False) -> list[str]:
-    """words_file と skip は repo の根からの path。files_only は中身だけ（歴史を持ち越さない新しい repo へ移す前）。"""
-    guard = Guard(repo, file_words(repo / words_file if words_file else None), set(skip), words_file)
+def words_unchecked(words_file: str | None, words: list[str]) -> list[str]:
+    """名指した置かない語の表に語が 0 なら、語の照らしは何も照らしていない。"""
+    return [f"置かない語: 表 {words_file} に語が 0（照らす語が無い）"] if words_file and not words else []
+
+
+def scan(repo: Path, rev_range: str | None, words_file: str | None, skip: list[str], event: dict | None = None,
+         files_only: bool = False) -> tuple[list[str], list[str], Guard]:
+    """(当たり, 照らしていない物, guard)。words_file と skip は repo の根からの path。
+    files_only は中身だけ（歴史を持ち越さない新しい repo へ移す前）。"""
+    words = file_words(repo / words_file if words_file else None)
+    guard = Guard(repo, words, set(skip), words_file)
+    guard.unchecked += words_unchecked(words_file, words)
     hits = guard.check_files()
     if not files_only:
         event = load_event() if event is None else event
         revs = guard.revs(rev_range, event)
         hits += guard.check_history(revs) + guard.check_meta(revs, event)
-    return sorted(set(hits))
+    return sorted(set(hits)), guard.unchecked, guard
+
+
+def run(repo: Path, rev_range: str | None, words_file: str | None, skip: list[str], event: dict | None = None,
+        files_only: bool = False) -> list[str]:
+    """当たりだけ（照らしていない物は scan が返す）。"""
+    return scan(repo, rev_range, words_file, skip, event, files_only)[0]
 
 
 def check_texts(texts: list[tuple[str, str]], words_file: str | None) -> list[str]:
@@ -423,6 +528,7 @@ def check_texts(texts: list[tuple[str, str]], words_file: str | None) -> list[st
 
 
 def main_text(specs: list[str], words_file: str | None) -> int:
+    """出す前の文の口。照らしていない物は名指して緑（✅）と言わないが、exit は CI でも 0（守りの hook が 0 以外を止めるため）。"""
     texts = []
     for spec in specs:
         where, sep, path = spec.partition("=")
@@ -439,12 +545,23 @@ def main_text(specs: list[str], words_file: str | None) -> int:
     except ValueError as e:
         print(f"✗ AF_DENY_BUNDLE の形が違う（pct1.<鍵>.<束> の 1 行）: {e}")
         return 2
+    try:
+        unchecked = words_unchecked(words_file, file_words(words_file))
+    except OSError as e:
+        print(f"✗ 置かない語の表を読めない: {e.__class__.__name__}")
+        return 2
     if customer_source_missing():
-        print("（顧客の語が環境に無いので、顧客の語の照合だけ飛ばす）")
+        unchecked.append("顧客の語（環境に無いので、その照合だけ飛ばした）")
     hits = check_texts(texts, words_file)
-    if hits:
+    if hits:   # 当たりは先に出す（顧客の語が無くても、照らせた物の当たりを隠さない）
         print("✗ 公開の repo に置かない物:\n  " + "\n  ".join(hits))
         return 1
+    if unchecked:
+        # 緑（✅）とは言わない。exit は CI でも 0: 守りの hook pr_text は 0 以外を止めるので、ここを 3・1 にすると
+        # 顧客の語の無い窓の出す前の文が皆止まる（新しく止める物になる＝オーナーの同意が要る）
+        print("公開の検査: 照らしていない（当たりは 0。出す前の文の口は止めない。照らしていない物: "
+              + "／".join(unchecked) + "）")
+        return 0
     print("✅ 公開の検査: 置かない物 0（出す前の文）")
     return 0
 
@@ -474,7 +591,12 @@ def main(argv=None) -> int:
             return 1
         print("（手元: 顧客の語が環境に無いので、顧客の語の照合だけ飛ばす）")
     try:
-        hits = run(repo, a.rev_range, a.deny_words_file, a.pattern_skip, files_only=a.files_only)
+        file_words(repo / a.deny_words_file if a.deny_words_file else None)
+    except OSError as e:   # 名指した表が無い・読めない（空の表と取り違えて 0 語で照らさない）
+        print(f"✗ 置かない語の表 {a.deny_words_file} を読めない: {e.__class__.__name__}")
+        return 2
+    try:
+        hits, unchecked, g = scan(repo, a.rev_range, a.deny_words_file, a.pattern_skip, files_only=a.files_only)
     except NoBase as e:
         print(f"✗ 照らせない: 手元の範囲の元（出所の今の main）が取れない — {e}（--range で範囲を渡すこともできる）")
         return 2
@@ -487,9 +609,13 @@ def main(argv=None) -> int:
         print("✗ 公開の repo に置かない物:\n  " + "\n  ".join(hits))
         return 1
     if customer_source_missing():   # 手元（CI では上で赤）。照合の一部を飛ばしたので緑と言わない
-        print("公開の検査: 照らしていない（顧客の語の照合を飛ばした。ほかの照らしは当たり 0）")
+        unchecked = ["顧客の語（環境に無いので、その照合を飛ばした）"] + unchecked
+    if unchecked:
+        print("公開の検査: 照らしていない（当たりは 0。照らしていない物:）\n  " + "\n  ".join(unchecked))
         return 3
-    print("✅ 公開の検査: 置かない物 0（中身・歴史・外側）")
+    scope = f"中身 {g.files_n} 個" + ("・歴史と外側は照らさない〔--files-only〕" if a.files_only
+                                     else f"・歴史と外側 {g.commits_n} commit")
+    print(f"✅ 公開の検査: 置かない物 0（{scope}）")
     return 0
 
 

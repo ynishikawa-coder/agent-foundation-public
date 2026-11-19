@@ -73,12 +73,12 @@ def _run(repo, event, **kw):
 # ---- 形 ---------------------------------------------------------------------
 
 @pytest.mark.parametrize("text", [
-    "連絡先 taro.yamada@gmail.com",
-    "電話 03-1234-5678",
-    "携帯 09012345678",
-    "〒100-0001",
-    "https://www.notion.so/abc123",
-    "https://docs.google.com/spreadsheets/d/abc",
+    "連絡先 taro.yamada@gmail.com",  # public-guard: 形の見本
+    "電話 03-1234-5678",  # public-guard: 形の見本
+    "携帯 09012345678",  # public-guard: 形の見本
+    "〒100-0001",  # public-guard: 形の見本
+    "https://www.notion.so/abc123",  # public-guard: 形の見本
+    "https://docs.google.com/spreadsheets/d/abc",  # public-guard: 形の見本
     "ghp_" + "a" * 36,
 ])
 def test_秘密と個人の情報の形は赤(text):
@@ -122,14 +122,14 @@ def test_きれいな枝は緑(tmp_path):
 def test_中身の個人の情報は赤(tmp_path):
     repo = _repo(tmp_path)
     base = _git(repo, "rev-parse", "HEAD")
-    head = _commit(repo, {"a.md": "電話 03-1234-5678\n"})
+    head = _commit(repo, {"a.md": "電話 03-1234-5678\n"})  # public-guard: 形の見本
     assert any(h.startswith("a.md:") for h in _run(repo, _pr_event(repo, base, head)))
 
 
 def test_消しても歴史に残る物は赤(tmp_path):
     repo = _repo(tmp_path)
     base = _git(repo, "rev-parse", "HEAD")
-    _commit(repo, {"a.md": "連絡先 taro.yamada@gmail.com\n"})
+    _commit(repo, {"a.md": "連絡先 taro.yamada@gmail.com\n"})  # public-guard: 形の見本
     head = _commit(repo, remove=["a.md"])
     hits = _run(repo, _pr_event(repo, base, head))
     assert hits and all(h.startswith("commit ") for h in hits), hits
@@ -146,8 +146,8 @@ def test_PRの本文と題も照らす(tmp_path):
     repo = _repo(tmp_path)
     base = _git(repo, "rev-parse", "HEAD")
     head = _commit(repo)
-    assert any(h.startswith("PR の本文") for h in _run(repo, _pr_event(repo, base, head, body="電話 03-1234-5678")))
-    assert any(h.startswith("PR の題") for h in _run(repo, _pr_event(repo, base, head, title="https://www.notion.so/x")))
+    assert any(h.startswith("PR の本文") for h in _run(repo, _pr_event(repo, base, head, body="電話 03-1234-5678")))  # public-guard: 形の見本
+    assert any(h.startswith("PR の題") for h in _run(repo, _pr_event(repo, base, head, title="https://www.notion.so/x")))  # public-guard: 形の見本
 
 
 def test_置かない語の表は表そのものを除いて照らす(tmp_path):
@@ -162,7 +162,7 @@ def test_置かない語の表は表そのものを除いて照らす(tmp_path):
 def test_形を書いた所だけ形の照らしから外せる(tmp_path, monkeypatch):
     repo = _repo(tmp_path)
     base = _git(repo, "rev-parse", "HEAD")
-    head = _commit(repo, {"pat.py": "EXAMPLE = '03-1234-5678'  # 見本商事\n"})
+    head = _commit(repo, {"pat.py": "EXAMPLE = '03-1234-5678'  # 見本商事 public-guard: 形の見本\n"})  # public-guard: 形の見本
     assert not _run(repo, _pr_event(repo, base, head), skip=["pat.py"])
     # 顧客の語の照らしは外さない
     monkeypatch.setenv("AF_DENY_BUNDLE", _bundle_of(["見本商事"]))
@@ -171,7 +171,7 @@ def test_形を書いた所だけ形の照らしから外せる(tmp_path, monkey
 
 def test_全ての歴史を照らせる(tmp_path):
     repo = _repo(tmp_path)
-    _commit(repo, {"a.md": "〒100-0001\n"})
+    _commit(repo, {"a.md": "〒100-0001\n"})  # public-guard: 形の見本
     _commit(repo, remove=["a.md"])
     assert _run(repo, {}, rev_range="ALL")
 
@@ -179,7 +179,7 @@ def test_全ての歴史を照らせる(tmp_path):
 def test_pushの範囲はbeforeからafter(tmp_path):
     repo = _repo(tmp_path)
     before = _git(repo, "rev-parse", "HEAD")
-    after = _commit(repo, {"a.md": "〒100-0001\n"}, remove=[])
+    after = _commit(repo, {"a.md": "〒100-0001\n"}, remove=[])  # public-guard: 形の見本
     _commit(repo, remove=["a.md"])
     assert _run(repo, {"before": before, "after": after})
 
@@ -381,7 +381,7 @@ def test_見回りの相手が決まっている():
 
 def test_中身だけを照らせる(tmp_path):
     repo = _repo(tmp_path)
-    _commit(repo, {"a.md": "〒100-0001\n"}, email="t@example.invalid")
+    _commit(repo, {"a.md": "〒100-0001\n"}, email="t@example.invalid")  # public-guard: 形の見本
     _commit(repo, remove=["a.md"])
     assert not guard.run(repo, "ALL", None, [], {}, files_only=True)
     assert guard.run(repo, "ALL", None, [], {})
