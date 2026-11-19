@@ -239,6 +239,67 @@ def test_挙げた原因は全部台帳に行き先つきで持ち_全部済む�
     assert not hits, hits
 
 
+# 残りの受け皿: 各所が自分の名の受け皿（後の便・🎯箱・他の窓へ回す・残りに書く…）を持たず、原因の台帳 1 つへ向ける。
+# (path, その所を見分ける語) — 語はちょうど 1 行に当たり、その行に「原因の台帳」が無ければ赤。
+残りの所 = [
+    ("plugins/core/細目.md", "**一時しのぎ**"),
+    ("plugins/core/細目.md", "③道具・仕組みの都合"),
+    ("plugins/core/細目.md", "どの窓にも分けなかった論点"),
+    ("plugins/core/細目.md", "**大きい仕事の並べ方**"),
+    ("plugins/core/細目.md", "| 一部 |"),
+    ("plugins/dev-flow/skills/design-mode/SKILL.md", "どちらで出る時も"),
+    (".github/pull_request_template.md", "## 残り"),
+    ("CONTRIBUTING.md", "1 本に入らなかった仕事"),
+    ("CONTRIBUTING.md", "`合流済` が届いた枝"),
+    ("plugins/checker/skills/review-pr/SKILL.md", "`[台帳へ｜<段>]`"),
+    ("plugins/dev-flow/skills/codex/SKILL.md", "| `task_rule` |"),
+    ("plugins/dev-flow/skills/codex/SKILL.md", "`[DEFER]`"),
+    ("plugins/dev-flow/skills/codex/SKILL.md", "**RETURN_TO_DESIGN**"),
+    ("plugins/dev-flow/skills/codex/SKILL.md", "6. **DEFER"),
+    ("plugins/dev-flow/skills/verify/SKILL.md", "**一時しのぎを含めば Partially**"),
+    ("plugins/dev-flow/skills/verify/SKILL.md", "**設計と実物の差分を必ず書く**"),
+    ("plugins/docs-kit/skills/qa-html/SKILL.md", "0. **聞く前に引く**"),
+    ("plugins/docs-kit/skills/theory-mock/SKILL.md", "範囲（やる／やらない／後で"),
+    ("plugins/docs-kit/skills/theory-mock/SKILL.md", "**Q 番号・画面番号で元と突き合わせる**"),
+    ("plugins/docs-kit/skills/theory-mock/SKILL.md", "外すとやり直しになる分かれ道"),
+    ("plugins/docs-kit/skills/mindmap/SKILL.md", "外すとやり直しになる分かれ道"),
+    ("plugins/docs-kit/skills/blueprint/SKILL.md", "外すとやり直しになる分かれ道"),
+    ("plugins/dev-flow/skills/spec-doc/SKILL.md", "4. **右サイズを提示**"),
+    ("plugins/dev-flow/skills/spec-doc/SKILL.md", "部分にする正当な理由"),
+    ("plugins/dev-flow/skills/preimpl-cleanup/SKILL.md", "`[後片付け]`（"),
+    ("plugins/dev-flow/skills/preimpl-cleanup/SKILL.md", "6. **同梱の片付けの返し**"),
+    ("plugins/dev-flow/skills/preimpl-cleanup/整地受領証.template.md", "**畳む物**"),
+    ("plugins/dev-flow/skills/preimpl-cleanup/整地受領証.template.md", "**残る穴**"),
+]
+
+
+def test_残りの受け皿は原因の台帳_1_つで_名だけの受け皿を持たない():
+    """古い形（自分の名の受け皿・A/B を 1 つ選ばせて捨てる・相談を出ると論点が消える）を戻すと赤。"""
+    s3d = _節((PLUGIN / "細目.md").read_text(encoding="utf-8"), 3)
+    assert "**残りの受け皿は原因の台帳 1 つ**" in s3d
+    for word in ["`台帳へ` の札", "DEFER", "一時しのぎ", "「一部」の残り", "どの窓も持たなかった論点", "選ばれなかった案",
+                 "1 窓 1 枝 1 PR に入らなかった仕事", "合流の後の続き", "道具の都合", "正本は台帳"]:
+        assert word in s3d, f"細目 §3 の残りの受け皿に無い: {word}"
+    missing = []
+    for rel, key in 残りの所:
+        lines = [ln for ln in (ROOT / rel).read_text(encoding="utf-8").splitlines() if key in ln]
+        if len(lines) != 1 or "原因の台帳" not in lines[0]:   # 2 行に当たる語は、片方を古い形に戻しても緑になる
+            missing.append(f"{rel}: {key}")
+    assert not missing, missing
+    olds = ["他の窓へ回す", "後の便", "🎯箱 か PR 本文", "残りに書", "直す側へ回す", "必要になった段で足す",
+            "論点として残す", "1つ選んで決めてもらう", "1 つ選んで決めてもらう", "残りを書いて引き継ぐ",
+            "回す先", "cleanup_followup"]
+    hits = []
+    for p in sorted(ROOT.rglob("*")):
+        rel = p.relative_to(ROOT)
+        if rel.parts[0] in {".git", "tests"} or p.name == "CHANGELOG.md":
+            continue
+        if p.is_file() and p.suffix in {".md", ".py", ".json", ".mjs", ".html"}:
+            text = p.read_text(encoding="utf-8")
+            hits += [f"{rel}: {o}" for o in olds if o in text]
+    assert not hits, hits
+
+
 def test_main_へは製品もオーナーに聞かずに入れ_絵と差がある時だけ止める():
     """「本番への出荷は聞く」を核に戻すと赤（Notion の決定と窓が読む核が食い違う形）。"""
     kaku_text = (PLUGIN / "核.md").read_text(encoding="utf-8")
@@ -250,6 +311,19 @@ def test_main_へは製品もオーナーに聞かずに入れ_絵と差があ�
     assert "**main へ入れる**" in s7d and "**③の段が土台に入るまで**" in s7d
     assert "核 §7 の「照らせない時」" in s7d, "照らす段が無い間の一言が核から読めない形に戻った"
     assert "核 §7 と細目 §7 の「main へ入れる」" in (ROOT / "CONTRIBUTING.md").read_text(encoding="utf-8")
+
+
+def test_土台の直しは使う側の写しの残りも同じ仕事で直し_合流まで終わったと言わない():
+    """写しの残りを洗い出すだけで終わる形（直す持ち主が無い）を戻すと赤。"""
+    s7d = _節((PLUGIN / "細目.md").read_text(encoding="utf-8"), 7)
+    line = [ln for ln in s7d.splitlines() if "**土台の直しの終わり**" in ln]
+    assert len(line) == 1, "細目 §7 に「土台の直しの終わり」が無い"
+    for word in ["使う側の repo", "同じ仕事の中で直す", "洗い出しだけで終わらせない", "使う側の写しの残り", "合流するまで「終わった」と言わない", "原因の台帳の行"]:
+        assert word in line[0], f"土台の直しの終わりに無い: {word}"
+    assert "## 使う側の写しの残り" in (ROOT / ".github" / "pull_request_template.md").read_text(encoding="utf-8")
+    assert "土台の直しの終わり" in (ROOT / "CONTRIBUTING.md").read_text(encoding="utf-8")
+    dm = [ln for ln in (ROOT / "plugins/dev-flow/skills/design-mode/SKILL.md").read_text(encoding="utf-8").splitlines() if ln.startswith("   | 写しの残り |")]
+    assert len(dm) == 1 and "同じ仕事の中" in dm[0], "design-mode の写しの残りが洗い出すだけに戻った"
 
 
 def test_ミスが出たらまず構造を疑い_単発と言うのは絵の上で示せた時だけ():
