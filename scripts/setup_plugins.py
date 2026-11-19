@@ -153,6 +153,13 @@ def main() -> int:
     try:
         market, _ = catalog()
         fresh = refresh(market)
+        # setup の時の main の先端は、入れる物を決める取り直しの直後に読む（入れ終わった後に読むと、その間の
+        # push で記録が入れた物より新しくなり、正しい setup を「古い物を入れた」と取り違える）。取り直しと読む間に
+        # push が入って食い違えば、1 度だけ取り直して揃える。
+        at_setup = main_tip()
+        if fresh and at_setup and at_setup != catalog_head():
+            fresh = refresh(market)
+            at_setup = main_tip()
         market, names = catalog()  # 取り直した名簿を読み直す
     except ValueError as e:
         notice(f"土台の plugin を入れられなかった: {e}。核と守りの hook がこの窓で効いていない。最初にオーナーへ知らせる。")
@@ -178,7 +185,7 @@ def main() -> int:
     else:
         notice(None)
     save_state({"entry": "scripts/setup_plugins.py", "market": market, "plugins": names, "missing": lack,
-                "stale": stale, "refreshed": fresh, "catalog_sha": tip, "main_at_setup": main_tip(), "at": time.strftime("%Y-%m-%dT%H:%M:%S%z")})
+                "stale": stale, "refreshed": fresh, "catalog_sha": tip, "main_at_setup": at_setup, "at": time.strftime("%Y-%m-%dT%H:%M:%S%z")})
     print(("✗ " + "。".join(bad) + "。 " + ROOT_CAUSE) if bad else f"✅ 土台の plugin {len(names)} 本が名簿の版 {tip[:12]} で入った")
     return 1 if bad else 0
 

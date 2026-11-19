@@ -142,3 +142,33 @@ def test_この枝で足した古い形は_main_に無くても消せと名指�
     (work / "setup.sh").write_text(OLD, encoding="utf-8")
     text = json.loads(run("inject", project=work).stdout)["hookSpecificOutput"]["additionalContext"]
     assert "この仕事で消す" in text and "この枝で足した" in text and "main より古い" not in text, text
+
+
+def test_入口は入れ終わる前の_main_を記録し_入れている間の_push_で記録が新しくならない(tmp_path):
+    """注入: plugin を入れている間に出所の main へ push が入る → 記録は入れた物（取り直した名簿の版）と同じ。
+    入れ終わった後に読むと記録が新しくなり、正しい setup を「古い物を入れた」と取り違える。"""
+    import os
+    root = foundation(tmp_path, ["core"])
+    up = tmp_path / "upstream"
+    hook = tmp_path / "push_on_install.sh"
+    hook.write_text(f'git -C "{up}" -c user.name=t -c user.email=t@example.invalid commit -q --allow-empty -m 間\n')
+    # 作り物の claude の install の時に出所へ push を入れる
+    fake_extra = {"FAKE_ON_INSTALL": str(hook)}
+    from test_setup_plugins import FAKE
+    patched = FAKE.replace('elif a[:2] in (["plugin", "install"], ["plugin", "update"]):',
+                           'elif a[:2] in (["plugin", "install"], ["plugin", "update"]):\n'
+                           '    os.environ.get("FAKE_ON_INSTALL") and a[1] == "install" and subprocess.run(["sh", os.environ["FAKE_ON_INSTALL"]])')
+    assert patched != FAKE
+    fake = tmp_path / "claude"
+    home = tmp_path / "home"
+    home.mkdir()
+    fake.write_text(patched, encoding="utf-8")
+    fake.chmod(0o755)
+    env = dict(os.environ, HOME=str(home), CLAUDE_BIN=str(fake), FAKE_LOG=str(tmp_path / "log"), FAKE_BROKEN="",
+               FAKE_ROOT=str(root), **fake_extra)
+    import sys
+    r = subprocess.run([sys.executable, str(root / "scripts" / "setup_plugins.py")], capture_output=True, text=True,
+                       env=env, timeout=60)
+    state = json.loads((home / ".claude" / "af-foundation" / "setup.json").read_text(encoding="utf-8"))
+    up_tip = subprocess.run(["git", "-C", str(up), "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip()
+    assert state["main_at_setup"] == state["catalog_sha"] != up_tip, (r.stdout, state)
