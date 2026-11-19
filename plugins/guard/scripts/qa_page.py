@@ -43,6 +43,10 @@ Q_KEYS = ("questions", "qs")
 OPT_KEYS = ("options", "choices", "opts")
 
 
+
+# この見張りが回る出来事と関数（guard.py がこの宣言を読んで回す＝入口の一覧に足さない）
+HOOKS = {"pre": "check"}
+
 def _has_question_list(data, depth=0):
     """問いの並び（questions・qs）で、選択肢を持つ問いが 1 つでもあるか。入れ子は 3 段まで見る。"""
     if depth > 3:

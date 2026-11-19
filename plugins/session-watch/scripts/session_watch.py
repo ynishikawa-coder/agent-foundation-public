@@ -389,6 +389,7 @@ DATE_BEFORE = re.compile(r"(\d{4}[-/年]\d{1,2}[-/月]\d{1,2}日?|(?<![\d/])\d{1
 HEDGE = re.compile(r"ほぼ|大体|だいたい|たぶん|多分|おそらく|恐らく|はず(?![しすさせれ])|と思(?:う|い|われ)|かもしれ")
 FINISH = re.compile(r"終わ|済ん|済み|完了|直っ|直り|直せ|直した|でき|出来|通っ|通る|通り|緑|動い|動く|効い|効く|揃っ|片付")
 AHEAD = re.compile(r"次の|次回|来週|来月|明日|今後|あとで|後で|予定|見込み")   # 先の事の見込みは完了の言い切りでない
+PAST = re.compile(r"た\s*$|た[、,）)」]|ました|でした|済み|完了")   # 過去の言い切り（見込みの語が在っても数える）
 SENTENCE = re.compile(r"[^。！？!?\n]+")
 
 
@@ -441,7 +442,7 @@ def hedge_hits(body):
     out = []
     for sent in SENTENCE.findall(QUOTED.sub(" ", body)):
         h = HEDGE.search(sent)
-        if h and FINISH.search(sent) and not AHEAD.search(sent):
+        if h and FINISH.search(sent) and not (AHEAD.search(sent) and not PAST.search(sent)):
             out.append(sent.strip()[:40])
     return out
 
@@ -492,7 +493,12 @@ def words(log, closing, data=None):
         if A is None or not hasattr(A, "inner_terms") or G is None:
             found.append(("neighbor", "中の言葉の正本（plugin guard の ask_shape・guard_common）が見つからず、返事の言葉を照らせない"))
             return
-        hits = A.inner_terms(body, G.values(data), A.REPLY_KINDS)
+        vals = G.values(data)
+        bad = A.bad_patterns(vals) if hasattr(A, "bad_patterns") else []
+        if bad:
+            found.append(("neighbor", "値の表の %s に正規表現として読めない形がある（捨てて照らした・値の表を直す）"
+                          % "／".join("guard.%s「%s」" % (k, p[:30]) for k, p in bad[:3])))
+        hits = A.inner_terms(body, vals, A.REPLY_KINDS)
         if hits:
             shown = "／".join("%s「%s」" % (n, t[:30]) for n, t in hits[:6])
             found.append(("inner", "人への返事に AI の中の言葉らしい字: %s%s" % (
@@ -635,9 +641,11 @@ def check(log, closing=None, data=None):
 
 
 def watch(path):
+    """拾った物の並び。ログが読めなければ OSError を上げる（読めない＝拾う物なし＝緑、に化かさない）。"""
+    rows = read_rows(path)
     try:
-        return check(Log(read_rows(path)))
-    except (OSError, ValueError, TypeError, AttributeError):
+        return check(Log(rows))
+    except (ValueError, TypeError, AttributeError):
         return []
 
 
@@ -746,8 +754,9 @@ STOP_HOW = {
     "done": "確かめた事だけを言い切る。確かめ切れていない所があれば 1 行目を「一部」「止めた」の形にし、何が残るかを書く（核 §7）。"
             "人の言葉を引くだけなら「」で囲む。",
     "secret": "鍵・トークンの値を返事から消し、在り処（環境の値の名・設定の場所）だけを書く。出てしまった鍵は人に作り直しを頼む（核 §1）。",
-    "neighbor": "土台の plugin guard と市場の写し（公開の検査）が入っているかを確かめ、無ければあなたがやることに入れ直しを書く"
-                "（docs/核の届け方.md）。この知らせは窓ごとに 1 回だけ。",
+    "neighbor": "上の行が名指す原因を直す: 値の表の読めない形なら、その形を直す PR を出すか、あなたがやることに書く。隣の正本が"
+                "見つからないなら、土台の plugin guard と市場の写し（公開の検査）を入れ直す（docs/核の届け方.md）。読めない形は捨てて"
+                "照らし続けているので、他の札は効いている。この知らせは窓ごとに 1 回だけ。",
 }
 STOP_FOOT = ("誤って差し戻した時（引いた言葉・記録の写しに当たった等）: 当たる行の形を値の表 config/skill-values.json の "
              "session_watch.reply_exempt（行に当てる正規表現の並び）に、中の言葉の字は guard.ask_term_allow に足す（PR とレビューを"
@@ -841,10 +850,15 @@ def main(argv):
         return hook_remind(sys.stdin)
     if argv[1:] == ["--stop"]:
         return hook_stop(sys.stdin)
-    if len(argv) != 2:
-        sys.stderr.write("使い方: session_watch.py <transcript.jsonl>\n")
+    # 知らない印・数の違う引数・読めないログは既定で止める（打ち間違いを「拾う物なし＝緑」にしない）
+    if len(argv) != 2 or argv[1].startswith("--"):
+        sys.stderr.write("使い方: session_watch.py <transcript.jsonl> ／ session_watch.py --remind ／ session_watch.py --stop\n")
         return 2
-    found = watch(argv[1])
+    try:
+        found = watch(argv[1])
+    except OSError as e:
+        sys.stderr.write("ログを読めない: %s（%s）\n" % (argv[1], e.strerror or e))
+        return 2
     for code, msg in found:
         print("%s: %s" % (code, msg))
     if found:

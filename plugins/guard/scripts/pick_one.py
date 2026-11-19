@@ -63,6 +63,10 @@ HOW = (
     "（PR とレビューを通す）。止め方の細目は skill `guard:guard-rules`。")
 
 
+
+# この見張りが回る出来事と関数（guard.py がこの宣言を読んで回す＝入口の一覧に足さない）
+HOOKS = {"pre": "check"}
+
 def classify(question, vals=None):
     """1 問を見て、止めるなら理由の札（work／first／cause）、通すなら ""。"""
     if not isinstance(question, dict) or question.get("multiSelect"):

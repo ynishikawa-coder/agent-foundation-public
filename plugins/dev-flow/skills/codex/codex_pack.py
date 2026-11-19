@@ -15,6 +15,14 @@
    前は件数を出して人の目に預けるだけで、鍵らしい字を含むパックが外へ出うった）。止めた文には塊の字を出さず、
    どの file の何行目か・長さ・指紋（sha256 の頭 12 字）だけを出す。誤って止まる塊（作り物の値・固定の検査値など）は
    値の表 `entropy_allow` で外す（PR とレビューを通る＝窓の一存で外れない）。止まるのは builder を回す AI だけ。
+   形の推し量りは 32 字より短い鍵・字の種類の少ない鍵を通していたので、次の 3 段を足した（どれも止める・字は出さない）:
+   a. 窓が持つ秘密の値そのもの: 名が鍵らしい環境変数（KEY・TOKEN・SECRET・PASS・CRED・AUTH・PRIVATE を含む）と
+      repo の根の .env・.env.* の値（8 字以上）が、形を問わずそのまま在れば止める（形でなく値で照らす＝短い鍵も通らない）。
+   b. 16 進の塊（20 字以上・数字と a-f の両方を含む）: その repo の git の物（commit などの印）でなければ止める
+      （git の印と 16 進の鍵は形で見分けられない＝分かる物だけ通す）。
+   c. 16〜31 字の塊: 英字と数字が混ざり、字の種類の入れ替わりが多く、字の散らばり（エントロピー）が長さの割に高く、
+      識別子・path の語の並び（session_PARENT01・pdf/base_v2 の類）でない物は止める。
+   残る穴（正直に書く）: 窓の外にしか無い鍵で、16 字未満か、英字だけ・語の並びの形の物は形で見分けられず通る。
 
 値の表: repo の根の config/skill-values.json の `dev-flow.codex`（在る時だけ）。
   pack_dir（パックの置き場）・self_allow（[glob]）・clients（{名: {opt_in, no_training_tier, expires, paths}}）
@@ -62,6 +70,12 @@ BLOCK_PATTERNS = {
 }
 ADVISORY_MIN_LEN = 32
 ADVISORY_MIN_ENTROPY = 4.0
+SHORT_MIN_LEN = 16           # c. 短い塊の下限（ここより短い物は形で見分けない＝残る穴）
+SHORT_MIN_SWITCHES = 6       # c. 字の種類（小文字・大文字・数字・記号）の入れ替わりの数の下限
+SHORT_ENTROPY_SLACK = 0.8    # c. エントロピーが log2(長さ) − これ 以上なら散らばりが高い
+HEX_MIN_LEN = 20             # b. 16 進の塊の下限
+KNOWN_MIN_LEN = 8            # a. 照らす秘密の値の下限（これより短い値は他の字と取り違える）
+SECRET_NAME = re.compile(r"KEY|TOKEN|SECRET|PASS|CRED|AUTH|PRIVATE", re.I)
 OUTPUT_CONTRACT = [
     "Status（Completed / Partially / Blocked）",
     "対象",
@@ -218,6 +232,60 @@ def entropy(s: str) -> float:
 
 
 _CHUNK = re.compile(r"[A-Za-z0-9+/=_\-]{%d,}" % ADVISORY_MIN_LEN)
+_SHORT = re.compile(r"(?<![A-Za-z0-9+/=_\-])[A-Za-z0-9+/=_\-]{%d,%d}(?![A-Za-z0-9+/=_\-])"
+                    % (SHORT_MIN_LEN, ADVISORY_MIN_LEN - 1))
+_HEX = re.compile(r"(?<![0-9A-Za-z])[0-9a-fA-F]{%d,}(?![0-9A-Za-z])" % HEX_MIN_LEN)
+# 識別子・path の語（小文字の語・大文字の語・頭だけ大文字の語＋数字 2 字まで・数字だけ）。塊が全部これで割れれば鍵とみない。
+_WORD = re.compile(r"^(?:[a-z]+[0-9]{0,2}|[A-Z]+[0-9]{0,2}|[A-Z][a-z]+[0-9]{0,2}|[0-9]{1,4}|[a-z]?)$")
+
+
+def _kind(c: str) -> str:
+    return "l" if c.islower() else "u" if c.isupper() else "d" if c.isdigit() else "o"
+
+
+def short_keylike(tok: str) -> bool:
+    """c. 16〜31 字の塊が鍵らしいか（英字と数字が混ざる・入れ替わりが多い・散らばりが高い・語の並びでない）。"""
+    if all(_WORD.match(p) for p in re.split(r"[/_=\-.+]", tok)):
+        return False
+    if not (re.search(r"[A-Za-z]", tok) and re.search(r"[0-9]", tok)) or re.fullmatch(r"[0-9a-fA-F]+", tok):
+        return False
+    switches = sum(1 for a, b in zip(tok, tok[1:]) if _kind(a) != _kind(b))
+    return switches >= SHORT_MIN_SWITCHES and entropy(tok) >= math.log2(len(tok)) - SHORT_ENTROPY_SLACK
+
+
+def git_objects(root: Path | None, toks) -> set[str]:
+    """b. その repo の git の物（commit などの印・頭だけでも 1 つに決まる物）である塊の集まり。"""
+    toks = sorted(set(toks))
+    if not toks or root is None:
+        return set()
+    try:
+        res = subprocess.run(["git", "cat-file", "--batch-check"], cwd=root, input="\n".join(toks) + "\n",
+                             capture_output=True, text=True, timeout=60)
+    except (OSError, subprocess.SubprocessError):
+        return set()
+    out = set()
+    for tok, line in zip(toks, res.stdout.splitlines()):
+        if not line.endswith((" missing", " ambiguous")):
+            out.add(tok)
+    return out
+
+
+def known_secrets(root: Path | None, environ=None) -> list[tuple[str, str]]:
+    """a. 窓が持つ秘密の値の (出所の名, 値) の並び。出所は環境変数の名か .env の file と鍵の名（値は外へ出さない）。"""
+    env = os.environ if environ is None else environ
+    out = [(f"環境変数 {k}", v) for k, v in env.items()
+           if SECRET_NAME.search(k) and isinstance(v, str) and len(v.strip()) >= KNOWN_MIN_LEN]
+    if root is not None:
+        for f in sorted(root.glob(".env*")):
+            if not f.is_file():
+                continue
+            for ln in f.read_text(encoding="utf-8", errors="replace").splitlines():
+                m = re.match(r"^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)$", ln)
+                if m:
+                    v = m.group(2).strip().strip("'\"")
+                    if len(v) >= KNOWN_MIN_LEN:
+                        out.append((f"{f.name} の {m.group(1)}", v))
+    return [(n, v.strip()) for n, v in out]
 
 
 def allow_rules(values: dict):
@@ -239,9 +307,10 @@ def allow_rules(values: dict):
     return fps, regs
 
 
-def entropy_hits(text: str, values: dict | None = None, rels=None):
-    """高エントロピーの塊を (どこ, 行, 長さ, 指紋) の並びで返す。塊の字そのものは返さない。"""
+def entropy_hits(text: str, values: dict | None = None, rels=None, root: Path | None = None):
+    """鍵らしい塊（高エントロピー・b の 16 進・c の短い塊）を (どこ, 行, 長さ, 指紋) の並びで返す。塊の字そのものは返さない。"""
     fps, regs = allow_rules(values or {})
+    in_git = git_objects(root, _HEX.findall(text))
     hits, where, base = [], "（パックの見出し）", 0
     for no, ln in enumerate(text.splitlines(), 1):
         if ln.startswith("### ") and (rels is None or ln[4:] in rels):
@@ -250,9 +319,11 @@ def entropy_hits(text: str, values: dict | None = None, rels=None):
         if ln == "````" and where != "（パックの見出し）" and no > base:
             where, base = "（パックの見出し）", 0   # file の囲みの閉じ＝その後は file の行でない
             continue
-        for tok in _CHUNK.findall(ln):
-            if entropy(tok) < ADVISORY_MIN_ENTROPY:
-                continue
+        cands = [t for t in _CHUNK.findall(ln) if entropy(t) >= ADVISORY_MIN_ENTROPY]
+        cands += [t for t in _HEX.findall(ln)
+                  if re.search(r"[0-9]", t) and re.search(r"[a-fA-F]", t) and t not in in_git]
+        cands += [t for t in _SHORT.findall(ln) if short_keylike(t)]
+        for tok in dict.fromkeys(cands):
             full = sha256_full(tok)
             fp = full[:12]
             if any(full.startswith(p) for p in fps) or any(r.fullmatch(tok) for r in regs):
@@ -265,9 +336,13 @@ def sha256_full(tok: str) -> str:
     return hashlib.sha256(tok.encode("utf-8")).hexdigest()
 
 
-def scan(text: str, values: dict | None = None, rels=None):
+def scan(text: str, values: dict | None = None, rels=None, root: Path | None = None, environ=None):
     blocks = [label for label, pat in BLOCK_PATTERNS.items() if re.search(pat, text)]
-    return blocks, entropy_hits(text, values, rels)
+    fps, _ = allow_rules(values or {})
+    for name, val in known_secrets(root, environ):
+        if val in text and not any(sha256_full(val).startswith(p) for p in fps):
+            blocks.append(f"窓が持つ秘密の値（{name}）")
+    return blocks, entropy_hits(text, values, rels, root)
 
 
 def write_log(values: dict, root: Path, rec: dict) -> None:
@@ -308,7 +383,7 @@ def main(argv=None) -> int:
         rels = [rel_of(root, f) for f in a.file]
         dest = resolve_dest(a.dest, rels, values, today)
         text = build_pack(a, rels, dest, root)
-        blocks, hits = scan(text, values, set(rels))
+        blocks, hits = scan(text, values, set(rels), root)
         meta = {"task": a.task, "dest": dest, "files": rels, "mode": a.mode,
                 "entropy": len(hits), "dry_run": a.dry_run}
         if blocks:
