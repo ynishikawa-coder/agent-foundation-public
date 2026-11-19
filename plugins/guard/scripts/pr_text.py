@@ -260,6 +260,8 @@ def check_public(texts, repo, data, vals):
 
 
 HOW = {
+    "broken": "一時の置き場（TMPDIR・AF_GUARD_TMP）に書けるか・入れた plugin が揃っているかを確かめ、直してから出し直す。"
+              "直せない時は止めた文を添えて親の窓へ返す（見張りを外して出さない）。",
     "verdict": "判定のコメントは skill `checker:review-pr` の形で書き直す（1 行目 `レビューした窓: <session id> 判定: green|red`・"
                "2 行目 `見た先端: <SHA12>`・`## verdict`・`## 点`〔見る点の表の全部〕・`## 所見`〔札 `- [止める|後の便|直った｜<段>]`〕）。"
                "`python3 <verdict_form.py> <下書き> --writer <書いた窓> --head <PR の先端>` が exit 0 になってから出す。",
@@ -272,6 +274,7 @@ HOW = {
               "GitHub の本文は書き替えても古い版が編集の履歴に公開で残るので、出す前に直す。",
 }
 HEAD = {
+    "broken": "照らしが壊れた",
     "verdict": "レビューの判定の形が崩れている",
     "cleanup": "PR 本文の整地の欄が雛形と合わない",
     "words": "PR の題・本文に AI の中の呼び名が出ている",
@@ -310,8 +313,13 @@ def findings(data, vals):
 
 
 def check(data, vals):
-    """止めるなら理由、通すなら ""。"""
-    found = findings(data, vals)
+    """止めるなら理由、通すなら ""。見る道具の照らしの中で何かが壊れたら、黙って通さず止める（guard の入口は例外を通す側に倒すため）。"""
+    try:
+        found = findings(data, vals)
+    except Exception as e:      # noqa: BLE001
+        if not tool_kind(data.get("tool_name")):
+            return ""
+        found = [("broken", "照らしの途中で壊れた（%s）。照らせない文は出さない" % e.__class__.__name__)]
     if not found:
         return ""
     codes = list(dict.fromkeys(c for c, _ in found))

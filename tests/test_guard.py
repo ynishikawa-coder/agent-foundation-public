@@ -817,3 +817,14 @@ def test_pr_text_手元に取り出しの無い公開の_repo_は値の表で足
     assert deny_reason(env, p) == ""
     table.write_text(json.dumps({"guard": {"public_repos_extra": ["^fake-owner/far-public$"]}}), encoding="utf-8")
     assert "[public]" in deny_reason(env, p)
+
+
+def test_pr_text_照らしの途中で壊れたら黙って通さず止める(env, tmp_path):
+    """一時の置き場に書けない等で照らしが壊れても、見る道具なら止める（入口が例外を通す側に倒すため）。"""
+    blocker = tmp_path / "置き場でない"
+    blocker.write_text("file なので dir を作れない", encoding="utf-8")
+    env["AF_GUARD_TMP"] = str(blocker)
+    _fake_public_repo(Path(env["CLAUDE_PROJECT_DIR"]), PUBLIC_WORD)
+    why = deny_reason(env, gh("add_issue_comment", issue_number=1, body="作り物の確かめ", repo="fake-public"))
+    assert "[broken]" in why and "照らせない文は出さない" in why
+    assert deny_reason(env, gh("create_branch", branch="b", from_branch="main")) == ""
