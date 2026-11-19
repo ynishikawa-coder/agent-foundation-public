@@ -120,6 +120,16 @@
       "pattern": "^親窓\\s*[:：]",
       "fix": "PR の型から `親窓:` の行を消す。窓の親はサーバの記録（get_session の parent_session_id）を読む",
       "example": "親窓: <session id>"
+    },
+    {
+      "id": "pr-writer-field",
+      "what": "PR の型の頭の `書いた窓:` の欄（手で書く写しで、push の後でしか直せず、別の窓が main を取り込む度に commit の記録とずれて CI が赤になった）",
+      "files": [
+        ".github/pull_request_template.md"
+      ],
+      "pattern": "^書いた窓\\s*[:：]",
+      "fix": "PR の型から `書いた窓:` の行と、それを先端の窓に書き換えさせる注を消す。書いた窓は PR の commit の `Claude-Session:` の窓の組（plugin checker の pr_writer.py --writers）を読む",
+      "example": "書いた窓: <先端の commit の Claude-Session の session id>"
     }
   ]
 }

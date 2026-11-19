@@ -16,14 +16,15 @@ AI が自分で回すか、出した後に CI やレビューが拾うだけだ�
 照らす物（見分けは正本を直に読む・呼ぶ。ここに決まりを写さない）:
   verdict … （材料は記録から: 出す先の PR の先端と、PR の commit 全部の `Claude-Session:` の窓（書いた窓の組）を gh で引き
             --head・--writer で、判定を出す窓の本物の id を窓の環境の記録（CLAUDE_CODE_REMOTE_SESSION_ID）から読み --reviewer で
-            渡す。本文の `書いた窓:`・判定の 1 行目の名乗りは手で書いた写しで、照らされる側。どれかが引けなければ止める）
+            渡す。判定の 1 行目の名乗りは手で書いた写しで、照らされる側。PR 本文の `書いた窓:` は読まない〔写しを畳んだ〕。
+            どれかが引けなければ止める）
             コメントがレビューの判定（どの行かに `レビューした窓: … 判定: green|red` が揃うか、verdict の見出しが在る）なら、checker の
             `scripts/verdict_form.py` をそのまま呼ぶ。赤なら止める。道具が見つからない・壊れた時も止める
   cleanup … PR の本文（本文を渡す時だけ）に、dev-flow の preimpl-cleanup の `整地受領証.template.md` の 4 つの見出し
             （`## 1.`〜`## 4.`。見出しの名は雛形から読む）が全部在り、雛形の `〔…〕` が残っていない事。整地の要らない PR
             （振る舞いを変えない: 誤字・記録だけ・版だけ等）は本文に `整地: 不要（<訳>）` の 1 行を書く（訳はレビューが照らす）
   words   … PR の題・本文に、窓の id（`session_01…`）がそのまま出ていない事。本文の頭の欄の塊（1 行目から最初の空行まで）の
-            窓の id を書く欄（書いた窓＝commit の記録と照らす写し。畳んだ親窓の欄も 2 段目までは）・コードの囲み・`…` の字・URL の中は
+            窓の id を書く欄（畳んだ書いた窓・親窓の欄。使う側の古い本文を 2 段目までは通す）・コードの囲み・`…` の字・URL の中は
             数えない（job・検査 等の欄や、頭の塊の外で同じ字で始まる行は数える。親窓は照らせない写しなので PR の型に置かない＝
             窓の親はサーバの記録 get_session を読む）
   public  … 公開の repo（窓の repo の取り出しの workflow が action public-guard を呼ぶ／値の表 public_repos_extra）なら、
@@ -68,7 +69,7 @@ NOT_NEEDED = re.compile(r"^\s*(?:[-*]\s*)?\**整地\**\s*[:：]\s*(?:不要|要�
 TEMPLATE_HEAD = re.compile(r"^## (\d+)\. (.+?)\s*$", re.M)
 PLACEHOLDER = re.compile(r"〔[^〕\n]{4,}〕")
 HEAD_FIELD = re.compile(r"^\s*(?:書いた窓|親窓)\s*[:：]")   # 窓の id を書く頭の欄（本文の頭の塊の中だけ数えない）。
-# 親窓は畳んだ欄（照らせない写し）。使う側の PR の型に残る間は古い本文も通す（壊れる 1 段目・古い形 pr-parent-field）
+# 書いた窓・親窓は畳んだ欄（手で書く写し）。使う側の PR の型に残る間は古い本文も通す（壊れる 1 段目・古い形 pr-writer-field・pr-parent-field）
 SESSION_ID = re.compile(r"(?<![A-Za-z0-9_/])session_0[A-Za-z0-9]{15,}")
 URL = re.compile(r"https?://\S+")
 FENCE = re.compile(r"^\s*(```|~~~).*?^\s*\1", re.M | re.S)
@@ -167,7 +168,6 @@ def looks_verdict(body):
     return bool(VERDICT_LINE.search(body) or VERDICT_HEAD.search(body))
 
 
-WRITER_LINE = re.compile(r"^\s*書いた窓\s*[:：]\s*(session_[A-Za-z0-9]+)", re.M)
 # commit の書き手の記録（窓が commit の度に付ける行）。PR の commit 全部から読み、書いた窓の組にする
 COMMIT_SESSION = re.compile(r"^Claude-Session:\s*\S*?(session_[A-Za-z0-9]+)\s*$", re.M)
 # 窓の環境の記録（harness が hook に渡す。cse_<x> → session_<x>）。道具の呼び出しの文では変えられない
@@ -189,8 +189,8 @@ def poster_id(env=None):
 def pr_facts(repo, ti):
     """判定を出す先の PR の (先端の SHA, 書いた窓の組, 誤り)。GitHub から引く（判定の形の道具が要る材料・写さない）。
 
-    書いた窓の組は PR の commit 全部の `Claude-Session:` の窓（記録）と、本文の頭の `書いた窓:`（写し）を合わせた物。
-    途中の commit を書いた窓も入る。commit に記録が 1 つも無ければ誤り（本文の写しだけで書いた窓を決めない）。
+    書いた窓の組は PR の commit 全部の `Claude-Session:` の窓（記録）だけ。途中の commit・取り込みの merge を書いた窓も入る。
+    PR 本文は読まない（書いた窓の写しを本文に置かない）。commit に記録が 1 つも無ければ誤り。
     引けない時は誤りを返す（欠けた材料で判定を通さない）。"""
     if not repo:
         return "", [], "出す先の repo（owner・repo）が道具の入力に無い"
@@ -202,7 +202,7 @@ def pr_facts(repo, ti):
         if not number:
             return "", [], "判定を出す先の PR の番号が分からない"
         p = _gh(["repos/%s/pulls/%s" % (repo, number), "--jq",
-                 '.head.sha + "\\n" + (.commits | tostring) + "\\n" + (.body // "")'])
+                 '.head.sha + "\\n" + (.commits | tostring)'])
     except FileNotFoundError:
         return "", [], "GitHub の CLI（gh）が無く、PR の先端と書いた窓を引けない"
     except (OSError, subprocess.SubprocessError) as e:
@@ -211,7 +211,7 @@ def pr_facts(repo, ti):
         return "", [], "PR #%s を引けなかった（判定は PR に出す・gh の認証か網を確かめる）: %s" % (
             number, (p.stderr or "").strip().splitlines()[-1:] or "")
     head, _, rest = p.stdout.partition("\n")
-    total, _, body = rest.partition("\n")
+    total = rest.split("\n", 1)[0]
     if not re.fullmatch(r"[0-9a-f]{40}", head.strip()):
         return "", [], "PR #%s の先端の SHA が読めない" % number
     try:
@@ -232,10 +232,7 @@ def pr_facts(repo, ti):
     writers = list(dict.fromkeys(w for m in msgs for w in COMMIT_SESSION.findall(m)))
     if not writers:
         return head.strip(), [], ("PR #%s の commit に `Claude-Session:` の行が 1 つも無く、書いた窓が記録から決まらない"
-                                  "（本文の `書いた窓:` の写しだけで別の目を照らさない）" % number)
-    m = WRITER_LINE.search(body)
-    if m and m.group(1) not in writers:
-        writers.append(m.group(1))
+                                  "（別の目を照らせない）" % number)
     return head.strip(), writers, ""
 
 
@@ -521,7 +518,7 @@ HOW = {
                "書く（中身は頭が書く・`〔…〕` を残さない）。振る舞いを変えない PR（誤字・記録だけ・版だけ等）なら、4 欄の代わりに "
                "`整地: 不要（<なぜ要らないか>）` の 1 行を書く（訳はレビューが照らす）。",
     "words": "窓の id は、読む人が開けるリンク（https://claude.ai/code/<id>）にして役の名を添える（例: 「直す窓（リンク）」）か、役の名だけに"
-             "する。決まった欄（頭の塊の書いた窓）とコードの囲みの中は数えない。親窓の欄は PR の型から畳んだ（窓の親はサーバの記録 get_session の parent_session_id）。",
+             "する。コードの囲みの中は数えない。書いた窓・親窓の欄は PR の型から畳んだ（書いた窓は commit の `Claude-Session:` の記録・窓の親はサーバの記録 get_session の parent_session_id）。",
     "public": "当たった所を書き直す（秘密・個人の情報は消す・作り物の例は example.com などにする・置かない語と顧客の語は一般の言葉に言い換える）。"
               "GitHub の本文は書き替えても古い版が編集の履歴に公開で残るので、出す前に直す。",
 }

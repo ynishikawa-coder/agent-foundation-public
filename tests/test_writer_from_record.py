@@ -3,6 +3,7 @@
 前の形: 判定した窓は 1 行目に手で書いた「レビューした窓:」の字、書いた窓は 1 つ（本文の写しか先端の 1 窓）だった。
 今の形: 判定した窓は出す窓の記録（--reviewer）、書いた窓は PR の commit 全部の `Claude-Session:` の組。
 """
+import json
 import subprocess
 import sys
 from pathlib import Path
@@ -157,3 +158,24 @@ def test_注入_窓の_id_を数えない欄は頭の塊の書いた窓だけ(en
 def test_頭の塊の書いた窓の欄の窓の_id_は数えない(env):
     body = "書いた窓: %s\njob: 20261119-fake\n検査: 緑\n\n" % WRITER + _tail()
     assert deny_reason(env, gh("create_pull_request", title="作り物", head="b", base="main", body=body)) == ""
+
+
+def test_注入_本文の書いた窓の写しは書いた窓の組に足さない(env):
+    """写しを畳んだ: 本文の `書いた窓:` は読まない。本文が出す窓を書いた窓と名乗っても、記録（commit）に無ければ組に入らない
+    （前の形: 本文の写しを組に足した＝本文を直さないと記録と食い違い、写しを持つ理由が残った）。"""
+    p = gh("add_issue_comment", issue_number=1, body=verdict_comment())
+    _fake_gh(env, writer=REVIEWER, commits=[WRITER])
+    assert deny_reason(env, p) == ""
+
+
+def test_注入_書いた窓の欄は古い形の行が在る間は通し_畳んだら数える(env):
+    """壊れる 2 段（CONTRIBUTING.md §8）: pr-writer-field の行が在る間（1 段目）は使う側の古い本文の頭の塊の
+    `書いた窓: <窓の id>` を通す。行を消した 2 段目からは窓の id として数える。"""
+    olds = json.loads((ROOT / "plugins" / "core" / "古い形.json").read_text(encoding="utf-8"))["olds"]
+    stage1 = any(o["id"] == "pr-writer-field" for o in olds)
+    body = "書いた窓: %s\njob: 20261120-fake\n検査: 緑\n\n" % STRANGER + _tail()
+    why = deny_reason(env, gh("create_pull_request", title="作り物", head="b", base="main", body=body))
+    if stage1:
+        assert why == "", "1 段目なのに古い本文の書いた窓の欄を止めた: " + why
+    else:
+        assert "[words]" in why and STRANGER in why, why
