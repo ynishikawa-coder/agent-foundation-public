@@ -119,6 +119,29 @@ def test_あなたがやることがある締めでは言い回しの平文の�
     c = set_last_text(rows("owner_ok.jsonl"), body + "AI がこの後やること: なし\nあなたがやること: なし。この窓は閉じて大丈夫です。")
     assert not sw.is_plain_question(c[-1]["message"]["content"][0]["text"])
 
+def test_開いた問いは_AI_の今の読みを添えれば平文でも拾わない():
+    body = "❓答えて\n言葉の意味を確かめたい。\nAI の今の読み: 作り物の箱は上の箱の事だと読んでいる。\nこの読みで合っていますか？\n"
+    tail = "AI がこの後やること: なし\nあなたがやること: 上の問いに答える。これが済むまで置き場を作れません。"
+    assert "plain" not in codes(set_last_text(rows("owner_ok.jsonl"), body + tail))
+    # 注入: 同じ問いから AI の読みを抜くと拾う
+    bare = body.replace("AI の今の読み: 作り物の箱は上の箱の事だと読んでいる。\n", "")
+    assert "plain" in codes(set_last_text(rows("owner_ok.jsonl"), bare + tail))
+
+
+def test_選択肢の画面の問いに分からないが無ければ拾う():
+    rs = rows("plain_unanswered.jsonl")
+    assert "idk" not in codes(rs)
+    # 注入: 「分からない」の選択肢を抜くと拾う
+    rs = copy.deepcopy(rs)
+    for r in rs:
+        for b in (r.get("message") or {}).get("content") or []:
+            if isinstance(b, dict) and b.get("name") == "AskUserQuestion":
+                for q in b["input"]["questions"]:
+                    q["options"] = [o for o in q["options"] if "分からない" not in o["label"]]
+    found = sw.check(sw.Log(rs))
+    assert any(c == "idk" and "作り物の置き場" in m for c, m in found)
+
+
 def test_手で回す口は拾えば_exit_1_型どおりなら_exit_0():
     run = lambda name: subprocess.run([sys.executable, str(SCRIPT), str(LOGS / name)], capture_output=True, text=True)
     bad = run("plain_unanswered.jsonl")
