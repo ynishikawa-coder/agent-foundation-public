@@ -179,6 +179,7 @@ def test_挙げた原因は全部台帳に行き先つきで持ち_全部済む�
     assert "1 つ選ばせる問いを出さない" in s4 and "挙がった物は全部やり" in s4
     saimoku = (PLUGIN / "細目.md").read_text(encoding="utf-8")
     assert "**原因の台帳**" in _節(saimoku, 3) and "**選ばせない**" in _節(saimoku, 4) and "**根治の終わり**" in _節(saimoku, 7)
+    assert "③は 1 本の列（番号の順）にせず" in _節(saimoku, 8), "引き継ぎの残りが番号の列に戻った"
     olds = ["どれを今回直す", "一番手前の未決から取る", "どれから進めますか」と聞"]
     hits = []
     for p in sorted(ROOT.rglob("*")):
