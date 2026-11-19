@@ -56,7 +56,7 @@ def _has_question_list(data, depth=0):
                 return True
         return any(_has_question_list(v, depth + 1) for v in data.values() if isinstance(v, (dict, list)))
     if isinstance(data, list):
-        return any(_has_question_list(v, depth + 1) for v in data[:50] if isinstance(v, (dict, list)))
+        return any(_has_question_list(v, depth + 1) for v in data if isinstance(v, (dict, list)))
     return False
 
 
@@ -185,6 +185,8 @@ def check_page(path, vals):
     if p.returncode != 1 or not red:
         tail = (p.stderr or p.stdout or "").strip().splitlines()[-3:]
         return reason(path, why, ["  検査が壊れた（exit %d）: %s" % (p.returncode, " / ".join(tail))], chk)
-    lines = ["  検査の赤 %d 件（頭の %d 件）:" % (len(red), min(len(red), RED_SHOWN))]
+    lines = ["  検査の赤 %d 件:" % len(red)]
     lines += ["    ✗ " + r for r in red[:RED_SHOWN]]
+    if len(red) > RED_SHOWN:
+        lines.append("    …ほか %d 件（全部は node %s %s で出る）" % (len(red) - RED_SHOWN, chk, path))
     return reason(path, why, lines, chk)

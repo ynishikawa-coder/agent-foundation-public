@@ -181,7 +181,8 @@ def pattern_hits(where: str, text: str) -> list[str]:
 
 def word_hits(where: str, text: str, words: list[str]) -> list[str]:
     low = text.lower()
-    return [f"{where}: 置かない語" for w in words if w.lower() in low][:1]
+    n = sum(1 for w in words if w.lower() in low)
+    return [f"{where}: 置かない語 {n} 個"] if n else []     # 語は出さない。数は出す（1 つ消して赤が残る往復をさせない）
 
 
 def customer_hits(where: str, text: str, words: list[str], bundle) -> list[str]:
