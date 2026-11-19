@@ -22,6 +22,7 @@ exit: 0=緑 / 1=赤 / 2=照らせない / 3=照らしていない（緑に数え
 from __future__ import annotations
 
 import argparse
+import os
 import re
 import subprocess
 import sys
@@ -91,6 +92,15 @@ def check(root: Path, head: str, base: str, body: str) -> list[str]:
     return []
 
 
+def unchecked(kind: str, why: str) -> int:
+    """照らしていない訳を出し、検査の入口（check_all の AF_CHECK_UNCHECKED）へ同じ訳を渡して 3 を返す。
+    kind は「対象外」（その場に照らす物が無い）か「照らせない」（照らす物は在るのに値が無い。CI では赤）。"""
+    print(f"pr_writer: 照らしていない（{kind}: {why}）")
+    if os.environ.get("AF_CHECK_UNCHECKED"):
+        Path(os.environ["AF_CHECK_UNCHECKED"]).write_text(f"{kind}: {why}\n", encoding="utf-8")
+    return 3
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--writers", action="store_true", help="書いた窓の組を `,` で並べて出すだけ（照らさない）")
@@ -118,11 +128,9 @@ def main(argv=None) -> int:
         print(",".join(ws))
         return 0
     if not a.branch.startswith("claude/"):
-        print(f"pr_writer: 照らしていない（{a.branch or '枝の名なし'} は AI の窓の枝 claude/… でない）")
-        return 3
+        return unchecked("対象外", f"{a.branch or '枝の名なし'} は AI の窓の枝 claude/… でない＝人の PR は書いた窓を持たない")
     if a.body_file is None:
-        print("pr_writer: 照らしていない（PR 本文が無い＝PR の外。CI の PR では本文を渡して照らす）")
-        return 3
+        return unchecked("照らせない", "PR 本文が無い（--body-file で本文を渡して照らす）")
     try:
         errs = check(a.repo, a.head, a.base, a.body_file.read_text(encoding="utf-8"))
     except OSError as e:

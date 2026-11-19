@@ -5,6 +5,7 @@ import subprocess
 import sys
 from pathlib import Path
 
+import needs
 import pytest
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -625,13 +626,12 @@ def test_qa_page_入れた_plugin_の形では同じ版の検査だけを見つ�
 
 
 def test_qa_page_赤が多い時ほか何件と全部の出し方を出す(env, tmp_path):
+    needs.node()   # 飛ばす条件は試験の頭で（作り物の file を書く前に）
     fake = tmp_path / "fake_check.mjs"
     fake.write_text('console.log(JSON.stringify({ok: false, red: Array.from({length: 13}, (_, i) => "作り物の赤 " + (i + 1))}));'
                     "process.exit(1);\n", encoding="utf-8")
     page = tmp_path / "kakunin.html"
     page.write_text(STATE_PAGE, encoding="utf-8")
-    if not shutil.which("node"):
-        pytest.skip("node が無い（作り物の検査は node で動く）")
     env = without_check(env, tmp_path, ver="v1", docs_kit_ver="v1")
     real = tmp_path / "cache" / "market" / "docs-kit" / "v1" / "skills" / "qa-html" / "check.mjs"
     shutil.copyfile(fake, real)                                        # 同じ版の検査の在り処に作り物を置く

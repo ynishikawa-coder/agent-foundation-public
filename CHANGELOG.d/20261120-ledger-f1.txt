@@ -1,0 +1,9 @@
+- 直した: 試験の入口 scripts/pytest.sh は python3 -I -S で pytest を起こす（scripts/pytest_plugin/af_run.py）。PYTHONPATH・site-packages の .pth・sitecustomize・usercustomize・repo の根の pytest.py が本物の代わりに動かない。
+- 直した: 結果を構造で残す plugin（af_tally）が、読まれた plugin を全部照らす（pytest 自身・入口の plugin・tests/ の conftest の外は赤）。tests/ の conftest が持ってよい hook は pytest_configure と pytest_runtest_setup だけで、結果・集めを変える hook・collect_ignore・pytest_plugins は赤。結果は報告を作った所で決め、後で書き換えると名指す。
+- 直した: 呼ばれた path の .py を読んで書いた試験を全部挙げ、集めた試験と照らす（file の名・__test__ = False・__init__ の在る class・集めない hook で試験が減っても緑にしない）。
+- 壊れる（土台の中だけ）: 待つ物の表 tests/waits.txt は「path 待つ試験の file 何か」の 3 つ組。表の試験の file の外から待つと赤。
+- 直した: pytest の版を scripts/pytest_plugin/requirements.txt の 1 か所に止め、CI はそこから入れる。違う版は CI で赤・手元で名指す。
+- 直した: job plugin-smoke の pytest は --af-judge=real-claude で、印 real_claude の試験が 1 本でも飛ぶ・xfail・外れると赤。試験の file の自前の飛ばしを字で探す OWN_SKIP を畳んだ。
+- 壊れる（土台の中だけ）: check_all は scripts/checks の 1 段の *.sh の外（.py・下の dir）を置くと赤。終わり方 3 は、検査が AF_CHECK_UNCHECKED に「対象外: 訳」か「照らせない: 訳」を書いた時だけ照らしていないに数える（scripts/af_unchecked.sh）。訳なしの 3・訳を書いた 0 は赤。CI の「照らせない」は赤。最後の行に場（CI か手元か・手元は CI と違う所）を書く。
+- 直した: kaku_growth は先端が main と同じ時、先端の 1 つ前と比べる（main への push で必ず緑にならない）。pr_writer は PR_BODY が渡れば手元でも照らす。
+- 直した: 試験の飛ばす条件（node・playwright・ブラウザ）を tests/needs.py の 1 か所にし、ブラウザは file の有る無しだけで飛ばす（在るのに起こせなければ赤）。小箱で入口を回す試験は tests/entry_box.py の box_env の環境で回す。決まりの文の穴の照らしは、飛んだ・xfail・元から赤の試験を「赤になった」に数えない。

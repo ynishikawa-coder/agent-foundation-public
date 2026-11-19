@@ -9,6 +9,7 @@ import subprocess
 import sys
 from pathlib import Path
 
+import needs
 import pytest
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -631,24 +632,12 @@ def test_ひとことに書かせる選択肢に印が無いと赤(tmp_path):
     assert len(red) == 1 and red[0].startswith("問い q1: ひとことに書かせる選択肢「ほかの答え」に data-supp=\"need\" が無い"), red
 
 
-def _playwright():
-    try:
-        from playwright.sync_api import sync_playwright
-        return sync_playwright
-    except ImportError:
-        return None
-
-
-@pytest.mark.skipif(_playwright() is None, reason="playwright が無い（型の JS を実ブラウザで動かす）")
 def test_ひとことに書かせる選択肢を選ぶと欄の名が変わり空では進めない(tmp_path):
+    sync_playwright = needs.py_playwright()
     page = tmp_path / "確認.html"
     page.write_text(filled_template("copy"), encoding="utf-8")
-    with _playwright()() as p:
-        exe = os.environ.get("QA_CHROMIUM")   # 入った playwright と別の版のブラウザを使う時だけ
-        try:
-            b = p.chromium.launch(**({"executable_path": exe} if exe else {}))
-        except Exception as e:   # 入った playwright の版のブラウザが無い窓（QA_CHROMIUM で別の版を指せる）
-            pytest.skip(f"ブラウザを起こせない: {str(e).splitlines()[0]}")
+    with sync_playwright() as p:
+        b = p.chromium.launch(executable_path=needs.chromium(p))   # file が在るのに起こせなければ赤（飛ばさない）
         pg = b.new_page()
         pg.goto(page.as_uri())
         js = """([sel, ev, val]) => { const f = document.querySelector('fieldset.q[data-qkey="q1"]'); const el = f.querySelector(sel);

@@ -25,6 +25,7 @@ exit: 0=緑 / 1=赤 / 2=照らせない（比べる元が無い等）/ 3=照ら�
 from __future__ import annotations
 
 import argparse
+import os
 import re
 import subprocess
 import sys
@@ -119,6 +120,15 @@ def check(root: Path, branch: str, base: str) -> list[str]:
     return errs
 
 
+def unchecked(kind: str, why: str) -> int:
+    """照らしていない訳を出し、検査の入口（check_all の AF_CHECK_UNCHECKED）へ同じ訳を渡して 3 を返す。
+    kind は「対象外」（その場に照らす物が無い）か「照らせない」（照らす物は在るのに値が無い。CI では赤）。"""
+    print(f"pr_shape: 照らしていない（{kind}: {why}）")
+    if os.environ.get("AF_CHECK_UNCHECKED"):
+        Path(os.environ["AF_CHECK_UNCHECKED"]).write_text(f"{kind}: {why}\n", encoding="utf-8")
+    return 3
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--branch")
@@ -144,14 +154,11 @@ def main(argv=None) -> int:
     if a.branch is None or a.base is None:
         ap.error("--branch と --base が要る")
     if a.branch == "main":
-        print("pr_shape: 照らしていない（main への push＝PR の差分が無い）")
-        return 3
+        return unchecked("対象外", "main への push＝PR の差分が無い（PR の時に照らした）")
     if a.branch in ("HEAD", ""):
-        print("pr_shape: 照らしていない（枝の名が分からない＝detached HEAD。GITHUB_HEAD_REF に枝の名を渡すと照らす）")
-        return 3
+        return unchecked("照らせない", "枝の名が分からない＝detached HEAD。GITHUB_HEAD_REF に枝の名を渡すと照らす")
     if not a.branch.startswith("claude/"):
-        print(f"pr_shape: 照らしていない（{a.branch} は AI の窓の枝 claude/… でない＝人の PR は止めない）")
-        return 3
+        return unchecked("対象外", f"{a.branch} は AI の窓の枝 claude/… でない＝人の PR は止めない")
     try:
         errs = check(a.repo, a.branch, a.base)
     except OSError as e:

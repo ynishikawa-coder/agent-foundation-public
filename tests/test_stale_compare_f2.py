@@ -17,6 +17,7 @@ import pytest
 
 from test_core_plugin import PLUGIN, Foundation, _commit, _git, catalog_commit, kaku, run
 from test_setup_plugins import foundation, run as run_entry
+from entry_box import box_env
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.dont_write_bytecode = True
@@ -270,9 +271,8 @@ def test_check_all_の回した先端は_CI_の_PR_では_PR_の先端(tmp_path)
     _git(repo, "add", "-A")
     _git(repo, "commit", "-qm", "merge の代わり")
     merge = _git(repo, "rev-parse", "HEAD")
-    env = {k: v for k, v in os.environ.items() if k not in ("GITHUB_ACTIONS",)}
     r = subprocess.run(["bash", "scripts/check_all.sh"], cwd=repo, capture_output=True, text=True,
-                       env=dict(env, GITHUB_EVENT_NAME="pull_request", PR_HEAD_SHA="d" * 40))
+                       env=box_env(GITHUB_EVENT_NAME="pull_request", PR_HEAD_SHA="d" * 40))
     last = r.stdout.strip().splitlines()[-1]
     assert f"@{'d' * 12}" in last and merge[:12] in last and "PR の先端" in last, last
 
