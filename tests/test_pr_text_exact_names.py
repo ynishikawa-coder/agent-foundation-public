@@ -68,15 +68,6 @@ def test_値の表の_repo_の名は全体で当てる(pats, repo, want):
     assert P._matches(pats, repo) is want
 
 
-def test_値の表は_1_段目の間_前の形の行も受ける():
-    # CONTRIBUTING.md §8 の 1 段目: 新しい形（全体の一致）と前の形（錨なしで名の一部に当たる）の両方を受ける。
-    # 前の形の行は古い形 repo-pattern-partial が名指し、2 段目で _listed を _matches だけにする（台帳の行）。
-    assert P._listed(["^fake-owner/"], "fake-owner/far-public")
-    assert P._listed(["fake-owner/fake-private$"], "fake-owner/fake-private")
-    assert not P._listed(["^other/"], "fake-owner/far-public")
-    assert not P._listed(["^fake-owner/fake$"], "fake-owner/fake-private")  # 全体の形で書いた行は似た名を外さない
-
-
 def test_全体の形で書いた外す行は似た名の_repo_を外さない(env, tmp_path):  # noqa: F811
     table = tmp_path / "values.json"
     env["SKILL_VALUES"] = str(table)

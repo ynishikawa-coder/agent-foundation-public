@@ -88,16 +88,6 @@
       "example": "af_old=\"$af_old\"';sys.exit(not(s.get(\"ref\") or a[2] not in json.dumps(s) or not os.path.isfile(m[\"installLocation\"]+\"/\"+a[3])))'  # scripts/setup_plugins.py"
     },
     {
-      "id": "repo-pattern-partial",
-      "what": "値の表 guard の repo の名の正規表現（pr_cleanup_exempt_repos・pr_words_exempt_repos・public_repos_extra）が、終わりの錨（$ や .*）を持たない前の形（守りの hook pr_text は 1 段目の間、名の一部で当たる前の形も受ける。o/b は o/bc にも当たる。2 段目で受けを畳むと名の全体だけで当て、^owner/ のような頭だけの行は何にも当たらなくなる）",
-      "files": [
-        "config/skill-values.json"
-      ],
-      "pattern": "(?s)\"(?:pr_cleanup_exempt_repos|pr_words_exempt_repos|public_repos_extra)\"\\s*:\\s*\\[(?:\\s*\"[^\"]*\"\\s*,)*\\s*\"(?![^\"]*(?:\\$|\\.\\*|\\.\\+)\")[^\"]+\\\"",
-      "fix": "名の全体に当たる形に書き直す（repo 1 つなら ^owner/repo$・owner ごとなら ^owner/.*$）",
-      "example": "\"guard\": {\"pr_words_exempt_repos\": [\"^my-owner/\"]}"
-    },
-    {
       "id": "atonobin-tag",
       "what": "行き先の無い受け皿の札「後の便」（止めない気づきの札 [後の便｜…]・〔後の便に回した事〕など。土台は台帳へに替えた）",
       "files": [
@@ -120,6 +110,16 @@
       "pattern": "(?m)(?:^|[「『【\\[\"'`“])[ \\t#*]*他の窓へ回す",
       "fix": "欄を「## 残り（原因の台帳の行）」にし、残りは原因の台帳に行を入れてから行の題と行き先だけを写す（土台の .github/pull_request_template.md の形）",
       "example": "## 他の窓へ回す"
+    },
+    {
+      "id": "pr-parent-field",
+      "what": "PR の型の頭の `親窓:` の欄（手で書く写しで、どの道具も窓の親の記録と照らせない）",
+      "files": [
+        ".github/pull_request_template.md"
+      ],
+      "pattern": "^親窓\\s*[:：]",
+      "fix": "PR の型から `親窓:` の行を消す。窓の親はサーバの記録（get_session の parent_session_id）を読む",
+      "example": "親窓: <session id>"
     }
   ]
 }

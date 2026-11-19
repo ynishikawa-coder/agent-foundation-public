@@ -7,7 +7,7 @@
   3. `## verdict` の次の行が green／red／red（blocked: …）で、1 行目の判定と合う
   4. `## 所見` の各行の札 `- [止める|台帳へ|直った｜<段>] …`。`[止める｜…]` か点の fail が 1 つでも在れば red、無ければ green
   5. 別の目: 書いた窓（--writer）のどれかとレビューした窓が同じなら形の誤り（自分の PR に判定を付けない）。
-     --writer は PR の commit の `Claude-Session:` の窓の全部を `,` で並べて渡す（scripts/pr_writer.py --writers が出す。
+     --writer は PR の commit の `Claude-Session:` の窓の全部を `,` で並べて渡す（同じ plugin の scripts/pr_writer.py --writers が出す。
      途中の commit を書いた窓も書いた側）。
   9. 名乗り: --reviewer（判定を出す窓の本物の id＝守りの hook が窓の環境の記録から読んで渡す）が在れば、1 行目の
      `レビューした窓:` の字はその写しとして照らす: 違えば誤り。別の目もその本物の id で照らす（手で書いた名乗りで決めない）。

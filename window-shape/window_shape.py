@@ -32,7 +32,11 @@ RETURN_TO = re.compile(r"返し先\s*[=＝:：]\s*(オーナー|%s)" % SESSION_I
 CHILD_OF = re.compile(r"（親窓\s*%s\s*の子）" % SESSION_ID_PAT)
 
 # 人が打った頼みの記録（会話ログの行の origin.kind。Claude Code が頼みを受けた口で付ける＝文の中身では変わらない）。
+# 正本はここ 1 か所（guard・session-watch は lib/window_shape.py の symlink で直に読む＝写さない）。
 HUMAN_ORIGINS = ("human", "person")
+# 窓の環境の CLAUDE_CODE_CHILD_SESSION は読まない: 公式の文書（code.claude.com/docs/en/env-vars）では「Claude Code が Bash・
+# hook・status line で起動する子プロセスに付く 1」で、どの窓でも hook の中では 1＝別の窓が立てた窓の見分けにならない。
+# 頼みの行がまだ無い時の見分けは、サーバの記録（get_session の parent_session_id）を AI に読ませる（session-watch の知らせ）。
 
 # 手の窓（題 `🙋⏳ 手: <何を>`）の作業名の頭と、頼みの文に書く 4 つ。
 HAND_TITLE = re.compile(r"^手[:：]")
@@ -44,7 +48,7 @@ SET_TITLE_SUFFIX = "set_session_title"
 # 窓の種類の決まりの文（skill title-mark はこの文をそのまま載せる＝試験が照らす）。決め方は window_kind。
 KIND_RULE = ("種類の決め方は 2 段: まず手の窓（作業名が `手:` で始まる窓）は返し先によらず `🙋`（相手はオーナー）。"
              "それ以外は窓の最初の頼みの文に書いた返し先だけで決める: `返し先=オーナー` → `🙋`／"
-             "`返し先=session_…` か `（親窓 session_… の子）` → `🤖`（別の窓を指す返し先は手で書いた写しなので、頼みの行の記録が人の打った物でない時＝別の窓や仕組みから来た頼みの時だけ数える。オーナーが引き継ぎの文を貼った窓は `🤖` にしない）／どれも無い → 窓が自分で決める（点検は種類の食い違いを拾わない）。")
+             "`返し先=session_…` か `（親窓 session_… の子）` → `🤖`（別の窓を指す返し先は手で書いた写しなので、頼みの行の記録が人の打った物でない時（行がまだ無い最初の知らせでは get_session の `parent_session_id`＝別の窓が立てた記録が在る時）＝別の窓や仕組みから来た頼みの時だけ数える。オーナーが引き継ぎの文を貼った窓は `🤖` にしない）／どれも無い → 窓が自分で決める（点検は種類の食い違いを拾わない）。")
 
 # 状態 ⏳ の決まりの文（正本はここ。skill title-mark はこの文をそのまま載せる＝試験が照らす。細目 §4 の窓の題の節は skill を指すだけで文を載せない）。見張りは ⏳ の窓を「待ちの窓」と読む
 # （締めの残りを動かす手が無くても拾わない）。
@@ -71,9 +75,9 @@ def split_title(title):
 
 
 def seeded_by_record(row):
-    """頼みの行が、人が打った物でなく別の窓・仕組みから来た事を、行の記録が示すか。
-    記録: origin.kind が人の物でない（別の窓の create_session・send_message・知らせ等）か promptSource が system。
-    記録が無い・読めない時は False（文だけで別の窓へ返す窓と決めない）。"""
+    """頼みの行が、人が打った物でなく別の窓・仕組みから来た事を、記録が示すか（子の窓の見分けの記録の正本）。
+    記録: 頼みの行の origin.kind が人の物でない（別の窓の create_session・send_message・知らせ等）か promptSource が system。
+    行が無い・記録が無い・読めない時は False（文だけで別の窓へ返す窓と決めない＝人の窓の側へ倒す）。"""
     if not isinstance(row, dict):
         return False
     origin = row.get("origin")

@@ -23,6 +23,8 @@ CHECK = PLUGINS / "docs-kit" / "skills" / "qa-html" / "check.mjs"
 CODEX = PLUGINS / "dev-flow" / "skills" / "codex" / "codex_pack.py"
 RENDER = PLUGINS / "docs-kit" / "skills" / "make-deck" / "scripts" / "render_prompt.py"
 GOOD_PAGE = ROOT / "tests" / "docs_kit" / "good.json"
+sys.path.insert(0, str(SOURCE))
+import skill_values as SVM  # noqa: E402  型の名の正本（TYPES）を写さず読む
 
 needs_node = pytest.mark.skipif(not shutil.which("node"), reason="node が無い（qa-html の検査は node で動く）")
 
@@ -88,7 +90,7 @@ def test_鍵の一覧の型は決まった物だけ():
     def walk(where, keys):
         for k, raw in keys.items():
             spec = {"type": raw} if isinstance(raw, str) else raw
-            assert spec["type"] in ("str", "int", "bool", "list", "dict", "text", "any"), f"{where}.{k}"
+            assert spec["type"] in SVM.TYPES, f"{where}.{k}"
             if "keys" in spec:
                 walk(f"{where}.{k}", spec["keys"])
     for plugin, sec in SCHEMA["sections"].items():

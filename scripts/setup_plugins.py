@@ -10,7 +10,8 @@
      取り直して入口そのものが変わっていれば、新しい入口へ 1 度だけ移る（古い入口の手順で新しい名簿を入れない）。
   1. 取り直した配りの器の plugin を全部 `claude plugin install <名>@<目録> --scope user` し、`claude plugin update` で追いつかせる。
   2. `claude plugin list --json` で全部が user scope で enabled か、入った台帳（installed_plugins.json の gitCommitSha）が
-     目録の clone の HEAD（＝名簿の版）と同じかを照らす。取り直しに失敗した時も名指す（古い名簿で入れたと分かるように）。
+     目録の clone の HEAD（＝名簿の版）と同じかを照らす。台帳は installPath が list の読まれる dir と同じ行だけを読み、
+     無ければ「分からない」と名指す（別の dir の行の版で揃ったと見ない）。取り直しに失敗した時も名指す（古い名簿で入れたと分かるように）。
   3. 入っていない・名簿の版に揃っていない物があれば、窓が起動時に必ず読む `~/.claude/CLAUDE.md` に名指しの知らせを 1 行書く（全部入れば消す）。
   4. この入口で入れた印を `~/.claude/af-foundation/setup.json` に書く（plugin core の起動の hook が、印の無い窓＝
      古い形の setup script で立った窓を名指しする）。印には、入れた時の出所の main の先端（main_at_setup）も書く
@@ -62,13 +63,14 @@ def claude(*args: str) -> subprocess.CompletedProcess | None:
         return None
 
 
-def enabled() -> set[str]:
+def listed() -> dict[str, str | None]:
+    """{plugin の id: 読まれる dir（installPath）}（`claude plugin list --json` の user scope で enabled の物）。"""
     r = claude("plugin", "list", "--json")
     try:
         rows = json.loads(r.stdout) if r and r.returncode == 0 else []
     except ValueError:
         rows = []
-    return {x.get("id") for x in rows if isinstance(x, dict) and x.get("scope") == "user" and x.get("enabled")}
+    return {x.get("id"): x.get("installPath") for x in rows if isinstance(x, dict) and x.get("scope") == "user" and x.get("enabled")}
 
 
 def catalog_head() -> str | None:
@@ -80,8 +82,18 @@ def catalog_head() -> str | None:
     return (r.stdout.strip() or None) if r.returncode == 0 else None
 
 
-def installed_shas(market: str) -> dict[str, str | None]:
-    """{plugin の名: 入った commit}（Claude Code が入れた時に書く台帳 ~/.claude/plugins/installed_plugins.json の user scope の行）。"""
+def _same_dir(a, b) -> bool:
+    try:
+        return bool(a) and bool(b) and Path(a).resolve() == Path(b).resolve()
+    except (OSError, ValueError):
+        return False
+
+
+def installed_shas(market: str, where: dict[str, str | None]) -> dict[str, str | None]:
+    """{plugin の名: 入った commit}（Claude Code が入れた時に書く台帳 ~/.claude/plugins/installed_plugins.json から）。
+
+    読むのは installPath が、その plugin の読まれる dir（where＝`claude plugin list` の installPath）と同じ行だけ。
+    合う行が無ければ None（＝分からない）。最初の行・別の dir の行（project scope・前に別の所へ入った）の版で揃いを決めない。"""
     try:
         table = json.loads((home() / "plugins" / "installed_plugins.json").read_text(encoding="utf-8"))
         rows = table.get("plugins") or {}
@@ -90,9 +102,11 @@ def installed_shas(market: str) -> dict[str, str | None]:
     out = {}
     for key, row in rows.items() if isinstance(rows, dict) else []:
         name, _, m = str(key).partition("@")
-        user = [r for r in row if isinstance(r, dict) and r.get("scope") == "user"] if isinstance(row, list) else []
-        if m == market and user:
-            out[name] = user[0].get("gitCommitSha")
+        if m != market:
+            continue
+        hit = [r for r in row if isinstance(r, dict) and _same_dir(r.get("installPath"), where.get(key))] \
+            if isinstance(row, list) else []
+        out[name] = (hit[0].get("gitCommitSha") or None) if hit else None
     return out
 
 
@@ -168,10 +182,11 @@ def main() -> int:
     for n in names:
         claude("plugin", "install", f"{n}@{market}", "--scope", "user")
         claude("plugin", "update", f"{n}@{market}")  # 前の setup で入った古い物を名簿の版へ追いつかせる
-    have = enabled()
-    lack = [n for n in names if f"{n}@{market}" not in have]
-    tip, shas = catalog_head(), installed_shas(market)
+    where = listed()
+    lack = [n for n in names if f"{n}@{market}" not in where]
+    tip, shas = catalog_head(), installed_shas(market, where)
     stale = [n for n in names if n not in lack and (not tip or shas.get(n) != tip)]
+    unknown = [n for n in stale if shas.get(n) is None]
     bad = []
     if not fresh:
         bad.append(f"土台の目録 {market} を出所の先端へ取り直せなかった（claude plugin marketplace update が失敗）。"
@@ -180,6 +195,8 @@ def main() -> int:
         bad.append(f"土台の plugin が入っていない: {' '.join(lack)}（目録 {market}）")
     if stale:
         bad.append(f"土台の plugin が名簿の版 {(tip or '（分からない）')[:12]} に揃っていない: {' '.join(stale)}")
+    if unknown:
+        bad.append(f"入った版が分からない（入った台帳に installPath が読まれる dir と同じ行が無い）: {' '.join(unknown)}")
     if bad:
         notice("。".join(bad) + "。その plugin の決まりと守りの hook がこの窓で古いか効いていない。最初にオーナーへ知らせる。")
     else:

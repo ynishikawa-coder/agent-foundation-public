@@ -1,4 +1,4 @@
-"""窓の名乗りを記録から取る（判定の形の道具 verdict_form.py の --reviewer・書いた窓の組と、scripts/pr_writer.py --writers）の注入の試験。
+"""窓の名乗りを記録から取る（判定の形の道具 verdict_form.py の --reviewer・書いた窓の組と、plugins/checker/scripts/pr_writer.py --writers）の注入の試験。
 
 前の形: 判定した窓は 1 行目に手で書いた「レビューした窓:」の字、書いた窓は 1 つ（本文の写しか先端の 1 窓）だった。
 今の形: 判定した窓は出す窓の記録（--reviewer）、書いた窓は PR の commit 全部の `Claude-Session:` の組。
@@ -15,7 +15,7 @@ from test_pr_writer import commit, git
 
 ROOT = Path(__file__).resolve().parent.parent
 FORM = ROOT / "plugins" / "checker" / "scripts" / "verdict_form.py"
-PR_WRITER = ROOT / "scripts" / "pr_writer.py"
+PR_WRITER = ROOT / "plugins" / "checker" / "scripts" / "pr_writer.py"
 HEAD = "0123456789ab" + "c" * 28
 
 
@@ -138,7 +138,7 @@ def _tail():
 
 
 WORDS_BAD = [
-    ("頭の塊の検査の欄", "親窓: %s\n書いた窓: %s\n検査: %s の結果\n\n" % (WRITER, WRITER, STRANGER)),
+    ("頭の塊の検査の欄", "書いた窓: %s\n検査: %s の結果\n\n" % (WRITER, STRANGER)),
     ("頭の塊の job の欄", "job: %s\n\n" % STRANGER),
     ("頭の塊の外の書いた窓の行", "job: x\n\n書いた窓: %s が直した\n\n" % STRANGER),
     ("頭の塊の外の親窓の行", "job: x\n\n## 何をどう変えたか\n親窓: %s の頼み\n\n" % STRANGER),
@@ -147,13 +147,13 @@ WORDS_BAD = [
 
 
 @pytest.mark.parametrize("name,head", WORDS_BAD, ids=[c[0] for c in WORDS_BAD])
-def test_注入_窓の_id_を数えない欄は頭の塊の親窓と書いた窓だけ(env, name, head):
+def test_注入_窓の_id_を数えない欄は頭の塊の書いた窓だけ(env, name, head):
     """前の形: 行頭が job: や 検査: ならどの行でも窓の id を数えず、公開の PR にそのまま出た。"""
     assert STRANGER not in _tail()
     why = deny_reason(env, gh("create_pull_request", title="作り物", head="b", base="main", body=head + _tail()))
     assert "[words]" in why and STRANGER in why, why
 
 
-def test_頭の塊の親窓と書いた窓の欄の窓の_id_は数えない(env):
-    body = "親窓: %s\n書いた窓: %s\njob: 20261119-fake\n検査: 緑\n\n" % (STRANGER, WRITER) + _tail()
+def test_頭の塊の書いた窓の欄の窓の_id_は数えない(env):
+    body = "書いた窓: %s\njob: 20261119-fake\n検査: 緑\n\n" % WRITER + _tail()
     assert deny_reason(env, gh("create_pull_request", title="作り物", head="b", base="main", body=body)) == ""

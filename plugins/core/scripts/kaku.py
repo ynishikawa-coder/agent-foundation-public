@@ -337,7 +337,7 @@ def setup_record() -> tuple[dict | None, str | None]:
 
 
 def _enabled() -> set[str]:
-    """user scope で enabled の plugin（~/.claude/settings.json の enabledPlugins。入口の enabled() と同じ見方）。"""
+    """user scope で enabled の plugin（~/.claude/settings.json の enabledPlugins。入口の listed() と同じ見方）。"""
     on = (_read_json(_home() / "settings.json") or {}).get("enabledPlugins") or {}
     return {k for k, v in on.items() if v is True} if isinstance(on, dict) else set()
 
@@ -350,6 +350,10 @@ def setup_text() -> str | None:
     if not m:
         return None
     parts = []
+    if installed_sha() is None:  # 別の dir の行の版で古さを決めない＝分からない事をそのまま名指す
+        parts.append(f"- この窓に入った plugin core の版が分からない（入った台帳 installed_plugins.json に installPath が"
+                     f"この plugin の dir {PLUGIN} と同じ行が無い）。土台の古さを照らしていない＝核と守りが土台の今の物か分からない。"
+                     "最初にオーナーへ知らせ、setup script を土台の docs/核の届け方.md の形に直す。\n")
     state, why = setup_record()
     if state is None:
         parts.append(f"- 環境の setup script が古い形（今の土台を入れた setup が土台の入口 scripts/setup_plugins.py を通っていない: {why}）。"
@@ -417,13 +421,16 @@ def _git(loc: str, *args: str, timeout: int = 20) -> str | None:
 
 
 def installed_sha() -> str | None:
-    """この窓に入った plugin core の commit（入れた時に Claude Code が書く台帳から）。"""
+    """この窓に入った plugin core の commit（入れた時に Claude Code が書く台帳から）。
+
+    読むのは installPath がこの plugin の dir（今動いている kaku.py の在り処）と同じ行だけ。合う行が無ければ None
+    （＝分からない）。行が 1 つでも別の dir（project scope で入った・前に別の所へ入った）の行の版で古さを決めない。"""
     table = _read_json(_home() / "plugins" / "installed_plugins.json") or {}
     rows = (table.get("plugins") or {}).get(f"core@{MARKET}") or []
-    for row in rows:
-        if Path(row.get("installPath") or "/nonexistent").resolve() == PLUGIN:
-            return row.get("gitCommitSha")
-    return rows[0].get("gitCommitSha") if len(rows) == 1 else None
+    for row in rows if isinstance(rows, list) else []:
+        if isinstance(row, dict) and row.get("installPath") and Path(row["installPath"]).resolve() == PLUGIN:
+            return row.get("gitCommitSha") or None
+    return None
 
 
 def freshness() -> dict | None:

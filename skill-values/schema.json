@@ -1,5 +1,5 @@
 {
-  "_readme": "値の表（使う側の repo の根の config/skill-values.json）の鍵の一覧と型の正本。土台の道具は同じ dir の skill_values.py でこれを直に読む（各 plugin の lib/ へは symlink で届く＝写さない）。鍵を足す・名を変える・畳む時はここだけを直し、変えた古い鍵は retired に移す（使う側の古い鍵が名指しで止まる）。型: str・int・bool・list・dict・text（文字列か文字列の並び）・any。dict は keys で中の鍵も照らす。名が _ で始まる鍵は注として読まない。土台の plugin の名でも common でもない頂の欄は、その repo 自身の物として照らさない。",
+  "_readme": "値の表（使う側の repo の根の config/skill-values.json）の鍵の一覧と型の正本。土台の道具は同じ dir の skill_values.py でこれを直に読む（各 plugin の lib/ へは symlink で届く＝写さない）。鍵を足す・名を変える・畳む時はここだけを直し、変えた古い鍵は retired に移す（使う側の古い鍵が名指しで止まる）。型: str・int・bool・list・dict・text（文字列か文字列の並び）・any・repo_names（owner/repo の名の全体に当てる正規表現の並び。各行を ^ で始め $ で終える。頭だけ・錨なしの行は型の違いとして名指す）。dict は keys で中の鍵も照らす。名が _ で始まる鍵は注として読まない。土台の plugin の名でも common でもない頂の欄は、その repo 自身の物として照らさない。",
   "sections": {
     "common": {
       "keys": {
@@ -108,15 +108,15 @@
           "default": []
         },
         "pr_cleanup_exempt_repos": {
-          "type": "list",
+          "type": "repo_names",
           "default": []
         },
         "pr_words_exempt_repos": {
-          "type": "list",
+          "type": "repo_names",
           "default": []
         },
         "public_repos_extra": {
-          "type": "list",
+          "type": "repo_names",
           "default": []
         },
         "context_stop_max": {"type": "int", "default": 2},

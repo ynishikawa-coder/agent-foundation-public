@@ -63,15 +63,9 @@ def test_stale_remove_substring_は包含で出所を見る写しを名指す():
     assert not hit("stale-remove-substring", "x not in json.dumps(s)\n")  # setup でない file は見ない
 
 
-@pytest.mark.parametrize("vals,want", [
-    ('{"guard": {"pr_words_exempt_repos": ["^my-owner/"]}}', True),
-    ('{"guard": {"public_repos_extra": ["^o/a$", "o/b"]}}', True),
-    ('{"guard": {"pr_cleanup_exempt_repos": ["^o/a$", "^o/.*$", "o/.+"]}}', False),
-    ('{"guard": {"public_repos_extra": []}}', False),
-    ('{"guard": {"other_list": ["^o/"]}}', False),
-])
-def test_repo_pattern_partial_は名の一部にしか当たらない行を名指す(vals, want):
-    assert hit("repo-pattern-partial", vals) is want
+def test_repo_pattern_partial_は畳み_値の表の型が名指す():
+    """2 段目: 前の形の行は古い形の一覧でなく、値の表の型 repo_names（skill-values/schema.json）が名指す。"""
+    assert "repo-pattern-partial" not in {r["id"] for r in kaku.olds_table()}
 
 
 def test_add_の前に値を取る旗が在っても土台の出所を読む():

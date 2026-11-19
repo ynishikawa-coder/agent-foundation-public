@@ -31,13 +31,14 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sys
 
 sys.dont_write_bytecode = True
 
 REL_PATH = os.path.join("config", "skill-values.json")
 SCHEMA_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "schema.json")
-TYPES = ("str", "int", "bool", "list", "dict", "text", "any")
+TYPES = ("str", "int", "bool", "list", "dict", "text", "any", "repo_names")
 
 
 class ValuesError(Exception):
@@ -141,6 +142,23 @@ def load(path):
 
 
 # ── 照らし ──
+def bad_repo_names(v):
+    """型 repo_names（owner/repo の名の全体に当てる正規表現の並び）に合わない行の並び。
+    各行は ^ で始まり（エスケープしない）$ で終わり、正規表現として読める。頭だけ（^owner/）・錨なし（owner/repo）の
+    前の形は、名の一部に当てる読み方と取り違えるので書けない（使う側は ^owner/repo$・owner ごとなら ^owner/.*$）。"""
+    out = []
+    for x in v if isinstance(v, list) else [v]:
+        ok = isinstance(x, str) and x.startswith("^") and x.endswith("$") and not re.search(r"(?<!\\)(?:\\\\)*\\\$$", x)
+        if ok:
+            try:
+                re.compile(x)
+            except re.error:
+                ok = False
+        if not ok:
+            out.append(x)
+    return out
+
+
 def _type_ok(t, v):
     if v is None or t == "any":
         return True
@@ -156,11 +174,15 @@ def _type_ok(t, v):
         return isinstance(v, dict)
     if t == "text":
         return isinstance(v, str) or (isinstance(v, list) and all(isinstance(x, str) for x in v))
+    if t == "repo_names":
+        return isinstance(v, list) and not bad_repo_names(v)
     return False
 
 
 TYPE_WORD = {"str": "文字列", "int": "整数", "bool": "真偽", "list": "並び [...]", "dict": "{...}",
-             "text": "文字列か文字列の並び", "any": "何でも"}
+             "text": "文字列か文字列の並び", "any": "何でも",
+             "repo_names": "owner/repo の名の全体に当てる正規表現の並び（各行を ^ で始め $ で終える・"
+                           "repo 1 つなら ^owner/repo$・owner ごとなら ^owner/.*$）"}
 
 
 def _check_keys(where, node, specs, retired):
@@ -185,7 +207,11 @@ def _check_keys(where, node, specs, retired):
         if empty(v):
             continue   # 空（""・[]・{}・null）は型を問わず「既定で動く」＝問題ではない
         if not _type_ok(spec["type"], v):
-            out.append("%s の型が違う（%s で書く・今は %s）" % (at, TYPE_WORD[spec["type"]], type(v).__name__))
+            if spec["type"] == "repo_names" and isinstance(v, list):
+                out.append("%s の行 %s が名の全体の形でない（%s で書く）" % (
+                    at, "・".join(json.dumps(x, ensure_ascii=False) for x in bad_repo_names(v)), TYPE_WORD["repo_names"]))
+            else:
+                out.append("%s の型が違う（%s で書く・今は %s）" % (at, TYPE_WORD[spec["type"]], type(v).__name__))
             bad.add(k)
             continue
         if isinstance(v, dict) and "keys" in spec:

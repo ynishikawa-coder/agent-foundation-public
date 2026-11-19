@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """PR 本文の頭の `書いた窓:` が、PR の枝の先端の commit を書いた窓（commit の `Claude-Session:` の行）と同じかを照らす。
 
-  python3 scripts/pr_writer.py --branch <枝の名> --head <PR の先端の SHA> --base <比べる元の ref> --body-file <本文の file>
+  python3 plugins/checker/scripts/pr_writer.py --branch <枝の名> --head <PR の先端の SHA> --base <比べる元の ref> --body-file <本文の file>
 
 なぜ: 別の目の照らし（checker の判定の形・guard の pr_text）は本文の `書いた窓:` を書いた窓として読む。直しの往復で
 別の窓が commit すると、本文は最初の窓のまま・先端は直した窓になり、直した窓が自分の PR に判定を付けても
@@ -25,9 +25,8 @@ import subprocess
 import sys
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(ROOT / "window-shape"))
-import window_shape as W  # noqa: E402  窓の id と commit の書き手の行の形の正本（写さない）
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
+import window_shape as W  # noqa: E402  窓の id と commit の書き手の行の形の正本（土台の window-shape/ への symlink・写さない）
 
 WRITER = re.compile(r"^\s*書いた窓\s*[:：]\s*(\S+)", re.M)
 SESSION = W.COMMIT_SESSION
@@ -83,7 +82,7 @@ def main(argv=None) -> int:
     ap.add_argument("--head", required=True)
     ap.add_argument("--base", required=True)
     ap.add_argument("--body-file", type=Path)
-    ap.add_argument("--repo", type=Path, default=ROOT)
+    ap.add_argument("--repo", type=Path, default=Path.cwd())   # 照らす PR の repo（使う側の repo でも回せるよう plugin の中に置く）
     a = ap.parse_args(argv)
     if a.writers:
         try:

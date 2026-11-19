@@ -23,18 +23,21 @@ AI が自分で回すか、出した後に CI やレビューが拾うだけだ�
             （`## 1.`〜`## 4.`。見出しの名は雛形から読む）が全部在り、雛形の `〔…〕` が残っていない事。整地の要らない PR
             （振る舞いを変えない: 誤字・記録だけ・版だけ等）は本文に `整地: 不要（<訳>）` の 1 行を書く（訳はレビューが照らす）
   words   … PR の題・本文に、窓の id（`session_01…`）がそのまま出ていない事。本文の頭の欄の塊（1 行目から最初の空行まで）の
-            窓の id を書く欄（親窓・書いた窓）・コードの囲み・`…` の字・URL の中は数えない（job・検査 等の欄や、頭の塊の
-            外で同じ字で始まる行は数える）
+            窓の id を書く欄（書いた窓＝commit の記録と照らす写し。畳んだ親窓の欄も 2 段目までは）・コードの囲み・`…` の字・URL の中は
+            数えない（job・検査 等の欄や、頭の塊の外で同じ字で始まる行は数える。親窓は照らせない写しなので PR の型に置かない＝
+            窓の親はサーバの記録 get_session を読む）
   public  … 公開の repo（窓の repo の取り出しの workflow が action public-guard を呼ぶ／値の表 public_repos_extra）なら、
-            題・本文を `public-guard/guard.py --text` に渡す（置かない語の表はその workflow の deny-words-file）。当たれば止める。
+            題・本文を `public-guard/guard.py --text` に渡す（置かない語の表は public-guard を呼ぶ step の with: の deny-words-file）。当たれば止める。
             検査が見つからない・壊れた時も止める（公開の repo へは、照らせない文を出さない）
-誤って止めた時: 値の表 pr_cleanup_exempt_repos・pr_words_exempt_repos（owner/repo の名の全体に当てる正規表現）で repo ごとに外す。
+誤って止めた時: 値の表 pr_cleanup_exempt_repos・pr_words_exempt_repos（owner/repo の名の全体に当てる正規表現・^ で始め $ で終える＝
+型 repo_names）で repo ごとに外す。
 判定の形と公開の検査は外す口を持たない（直すのは文の方・判定の形の決まりは review-pr の SKILL.md が正本）。
 値の表は PR とレビューを通る＝窓の一存では外れない。
 """
 from __future__ import annotations
 
 import glob
+import json
 import os
 import re
 import subprocess
@@ -60,7 +63,8 @@ CLEANUP_TEMPLATE = ("dev-flow", os.path.join("skills", "preimpl-cleanup", "整�
 NOT_NEEDED = re.compile(r"^\s*(?:[-*]\s*)?\**整地\**\s*[:：]\s*(?:不要|要らない)\s*[（(]\s*(?![<＜〔])\S[^)）]*[)）]", re.M)
 TEMPLATE_HEAD = re.compile(r"^## (\d+)\. (.+?)\s*$", re.M)
 PLACEHOLDER = re.compile(r"〔[^〕\n]{4,}〕")
-HEAD_FIELD = re.compile(r"^\s*(?:親窓|書いた窓)\s*[:：]")   # 窓の id を書く頭の欄（本文の頭の塊の中だけ数えない）
+HEAD_FIELD = re.compile(r"^\s*(?:書いた窓|親窓)\s*[:：]")   # 窓の id を書く頭の欄（本文の頭の塊の中だけ数えない）。
+# 親窓は畳んだ欄（照らせない写し）。使う側の PR の型に残る間は古い本文も通す（壊れる 1 段目・古い形 pr-parent-field）
 SESSION_ID = re.compile(r"(?<![A-Za-z0-9_/])" + G.W.SESSION_ID_PAT)   # 窓の id の形の正本は window_shape
 URL = re.compile(r"https?://\S+")
 FENCE = re.compile(r"^\s*(```|~~~).*?^\s*\1", re.M | re.S)
@@ -84,15 +88,45 @@ def _repo_name(ti):
 def _matches(patterns, repo):
     """repo（owner/repo）の名の全体が、値の表の正規表現のどれかに当たるか（大小を問わない＝GitHub の名と同じ）。
     一部に当たるだけでは当てない（`o/r` が `o/r-fork`・`xo/r` を外さない）。owner ごとなら `^o/.*$` と書く。"""
-    return any(isinstance(p, str) and p and re.fullmatch(p, repo, re.I) for p in patterns or [])
+    for p in patterns or []:
+        try:
+            if isinstance(p, str) and p and re.fullmatch(p, repo, re.I):
+                return True
+        except re.error:
+            continue
+    return False
 
 
-def _listed(patterns, repo):
-    """値の表の repo の名の行（pr_cleanup_exempt_repos・pr_words_exempt_repos・public_repos_extra）に repo が在るか。
-    新しい形は名の全体の一致（_matches）。前の形（錨なしで名の一部に当たる）の行も、1 段目の間は在ると見る
-    （CONTRIBUTING.md §8＝新旧の両方を受ける）。前の形の行は古い形.json の repo-pattern-partial が開いた窓に名指し、
-    使う側が全体の形へ移ったのを kaku.py olds で確かめた 2 段目でこの受けを畳み、_matches だけにする。"""
-    return _matches(patterns, repo) or any(isinstance(p, str) and p and re.search(p, repo, re.I) for p in patterns or [])
+def _repo_rows(key, data, vals):
+    """値の表 guard の repo の名の鍵（型 repo_names）の (名の全体の形の行, 形の違う行)。
+    値の表の照らしは形の違う行が 1 つでも在ると鍵ごと落とす（既定の [] に戻る）ので、生の行を読み、行ごとに分ける
+    （形の違う行が混じっても、同じ並びの正しい行は効く）。生の表が読めない時は vals の値を使う。"""
+    raw = G.table("guard", data or {}).get(key)
+    rows = raw if isinstance(raw, list) else (vals.get(key) or [])
+    bad = G.SV.bad_repo_names(rows)
+    return [r for r in rows if r not in bad], bad
+
+
+def _exempt(key, repo, data, vals):
+    """外す側の鍵（pr_cleanup_exempt_repos・pr_words_exempt_repos）に repo が在るか。名の全体の形の行だけで当てる
+    （形の違う行は外さず照らす向き＝値の表の照らしが名指す）。"""
+    good, _ = _repo_rows(key, data, vals)
+    return _matches(good, repo)
+
+
+def _public_extra(repo, data, vals):
+    """値の表 public_repos_extra に repo が在るか。名の全体の形の行は全体の一致で当てる。形の違う行は、名の一部にでも
+    当たれば公開と見る（公開の照らしを黙って外さない＝安全の守り。形の違いは値の表の照らしが名指す）。"""
+    good, bad = _repo_rows("public_repos_extra", data, vals)
+    if _matches(good, repo):
+        return True
+    for p in bad:
+        try:
+            if isinstance(p, str) and p and re.search(p, repo, re.I):
+                return True
+        except re.error:
+            continue
+    return False
 
 
 def _find_sibling(plugin, rel, env_name, data):
@@ -155,7 +189,8 @@ def pr_facts(repo, ti):
             number = p.stdout.strip().rsplit("/", 1)[-1] if p.returncode == 0 else None
         if not number:
             return "", [], "判定を出す先の PR の番号が分からない"
-        p = _gh(["repos/%s/pulls/%s" % (repo, number), "--jq", '.head.sha + "\\n" + (.body // "")'])
+        p = _gh(["repos/%s/pulls/%s" % (repo, number), "--jq",
+                 '.head.sha + "\\n" + (.commits | tostring) + "\\n" + (.body // "")'])
     except FileNotFoundError:
         return "", [], "GitHub の CLI（gh）が無く、PR の先端と書いた窓を引けない"
     except (OSError, subprocess.SubprocessError) as e:
@@ -163,16 +198,26 @@ def pr_facts(repo, ti):
     if p.returncode != 0:
         return "", [], "PR #%s を引けなかった（判定は PR に出す・gh の認証か網を確かめる）: %s" % (
             number, (p.stderr or "").strip().splitlines()[-1:] or "")
-    head, _, body = p.stdout.partition("\n")
+    head, _, rest = p.stdout.partition("\n")
+    total, _, body = rest.partition("\n")
     if not re.fullmatch(r"[0-9a-f]{40}", head.strip()):
         return "", [], "PR #%s の先端の SHA が読めない" % number
     try:
-        c = _gh(["--paginate", "repos/%s/pulls/%s/commits" % (repo, number), "--jq", ".[].commit.message"])
+        c = _gh(["--paginate", "repos/%s/pulls/%s/commits" % (repo, number), "--jq", ".[].commit.message | @json"])
     except (OSError, subprocess.SubprocessError) as e:
         return "", [], "PR #%s の commit を引けなかった（%s）" % (number, e.__class__.__name__)
     if c.returncode != 0:
         return "", [], "PR #%s の commit を引けなかった: %s" % (number, (c.stderr or "").strip().splitlines()[-1:] or "")
-    writers = list(dict.fromkeys(COMMIT_SESSION.findall(c.stdout)))
+    try:
+        msgs = [json.loads(ln) for ln in c.stdout.splitlines() if ln.strip()]
+    except ValueError:
+        return "", [], "PR #%s の commit の説明が読めない" % number
+    if not total.strip().isdigit() or len(msgs) < int(total):
+        # GitHub の PR の commit の一覧は 250 本で切れる。引けなかった commit を書いた窓を組から落としたまま通さない
+        return "", [], ("PR #%s の commit を全部は引けない（%s 本のうち %d 本・GitHub の一覧の上限）。書いた窓の組が欠けるので"
+                        "判定を通さない。PR を小さく分けるか、手元の取り出しで plugin checker の pr_writer.py --writers を回して照らす"
+                        % (number, total.strip() or "?", len(msgs)))
+    writers = list(dict.fromkeys(w for m in msgs for w in COMMIT_SESSION.findall(m)))
     if not writers:
         return head.strip(), [], ("PR #%s の commit に `Claude-Session:` の行が 1 つも無く、書いた窓が記録から決まらない"
                                   "（本文の `書いた窓:` の写しだけで別の目を照らさない）" % number)
@@ -234,7 +279,7 @@ def template_parts(path):
 
 
 def check_cleanup(body, repo, data, vals):
-    if repo and _listed(vals.get("pr_cleanup_exempt_repos"), repo):
+    if repo and _exempt("pr_cleanup_exempt_repos", repo, data, vals):
         return []
     body = FENCE.sub(" ", COMMENT.sub(" ", body))      # 注記（雛形の説明）とコードの囲みの中は数えない
     if NOT_NEEDED.search(body):
@@ -272,8 +317,8 @@ def visible_prose(body):
     return URL.sub(" ", INLINE.sub(" ", "\n".join(lines)))
 
 
-def check_words(texts, repo, vals):
-    if repo and _listed(vals.get("pr_words_exempt_repos"), repo):
+def check_words(texts, repo, vals, data=None):
+    if repo and _exempt("pr_words_exempt_repos", repo, data, vals):
         return []
     out = []
     for where, text in texts:
@@ -285,7 +330,8 @@ def check_words(texts, repo, vals):
 
 # ── public（公開の repo に置かない物）──
 WORKFLOW_DIR = os.path.join(".github", "workflows")
-DENY_FILE = re.compile(r"deny-words-file\s*:\s*[\"']?([^\s\"'#]+)")
+# public-guard を呼ぶ step の with の中の deny-words-file の値（囲みの引用符を外す・行末のコメントは見ない）。
+DENY_KEY = re.compile(r"""(?:^|[{,\s])deny-words-file[ \t]*:[ \t]*(['"]?)([^\s'"#,}]+)\1""")
 # workflow の step の `uses:` の値（囲みの引用符を外す・行末のコメントは見ない）。コメントの行・job の名は呼び口でない。
 USES = re.compile(r"^[ \t]*(?:-[ \t]+)?uses[ \t]*:[ \t]*(['\"]?)([^\s'\"#]+)\1", re.M)
 LOCAL_ACTION = "./public-guard"
@@ -300,21 +346,94 @@ def _foundation():
         return ""
 
 
-def calls_public_guard(raw, foundation=None):
-    """workflow の text が土台の action public-guard を呼ぶか。`uses:` の値を @ の前の道で、土台の
-    `<owner>/<repo>/public-guard`（大小を問わない）か `./public-guard`（土台そのもの）と全体で比べる。版の印は問わない
-    （止めた版でも公開の repo には変わりない）。似た名の action・fork・名を道に含む別の出所は呼び口と見ない。
+def _indent(line):
+    return len(line) - len(line.lstrip(" "))
+
+
+def _steps(raw):
+    """workflow の text の並びの要素（`- ` で始まる塊）ごとに (要素の鍵の字下げ, 塊の行の並び)。
+    塊は `- ` の行から、それより深く字下げした行（と空行）まで。コメントの行は塊に入れない。"""
+    lines = [ln for ln in raw.splitlines() if not ln.lstrip().startswith("#")]
+    out = []
+    for i, ln in enumerate(lines):
+        m = re.match(r"^( *)-[ \t]+(\S)", ln)
+        if not m:
+            continue
+        ind = len(m.group(1))
+        key_col = m.start(2)
+        block = [" " * key_col + ln[key_col:]]
+        for nxt in lines[i + 1:]:
+            if nxt.strip() and _indent(nxt) <= ind:
+                break
+            block.append(nxt)
+        out.append((key_col, block))
+    return out
+
+
+def _own(block, key_col):
+    """塊のうち要素そのものの鍵の行（字下げが key_col ちょうど）と、その鍵の下の行の組の並び。"""
+    out, cur = [], None
+    for ln in block:
+        if ln.strip() and _indent(ln) == key_col:
+            cur = [ln]
+            out.append(cur)
+        elif ln.strip() and _indent(ln) < key_col:
+            cur = None
+        elif cur is not None:
+            cur.append(ln)
+    return out
+
+
+def _calls(path, found):
+    path = path.partition("@")[0]
+    if path == LOCAL_ACTION:
+        return True
+    if found:
+        return path.lower() == (found + "/public-guard").lower()
+    return path.rsplit("/", 1)[-1] == "public-guard"
+
+
+def public_guard_steps(raw, foundation=None):
+    """workflow の text のうち、土台の action public-guard を呼ぶ step の (鍵の字下げ, 塊) の並び。
+    呼ぶかは step そのものの `uses:` の値を @ の前の道で、土台の `<owner>/<repo>/public-guard`（大小を問わない）か
+    `./public-guard`（土台そのもの）と全体で比べる。版の印は問わない（止めた版でも公開の repo には変わりない）。
+    似た名の action・fork・名を道に含む別の出所・コメントの行・job の名は呼び口と見ない。
     土台の名が読めない時だけ、道の最後が public-guard の呼び口を公開と見る（照らさないより多く照らす）。"""
     found = _foundation() if foundation is None else foundation
-    for m in USES.finditer(raw):
-        path = m.group(2).partition("@")[0]
-        if path == LOCAL_ACTION:
-            return True
-        if found and path.lower() == (found + "/public-guard").lower():
-            return True
-        if not found and path.rsplit("/", 1)[-1] == "public-guard":
-            return True
-    return False
+    out = []
+    for key_col, block in _steps(raw):
+        for group in _own(block, key_col):
+            m = USES.match(group[0])
+            if m and _calls(m.group(2), found):
+                out.append((key_col, block))
+                break
+    return out
+
+
+def calls_public_guard(raw, foundation=None):
+    """workflow の text が土台の action public-guard を呼ぶか（public_guard_steps が 1 つでも在るか）。"""
+    return bool(public_guard_steps(raw, foundation))
+
+
+def deny_words_file(raw, foundation=None):
+    """public-guard を呼ぶ step の `with:` の deny-words-file の値か ""。同じ workflow の別の step・job の
+    deny-words-file（別の道具の語の表）は見ない。"""
+    for key_col, block in public_guard_steps(raw, foundation):
+        for group in _own(block, key_col):
+            if not re.match(r"^ *with[ \t]*:", group[0]):
+                continue
+            head = group[0].split(":", 1)[1]
+            m = DENY_KEY.search(head) if head.strip().startswith("{") else None
+            if m:
+                return m.group(2)
+            sub = [ln for ln in group[1:] if ln.strip()]
+            col = min((_indent(ln) for ln in sub), default=0)
+            for ln in sub:
+                if _indent(ln) == col:
+                    m = re.match(r"""^ *deny-words-file[ \t]*:[ \t]*(['"]?)([^\s'"#]+)\1""", ln)
+                    if m:
+                        return m.group(2)
+    return ""
 
 
 def _checkout_of(repo, data):
@@ -344,9 +463,9 @@ def public_target(repo, data, vals):
             except OSError:
                 continue
             if calls_public_guard(raw):
-                m = DENY_FILE.search(raw)
-                return True, top, (os.path.join(top, m.group(1)) if m else "")
-    if repo and _listed(vals.get("public_repos_extra"), repo):
+                name = deny_words_file(raw)
+                return True, top, (os.path.join(top, name) if name else "")
+    if repo and _public_extra(repo, data, vals):
         return True, top, ""
     return False, top, ""
 
@@ -400,7 +519,7 @@ HOW = {
                "書く（中身は頭が書く・`〔…〕` を残さない）。振る舞いを変えない PR（誤字・記録だけ・版だけ等）なら、4 欄の代わりに "
                "`整地: 不要（<なぜ要らないか>）` の 1 行を書く（訳はレビューが照らす）。",
     "words": "窓の id は、読む人が開けるリンク（https://claude.ai/code/<id>）にして役の名を添える（例: 「直す窓（リンク）」）か、役の名だけに"
-             "する。決まった欄（親窓・書いた窓）とコードの囲みの中は数えない。",
+             "する。決まった欄（頭の塊の書いた窓）とコードの囲みの中は数えない。親窓の欄は PR の型から畳んだ（窓の親はサーバの記録 get_session の parent_session_id）。",
     "public": "当たった所を書き直す（秘密・個人の情報は消す・作り物の例は example.com などにする・置かない語と顧客の語は一般の言葉に言い換える）。"
               "GitHub の本文は書き替えても古い版が編集の履歴に公開で残るので、出す前に直す。",
 }
@@ -438,7 +557,7 @@ def findings(data, vals):
     if kind == "pr":
         if body.strip():
             out += [("cleanup", m) for m in check_cleanup(body, repo, data, vals)]
-        out += [("words", m) for m in check_words(texts, repo, vals)]
+        out += [("words", m) for m in check_words(texts, repo, vals, data)]
     out += [("public", m) for m in check_public(texts, repo, data, vals)]
     return out
 
@@ -462,6 +581,6 @@ def check(data, vals):
     lines.append("直し方:")
     lines += ["- [%s] %s" % (c, HOW[c]) for c in codes]
     lines.append("誤って止めた時: 整地を PR 本文の外に置く repo・言葉の照らしが合わない repo は、値の表の guard.pr_cleanup_exempt_repos・"
-                 "guard.pr_words_exempt_repos（owner/repo の名の全体に当てる正規表現・owner ごとなら ^owner/.*$）に足す（PR とレビューを通す）。判定の形と公開の検査は"
+                 "guard.pr_words_exempt_repos（owner/repo の名の全体に当てる正規表現・repo 1 つなら ^owner/repo$・owner ごとなら ^owner/.*$）に足す（PR とレビューを通す）。判定の形と公開の検査は"
                  "外さない（決まりの正本を直す）。細目は skill `guard:guard-rules`。")
     return "\n".join(lines)
