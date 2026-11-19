@@ -30,14 +30,31 @@ def env(tmp_path):
 RULER_LAST = "check_all: 緑 (4 本)"
 
 
-def with_transcript(env, payload, results=(RULER_LAST,)):
-    """作り物の会話ログ（道具の結果に物差しの最後の行）を payload に付ける。在れば上書きしない。"""
+RULER_CMD = "bash scripts/check_all.sh"
+
+
+def transcript_rows(results, command=RULER_CMD, tool="Bash"):
+    """作り物の会話ログの行: 道具の呼び出し（名 tool・命令 command）と、tool_use の id で結んだ結果の対。"""
+    rows = []
+    for i, r in enumerate(results):
+        inp = {"command": command} if tool == "Bash" else {"owner": "fake-owner", "repo": "fake-private", "pullNumber": 1}
+        rows.append({"type": "assistant", "message": {"role": "assistant", "content": [
+            {"type": "tool_use", "id": "t%d" % i, "name": tool, "input": inp}]}})
+        rows.append({"type": "user", "message": {"role": "user", "content": [
+            {"type": "tool_result", "tool_use_id": "t%d" % i, "content": r}]}})
+    return rows
+
+
+def write_rows(path, rows):
+    path.write_text("\n".join(json.dumps(r, ensure_ascii=False) for r in rows) + "\n", encoding="utf-8")
+    return path
+
+
+def with_transcript(env, payload, results=(RULER_LAST,), command=RULER_CMD, tool="Bash"):
+    """作り物の会話ログ（物差しを回した Bash の結果に物差しの最後の行）を payload に付ける。在れば上書きしない。"""
     if "transcript_path" in payload:
         return payload
-    log = Path(env["CLAUDE_PROJECT_DIR"]).parent / "transcript.jsonl"
-    rows = [{"type": "user", "message": {"role": "user", "content": [
-        {"type": "tool_result", "tool_use_id": "t%d" % i, "content": r}]}} for i, r in enumerate(results)]
-    log.write_text("\n".join(json.dumps(r, ensure_ascii=False) for r in rows) + "\n", encoding="utf-8")
+    log = write_rows(Path(env["CLAUDE_PROJECT_DIR"]).parent / "transcript.jsonl", transcript_rows(results, command, tool))
     return dict(payload, transcript_path=str(log))
 
 

@@ -95,6 +95,182 @@ def values(payload=None):
     return out
 
 
+# ── 跡の形（会話ログの道具の呼び出しを、名と入力の欄で見る）──
+# 形: "<正規表現>"（道具の名の全体に当てる）か {"tool": "<正規表現>", "input": {"<欄>": "<正規表現>"}}（名の全体と、挙げた入力の欄
+# 〔a.b で下の欄〕の全部に当たる時）。入力を JSON の字に直して当てない＝その字を入力に含むだけの呼び出しを跡に数えない。
+def compile_matcher(spec):
+    """跡の形 1 つを (名の正規表現, {欄: 正規表現}) に。読めない形は ValueError か re.error。"""
+    if isinstance(spec, str):
+        spec = {"tool": spec}
+    if not isinstance(spec, dict) or not set(spec) <= {"tool", "input"}:
+        raise ValueError('形が違う（文字列か {"tool": …, "input": {…}}）')
+    tool = spec.get("tool")
+    if not isinstance(tool, str) or not tool:
+        raise ValueError("tool が無い")
+    if '"' in tool or re.search(r"\s", tool):
+        raise ValueError("道具の名に当たらない形（入力の JSON に当てる古い形は読まない。入力は input の欄で書く）")
+    fields = spec.get("input") or {}
+    if not isinstance(fields, dict) or not all(isinstance(k, str) and k and isinstance(v, str) and v
+                                               for k, v in fields.items()):
+        raise ValueError("input は {欄の名: 正規表現}")
+    return re.compile(tool), {k: re.compile(v) for k, v in fields.items()}
+
+
+def tool_matchers(vals, key):
+    """値の表の跡の形の並びを (読める形の並び, 壊れた形の名指しの並び) に。壊れた形は跡に数えない（数える側に倒さない）。"""
+    ok, bad = [], []
+    for spec in vals.get(key) or []:
+        try:
+            ok.append(compile_matcher(spec))
+        except (ValueError, TypeError, re.error) as e:
+            bad.append("跡の形として読めない %s（%s）" % (json.dumps(spec, ensure_ascii=False)[:160], e))
+    return ok, bad
+
+
+def tool_uses(row):
+    """assistant の行の道具の呼び出し（tool_use の塊）の並び。"""
+    if row.get("type") != "assistant":
+        return []
+    msg = row.get("message")
+    c = msg.get("content") if isinstance(msg, dict) else None
+    return [b for b in c if isinstance(b, dict) and b.get("type") == "tool_use"] if isinstance(c, list) else []
+
+
+def _field(inp, path):
+    """入力の欄（a.b で下の欄）の値を字で。無ければ None。"""
+    cur = inp
+    for part in path.split("."):
+        if not isinstance(cur, dict) or part not in cur:
+            return None
+        cur = cur[part]
+    return cur if isinstance(cur, str) else json.dumps(cur, ensure_ascii=False, sort_keys=True)
+
+
+def matches_tool(block, matchers):
+    """道具の呼び出し 1 つが跡の形のどれかに当たるか（名の全体と、挙げた欄の全部）。"""
+    name = str(block.get("name") or "")
+    inp = block.get("input") if isinstance(block.get("input"), dict) else {}
+    for rx, fields in matchers:
+        if rx.fullmatch(name) and all(_hit(frx, _field(inp, k)) for k, frx in fields.items()):
+            return True
+    return False
+
+
+def _hit(rx, text):
+    return text is not None and bool(rx.search(text))
+
+
+# ── Bash の命令を語に分ける（命令の字に正規表現を当てず、走る命令を見分ける）──
+SHELLS = ("bash", "sh", "zsh", "dash", "ksh")
+# 後ろの命令をそのまま走らせる前置き → その前置きが値を取る option（値を取らない option は "-" で始まる語として飛ばす）
+PREFIXES = {
+    "env": ("-u", "--unset", "-C", "--chdir", "-S", "--split-string"),
+    "command": (), "builtin": (), "exec": ("-a",), "nohup": (), "time": ("-f", "--format", "-o", "--output"),
+    "sudo": ("-u", "--user", "-g", "--group", "-h", "--host", "-p", "--prompt", "-C", "--close-from", "-D", "--chdir",
+             "-r", "--role", "-t", "--type", "-U", "--other-user", "-T", "--command-timeout"),
+    "doas": ("-u", "-C"), "nice": ("-n", "--adjustment"), "ionice": ("-c", "--class", "-n", "--classdata", "-t"),
+    "stdbuf": ("-i", "-o", "-e", "--input", "--output", "--error"), "chrt": (), "taskset": (),
+    "timeout": ("-s", "--signal", "-k", "--kill-after"),
+    "xargs": ("-a", "--arg-file", "-d", "--delimiter", "-E", "-e", "-I", "-i", "-L", "-l", "-n", "--max-args", "-P",
+              "--max-procs", "-s", "--max-chars"),
+}
+KEYWORDS = ("!", "{", "}", "then", "do", "else", "elif", "if", "while", "until")
+OPERATORS = (";", "&&", "||", "|", "&", "\n", "(", ")", ";;", "|&")
+ASSIGN = re.compile(r"[A-Za-z_][A-Za-z0-9_]*=")
+
+
+def _tokens(cmd):
+    """shlex で語と区切り（; && || | & 改行 括弧）に分ける。読めない（引用符が閉じない等）時は ValueError。"""
+    import shlex
+    lex = shlex.shlex(cmd, posix=True, punctuation_chars="();<>|&\n")
+    lex.whitespace = " \t\r"
+    lex.whitespace_split = True
+    lex.commenters = "#"
+    return list(lex)
+
+
+def _strip_prefix(argv):
+    """前の代入（A=1）と前置き（env・command・time・sudo・nice・xargs など）を外した、実際に走る命令の語の並び。"""
+    i = 0
+    while i < len(argv):
+        w = argv[i]
+        if ASSIGN.match(w) or w in KEYWORDS:
+            i += 1
+            continue
+        name = os.path.basename(w)
+        if name not in PREFIXES:
+            break
+        takes = PREFIXES[name]
+        i += 1
+        if name == "timeout":
+            while i < len(argv) and argv[i].startswith("-"):
+                i += 2 if argv[i] in takes else 1
+            i += 1                          # 時間の語
+            continue
+        while i < len(argv):
+            w = argv[i]
+            if w == "--":
+                i += 1
+                break
+            if name == "env" and ASSIGN.match(w):
+                i += 1
+            elif w.startswith("-") and len(w) > 1:
+                i += 2 if w in takes else 1
+            elif name in ("nice", "ionice", "chrt", "taskset") and re.fullmatch(r"[+-]?\d+|0x[0-9a-f]+", w):
+                i += 1
+            else:
+                break
+    return argv[i:]
+
+
+def shell_commands(cmd, _depth=0):
+    """Bash の命令の字を、走る単純な命令の語の並びの並びにする（前置きを外し、bash -c と eval の中も開く）。
+    読めない字（引用符が閉じない等）は ValueError（呼ぶ側が止める側に倒す）。"""
+    if not isinstance(cmd, str) or _depth > 4:
+        return []
+    out, cur = [], []
+    for t in _tokens(cmd) + [";"]:
+        if t and (t[0] in "<>" or (t[0] == "&" and ">" in t)):
+            cur.append(t)                   # リダイレクト（次の語が先）は語として残し、下で外す
+        elif t in OPERATORS or (t and set(t) <= set("();|&\n")):
+            argv = _drop_redirects(cur)
+            if argv:
+                out += _expand(argv, _depth)
+            cur = []
+        else:
+            cur.append(t)
+    return out
+
+
+def _drop_redirects(words):
+    """リダイレクトの印と先（`> f`・`2>&1` の 2 と 1）を外した語の並び。"""
+    out, skip = [], False
+    for w in words:
+        if skip:
+            skip = False
+        elif w and set(w) <= set("<>&"):
+            if out and out[-1].isdigit():
+                out.pop()
+            skip = True
+        else:
+            out.append(w)
+    return out
+
+
+def _expand(argv, depth):
+    argv = _strip_prefix(argv)
+    if not argv:
+        return []
+    name = os.path.basename(argv[0])
+    if name in SHELLS:
+        for j, w in enumerate(argv[1:], 1):
+            if w == "-c" or (w.startswith("-") and not w.startswith("--") and "c" in w[1:]):
+                return shell_commands(argv[j + 1], depth + 1) if j + 1 < len(argv) else []
+    if name == "eval":
+        return shell_commands(" ".join(argv[1:]), depth + 1)
+    return [argv]
+
+
 def table(section, payload=None):
     """値の表の 1 つの節を dict で返す（無い・読めない時は {}）。探し方は値の表の 1 本の口（lib/skill_values.py）。他の plugin の口も使う。"""
     try:

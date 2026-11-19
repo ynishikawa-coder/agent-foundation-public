@@ -4,3 +4,7 @@
 - 直した: 公開かを GitHub の repo の visibility から引く（取り出しの無い公開の repo も照らす・引けなければ止める）・「整地: 不要」は振る舞いの file を触る PR では止める
 - 足した: Bash の git push で公開の repo へ出す commit の説明と名義を、push の前に公開の検査に通す
 - 直した: commit していない手元の正本の書き替えでは照らさない・PR の番号は数だけ・引けなかった時の文を読める形に
+- 直した: 物差しの跡は、物差しを回した道具の呼び出し（値の表 guard.pr_ruler_trace の跡の形）と tool_use の id で結ぶ結果だけを数える（PR 本文を読んだ結果は数えない）
+- 直した: 連絡板の照らしは、連絡板の repo を細目から読めない・連絡板の在る無しを引けない時に止める（黙って通さない）
+- 直した: git push の見分けを命令を語に分ける形にした（前の代入・env・command・time・sudo・nice・xargs・bash -c・eval の付いた形も照らす）。語に分ける口は guard_common.shell_commands
+- 直した: PR の review の event が APPROVE・REQUEST_CHANGES なら本文によらず判定の形を照らす・公開かの見分けで workflow の注を数えず、ssh の remote も owner/repo に読む

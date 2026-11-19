@@ -13,12 +13,15 @@ AI が自分で回すか、出した後に CI やレビューが拾うだけだ�
   issue  … issue_write（題・本文）
   commit … merge_pull_request（commit_title・commit_message）・push_files・create_or_update_file・delete_file（message）
            ＝MCP から出す commit の説明。公開の検査だけを当てる
-  push   … Bash の git push（どの remote の枝にも無い commit の説明と名義）。公開の検査だけを当てる
+  push   … Bash の git push（どの remote の枝にも無い commit の説明と名義）。公開の検査だけを当てる。命令の字に正規表現を
+           当てず、guard_common.shell_commands で走る命令の語に分けて見る（前置き・bash -c・eval の中も）
 照らす物（見分けは正本を直に読む・呼ぶ。ここに決まりを写さない）:
   verdict … （材料: 出す先の PR の先端と、PR 本文の頭の `書いた窓:` を gh で引き、--writer・--head で渡す。引けなければ止める）
             コメントがレビューの判定（verdict_form の LINE1 に合う行・その字の欄が窓の id と green|red と揃う崩れた行・
             verdict の見出し）なら、checker の `scripts/verdict_form.py` をそのまま呼ぶ。赤なら止める。道具が見つからない・
-            壊れた時も止める。形が合えば、点 4 の物差しの最後の行が、この窓か助手の道具の結果に在るか（回した跡）も照らす
+            壊れた時も止める。PR の review の event が APPROVE・REQUEST_CHANGES なら本文によらず判定と見る。形が合えば、
+            点 4 の物差しの最後の行が、この窓か助手が物差しを回した道具の呼び出し（値の表 pr_ruler_trace の跡の形・
+            tool_use の id で結ぶ）の結果に在るか（回した跡）も照らす。PR 本文を読んだ結果など、ほかの道具の結果は数えない
   cleanup … PR の本文（本文を渡す時だけ）に、dev-flow の preimpl-cleanup の `整地受領証.template.md` の 4 つの見出し
             （`## 1.`〜`## 4.`。見出しの名は雛形から読む）が全部在り、雛形の `〔…〕` が残っていない事。整地の要らない PR
             （振る舞いを変えない: 誤字・記録だけ・版だけ等）は本文に `整地: 不要（<訳>）` の 1 行を書く。PR の差分の file を
@@ -26,7 +29,7 @@ AI が自分で回すか、出した後に CI やレビューが拾うだけだ�
   words   … PR の題・本文とコメント・issue の文に、窓の id（`session_01…`）がそのまま出ていない事。頭の決まった欄（親窓・
             書いた窓・job・触る path・検査・連絡板の窓）・判定の名乗りと点 3・コードの囲み・`…` の字・URL の中は数えない
   board   … 連絡板の repo（細目 §8）へのコメント・issue: 連絡板の issue のコメントの冒頭の 1 行が、連絡板の本文の「書き方」の形か。
-            新しい issue を立てない（連絡板は 1 本だけ）
+            新しい issue を立てない（連絡板は 1 本だけ）。連絡板の repo を細目から読めない・在る無しを引けない時は止める
   public  … 公開の repo（GitHub の repo の visibility が正本。引けない時だけ窓の repo の取り出しの workflow が action public-guard
             を呼ぶ／値の表 public_repos_extra。それでも決まらなければ止める）なら、
             題・本文を `public-guard/guard.py --text` に渡す（置かない語の表はその workflow の deny-words-file）。当たれば止める。
@@ -73,17 +76,47 @@ URL = re.compile(r"https?://\S+")
 FENCE = re.compile(r"^\s*(```|~~~).*?^\s*\1", re.M | re.S)
 INLINE = re.compile(r"`[^`\n]+`")
 COMMENT = re.compile(r"<!--.*?-->", re.S)
+QUOTE = re.compile(r"^[ \t]*>.*$", re.M)                  # 引用の行（人の文を引いた所＝この PR の欄でない）
 
 
-GIT_PUSH = re.compile(r"(?:^|[;&|(]\s*)git\b((?:\s+-[Cc]\s+\S+|\s+-c\s+\S+)*)\s+push\b")
-CD_HEAD = re.compile(r"^\s*cd\s+(\S+)\s*&&")
+GIT_WORD = re.compile(r"\bgit\b[\s\S]*\bpush\b")       # 語に分けられない命令で、push の疑いを照らす側に倒す時だけ使う
+GIT_OPT_ARG = ("-C", "-c", "--git-dir", "--work-tree", "--namespace", "--exec-path", "--config-env")
+
+
+def git_push(cmd):
+    """Bash の命令が git push を走らせるなら (push する dir の手がかり, True)、走らせないなら ("", False)。
+    命令の字に正規表現を当てず、guard_common.shell_commands で走る単純な命令の語に分けて見る（前置き・bash -c の中も）。
+    手がかりは git の -C か、前の cd。語に分けられない命令は、git と push の字が在れば push と見る（照らす側に倒す）。"""
+    try:
+        cmds = G.shell_commands(cmd)
+    except ValueError:
+        return "", bool(GIT_WORD.search(cmd or ""))
+    cd = ""
+    for argv in cmds:
+        if argv[0] in ("cd", "pushd") and len(argv) == 2:
+            cd = os.path.join(cd, argv[1]) if cd and not os.path.isabs(os.path.expanduser(argv[1])) else argv[1]
+            continue
+        if os.path.basename(argv[0]) != "git":
+            continue
+        i, where = 1, cd
+        while i < len(argv) and argv[i].startswith("-"):
+            w = argv[i]
+            if w in GIT_OPT_ARG:
+                if w == "-C" and i + 1 < len(argv):
+                    where = os.path.join(where, argv[i + 1]) if where and not os.path.isabs(argv[i + 1]) else argv[i + 1]
+                i += 2
+            else:
+                i += 1
+        if i < len(argv) and argv[i] == "push":
+            return where, True
+    return "", False
 
 
 def tool_kind(name, ti=None):
     name = str(name or "")
     if name == "Bash":
         cmd = (ti or {}).get("command") if isinstance(ti, dict) else ""
-        return "push" if isinstance(cmd, str) and GIT_PUSH.search(cmd) else ""
+        return "push" if isinstance(cmd, str) and git_push(cmd)[1] else ""
     for kind, names in (("pr", PR_TOOLS), ("comment", COMMENT_TOOLS), ("issue", ISSUE_TOOLS), ("commit", COMMIT_TOOLS)):
         if any(name == n or name.endswith("__" + n) for n in names):
             return kind
@@ -213,8 +246,22 @@ def pr_facts(repo, ti):
     return head.strip(), m.group(1), ""
 
 
-def check_verdict(body, data):
-    if "判定" not in body and not VERDICT_HEAD.search(body):
+VERDICT_EVENTS = ("APPROVE", "REQUEST_CHANGES")     # PR の review の判定そのものの印（本文の字によらず判定と見る）
+
+
+def review_event(data):
+    """pull_request_review_write の event が判定の印（APPROVE・REQUEST_CHANGES）ならその字、でなければ ""。"""
+    ti = data.get("tool_input") if isinstance(data.get("tool_input"), dict) else {}
+    name = str(data.get("tool_name") or "")
+    if not (name == "pull_request_review_write" or name.endswith("__pull_request_review_write")):
+        return ""
+    ev = str(ti.get("event") or "").strip().upper()
+    return ev if ev in VERDICT_EVENTS else ""
+
+
+def check_verdict(body, data, vals=None):
+    forced = review_event(data)
+    if not forced and "判定" not in body and not VERDICT_HEAD.search(body):
         return []
     try:
         tool, mod = verdict_form(data)
@@ -223,7 +270,7 @@ def check_verdict(body, data):
     if not tool:
         return ["判定の形の道具（checker の verdict_form.py）が見つからず、判定かを見分けられない。plugin checker を入れる"
                 "（または AF_VERDICT_FORM に path）"]
-    if not looks_verdict(body, mod.LINE1):
+    if not forced and not looks_verdict(body, mod.LINE1):
         return []
     ti = data.get("tool_input") or {}
     head, writer, err = pr_facts(_repo_name(ti), ti)
@@ -234,7 +281,7 @@ def check_verdict(body, data):
     except (OSError, subprocess.SubprocessError) as e:
         return ["判定の形の道具が走らなかった: %s" % e.__class__.__name__]
     if p.returncode == 0:
-        return check_ruler(body, data)
+        return check_ruler(body, data, vals)
     errs = [ln.strip() for ln in p.stdout.splitlines() if ln.strip()]
     if p.returncode != 1 or not errs:
         tail = (p.stderr or p.stdout or "").strip().splitlines()[-2:]
@@ -255,8 +302,7 @@ def _transcripts(data):
     return [path] + sorted(glob.glob(os.path.join(sub, "*.jsonl")))
 
 
-def _tool_results(path):
-    """会話ログの道具の結果の字を順に出す。"""
+def _rows(path):
     import json
     with open(path, encoding="utf-8", errors="replace") as f:
         for ln in f:
@@ -264,33 +310,64 @@ def _tool_results(path):
                 row = json.loads(ln)
             except ValueError:
                 continue
-            content = ((row.get("message") or {}).get("content")) if isinstance(row, dict) else None
-            for b in content if isinstance(content, list) else []:
-                if isinstance(b, dict) and b.get("type") == "tool_result":
-                    c = b.get("content")
-                    if isinstance(c, list):
-                        c = "\n".join(x.get("text", "") for x in c if isinstance(x, dict))
-                    if isinstance(c, str):
-                        yield c
+            if isinstance(row, dict):
+                yield row
 
 
-def check_ruler(body, data):
-    """点 4 に書いた物差しの最後の行が、この窓（か助手）の道具の結果に在るか。在れば物差しを自分で回した跡。"""
+def is_ruler(block, matchers):
+    """道具の呼び出し 1 つが物差しを回した物か（跡の形＝値の表 pr_ruler_trace）。Bash は命令の字に当てず、走る単純な命令ごと
+    （前置き・bash -c の中を開いた語の並び）に当てる＝`cat scripts/check_all.sh`・本文を引く `gh api` は物差しでない。"""
+    if str(block.get("name") or "") != "Bash":
+        return G.matches_tool(block, matchers)
+    inp = block.get("input") if isinstance(block.get("input"), dict) else {}
+    try:
+        cmds = G.shell_commands(inp.get("command") or "")
+    except ValueError:
+        return False                    # 読めない命令は物差しと数えない（数える側に倒さない）
+    return any(G.matches_tool(dict(block, input=dict(inp, command=" ".join(argv))), matchers) for argv in cmds)
+
+
+def ruler_results(path, matchers):
+    """会話ログの、物差しを回した道具の呼び出し（tool_use の id で結ぶ）の結果の字を順に出す。ほかの道具の結果（PR 本文を
+    読んだ結果など）は出さない＝本文に書かれた物差しの行を跡に数えない。"""
+    ids, results = set(), []
+    for row in _rows(path):
+        for blk in G.tool_uses(row):
+            if blk.get("id") and is_ruler(blk, matchers):
+                ids.add(blk["id"])
+        content = (row.get("message") or {}).get("content") if isinstance(row.get("message"), dict) else None
+        for blk in content if isinstance(content, list) else []:
+            if isinstance(blk, dict) and blk.get("type") == "tool_result":
+                c = blk.get("content")
+                if isinstance(c, list):
+                    c = "\n".join(x.get("text", "") for x in c if isinstance(x, dict))
+                if isinstance(c, str):
+                    results.append((blk.get("tool_use_id"), c))
+    return [c for i, c in results if i in ids]
+
+
+def check_ruler(body, data, vals=None):
+    """点 4 に書いた物差しの最後の行が、この窓（か助手）の物差しを回した道具の結果に在るか。在れば物差しを自分で回した跡。"""
     m = RULER_POINT.search(FENCE.sub(" ", COMMENT.sub(" ", body)))
     if not m or not m.group(1).strip():
         return ["物差しの跡: 点 4（回帰）の値の後に、回した物差しの最後の行（例: `pass（check_all: 緑 (4 本)）`）が無い"]
     want = m.group(1).strip()
+    matchers, bad = G.tool_matchers(vals if vals is not None else G.values(data), "pr_ruler_trace")
+    if not matchers:
+        return ["物差しの跡: 物差しを回した道具の呼び出しの形（値の表 guard.pr_ruler_trace）が無く、跡を照らせない%s" % (
+            "（%s）" % "・".join(bad[:2]) if bad else "")]
     logs = _transcripts(data)
     if not logs:
         return ["物差しの跡: この窓の会話ログが読めず、物差しを回した跡を照らせない"]
     for path in logs:
         try:
-            if any(want in r for r in _tool_results(path)):
+            if any(want in r for r in ruler_results(path, matchers)):
                 return []
         except OSError:
             continue
-    return ["物差しの跡: 点 4 の「%s」が、この窓と助手の道具の結果のどこにも無い（物差しを PR の先端で自分で回し、その最後の行を"
-            "そのまま書く）" % want[:60]]
+    return ["物差しの跡: 点 4 の「%s」が、この窓と助手が物差しを回した道具（値の表 guard.pr_ruler_trace の形）の結果のどこにも無い"
+            "（PR 本文や他の道具の結果に在る字は数えない。物差しを PR の先端で自分で回し、その最後の行をそのまま書く）%s" % (
+                want[:60], "。読めない形: " + "・".join(bad[:2]) if bad else "")]
 
 
 # ── cleanup（PR 本文の整地の 4 欄）──
@@ -308,7 +385,7 @@ def template_parts(path):
 def check_cleanup(body, repo, data, vals):
     if repo and _matches(vals.get("pr_cleanup_exempt_repos"), repo):
         return []
-    body = FENCE.sub(" ", COMMENT.sub(" ", body))      # 注記（雛形の説明）とコードの囲みの中は数えない
+    body = QUOTE.sub("", FENCE.sub(" ", COMMENT.sub(" ", body)))   # 注記（雛形の説明）・コードの囲み・引用の中は数えない
     if NOT_NEEDED.search(body):
         return check_not_needed(repo, data)
     tpl = _find_sibling(*CLEANUP_TEMPLATE, data)
@@ -390,8 +467,21 @@ def check_words(texts, repo, vals, keep=()):
 
 # ── public（公開の repo に置かない物）──
 WORKFLOW_DIR = os.path.join(".github", "workflows")
-DENY_FILE = re.compile(r"deny-words-file\s*:\s*[\"']?([^\s\"'#]+)")
-USES_GUARD = re.compile(r"(?:uses\s*:\s*\S*public-guard\b|^\s*public-guard\s*:)", re.M)
+DENY_FILE = re.compile(r"^\s*deny-words-file\s*:\s*[\"']?([^\s\"'#]+)", re.M)
+USES_GUARD = re.compile(r"^\s*(?:-\s*)?uses\s*:\s*[\"']?[^\s\"']*public-guard(?:@[^\s\"']*)?[\"']?\s*$", re.M)
+YAML_COMMENT = re.compile(r"(?:^|(?<=\s))#.*$", re.M)
+GITHUB_REMOTE = re.compile(r"github\.com[/:]([^/\s:]+/[^/\s]+?)(?:\.git)?/?$")
+
+
+def remote_repo(url):
+    """remote の URL（https・ssh の scp の形〔ホスト名の後が「:」〕・ssh:// の形）から owner/repo。GitHub でなければ ""。"""
+    m = GITHUB_REMOTE.search((url or "").strip())
+    return m.group(1) if m else ""
+
+
+def workflow_lines(raw):
+    """workflow の YAML の、注（`#` から行末）を外した字。字の中の `#`（引用の中）は残らないことがあるが、注を数えない側に倒す。"""
+    return YAML_COMMENT.sub("", raw)
 
 
 def _checkout_of(repo, data):
@@ -406,8 +496,7 @@ def _checkout_of(repo, data):
                              timeout=10).stdout.strip()
     except (OSError, subprocess.SubprocessError):
         return ""
-    path = re.sub(r"\.git$", "", url.rstrip("/")).lower()
-    return top if top and path.endswith("/" + repo.lower()) else ""
+    return top if top and remote_repo(url).lower() == repo.lower() else ""
 
 
 def visibility(repo):
@@ -435,6 +524,7 @@ def public_target(repo, data, vals):
                     raw = f.read()
             except OSError:
                 continue
+            raw = workflow_lines(raw)
             if USES_GUARD.search(raw):
                 m = DENY_FILE.search(raw)
                 words = os.path.join(top, m.group(1)) if m else ""
@@ -494,9 +584,7 @@ def check_public(texts, repo, data, vals):
 
 # ── push（Bash の git push で出す commit の説明と名義）──
 def push_dir(cmd, data):
-    m = GIT_PUSH.search(cmd)
-    c = re.search(r"-C\s+(\S+)", m.group(1) or "") if m else None
-    d = c.group(1) if c else (CD_HEAD.match(cmd).group(1) if CD_HEAD.match(cmd) else "")
+    d = git_push(cmd)[0]
     base = (data.get("cwd") if isinstance(data.get("cwd"), str) else "") or G.project_dir(data)
     return os.path.join(base, os.path.expanduser(d.strip("'\""))) if d else base
 
@@ -513,10 +601,10 @@ def push_texts(d):
         return "", [], ""               # repo でない・origin の無い所の push は GitHub の origin へ出ない（git の側が断る）
     if log.returncode != 0:
         return "", [], "push する commit を読めない: %s" % " / ".join((log.stderr or url.stderr or "").strip().splitlines()[-1:])
-    m = re.search(r"github\.com[/:]([^/\s]+/[^/\s]+?)(?:\.git)?/?$", url.stdout.strip())
-    if not m:
+    repo = remote_repo(url.stdout)
+    if not repo:
         return "", [], ""
-    return m.group(1), ([("commit の説明と名義", log.stdout)] if log.stdout.strip() else []), ""
+    return repo, ([("commit の説明と名義", log.stdout)] if log.stdout.strip() else []), ""
 
 
 # ── board（2 アカウントをまたぐ連絡板）──
@@ -551,26 +639,38 @@ BOARD_REPO = re.compile(r"またぐ連絡[^\n]*?`([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]
 
 
 def board_repo():
-    """連絡板の在る repo（細目 §8「またぐ連絡」が正本）か ""。"""
+    """(連絡板の在る repo, 誤り)。正本は細目 §8「またぐ連絡」。読めない・形が合わない時は誤り（黙って照らしを飛ばさない）。"""
     path = G.sibling_plugin_file("core", "細目.md")
+    if not path:
+        return "", "連絡板の repo の正本（core の 細目.md）が見つからず、連絡板へ出す文かを見分けられない。plugin core を同じ版で入れる"
     try:
         with open(path, encoding="utf-8") as f:
             m = BOARD_REPO.search(f.read())
-    except (OSError, TypeError):
-        return ""
-    return m.group(1) if m else ""
+    except (OSError, UnicodeDecodeError) as e:
+        return "", "連絡板の repo の正本（core の 細目.md）が読めない（%s）" % e.__class__.__name__
+    if not m:
+        return "", "細目.md の「またぐ連絡」に連絡板の repo（`owner/repo`）が無く、連絡板へ出す文かを見分けられない"
+    return m.group(1), ""
 
 
 def check_board(kind, body, repo, ti):
     """連絡板の repo（細目 §8）へ出す文: 連絡板のコメントは本文の「書き方」の冒頭の 1 行の形。新しい issue を立てない（1 本だけ）。"""
-    if not repo or repo.lower() != board_repo().lower():
+    if not repo:
+        return []                       # 出す先の無い入力は道具の側が断る（GitHub へ出ない）
+    board_at, err = board_repo()
+    if err:
+        return [err]
+    if repo.lower() != board_at.lower():
         return []
     if kind == "issue" and str(ti.get("method") or "create") == "create":
         try:
-            p = _gh(["repos/%s/issues?state=open&per_page=100" % repo, "--jq", ".[].title"])
-        except (OSError, subprocess.SubprocessError):
-            return []
-        if p.returncode == 0 and any(t.strip().startswith(BOARD_TITLE) for t in p.stdout.splitlines()):
+            p = _gh(["repos/%s/issues?state=open&per_page=100" % repo, "--paginate", "--jq", ".[].title"])
+        except (OSError, subprocess.SubprocessError) as e:
+            return ["連絡板の issue が在るかを引けない（%s）。引けないまま新しい issue を立てない" % e.__class__.__name__]
+        if p.returncode != 0:
+            return ["連絡板の issue が在るかを引けない: %s。引けないまま新しい issue を立てない" % (
+                " / ".join((p.stderr or "").strip().splitlines()[-1:]) or "gh が失敗した")]
+        if any(t.strip().startswith(BOARD_TITLE) for t in p.stdout.splitlines()):
             return ["この repo には連絡板の issue が在る。アカウントをまたぐ連絡は新しい issue を立てず、連絡板へ 1 コメントで書く"]
         return []
     number = ti.get("issue_number")
@@ -636,12 +736,12 @@ def findings(data, vals):
         texts.append(("PR の題" if kind == "pr" else "issue の題", title))
     if body.strip():
         texts.append(({"pr": "PR の本文", "comment": "コメント", "issue": "issue の本文"}[kind], body))
-    if not texts:
+    if not texts and not (kind == "comment" and review_event(data)):
         return []
     out = []
     keep = ()
-    if kind == "comment" and body.strip():
-        out += [("verdict", m) for m in check_verdict(body, data)]
+    if kind == "comment" and (body.strip() or review_event(data)):
+        out += [("verdict", m) for m in check_verdict(body, data, vals)]
         try:
             tool, mod = verdict_form(data) if "判定" in body else ("", None)
         except BaseException:      # noqa: BLE001  壊れた道具は上の verdict が名指す

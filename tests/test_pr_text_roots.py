@@ -15,7 +15,8 @@ import subprocess
 from pathlib import Path
 
 from test_pr_text import (CHECKER, MAIL, PUBLIC_WORD, REVIEWER, STRANGER, WRITER, _fake_gh, _fake_public_repo,
-                          cleanup_body, deny_reason, env, gh, verdict_comment, with_transcript)  # noqa: F401
+                          cleanup_body, deny_reason, env, gh, transcript_rows, verdict_comment, with_transcript,
+                          write_rows)  # noqa: F401
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -50,8 +51,7 @@ def test_物差しを回した跡が無い判定は止める(env, tmp_path):
     assert "物差しの跡" in why
     sub = tmp_path / "t2"
     (sub / "subagents").mkdir(parents=True)
-    (sub / "subagents" / "a.jsonl").write_text(json.dumps({"message": {"content": [
-        {"type": "tool_result", "content": "check_all: 緑 (4 本)"}]}}) + "\n", encoding="utf-8")
+    write_rows(sub / "subagents" / "a.jsonl", transcript_rows(("check_all: 緑 (4 本)",)))
     (tmp_path / "t2.jsonl").write_text("{}\n", encoding="utf-8")
     assert deny_reason(env, dict(p, transcript_path=str(tmp_path / "t2.jsonl"))) == ""   # 助手が回した跡も数える
 
