@@ -550,6 +550,7 @@ export function readHtml(raw) {
         change: chg ? text(chg[1]) : "",
         rec: recs.length ? text(recs[0][1]) : null,   // null＝印なし・字＝理由
         hasInput: /^(?:radio|checkbox)$/i.test(attr(inp, "type") ?? "") && (o[1].match(/<input\b/gi) ?? []).length === 1,
+        inputName: attr(inp, "name"),
         recCount: recs.length,
         needSupp: attr(inp, "data-supp") === "need",
         suppBad: attr(inp, "data-supp") != null && attr(inp, "data-supp") !== "need" ? String(attr(inp, "data-supp")) : null,
@@ -607,6 +608,9 @@ export function readHtml(raw) {
       choices: inputs.length || sel.length,
       oneChoice: (inputs.length > 0 && inputs.length < 2) || (!inputs.length && sel.length === 1),
       freeInput: freeInputs.length > 0,
+      // 問いの鍵を name に持つ欄（ページのどこでも・select・字の欄・hidden も）が、どれも label.opt の中の選択か（印の 1 つ目を検査とブラウザで同じにする）
+      keyFieldsInOpts: [...html.matchAll(/<(?:input|select|textarea)\b[^>]*>/gi)].filter((t) => attr(t[0], "name") === m[1]).length
+        === opts.filter((o) => o.hasInput && o.inputName === m[1]).length,
       numberInput: freeInputs.some((t) => /\btype\s*=\s*["']?number\b/i.test(t)),
       // radio と入力の欄は required で送れなくする。checkbox は required にすると「その 1 つを必ず選ぶ」になる＝型の JS が見る
       required: inputs.every((t) => /type\s*=\s*["']?checkbox/i.test(t)) && !freeInputs.length ? inputs.length > 0 : [...inputs, ...freeInputs].some((t) => hasAttr(t, "required")),
@@ -714,6 +718,8 @@ function checkRec(q, id, dest, format, limits, red) {
   const marked = q.options.map((o, i) => ({ o, i })).filter(({ o }) => o.rec != null);
   if (!marked.length) return;
   const mark = format === "html" ? "small.rec" : '"recommended"';
+  if (q.keyFieldsInOpts === false)
+    red.push(`${id}: 推奨の印の付いた問いは、答えの欄（name="${q.key}"）をどれも選択肢（label.opt）の中の radio・checkbox にする（select・字の欄・hidden・label.opt の外の欄があると、ブラウザでは 1 つ目がずれる）`);
   const est = format === "html" ? ".estimate" : '"estimate"';
   if (!RULES.rec.dests.includes(dest))
     red.push(`${id}: 推奨の印（${mark}）はオーナー宛て（copy・artifact）のページだけ。お客さん宛て（${dest ?? "宛先なし"}）は印を付けず、AI の今の見込みは根拠つきで ${est} へ`);
