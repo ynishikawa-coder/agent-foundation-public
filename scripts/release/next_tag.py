@@ -16,6 +16,8 @@ import re
 import subprocess
 import sys
 
+# 止まる時の最後の行（中身は細目 §3 が正本＝ここは指すだけ）
+ROOT_CAUSE = "直し: 版を替えて出し直すだけで済ませず、違う版を渡した原因（版の決め方・渡し方）を細目 §3「まず構造を疑う」で探して直す"
 VERSION_RE = re.compile(r"^v(\d+)\.(\d+)\.(\d+)$")
 
 
@@ -70,7 +72,7 @@ def main(argv):
     try:
         name = plan(tags, at, a.version.strip())
     except ValueError as e:
-        sys.stderr.write("止まる: %s\n" % e)
+        sys.stderr.write("止まる: %s\n%s\n" % (e, ROOT_CAUSE))
         return 2
     if name:
         print("%s %s" % (name, sha))

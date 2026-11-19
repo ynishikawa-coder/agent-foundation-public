@@ -79,6 +79,7 @@ def test_各社固有が上限を越えると赤で_上限ちょうどは緑(tmp
     claude.write_text("決" * (LIMITS["各社固有"] // 3 + 1), encoding="utf-8")
     r = run("check", "--claude", claude)
     assert r.returncode == 1 and "各社固有" in r.stdout
+    assert "細目 §3「まず構造を疑う」" in r.stdout.strip().splitlines()[-1], "越えた時に文を移させるだけの古い形に戻った"
 
 
 def test_写しの枠が在れば枠の外だけを各社固有として測る(tmp_path):
@@ -342,11 +343,25 @@ def test_核から細目へ移した物が細目に在る():
     "plugins/session-watch/skills/watch-log/SKILL.md": [],
     "plugins/dev-flow/skills/verify/SKILL.md": ["＋恒久の対応を残りに書く"],
     "CONTRIBUTING.md": ["試験を飛ばして緑にしない。赤を消すために試験を消さない。", "red の時は、同じ枝に直して push し"],
-    "plugins/checker/scripts/verdict_form.py": [],
-    "plugins/docs-kit/skills/qa-html/check.mjs": [],
     "plugins/guard/scripts/unanswered.py": [],
-    "plugins/session-watch/scripts/session_watch.py": [],
+    "scripts/check_all.sh": ['本: ${failed[*]})"'],
+    "scripts/release/next_tag.py": [],
 }
+# 道具（script・hook）の側は上に手で載せない。下の試験が、失敗で終わる道具を repo から自分で拾う。
+
+
+# 失敗で終わる・止める道具の印（exit 1・return 1・hook の deny・緑でなければ 1）
+失敗で終わる = re.compile(r'sys\.exit\(1\)|\breturn 1\b|^\s*exit 1\b|process\.exit\(1\)|\? 0 : 1|"deny"|1 if \w+ else 0', re.M)
+
+
+def test_失敗で終わる道具は一覧に載せなくても全部根治の入口を指す():
+    """新しい道具が赤・NG・止めの文で根治の入口を指さずに足されたら、一覧へ手で足すのを待たずに赤。"""
+    out = subprocess.run(["git", "ls-files", "plugins", "scripts", "public-guard"], cwd=ROOT, capture_output=True, text=True, check=True)
+    tools = [r for r in out.stdout.split() if r.endswith((".py", ".sh", ".mjs", ".js"))]
+    found = [r for r in tools if 失敗で終わる.search((ROOT / r).read_text(encoding="utf-8"))]
+    assert "public-guard/guard.py" in found and "plugins/guard/scripts/guard.py" in found, "拾い方が壊れた"
+    missing = [r for r in found if "細目 §3「まず構造を疑う」" not in (ROOT / r).read_text(encoding="utf-8")]
+    assert not missing, f"失敗で終わるのに根治の入口を指さない道具: {missing}"
 
 
 # 古い形の類（直した文だけでなく、同じ file のどこに残っても拾う）
@@ -376,3 +391,19 @@ def test_赤を返す所は根治の入口を指し単発の手直しの形が�
         assert old not in text, f"{rel} に単発の手直しの古い形が残る: {old}"
     left = list(単発の手直しの文(text))
     assert not left, f"{rel} に単発の手直しの類が残る: {left}"
+
+
+def test_検査の入口の赤の最後の行は根治の入口を指し緑は指さない(tmp_path):
+    """check_all.sh の赤が落ちた本の名だけを返す古い形（赤を 1 つずつ潰させる）に戻すと赤。"""
+    (tmp_path / "scripts").mkdir()
+    (tmp_path / "scripts" / "check_all.sh").write_text((ROOT / "scripts" / "check_all.sh").read_text(encoding="utf-8"), encoding="utf-8")
+    (tmp_path / "tests").mkdir()
+    test = tmp_path / "tests" / "test_x.py"
+    run = lambda: subprocess.run(["bash", str(tmp_path / "scripts" / "check_all.sh")], capture_output=True, text=True)
+    test.write_text("def test_x():\n    assert False\n", encoding="utf-8")
+    red = run()
+    last = red.stdout.strip().splitlines()[-1]
+    assert red.returncode == 1 and last.startswith("check_all: 赤") and "細目 §3「まず構造を疑う」" in last
+    test.write_text("def test_x():\n    assert True\n", encoding="utf-8")
+    green = run()
+    assert green.returncode == 0 and "まず構造を疑う" not in green.stdout
