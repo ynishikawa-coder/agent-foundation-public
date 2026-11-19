@@ -392,13 +392,18 @@ function treeReds(rest) {
       if (tag === "fieldset" && stack.includes("fieldset")) { red.push("<fieldset> の中に <fieldset> を置かない（型の JS が別の画面として集め、中の選択肢が隠れる）"); break; }
       if ((tag === "a" || tag === "summary") && tags.some(isOpt)) { red.push(`選択肢の枠（label.opt）の中に <${tag}> を置かない（押した先がリンク・開け閉めになる）`); break; }
       if (VOID.has(tag)) continue;
+      // 型の JS が中身を書き換える目印（.supp）は、問いの箱のじかの子の div だけ（中に選択肢を入れて消させない）
+      if (/(?:^|[ \t\n\f\r])supp(?:[ \t\n\f\r]|$)/.test(attr(m[0], "class") ?? "") && !(tag === "div" && attr(m[0], "class") === "supp" && /^<fieldset\b/i.test(tags[tags.length - 1] ?? "")))
+        { red.push(`class の supp は問いの箱（fieldset.q）のじかの子の <div class="supp"> だけ（型の JS が中の見出しを書き換える）: ${m[0].slice(0, 50)}`); break; }
       if (isOpt(m[0])) {
         optControls = 0;
+        // 選択肢の枠の置き場は型と同じ形だけ: fieldset.q（class は q だけ）＞ div.opts（class は opts だけ）＞ label.opt（class は opt だけ）
+        const [gp, p1] = [tags[tags.length - 2] ?? "", tags[tags.length - 1] ?? ""];
+        //   （包む要素で隠す・押した先を替える・別の画面にする形〔details・a・summary・figure・hidden の箱・.supp・鍵の無い箱〕はこれで全部閉じる）
+        if (attr(m[0], "class") !== "opt" || !/^<div\b/i.test(p1) || attr(p1, "class") !== "opts" || !/^<fieldset\b/i.test(gp) || attr(gp, "class") !== "q"
+            || !/^[A-Za-z0-9_]+$/.test(attr(gp, "data-qkey") ?? ""))
+          { red.push(`選択肢の枠は型と同じ置き場だけ（<fieldset class="q"> のじかの子の <div class="opts"> のじかの子の <label class="opt">・箱は鍵 data-qkey を持つ・class は足さない）: ${m[0].slice(0, 50)}`); break; }
         if (hasAttr(m[0], "for")) { red.push(`選択肢の枠（label.opt）に for を付けない（押した先が for の欄になる）: ${m[0].slice(0, 50)}`); break; }
-        if (tags.some((t) => /^<details\b/i.test(t))) { red.push("選択肢の枠（label.opt）を <details> の中に置かない（閉じると見えない）"); break; }
-        const box = tags.findLast((t) => /^<fieldset\b/i.test(t));
-        if (!box || !/^[A-Za-z0-9_]+$/.test(attr(box, "data-qkey") ?? "")) { red.push("選択肢の枠（label.opt）は、鍵（data-qkey＝半角英数字と _）を持つ問いの箱（fieldset.q）の中にだけ置く"); break; }
-        if (tags.some((t) => /^<(?:a|summary|figure)\b/i.test(t))) { red.push("選択肢の枠（label.opt）を <a>・<summary>・<figure> の中に置かない（押した先がリンク・開け閉め・切り抜きの拡大になる）"); break; }
       }
       // 表の区切りより内側（一番近い table・td・th より上）に開いている物だけが、ブラウザの閉じの的になる
       let from = 0;
