@@ -622,6 +622,58 @@ def test_ask_shape_判定の値は値の表で変えられ誤って止まる形�
     assert "例の関所" in deny_reason(env, ask_pre(q("例の関所を外しますか")))
 
 
+# ── 推奨の印を付けない形の問い（済んだか・意図）に印が付いたら、画面の後に知らせる（止めない）──
+def ask_post(text, labels=("終わった（推奨）", "うまくいかない", "分からない")):
+    qq = q(text, header="作り物", labels=labels)
+    return {"tool_name": "AskUserQuestion", "session_id": "s1", "tool_input": {"questions": [qq]},
+            "tool_response": {"questions": [qq], "answers": {qq["question"]: labels[0]}}}
+
+
+def notice_text(env, payload):
+    return hook(env, "post", payload).get("additionalContext", "")
+
+
+REC_NOTICE = [
+    ("済んだか", ask_post("設定の保存は終わりましたか？"), "済んだかの確認"),
+    ("済んだか 2", ask_post("作り物の画面で送りましたか"), "済んだかの確認"),
+    ("意図", ask_post("この並びにしたのはなぜですか", labels=("見やすさ（推奨）", "前の形のまま", "分からない")), "意図・考え"),
+    ("考え", ask_post("作り物の色の好みはどちらですか", labels=("青 (Recommended)", "緑", "分からない")), "意図・考え"),
+]
+
+
+@pytest.mark.parametrize("name,payload,want", REC_NOTICE, ids=[c[0] for c in REC_NOTICE])
+def test_ask_shape_済んだかや意図の問いの推奨の印は画面の後に知らせ止めない(env, name, payload, want):
+    txt = notice_text(env, payload)
+    assert want in txt and "止めていない" in txt, txt
+    pre = dict(payload)
+    pre.pop("tool_response")
+    assert deny_reason(env, pre) == ""      # 画面の前には止めない（知らせるだけ）
+
+
+REC_QUIET = [
+    ("分かれ道の印", ask_post("作り物の置き場をどちらにしますか", labels=("A（推奨）", "B", "分からない"))),
+    ("印の無い済んだか", ask_post("設定の保存は終わりましたか？", labels=("終わった", "うまくいかない", "分からない"))),
+    ("選択肢の画面の外", {"tool_name": "Bash", "tool_input": {"command": "echo 終わりましたか（推奨）"}}),
+]
+
+
+@pytest.mark.parametrize("name,payload", REC_QUIET, ids=[c[0] for c in REC_QUIET])
+def test_ask_shape_分かれ道の印や印の無い問いは知らせない(env, name, payload):
+    assert "推奨の印が付いた問い" not in notice_text(env, payload)
+
+
+def test_ask_shape_推奨の印の知らせの形は値の表で替え外せる(env, tmp_path):
+    table = tmp_path / "values.json"
+    env["SKILL_VALUES"] = str(table)
+    done = ask_post("設定の保存は終わりましたか？")
+    table.write_text(json.dumps({"guard": {"ask_rec_notice_exempt": ["^設定の保存"]}}), encoding="utf-8")
+    assert "推奨の印が付いた問い" not in notice_text(env, done)
+    table.write_text(json.dumps({"guard": {"ask_rec_notice_kinds": {"作り物の形": ["置き場"]}}}), encoding="utf-8")
+    txt = notice_text(env, ask_post("作り物の置き場をどちらにしますか", labels=("A（推奨）", "B", "分からない")))
+    assert "作り物の形" in txt
+    assert "推奨の印が付いた問い" not in notice_text(env, done)   # 形を替えたら既定の形は使わない
+
+
 def test_ask_shape_選択肢の画面の外は見ない(env):
     assert deny_reason(env, {"tool_name": "Bash", "tool_input": {"command": "echo Q202611-67 v0.21.0"}}) == ""
 

@@ -5,6 +5,7 @@
                                 ＋ qa_page（問いのページを Artifact で出す前の qa-html の検査）
                                 ＋ ask_shape（選択肢の画面の問いの形: 題の長さ・中の言葉・話題の混ざり・推奨の印の付け方）
   guard.py post   … PostToolUse: unanswered の capture（答えの無い問いの台帳）＋ context_size（文脈の量）
+                                ＋ ask_shape の notice（推奨の印が済んだか・意図の問いに付いた知らせ）
   guard.py start  … SessionStart: unanswered の resurface（持ち越した問いの出し直し）
 
 止めるのは pre だけ（permissionDecision=deny）。post と start は隣に文を出すだけ。
@@ -36,7 +37,7 @@ def _run(module, func, data, vals):
 
 WATCHERS = {
     "pre": [("irreversible", "check"), ("paid_upstream", "check"), ("qa_page", "check"), ("ask_shape", "check")],
-    "post": [("unanswered", "capture"), ("context_size", "check")],
+    "post": [("unanswered", "capture"), ("context_size", "check"), ("ask_shape", "notice")],
     "start": [("unanswered", "resurface")],
 }
 
