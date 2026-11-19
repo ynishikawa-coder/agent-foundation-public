@@ -1,0 +1,2 @@
+- 壊れる（土台の中だけ）: guard の見張りの直し方を skill guard-rules の `見張り/<名>.md` に 1 見張り 1 file で置き、見張りだけが読む値の表の鍵と既定を各見張りの頭の `VALUES` に移した。SKILL.md・plugin の説明・plugins/README.md・guard_common.py の DEFAULTS に見張りの名や鍵を並べると赤（tests/test_guard_rules_per_watch.py）。止めた文・知らせた文の末に直し方の file の在り処が付く。この形の前に枝を切った PR は SKILL.md の「main を取り込む時」で自分の行を移す。
+- 壊れる（土台の中だけ）: 入れて起動する試験の注入を tests/smoke_breaks/ に 1 注入 1 file で置き、試験の並びの末尾へ足す形を畳んだ。崩れた注入の file は黙って飛ばさず止める（tests/test_smoke_breaks_dir.py）。

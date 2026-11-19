@@ -49,6 +49,10 @@ OPT_KEYS = ("options", "choices", "opts")
 # この見張りが回る出来事と関数（guard.py がこの宣言を読んで回す＝入口の一覧に足さない）
 HOOKS = {"pre": "check"}
 
+# この見張りだけが読む値の表の鍵と既定（guard_common.declared が読む＝皆の一覧に足さない。意味は skills/guard-rules/見張り/qa_page.md）
+VALUES = {"qa_page_exempt": []}
+
+
 def _has_question_list(data, depth=0):
     """問いの並び（questions・qs）で、選択肢を持つ問いが 1 つでもあるか。入れ子は 3 段まで見る。"""
     if depth > 3:

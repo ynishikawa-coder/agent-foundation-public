@@ -67,6 +67,10 @@ HOW = (
 # この見張りが回る出来事と関数（guard.py がこの宣言を読んで回す＝入口の一覧に足さない）
 HOOKS = {"pre": "check"}
 
+# この見張りだけが読む値の表の鍵と既定（guard_common.declared が読む＝皆の一覧に足さない。意味は skills/guard-rules/見張り/pick_one.md）
+VALUES = {"ask_pick_one_exempt": []}
+
+
 def classify(question, vals=None):
     """1 問を見て、止めるなら理由の札（work／first／cause）、通すなら ""。"""
     if not isinstance(question, dict) or question.get("multiSelect"):

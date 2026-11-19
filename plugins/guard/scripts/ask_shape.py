@@ -67,6 +67,19 @@ STOP = {
 # この見張りが回る出来事と関数（guard.py がこの宣言を読んで回す＝入口の一覧に足さない）
 HOOKS = {"pre": "check", "post": "notice"}
 
+# この見張りだけが読む値の表の鍵と既定（guard_common.declared が読む＝皆の一覧に足さない。意味は skills/guard-rules/見張り/ask_shape.md）
+VALUES = {
+    "ask_question_max_chars": 60,
+    "ask_question_max_sentences": 1,
+    "ask_inner_terms_extra": [],
+    "ask_term_allow": [],
+    "ask_topic_stopwords_extra": [],
+    "ask_shape_exempt": [],
+    "ask_rec_notice_kinds": {},
+    "ask_rec_notice_exempt": [],
+}
+
+
 def _text(v):
     return re.sub(r"\s+", " ", str(v or "")).strip()
 

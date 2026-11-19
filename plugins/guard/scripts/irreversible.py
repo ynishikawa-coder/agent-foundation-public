@@ -47,6 +47,10 @@ _SPLIT = re.compile(r"&&|\|\||;|\n|\||&")
 # この見張りが回る出来事と関数（guard.py がこの宣言を読んで回す＝入口の一覧に足さない）
 HOOKS = {"pre": "check"}
 
+# この見張りだけが読む値の表の鍵と既定（guard_common.declared が読む＝皆の一覧に足さない。意味は skills/guard-rules/見張り/irreversible.md）
+VALUES = {"irreversible_bash_extra": [], "irreversible_tools_extra": []}
+
+
 def _compile(pairs):
     out = []
     for p in pairs:

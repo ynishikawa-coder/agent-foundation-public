@@ -41,6 +41,10 @@ CONTENT_KEYS = ("content", "new_string", "new_source")
 # この見張りが回る出来事と関数（guard.py がこの宣言を読んで回す＝入口の一覧に足さない）
 HOOKS = {"pre": "check"}
 
+# この見張りだけが読む値の表の鍵と既定（guard_common.declared が読む＝皆の一覧に足さない。意味は skills/guard-rules/見張り/paid_upstream.md）
+VALUES = {"paid_markers_extra": []}
+
+
 def _path_of(tool_input):
     for k in ("file_path", "notebook_path"):
         v = tool_input.get(k)

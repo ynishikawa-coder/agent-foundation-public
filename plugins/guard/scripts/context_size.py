@@ -35,6 +35,10 @@ MSG_UNATTENDED = (
 # この見張りが回る出来事と関数（guard.py がこの宣言を読んで回す＝入口の一覧に足さない）
 HOOKS = {"post": "check"}
 
+# この見張りだけが読む値の表の鍵と既定（guard_common.declared が読む＝皆の一覧に足さない。意味は skills/guard-rules/見張り/context_size.md）
+VALUES = {"context_limit": 300_000}
+
+
 def measure(tpath):
     """最新の assistant の入力の総量＝今の文脈の大きさ。"""
     ctx = 0

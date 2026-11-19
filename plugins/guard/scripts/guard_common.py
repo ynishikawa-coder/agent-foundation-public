@@ -4,27 +4,14 @@
 
 値の表（在る時だけ読む・無ければ既定で動く）:
   repo の根の config/skill-values.json の "guard"。読む順は 環境変数 SKILL_VALUES → $CLAUDE_PROJECT_DIR → hook の cwd。
-    context_limit            … 文脈の量の目安（token・既定 300000）
-    unattended_env           … 真なら「人のいない窓」（夜の自走など）とみなす環境変数の名の並び（既定 ["AF_UNATTENDED"]）
-    state_dir                … 未回答の台帳を置く dir（既定 ~/.claude/af-guard。相対なら repo の根から）
-    paid_markers_extra       … 有料の上流の印（鍵名・エンドポイント）の足し
-    irreversible_bash_extra  … 戻せない Bash の足し [{"pattern": 正規表現, "why": 理由}]
-    irreversible_tools_extra … 戻せない道具の名の足し [{"pattern": 正規表現, "why": 理由}]
-    qa_page_exempt           … 問いのページの検査から外す file（path に当てる正規表現の並び・問いのページでない物だけ）
-    ask_pick_one_exempt      … 1 つだけ選ばせる問いの見張りから外す問いの文（正規表現の並び・意図や事実を問う問いだけ）
-    ask_question_max_chars   … 選択肢の画面の問いの文の字数の上限（既定 60・0 で見ない）
-    ask_question_max_sentences … 同じく文の数の上限（既定 1・0 で見ない）
-    ask_inner_terms_extra    … AI の中の言葉とみなす字の足し（正規表現の並び）
-    ask_term_allow           … 中の言葉と数えない字（見つけた字に当てる正規表現の並び・誤って止まる時だけ）
-    ask_topic_stopwords_extra … 話題の語と数えない語の足し
-    ask_shape_exempt         … 問いの形の見張りから外す問いの文（正規表現の並び・誤って止まる時だけ）
-    ask_rec_notice_kinds     … 推奨の印を付けない問いの形 {名: [正規表現]}（既定は ask_shape.REC_NOTICE_KINDS・知らせるだけ）
-    ask_rec_notice_exempt    … 上の知らせから外す問いの文（正規表現の並び）
-    outbound_secret_allow    … 外へ渡す道具の入力の鍵の照らしで、鍵と数えない字（当たった字に当てる正規表現の並び・作り物の見本だけ）
-    number_request_exempt    … 番号だけの頼みの照らしから外す文（正規表現の並び・誤って止まる時だけ）
+  鍵と既定の正本は、皆が使う 2 つ（下の COMMON）と、各見張りの file の頭の VALUES（その見張りだけが読む鍵）。
+  鍵の意味と変え方は skills/guard-rules/SKILL.md（皆の鍵）と skills/guard-rules/見張り/<見張りの名>.md（各見張りの鍵）。
+  ここに鍵の一覧を写さない（見張りを足す PR が全部この一覧へ足して衝突した）。
 """
 from __future__ import annotations
 
+import ast
+import glob
 import json
 import os
 import re
@@ -32,26 +19,51 @@ import tempfile
 from datetime import datetime, timezone
 
 VALUES_REL = os.path.join("config", "skill-values.json")
-DEFAULTS = {
-    "context_limit": 300_000,
+# 皆が使う鍵（人のいない窓の印・置き場）。各見張りの鍵は見張りの頭の VALUES が正本（declared() で読む）。
+COMMON = {
     "unattended_env": ["AF_UNATTENDED"],
     "state_dir": os.path.join("~", ".claude", "af-guard"),
-    "paid_markers_extra": [],
-    "irreversible_bash_extra": [],
-    "irreversible_tools_extra": [],
-    "qa_page_exempt": [],
-    "ask_pick_one_exempt": [],
-    "ask_question_max_chars": 60,
-    "ask_question_max_sentences": 1,
-    "ask_inner_terms_extra": [],
-    "ask_term_allow": [],
-    "ask_topic_stopwords_extra": [],
-    "ask_shape_exempt": [],
-    "ask_rec_notice_kinds": {},
-    "ask_rec_notice_exempt": [],
-    "outbound_secret_allow": [],
-    "number_request_exempt": [],
 }
+HERE = os.path.dirname(os.path.abspath(__file__))
+HELPERS = ("guard", "guard_common")
+
+
+def declared(path):
+    """見張りの file の頭の宣言 {名: 値}（HOOKS・VALUES）を、import せず字の宣言として読む。宣言の無い名は入らない。
+    読めない file は例外を上げる（呼ぶ側がその file だけを外す）。"""
+    with open(path, encoding="utf-8") as f:
+        tree = ast.parse(f.read())
+    out = {}
+    for n in tree.body:
+        if isinstance(n, ast.Assign):
+            for t in n.targets:
+                if isinstance(t, ast.Name) and t.id in ("HOOKS", "VALUES"):
+                    out[t.id] = ast.literal_eval(n.value)
+    return out
+
+
+def watcher_files(here=None):
+    """同じ dir の見張りの file（手伝いの部品 guard・guard_common を除く）を名の順に。"""
+    d = here or HERE
+    return [p for p in sorted(glob.glob(os.path.join(d, "*.py")))
+            if os.path.basename(p)[:-3] not in HELPERS]
+
+
+def defaults(here=None):
+    """値の表の既定 = COMMON ＋ 各見張りの VALUES。読めない宣言は飛ばす（1 つの故障で他の既定を落とさない）。"""
+    out = dict(COMMON)
+    for p in watcher_files(here):
+        try:
+            v = declared(p).get("VALUES")
+        except Exception:   # noqa: BLE001
+            continue
+        if isinstance(v, dict):
+            for k, x in v.items():
+                out.setdefault(k, x)
+    return out
+
+
+DEFAULTS = defaults()
 
 # 窓の種類の決まり（session-watch の title-mark と同じ線）: 最初の頼みの文の返し先が別の窓なら子の窓（文脈の知らせだけが読む）。
 RETURN_TO_WINDOW = re.compile(r"返し先\s*[=＝:：]\s*session_[A-Za-z0-9]+")
