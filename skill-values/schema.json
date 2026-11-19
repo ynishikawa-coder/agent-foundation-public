@@ -126,7 +126,8 @@
         "context_stop_max": {"type": "int", "default": 2},
         "context_handoff": {"type": "list", "default": ["create_session\\b", "send_message\\b", "\"file_path\": \"[^\"]*(?:引き継ぎ|handoff)[^\"]*\""]},
         "ask_prior_lookup": {"type": "list", "default": []},
-        "ask_prior_exempt": {"type": "list", "default": []}
+        "ask_prior_exempt": {"type": "list", "default": []},
+        "pr_ruler_trace": {"type": "list", "default": [{"tool": "Bash", "input": {"command": "^(?!.*\\s-(?:-version|-help|-collect-only|-co|V|h)(?:\\s|$))(?:(?:(?:ba|z|da)?sh\\s+)?(?:\\S*/)?check_all\\.sh\\b|(?:python3?\\s+-m\\s+)?pytest\\b|(?:npm|pnpm|yarn)\\s+(?:run\\s+)?(?:test|check)\\b|make\\s+(?:test|check)\\b)"}}]}
       }
     },
     "docs-kit": {
