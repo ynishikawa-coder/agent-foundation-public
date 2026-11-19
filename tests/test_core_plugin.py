@@ -2,6 +2,7 @@
 import importlib.util
 import json
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -264,6 +265,23 @@ def test_核から細目へ移した物が細目に在る():
 }
 
 
+# 古い形の類（直した文だけでなく、同じ file のどこに残っても拾う）
+# ・語の類: 一覧を育てる・add-one（漏れを 1 行足して片付ける形）
+# ・文の類: ミスの語（漏れ・赤・NG・落ち・抜け・拾われ）と、その場だけの直し（1 行足す・直してから・出し直す・残りに書く）が
+#   同じ文に在るのに、根治の入口を指さない文
+単発の語 = re.compile(r"add-one|育てる")
+ミスの語 = re.compile(r"漏れ|赤|落ち|抜け|拾われ|(?<![A-Za-z])(NG|red)(?![A-Za-z])")
+その場の直し = re.compile(r"1 行足す|(?<!見)直して(から|出し直)|出し直す|残りに書く")
+
+
+def 単発の手直しの文(text):
+    for s in re.split(r"[。\n]", text):
+        if 単発の語.search(s):
+            yield s
+        elif ミスの語.search(s) and その場の直し.search(s) and "まず構造を疑う" not in s:
+            yield s
+
+
 @pytest.mark.parametrize("rel", sorted(赤を返す所))
 def test_赤を返す所は根治の入口を指し単発の手直しの形が無い(rel):
     """赤・red・抜けを返す所が、直して出し直す・1 行足すだけの古い形に戻ると赤。指す先の正本が無くなっても赤。"""
@@ -272,3 +290,5 @@ def test_赤を返す所は根治の入口を指し単発の手直しの形が�
     assert "細目 §3「まず構造を疑う」" in text, f"{rel} が根治の入口（細目 §3「まず構造を疑う」）を指さない"
     for old in 赤を返す所[rel]:
         assert old not in text, f"{rel} に単発の手直しの古い形が残る: {old}"
+    left = list(単発の手直しの文(text))
+    assert not left, f"{rel} に単発の手直しの類が残る: {left}"
