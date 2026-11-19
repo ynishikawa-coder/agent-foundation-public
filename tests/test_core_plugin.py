@@ -776,14 +776,17 @@ def test_検査の入口の赤の最後の行は根治の入口を指し緑は�
     assert green.returncode == 0 and "まず構造を疑う" not in green.stdout
 
 
-def _git_repo(tmp_path, text):
-    """作り物の git repo に 核.md を 1 commit で置き、その file の path を返す。"""
+def _git_repo(tmp_path, text, monkeypatch):
+    """作り物の git repo に 核.md と細目.md を 1 commit で置き、核.md の path を返す。
+    grow は細目も照らす（guarded）ので、細目も作り物へ向ける（本物の作業中の細目に試験が左右されない）。"""
     g = lambda *a: subprocess.run(["git", *a], cwd=tmp_path, check=True, capture_output=True)
     g("init", "-q")
     g("config", "user.email", "t@example.invalid")
     g("config", "user.name", "t")
     f = tmp_path / "核.md"
     f.write_text(text, encoding="utf-8")
+    (tmp_path / "細目.md").write_text("細目\n", encoding="utf-8")
+    monkeypatch.setattr(kaku, "SAIMOKU", tmp_path / "細目.md")
     g("add", "-A")
     g("commit", "-q", "-m", "元")
     return f
@@ -791,7 +794,7 @@ def _git_repo(tmp_path, text):
 
 def test_毎回差し込む物が元より増えると赤で_同じか減れば緑(monkeypatch, tmp_path, capsys):
     """上限の内でも純増は赤（足すなら同じ変更で同じだけ畳む）。わざと 1 字足すと赤になる注入の試験。"""
-    f = _git_repo(tmp_path, "元の核\n")
+    f = _git_repo(tmp_path, "元の核\n", monkeypatch)
     monkeypatch.setattr(kaku, "injected", lambda: (f,))
     assert kaku.grow("HEAD") == 0                       # 同じ
     f.write_text("元の核\n足\n", encoding="utf-8")
@@ -803,7 +806,7 @@ def test_毎回差し込む物が元より増えると赤で_同じか減れば�
 
 
 def test_比べる元が読めないと増え方の照らしは緑にせず止まる(monkeypatch, tmp_path, capsys):
-    f = _git_repo(tmp_path, "元の核\n")
+    f = _git_repo(tmp_path, "元の核\n", monkeypatch)
     monkeypatch.setattr(kaku, "injected", lambda: (f,))
     assert kaku.grow("無い枝") == 2
     new = tmp_path / "新.md"                            # 元の時に無い file
@@ -815,7 +818,7 @@ def test_比べる元が読めないと増え方の照らしは緑にせず止�
 
 def test_差し込む物を足すと増え方の照らしもそれを見る(monkeypatch, tmp_path, capsys):
     """差し込む一覧と照らす一覧が別の写しに戻ると、足した物が黙って照らされず赤。"""
-    f = _git_repo(tmp_path, "元の核\n")
+    f = _git_repo(tmp_path, "元の核\n", monkeypatch)
     third = tmp_path / "三つ目.md"
     third.write_text("三\n", encoding="utf-8")
     subprocess.run(["git", "add", "-A"], cwd=tmp_path, check=True)

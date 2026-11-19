@@ -15,7 +15,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0   # 核の増え方を origin/main との分かれ目と比べる（scripts/checks/kaku_growth.sh）
+          fetch-depth: 0   # 核と細目の増え方を origin/main との分かれ目と比べる（scripts/checks/kaku_growth.sh）
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
