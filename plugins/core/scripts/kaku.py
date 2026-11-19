@@ -23,6 +23,8 @@ FURUMAI = PLUGIN / "振る舞い.md"
 SAIMOKU = PLUGIN / "細目.md"
 FRAME_BEGIN = "<!-- AF-CORE:BEGIN"
 FRAME_END = "<!-- AF-CORE:END -->"
+# 越えた時の最後の行（中身は細目 §3 が正本＝ここは指すだけ）
+ROOT_CAUSE = "直し: 文を移して量を合わせるだけで済ませず、決まりが増えた原因を細目 §3「まず構造を疑う」で探して畳む"
 # 常に読まれる量の上限（バイト・UTF-8）。数はここの 1 か所だけに置く。
 LIMITS = {"核": 4800, "振る舞い": 2400, "各社固有": 3000}
 
@@ -104,6 +106,7 @@ def check(claude: Path | None) -> int:
     for b in bad:
         print(f"✗ {b}")
     if bad:
+        print(ROOT_CAUSE)
         return 1
     print("✅ 量の上限 緑")
     return 0
