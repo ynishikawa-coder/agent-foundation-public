@@ -112,6 +112,7 @@ def test_核の根治は問題_原因_解決_未来の_4_段で_未来は試験�
 
 
 def test_MGkm_は根治の_4_段の呼び名で説明の頼みにも_4_段で答える():
+    assert "問題→原因→解決→未来（MGkm）" in _節((PLUGIN / "核.md").read_text(encoding="utf-8"), 3), "核 §3 に MGkm が無い"
     s3d = _節((PLUGIN / "細目.md").read_text(encoding="utf-8"), 3)
     assert "**呼び名 MGkm**" in s3d, "細目 §3 に MGkm の呼び名が無い"
     line = next(l for l in s3d.splitlines() if "呼び名 MGkm" in l)
