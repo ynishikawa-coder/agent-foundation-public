@@ -25,6 +25,23 @@ broken = set(os.environ.get("FAKE_BROKEN", "").split())
 if sys.argv[1:3] == ["plugin", "list"]:
     got = [l.split()[2] for l in open(log) if l.startswith("plugin install ")]
     print(json.dumps([{"id": g, "scope": "user", "enabled": True} for g in got if g.split("@")[0] not in broken]))
+# 入った commit の台帳（FAKE_HEAD が在る時だけ）: install は入っていない物だけ先端を記す（本物と同じく取り直さない）・
+# update は FAKE_STUCK の時は動かない・uninstall は消す・FAKE_PIN の名はいつも FAKE_OLD を記す（入れ直しても揃わない）
+head = os.environ.get("FAKE_HEAD")
+if head:
+    pj = os.path.join(os.environ["HOME"], ".claude", "plugins", "installed_plugins.json")
+    inst = json.load(open(pj)) if os.path.exists(pj) else {"plugins": {}}
+    a = sys.argv[1:]
+    pin = set(os.environ.get("FAKE_PIN", "").split())
+    sha = lambda pid: os.environ["FAKE_OLD"] if pid.split("@")[0] in pin else head
+    if a[:2] == ["plugin", "install"] and a[2] not in inst["plugins"]:
+        inst["plugins"][a[2]] = [{"scope": "user", "gitCommitSha": sha(a[2])}]
+    elif a[:2] == ["plugin", "update"] and not os.environ.get("FAKE_STUCK") and a[2] in inst["plugins"]:
+        inst["plugins"][a[2]] = [{"scope": "user", "gitCommitSha": sha(a[2])}]
+    elif a[:2] == ["plugin", "uninstall"]:
+        inst["plugins"].pop(a[2], None)
+    os.makedirs(os.path.dirname(pj), exist_ok=True)
+    json.dump(inst, open(pj, "w"))
 '''
 
 
@@ -39,13 +56,13 @@ def foundation(tmp_path, names):
     return root
 
 
-def run(tmp_path, root, broken=""):
+def run(tmp_path, root, broken="", **fake_env):
     fake = tmp_path / "claude"
     fake.write_text(FAKE, encoding="utf-8")
     fake.chmod(0o755)
     home = tmp_path / "home"
     home.mkdir(exist_ok=True)
-    env = dict(os.environ, HOME=str(home), CLAUDE_BIN=str(fake), FAKE_LOG=str(tmp_path / "log"), FAKE_BROKEN=broken)
+    env = dict(os.environ, HOME=str(home), CLAUDE_BIN=str(fake), FAKE_LOG=str(tmp_path / "log"), FAKE_BROKEN=broken, **fake_env)
     r = subprocess.run([sys.executable, str(root / "scripts" / "setup_plugins.py")], capture_output=True, text=True,
                        env=env, timeout=60)
     log = (tmp_path / "log").read_text(encoding="utf-8") if (tmp_path / "log").exists() else ""
@@ -76,6 +93,61 @@ def test_入れ損ねは名指しで知らせ_全部入れば知らせを消す(
     (tmp_path / "log").unlink()
     r, _, note, _ = run(tmp_path, root)
     assert r.returncode == 0 and "af-plugin-missing" not in note
+
+
+def git_foundation(tmp_path, names):
+    """git の checkout の作り物の目録（先端の commit が引ける）。(root, 先端の commit)。"""
+    root = foundation(tmp_path, names)
+    env = dict(os.environ, GIT_AUTHOR_NAME="t", GIT_AUTHOR_EMAIL="t@t", GIT_COMMITTER_NAME="t", GIT_COMMITTER_EMAIL="t@t")
+    for c in (["init", "-q"], ["add", "-A"], ["commit", "-q", "-m", "c"]):
+        subprocess.run(["git", "-C", str(root), *c], check=True, env=env, capture_output=True)
+    head = subprocess.run(["git", "-C", str(root), "rev-parse", "HEAD"], check=True, capture_output=True,
+                          text=True).stdout.strip()
+    return root, head
+
+
+def old_container(tmp_path, names, old="0" * 40):
+    """作り置きの容器: 前の setup で古い commit が入った台帳を置いた HOME。"""
+    pj = tmp_path / "home" / ".claude" / "plugins" / "installed_plugins.json"
+    pj.parent.mkdir(parents=True)
+    pj.write_text(json.dumps({"plugins": {f"{n}@agent-foundation": [{"scope": "user", "gitCommitSha": old}]
+                                          for n in names}}), encoding="utf-8")
+    return pj
+
+
+def test_合格_古い版が残った容器でも目録を進め_入った_commit_を先端に入れ直す(tmp_path):
+    """注入: 前の setup の古い commit が入り、update が動かない（作り置きの容器）→ 入口が先端に入れ替える。"""
+    root, head = git_foundation(tmp_path, ["core", "guard"])
+    pj = old_container(tmp_path, ["core", "guard"])
+    r, log, note, home = run(tmp_path, root, FAKE_HEAD=head, FAKE_STUCK="1", FAKE_OLD="0" * 40)
+    assert r.returncode == 0, r.stdout
+    lines = log.splitlines()
+    assert lines[0] == "plugin marketplace update agent-foundation"   # 何より先に目録の写しを進める
+    assert "plugin uninstall core@agent-foundation --scope user" in lines
+    got = json.loads(pj.read_text(encoding="utf-8"))["plugins"]
+    assert {k: v[0]["gitCommitSha"] for k, v in got.items()} == {"core@agent-foundation": head, "guard@agent-foundation": head}
+    state = json.loads((home / ".claude" / "af-foundation" / "setup.json").read_text(encoding="utf-8"))
+    assert state["commit"] == head and state["stale"] == [] and "af-plugin-missing" not in note
+
+
+def test_入れ直しても先端に揃わない_plugin_は名指しで知らせる(tmp_path):
+    root, head = git_foundation(tmp_path, ["core", "guard"])
+    old_container(tmp_path, ["core", "guard"])
+    r, _, note, _ = run(tmp_path, root, FAKE_HEAD=head, FAKE_STUCK="1", FAKE_OLD="0" * 40, FAKE_PIN="guard")
+    assert r.returncode == 1
+    assert f"目録の先端（{head[:12]}）に揃わない: guard" in note and "core" not in note.split("揃わない:")[1]
+
+
+def test_入った_commit_を照らす段を外すと古い版のまま緑になる(tmp_path):
+    """誤りの類の注入: 入っているかだけを見る前の形（照らしの段を外した入口）は古い版のまま 0 で抜ける＝上の試験が拾う故障。"""
+    root, head = git_foundation(tmp_path, ["core"])
+    src = (root / "scripts" / "setup_plugins.py").read_text(encoding="utf-8")
+    (root / "scripts" / "setup_plugins.py").write_text(src.replace("    if not head:\n        return []\n",
+                                                                   "    return []\n"), encoding="utf-8")
+    pj = old_container(tmp_path, ["core"])
+    r, _, _, _ = run(tmp_path, root, FAKE_HEAD=head, FAKE_STUCK="1", FAKE_OLD="0" * 40)
+    assert r.returncode == 0
+    assert json.loads(pj.read_text(encoding="utf-8"))["plugins"]["core@agent-foundation"][0]["gitCommitSha"] == "0" * 40
 
 
 def test_配りの器が読めなければ黙って_0_本で進まない(tmp_path):
