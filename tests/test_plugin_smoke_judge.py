@@ -26,9 +26,12 @@ def run(tmp_path, body):
     fake.mkdir()
     (fake / "claude").write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
     (fake / "claude").chmod(0o755)
+    # 作り物の claude を先に置く。今の python の dir は残す（CI は setup-python に pytest を入れる。
+    # /usr/bin だけにすると、その python には pytest が無く入口が import で落ちる）。
+    py_dir = str(Path(shutil.which("python3")).parent)
     r = subprocess.run(["bash", "scripts/pytest.sh", "-q", "-p", "no:cacheprovider", "-m", "real_claude",
                         "--af-judge=real-claude", "tests/"], cwd=root, capture_output=True, text=True,
-                       env=box_env(ci=True, PATH=f"{fake}:/usr/bin:/bin"), timeout=300)
+                       env=box_env(ci=True, PATH=f"{fake}:{py_dir}:/usr/bin:/bin"), timeout=300)
     return r.returncode, r.stdout + r.stderr
 
 
