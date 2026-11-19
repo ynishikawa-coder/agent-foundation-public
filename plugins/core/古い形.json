@@ -23,6 +23,36 @@
       "pattern": "plugins?\\s+(?:install|i)\\b[^\\n]*@agent-foundation",
       "fix": "土台の docs/核の届け方.md の setup script の形（目録を足して scripts/setup_plugins.py を呼ぶ）に替える",
       "example": "claude plugin install core@agent-foundation --scope user || true"
+    },
+    {
+      "id": "atonobin-tag",
+      "what": "行き先の無い受け皿の札「後の便」（止めない気づきの札 [後の便｜…]・〔後の便に回した事〕など。土台は台帳へに替えた）",
+      "files": [
+        "*.md"
+      ],
+      "pattern": "[\\[［〔]後の便",
+      "fix": "札は [台帳へ｜…] にし、残りは各社の原因の台帳の行にする（土台の 細目.md §3「残りの受け皿は原因の台帳 1 つ」）。札を数える道具が在れば、台帳へ も読む形にする",
+      "example": "- [後の便｜整地] 〜"
+    },
+    {
+      "id": "tasu-mado-heading",
+      "what": "PR 本文の欄「他の窓へ回す」（担当の外の残りを名だけの受け皿に置く。土台は「残り（原因の台帳の行）」に替えた）",
+      "files": [
+        "*.md"
+      ],
+      "pattern": "(?m)^#+\\s*他の窓へ回す|「他の窓へ回す」",
+      "fix": "欄を「## 残り（原因の台帳の行）」にし、残りは原因の台帳に行を入れてから行の題と行き先だけを写す（土台の .github/pull_request_template.md の形）",
+      "example": "## 他の窓へ回す"
+    },
+    {
+      "id": "cleanup-followup-key",
+      "what": "preimpl-cleanup の値の表の鍵 cleanup_followup（土台が畳んだ。[後片付け] は原因の台帳の行にする）",
+      "files": [
+        "config/skill-values.json"
+      ],
+      "pattern": "\"cleanup_followup\"\\s*:",
+      "fix": "鍵を消す。[後片付け] は原因の台帳の行にする（土台の dev-flow:preimpl-cleanup）",
+      "example": "      \"cleanup_followup\": \"…\""
     }
   ]
 }

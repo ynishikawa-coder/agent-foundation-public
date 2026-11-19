@@ -519,7 +519,8 @@ def test_残りの受け皿は原因の台帳_1_つで_名だけの受け皿を�
     hits = []
     for p in sorted(ROOT.rglob("*")):
         rel = p.relative_to(ROOT)
-        if rel.parts[0] in {".git", "tests"} or p.name == "CHANGELOG.md":
+        # 古い形.json は使う側に残る古い形を見つける一覧＝古い名を持つのが役目（見つけ方の正しさは古い形の試験が照らす）
+        if rel.parts[0] in {".git", "tests"} or p.name == "CHANGELOG.md" or p == PLUGIN / "古い形.json":
             continue
         if p.is_file() and p.suffix in {".md", ".py", ".json", ".mjs", ".html"}:
             text = p.read_text(encoding="utf-8")
