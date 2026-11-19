@@ -299,3 +299,11 @@ def test_pr_text_の値の鍵は値の表の知らない鍵の見張りが知っ
                        "public_repos_extra": ["^作り物/公開$"]}}
     assert values_keys.unknown(table) == []
     assert values_keys.unknown({"guard": {"pr_作り物の知らない鍵": []}}) == ["guard.pr_作り物の知らない鍵"]
+
+
+def test_pr_text_の照らす物は_plugin_の説明と一覧に欠けずに書いてある():
+    """入れる前に読む説明（plugin.json）と一覧（plugins/README.md）から、照らす 4 つの物が落ちると赤（merge で縮んだ事がある）。"""
+    desc = json.loads((ROOT / "plugins" / "guard" / ".claude-plugin" / "plugin.json").read_text(encoding="utf-8"))["description"]
+    assert "GitHub へ出す前の PR の文（判定の形・整地の欄・窓の id・公開の repo に置かない物）" in desc
+    readme = [ln for ln in (ROOT / "plugins" / "README.md").read_text(encoding="utf-8").splitlines() if ln.startswith("- **guard**")]
+    assert len(readme) == 1 and "GitHub へ出す前の PR の文" in readme[0]
