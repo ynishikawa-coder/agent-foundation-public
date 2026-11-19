@@ -189,3 +189,64 @@ def test_挙げた原因は全部台帳に行き先つきで持ち_全部済む�
             text = p.read_text(encoding="utf-8")
             hits += [f"{rel}: {o}" for o in olds if o in text]
     assert not hits, hits
+
+
+# 残りの受け皿: 各所が自分の名の受け皿（後の便・🎯箱・他の窓へ回す・残りに書く…）を持たず、原因の台帳 1 つへ向ける。
+# (path, その所を見分ける語) — 語を含む行に「原因の台帳」が無ければ赤。
+残りの所 = [
+    ("plugins/core/細目.md", "**一時しのぎ**"),
+    ("plugins/core/細目.md", "③道具・仕組みの都合"),
+    ("plugins/core/細目.md", "どの窓にも分けなかった論点"),
+    ("plugins/core/細目.md", "1 窓 1 枝 1 PR に入らなかった仕事"),
+    ("plugins/core/細目.md", "| 一部 |"),
+    ("plugins/dev-flow/skills/design-mode/SKILL.md", "どちらで出る時も"),
+    (".github/pull_request_template.md", "## 残り"),
+    ("CONTRIBUTING.md", "1 本に入らなかった仕事"),
+    ("CONTRIBUTING.md", "`合流済` が届いた枝"),
+    ("plugins/checker/skills/review-pr/SKILL.md", "`[台帳へ｜<段>]`"),
+    ("plugins/dev-flow/skills/codex/SKILL.md", "| `task_rule` |"),
+    ("plugins/dev-flow/skills/codex/SKILL.md", "`[DEFER]`"),
+    ("plugins/dev-flow/skills/codex/SKILL.md", "**RETURN_TO_DESIGN**"),
+    ("plugins/dev-flow/skills/codex/SKILL.md", "6. **DEFER"),
+    ("plugins/dev-flow/skills/verify/SKILL.md", "**一時しのぎを含めば Partially**"),
+    ("plugins/dev-flow/skills/verify/SKILL.md", "**設計と実物の差分を必ず書く**"),
+    ("plugins/docs-kit/skills/qa-html/SKILL.md", "0. **聞く前に引く**"),
+    ("plugins/docs-kit/skills/theory-mock/SKILL.md", "範囲（やる／やらない／後で"),
+    ("plugins/docs-kit/skills/theory-mock/SKILL.md", "**Q 番号・画面番号で元と突き合わせる**"),
+    ("plugins/docs-kit/skills/theory-mock/SKILL.md", "外すとやり直しになる分かれ道"),
+    ("plugins/docs-kit/skills/mindmap/SKILL.md", "外すとやり直しになる分かれ道"),
+    ("plugins/docs-kit/skills/blueprint/SKILL.md", "外すとやり直しになる分かれ道"),
+    ("plugins/dev-flow/skills/spec-doc/SKILL.md", "4. **右サイズを提示**"),
+    ("plugins/dev-flow/skills/spec-doc/SKILL.md", "部分にする正当な理由"),
+    ("plugins/dev-flow/skills/preimpl-cleanup/SKILL.md", "`[後片付け]`（"),
+    ("plugins/dev-flow/skills/preimpl-cleanup/SKILL.md", "6. **同梱の片付けの返し**"),
+    ("plugins/dev-flow/skills/preimpl-cleanup/整地受領証.template.md", "**畳む物**"),
+    ("plugins/dev-flow/skills/preimpl-cleanup/整地受領証.template.md", "**残る穴**"),
+]
+
+
+def test_残りの受け皿は原因の台帳_1_つで_名だけの受け皿を持たない():
+    """古い形（自分の名の受け皿・A/B を 1 つ選ばせて捨てる・相談を出ると論点が消える）を戻すと赤。"""
+    s3d = _節((PLUGIN / "細目.md").read_text(encoding="utf-8"), 3)
+    assert "**残りの受け皿は原因の台帳 1 つ**" in s3d
+    for word in ["`台帳へ` の札", "DEFER", "一時しのぎ", "「一部」の残り", "どの窓も持たなかった論点", "選ばれなかった案",
+                 "1 窓 1 枝 1 PR に入らなかった仕事", "合流の後の続き", "道具の都合", "正本は台帳"]:
+        assert word in s3d, f"細目 §3 の残りの受け皿に無い: {word}"
+    missing = []
+    for rel, key in 残りの所:
+        lines = [ln for ln in (ROOT / rel).read_text(encoding="utf-8").splitlines() if key in ln]
+        if not lines or not all("原因の台帳" in ln for ln in lines):
+            missing.append(f"{rel}: {key}")
+    assert not missing, missing
+    olds = ["他の窓へ回す", "後の便", "🎯箱 か PR 本文", "残りに書", "直す側へ回す", "必要になった段で足す",
+            "論点として残す", "1つ選んで決めてもらう", "1 つ選んで決めてもらう", "残りを書いて引き継ぐ",
+            "回す先", "cleanup_followup"]
+    hits = []
+    for p in sorted(ROOT.rglob("*")):
+        rel = p.relative_to(ROOT)
+        if rel.parts[0] in {".git", "tests"} or p.name == "CHANGELOG.md":
+            continue
+        if p.is_file() and p.suffix in {".md", ".py", ".json", ".mjs", ".html"}:
+            text = p.read_text(encoding="utf-8")
+            hits += [f"{rel}: {o}" for o in olds if o in text]
+    assert not hits, hits

@@ -34,7 +34,7 @@ green
 - 12 既定で止まる: N/A
 
 ## 所見
-- [後の便｜整地] 作り物の気づき
+- [台帳へ｜整地] 作り物の気づき
 """
 
 RED = """レビューした窓: session_REVIEW01 判定: red
@@ -59,7 +59,7 @@ red
 
 ## 所見
 - [止める｜実装] plugins/x.py — 作り物の欠け
-- [後の便｜設計] 作り物の気づき
+- [台帳へ｜設計] 作り物の気づき
 """
 
 
@@ -74,7 +74,7 @@ def test_書いた窓とレビューした窓が同じなら誤り():
 
 
 def test_止めるが在るのに_green_は誤り():
-    errs = vf.check(GREEN.replace("[後の便｜整地]", "[止める｜実装]"))
+    errs = vf.check(GREEN.replace("[台帳へ｜整地]", "[止める｜実装]"))
     assert any("判定は red" in e for e in errs)
 
 
@@ -172,3 +172,10 @@ def test_同じ見出しの節が_2_つ在ると赤():
     extra = "## 点\n- 99 作り物: ok\n\n"
     text = GREEN.replace("## 所見", extra + "## 所見", 1)
     assert any("`## 点` の節が 2 個" in e for e in vf.check(text, writer="session_WRITER01"))
+
+
+def test_止めない気づきの札は台帳へで_古い後の便は通らない():
+    """止めない気づきは原因の台帳へ行く札だけ。行き先の無い古い札（後の便）を戻すと赤。"""
+    assert vf.check(GREEN) == []
+    errs = vf.check(GREEN.replace("[台帳へ｜整地]", "[後の便｜整地]"))
+    assert any("札" in e for e in errs)
