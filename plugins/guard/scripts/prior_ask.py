@@ -6,13 +6,18 @@
 だけの所は AI だけ止めて書き直させる形にしてよい・オーナーの操作は止めない）。止まるのは AI の呼び出しだけ（画面はまだ人に
 出ていない）。
 
-跡とは: 会話ログ（transcript_path）の、最後の頼み（人か親の窓が打った行）より後の道具の呼び出しのうち、
-  「道具の名 + 入力の JSON」が値の表 guard.ask_prior_lookup（正規表現の並び）のどれかに当たる物。
-  引く先（決定の記録・問いの表の置き場と道具）は会社ごとに違うので、名は値の表から読む（ここに決め打ちしない）。
-
-値の表に ask_prior_lookup が無い repo: 引いたかを機械で見分けられない＝知らない値。既定で止める側に倒し、窓ごとに 1 回だけ
-  止めて「自分の引く先で引いてから出し直す・値の表に引く先を足す」を返す（2 回目からは通す＝引く先を知らない窓が回り続けない）。
-上限: 値がある repo でも、同じ頼みの中で止めるのは ASK_PRIOR_MAX 回まで（引く道具が繋がっていない窓が回り続けない）。越えたら
+跡とは: 会話ログ（transcript_path）の、今の頼みの中の道具の呼び出しのうち、引く先の跡の形に名と入力の欄が当たる物
+  （形は guard_common の「跡の形」。入力を JSON の字に直して当てない＝その字を入力に含むだけの呼び出しは跡でない）。
+  頼みの境は guard_common.new_request（人の行で、頼みの印 promptId が今の頼みと違う物。hook の差し戻しの行は境でない）。
+引く先（どこから読むか・上から順に最初に在る物）:
+  1. 値の表 guard.ask_prior_lookup（会社ごとに違うので、名は値の表から読む＝ここに決め打ちしない）。
+  2. 値の表 docs-kit.qa-html.prior_check_cmd（確認ページで前の答えを引く道具＝同じ引く先。その命令か check.mjs --run-prior
+     を Bash で走らせた跡を数える。引く先を 2 か所に写さない）。
+  3. どちらも無い repo: 引いたかを機械で見分けられないので照らさない（止めない）。代わりに起動の時（SessionStart）に、
+     照らせていない事と値を足す道を知らせる（毎窓の最初の画面で止める形は、値を持つまで全部の窓を 1 回ずつ止めていた）。
+壊れた値: 跡の形として読めない値は跡に数えず（数える側に倒さない）、止めた文と起動の時の知らせ（values_keys）で名指す。
+  値が全部壊れていれば、跡は在りえない＝止める（黙って通さない）。
+上限: 同じ頼みの中で止めるのは ASK_PRIOR_MAX 回まで（引く道具が繋がっていない窓が回り続けない）。越えたら
   通し、止まりの文で「引けなかった事を問いの前にチャットで書く」を求めてある。
 誤って止めた時: 値の表 ask_prior_exempt（問いの文に当てる正規表現）に当たる問いだけの画面は照らさない（済んだかの確かめ等）。
   値の表は PR とレビューを通る＝窓の一存では外れない。
@@ -28,41 +33,40 @@ import re
 import guard_common as G
 
 ASK_TOOL = "AskUserQuestion"
-HOOKS = {"pre": "check"}
+HOOKS = {"pre": "check", "start": "resurface"}
 ASK_PRIOR_MAX = 2      # 同じ頼みの中で止める回数の上限
+RUN_PRIOR = r"check\.mjs\b.*--run-prior"     # qa-html の検査に前の答えを引かせる口（SKILL の「前の答えを照らす口」）
 
 
-def _tool_uses(row):
-    msg = row.get("message")
-    c = msg.get("content") if isinstance(msg, dict) else None
-    if not isinstance(c, list):
-        return []
-    return [b for b in c if isinstance(b, dict) and b.get("type") == "tool_use"]
+def prior_check_cmd(payload):
+    got = G.table("docs-kit", payload).get("qa-html")
+    cmd = got.get("prior_check_cmd") if isinstance(got, dict) else None
+    return cmd.strip() if isinstance(cmd, str) else ""
 
 
-def _sig(block):
-    """道具の名 + 入力の JSON（当てる相手）。"""
-    try:
-        body = json.dumps(block.get("input") or {}, ensure_ascii=False, sort_keys=True)
-    except (TypeError, ValueError):
-        body = str(block.get("input") or "")
-    return "%s %s" % (block.get("name") or "", body)
+def lookups(vals, payload):
+    """(跡の形の並び, 壊れた形の名指し, 引く先の名)。引く先が無ければ ([], [], "")。"""
+    if vals.get("ask_prior_lookup"):
+        ok, bad = G.tool_matchers(vals, "ask_prior_lookup")
+        return ok, bad, "guard.ask_prior_lookup"
+    cmd = prior_check_cmd(payload)
+    if cmd:
+        specs = [{"tool": "Bash", "input": {"command": re.escape(cmd)}}, {"tool": "Bash", "input": {"command": RUN_PRIOR}}]
+        return [G.compile_matcher(s) for s in specs], [], "docs-kit.qa-html.prior_check_cmd"
+    return [], [], ""
 
 
-def scan(tpath, patterns):
-    """(最後の頼みの印, 跡が在るか)。最後の頼みより後の道具の呼び出しだけを見る。"""
-    turn, found = "", False
+def scan(tpath, matchers):
+    """(今の頼みの印, 跡が在るか)。今の頼みの中の道具の呼び出しだけを見る。"""
+    turn, pid, found = "", None, False
     for i, row in enumerate(G.iter_rows(tpath)):
-        if G.is_owner_row(row):
-            turn, found = str(row.get("uuid") or "row%d" % i), False
+        if G.new_request(row, pid):
+            turn, pid, found = str(row.get("uuid") or "row%d" % i), row.get("promptId"), False
             continue
-        if found or row.get("type") != "assistant":
+        if found:
             continue
-        for b in _tool_uses(row):
-            if b.get("name") == ASK_TOOL:
-                continue
-            sig = _sig(b)
-            if any(re.search(p, sig) for p in patterns):
+        for b in G.tool_uses(row):
+            if b.get("name") != ASK_TOOL and G.matches_tool(b, matchers):
                 found = True
                 break
     return turn, found
@@ -93,6 +97,17 @@ def _all_exempt(qs, vals):
 HOW = ("聞く前に引く（細目 §4）: 問いの候補ごとに、この会社の決定の記録と問いの表（前に聞いた問いと答えの表）を、問いと同じ言葉で"
        "引く。答え済みの問い・資料で決まる事（AI が決めて進める）・道具の都合（原因の台帳の行にする）は問いから外し、残った問いだけを"
        "出し直す。引いた結果（照らした記録の在り処か、引いて無かった事）は問いの前にチャットで 1 行書く。")
+VALUE_HOW = ("値の表の guard.ask_prior_lookup に、決定の記録と問いの表を引く道具の呼び出しの跡の形（道具の名の正規表現か "
+             '{"tool": 名, "input": {欄: 正規表現}}）を足す PR を出す。細目は skill `guard:guard-rules`。')
+
+
+def resurface(data, vals):
+    """SessionStart: 値の表を持つのに引く先が無い repo では、この見張りが照らせていない事を知らせる（止めない）。
+    値の表そのものが無い repo（土台を試す所など・会社の決定の記録を持たない）は知らせない。"""
+    if not G.values_path(data) or lookups(vals, data)[2]:
+        return ""
+    return ("[guard] この repo は値の表に聞く前に引く先（guard.ask_prior_lookup か docs-kit.qa-html.prior_check_cmd）が無いので、"
+            "選択肢の画面の前に決定の記録と問いの表を引いたかを照らしていない（止めない）。" + HOW + "引く先を足す: " + VALUE_HOW)
 
 
 def check(data, vals):
@@ -106,37 +121,33 @@ def check(data, vals):
     tpath = str(data.get("transcript_path") or "")
     if not tpath or not os.path.isfile(tpath) or "/subagents/" in tpath.replace(os.sep, "/"):
         return ""
-    sid = G.safe_id(data.get("session_id") or os.path.basename(tpath)) or "window"
-    patterns = [p for p in (vals.get("ask_prior_lookup") or []) if isinstance(p, str) and p]
-    head = ("[guard] 選択肢の画面を出す前に、この頼みの中で決定の記録と問いの表を引いた跡が会話ログに無いので止めた"
-            "（オーナー同意 2026-11-19・人の操作は止めていない・画面はまだ人に出ていない）。")
-    if not patterns:
-        if _bump("novalue", sid) > 1:
-            return ""
-        return "\n".join([
-            head,
-            "この repo の値の表（config/skill-values.json の guard.ask_prior_lookup）に引く先が無いので、引いたかを機械で"
-            "見分けられない。この窓では 1 回だけ止める（次からは通す）。",
-            "直し方: " + HOW,
-            "引く先を足す: 値の表の guard.ask_prior_lookup に、決定の記録と問いの表を引く道具の呼び出しに当たる正規表現"
-            "（道具の名 + 入力の JSON に当てる）を足す PR を出す。細目は skill `guard:guard-rules`。",
-        ])
+    matchers, bad, source = lookups(vals, data)
+    if not source:
+        return ""                  # 引く先を知らない＝照らせない。起動の時に知らせてある
     try:
-        turn, found = scan(tpath, patterns)
+        turn, found = scan(tpath, matchers)
     except Exception:          # noqa: BLE001  会話ログが読めない＝見張りの故障。窓を止めない
         return ""
     if found:
         return ""
+    sid = G.safe_id(data.get("session_id") or os.path.basename(tpath)) or "window"
     if _bump("deny", sid + "-" + (turn or "head")) > ASK_PRIOR_MAX:
         return ""
-    return "\n".join([
-        head,
-        "跡と数える物: 最後の頼みより後の道具の呼び出しのうち、値の表 guard.ask_prior_lookup に当たる物"
-        "（今の値: %s）。" % "・".join(patterns[:6]),
+    shown = json.dumps(vals.get("ask_prior_lookup") if source == "guard.ask_prior_lookup" else prior_check_cmd(data),
+                       ensure_ascii=False)[:300]
+    lines = [
+        "[guard] 選択肢の画面を出す前に、この頼みの中で決定の記録と問いの表を引いた跡が会話ログに無いので止めた"
+        "（オーナー同意 2026-11-19・人の操作は止めていない・画面はまだ人に出ていない）。",
+        "跡と数える物: 今の頼みの中の道具の呼び出しのうち、%s の跡の形に道具の名と入力の欄が当たる物（今の値: %s）。"
+        % (source, shown),
+    ]
+    if bad:
+        lines.append("値の表の壊れた形（跡に数えていない）: " + "／".join(bad) + "。直す PR を出す。")
+    lines += [
         "直し方: " + HOW,
         "引く道具が繋がっていない等で引けない時: 同じ頼みの中で %d 回止めた後は通す。その時は問いの前にチャットで"
         "「引けなかった（何で）」を書いてから出す。" % ASK_PRIOR_MAX,
         "誤って止めた時（引く要の無い問い。例: 手の作業が済んだかの確かめ）: 値の表の guard.ask_prior_exempt に問いの文に"
-        "当てる正規表現を足す（PR とレビューを通す）。引いたのに止まった時は、使った道具に当たる形を guard.ask_prior_lookup "
-        "に足す。細目は skill `guard:guard-rules`。",
-    ])
+        "当てる正規表現を足す（PR とレビューを通す）。引いたのに止まった時は、使った道具の跡の形を足す: " + VALUE_HOW,
+    ]
+    return "\n".join(lines)

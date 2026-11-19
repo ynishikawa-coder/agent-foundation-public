@@ -193,9 +193,17 @@ def text_of(row):
     return ""
 
 
+def is_feedback(row):
+    """見張りの差し戻しの行か（isMeta か、版によって isMeta が付かない hook の差し戻し＝正本は guard_common.is_hook_feedback）。"""
+    if row.get("type") != "user" or "toolUseResult" in row:
+        return False
+    G = neighbor("guard_common")
+    return bool(row.get("isMeta") or (G is not None and G.is_hook_feedback(row)))
+
+
 def is_owner_text(row):
-    """ターンの境界になる頼みの文か（道具の返り・見張りの差し戻し〔isMeta〕を除く）。"""
-    if row.get("type") != "user" or row.get("isMeta") or "toolUseResult" in row:
+    """ターンの境界になる頼みの文か（道具の返り・見張りの差し戻しを除く）。"""
+    if row.get("type") != "user" or "toolUseResult" in row or is_feedback(row):
         return False
     return bool(text_of(row).strip())
 
@@ -237,7 +245,7 @@ class Log(object):
         self.cloud = False
         turn_start = 0
         for row in rows:
-            if row.get("type") == "user" and row.get("isMeta") and "toolUseResult" not in row:
+            if is_feedback(row):
                 self.events.append(("meta", ""))     # 見張りの差し戻し: ターンは続くが、締めの本文はここから数え直す
                 continue
             if is_owner_text(row):

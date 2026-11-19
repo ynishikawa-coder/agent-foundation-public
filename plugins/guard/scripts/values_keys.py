@@ -16,7 +16,7 @@
 hook（guard.py から）:
   check(data, vals)     … PreToolUse: Write・Edit・MultiEdit で値の表を書いた後に知らない鍵が残り、
                           書く前より減っていなければ止める（AI の書き込みだけを止める・人の手は止めない）
-  resurface(data, vals) … SessionStart: 値の表に知らない鍵が在れば知らせる
+  resurface(data, vals) … SessionStart: 値の表に知らない鍵か、guard の読めない値（guard_common.value_faults）が在れば知らせる
 """
 from __future__ import annotations
 
@@ -209,7 +209,13 @@ def resurface(data, vals):
     if table is None:
         return "値の表 %s が JSON として読めない（土台の道具は黙って既定で動いている）。この repo の PR で直す。" % path
     keys = unknown(table)
-    return _say(keys, path) if keys else ""
+    out = [_say(keys, path)] if keys else []
+    faults = G.value_faults(data)
+    if faults:
+        out.append("値の表 %s の guard に、読めずに黙って効かない値が在る（見張りはその値を数えずに動いている）:\n%s\n"
+                   "直し方: 形を直す PR を出す（形は skill `guard:guard-rules` の値の表）。壊れた値が入った訳は細目 §3"
+                   "「まず構造を疑う」で原因から直す。" % (path, "\n".join("  - " + f for f in faults)))
+    return "\n\n".join(out)
 
 
 def main(argv):
