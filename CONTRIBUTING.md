@@ -45,7 +45,7 @@
 - **秘密を置かない。** 鍵・トークン・パスワード・接続文字列を、コード・試験・文書・PR 本文・ログのどこにも書かない。
 - **土台は特定の業務を知らない。** 業務の語（特定業務の用語・計算の決まり）は、それを使う側の repo に置く。土台には、どの業務でも使える振る舞いと道具だけを置く。
 - **個人の情報を置かない。** 個人を指すメールアドレス・電話番号・郵便番号・Notion のページや Google の文書の URL を書かない。commit の名義のメールは GitHub の noreply（`<id>+<名>@users.noreply.github.com`）か `noreply@anthropic.com` にする。
-- **public なので外側も見える。** ファイルだけでなく、commit の説明・名義と PR の題・本文も世界に見える。どれにも上の物を書かない。
+- **public なので外側も見える。** ファイルだけでなく、commit の説明・名義と PR の題・本文も世界に見える。どれにも上の物を書かない。PR の題・本文・コメントは出す前に `python3 public-guard/guard.py --text <file> --deny-words-file tests/data/denylist.txt` で照らす（出した後に直しても古い版が編集の履歴に残る。`docs/公開の検査.md`「出す前に照らす」）。
 - 照らしは公開の検査（`public-guard/guard.py`・`docs/公開の検査.md`）の 1 本。CI の job `public-guard` が中身・歴史・commit と PR の外側を照らして止める。手元は `scripts/checks/public_guard.sh`。
   - **秘密と個人の情報**: 形で見る（表は `public-guard/guard.py`）。
   - **業務の語**: `tests/data/denylist.txt`。足したい語があれば、その 1 行を PR で足す。

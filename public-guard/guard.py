@@ -20,6 +20,8 @@
 
 使い方: python3 guard.py [--repo DIR] [--range REV|ALL] [--deny-words-file F] [--pattern-skip PATH ...] [--files-only]
         [--owner 持ち主]（正本の置き場を選ぶ持ち主。既定は CI の GITHUB_REPOSITORY_OWNER・手元は origin の URL）
+        [--text FILE|-]（出す前の文だけを照らす。PR の題・本文・コメントを公開の repo へ書く前に通す。
+                         公開の repo では出した後に止めても、本文の古い版が編集の履歴に残るため）
   --range の既定: CI では event（PR は base..head・push は before..after）、手元では origin/main..HEAD。
   ALL は全ての commit（公開の前に歴史ごと照らす時）。
 exit: 0=当たり 0 / 1=当たりあり・CI に顧客の語が無い・正本が読めない / 2=使い方・束の形が違う・置き場の決まりの無い持ち主
@@ -452,6 +454,7 @@ def main(argv=None) -> int:
     ap.add_argument("--deny-words-file")
     ap.add_argument("--pattern-skip", nargs="*", default=[])
     ap.add_argument("--files-only", action="store_true", help="中身だけ（歴史を持ち越さない新しい repo へ移す前）")
+    ap.add_argument("--text", help="出す前の文（PR の題・本文・コメント）だけを照らす。FILE か - （標準入力）")
     ap.add_argument("--owner", help="顧客の語の正本の置き場を選ぶ持ち主（既定は CI の GITHUB_REPOSITORY_OWNER・手元は origin）")
     a = ap.parse_args(argv)
     repo = Path(subprocess.run(["git", "rev-parse", "--show-toplevel"], cwd=a.repo,
@@ -475,6 +478,15 @@ def main(argv=None) -> int:
         print("（顧客の語は正本の置き場から直に読んだ）")
     elif in_ci():
         notice_copy()
+    if a.text is not None:
+        text = sys.stdin.read() if a.text == "-" else Path(a.text).read_text(encoding="utf-8")
+        g = Guard(repo, file_words(repo / a.deny_words_file if a.deny_words_file else None), set(), a.deny_words_file, bundle)
+        hits = sorted(set(g.text_hits("出す前の文", text, "")))
+        if hits:
+            print("✗ 出す前の文に公開の repo に置かない物（直してから出す）:\n  " + "\n  ".join(hits))
+            return 1
+        print("✅ 出す前の文: 置かない物 0")
+        return 0
     try:
         hits = run(repo, a.rev_range, a.deny_words_file, a.pattern_skip, files_only=a.files_only, bundle=bundle)
     except subprocess.CalledProcessError as e:

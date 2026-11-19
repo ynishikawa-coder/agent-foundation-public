@@ -349,6 +349,33 @@ def test_action_と雛形と土台の_ci_は正本の鍵を渡す():
     assert line in TEMPLATE_TEXT and line in CI_TEXT
 
 
+# ---- 出す前の文（PR の題・本文・コメント） ------------------------------------------
+
+@pytest.mark.parametrize("text, extra", [
+    ("この PR は見本業務の件\n", {}),                       # repo の置かない語
+    ("連絡は someone@gmail.com へ\n", {}),                 # 個人の情報の形
+    ("新規商事の件\n", {"AF_DENY_BUNDLE": None}),          # 顧客の語（束）
+])
+def test_出す前の文を照らして置かない物があれば赤(tmp_path, monkeypatch, capsys, text, extra):
+    """公開の repo へ PR の本文を出す前に、窓の手で同じ照らしを当てられる（注入の試験＝置かない語を入れた本文）。"""
+    repo = _repo(tmp_path)
+    (repo / "deny.txt").write_text("見本業務\n", encoding="utf-8")
+    if "AF_DENY_BUNDLE" in extra:
+        monkeypatch.setenv("AF_DENY_BUNDLE", _bundle_of(["新規商事"]))
+    body = tmp_path / "body.md"
+    body.write_text(text, encoding="utf-8")
+    code = guard.main(["--repo", str(repo), "--deny-words-file", "deny.txt", "--text", str(body)])
+    out = capsys.readouterr().out
+    assert code == 1 and "出す前の文" in out, out
+    assert "新規商事" not in out and "見本業務" not in out
+
+
+def test_出す前の文に置かない物が無ければ緑_標準入力でも読める(tmp_path, monkeypatch, capsys):
+    repo = _repo(tmp_path)
+    monkeypatch.setattr(sys, "stdin", __import__("io").StringIO("作り物の本文だけ\n"))
+    assert guard.main(["--repo", str(repo), "--text", "-"]) == 0, capsys.readouterr().out
+
+
 def test_action_は本体を呼ぶ():
     text = (ROOT / "public-guard" / "action.yml").read_text(encoding="utf-8")
     assert "github.action_path }}/guard.py" in text
