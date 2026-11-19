@@ -26,9 +26,10 @@ AI が自分で回すか、出した後に CI やレビューが拾うだけだ�
             窓の id を書く欄（親窓・書いた窓）・コードの囲み・`…` の字・URL の中は数えない（job・検査 等の欄や、頭の塊の
             外で同じ字で始まる行は数える）
   public  … 公開の repo（窓の repo の取り出しの workflow が action public-guard を呼ぶ／値の表 public_repos_extra）なら、
-            題・本文を `public-guard/guard.py --text` に渡す（置かない語の表はその workflow の deny-words-file）。当たれば止める。
+            題・本文を `public-guard/guard.py --text` に渡す（置かない語の表は public-guard を呼ぶ step の with: の deny-words-file）。当たれば止める。
             検査が見つからない・壊れた時も止める（公開の repo へは、照らせない文を出さない）
-誤って止めた時: 値の表 pr_cleanup_exempt_repos・pr_words_exempt_repos（owner/repo の名の全体に当てる正規表現）で repo ごとに外す。
+誤って止めた時: 値の表 pr_cleanup_exempt_repos・pr_words_exempt_repos（owner/repo の名の全体に当てる正規表現・^ で始め $ で終える＝
+型 repo_names）で repo ごとに外す。
 判定の形と公開の検査は外す口を持たない（直すのは文の方・判定の形の決まりは review-pr の SKILL.md が正本）。
 値の表は PR とレビューを通る＝窓の一存では外れない。
 """
@@ -88,15 +89,32 @@ def _repo_name(ti):
 def _matches(patterns, repo):
     """repo（owner/repo）の名の全体が、値の表の正規表現のどれかに当たるか（大小を問わない＝GitHub の名と同じ）。
     一部に当たるだけでは当てない（`o/r` が `o/r-fork`・`xo/r` を外さない）。owner ごとなら `^o/.*$` と書く。"""
-    return any(isinstance(p, str) and p and re.fullmatch(p, repo, re.I) for p in patterns or [])
+    for p in patterns or []:
+        try:
+            if isinstance(p, str) and p and re.fullmatch(p, repo, re.I):
+                return True
+        except re.error:
+            continue
+    return False
 
 
-def _listed(patterns, repo):
-    """値の表の repo の名の行（pr_cleanup_exempt_repos・pr_words_exempt_repos・public_repos_extra）に repo が在るか。
-    新しい形は名の全体の一致（_matches）。前の形（錨なしで名の一部に当たる）の行も、1 段目の間は在ると見る
-    （CONTRIBUTING.md §8＝新旧の両方を受ける）。前の形の行は古い形.json の repo-pattern-partial が開いた窓に名指し、
-    使う側が全体の形へ移ったのを kaku.py olds で確かめた 2 段目でこの受けを畳み、_matches だけにする。"""
-    return _matches(patterns, repo) or any(isinstance(p, str) and p and re.search(p, repo, re.I) for p in patterns or [])
+def _public_extra(repo, data, vals):
+    """値の表 public_repos_extra に repo が在るか。名の全体の一致（_matches）だけで当てる。
+    ただし名の全体の形（型 repo_names＝^…$）でない行を値の表に書いた時は、値の表の照らしがその鍵ごと落とすので、
+    生の行を読み、形の違う行が名の一部にでも当たれば公開と見る（公開の照らしを黙って外さない＝安全の守り。
+    形の違いは値の表の照らし〔起動の知らせ・values_keys.py〕が名指す）。外す側の鍵（pr_*_exempt_repos）には
+    この受けを持たない＝形の違う行は外さず照らす。"""
+    if _matches(vals.get("public_repos_extra"), repo):
+        return True
+    raw = G.table("guard", data).get("public_repos_extra")
+    bad = G.SV.bad_repo_names(raw) if isinstance(raw, list) else []
+    for p in bad:
+        try:
+            if isinstance(p, str) and p and re.search(p, repo, re.I):
+                return True
+        except re.error:
+            continue
+    return False
 
 
 def _find_sibling(plugin, rel, env_name, data):
@@ -236,7 +254,7 @@ def template_parts(path):
 
 
 def check_cleanup(body, repo, data, vals):
-    if repo and _listed(vals.get("pr_cleanup_exempt_repos"), repo):
+    if repo and _matches(vals.get("pr_cleanup_exempt_repos"), repo):
         return []
     body = FENCE.sub(" ", COMMENT.sub(" ", body))      # 注記（雛形の説明）とコードの囲みの中は数えない
     if NOT_NEEDED.search(body):
@@ -275,7 +293,7 @@ def visible_prose(body):
 
 
 def check_words(texts, repo, vals):
-    if repo and _listed(vals.get("pr_words_exempt_repos"), repo):
+    if repo and _matches(vals.get("pr_words_exempt_repos"), repo):
         return []
     out = []
     for where, text in texts:
@@ -287,7 +305,8 @@ def check_words(texts, repo, vals):
 
 # ── public（公開の repo に置かない物）──
 WORKFLOW_DIR = os.path.join(".github", "workflows")
-DENY_FILE = re.compile(r"deny-words-file\s*:\s*[\"']?([^\s\"'#]+)")
+# public-guard を呼ぶ step の with の中の deny-words-file の値（囲みの引用符を外す・行末のコメントは見ない）。
+DENY_KEY = re.compile(r"""(?:^|[{,\s])deny-words-file[ \t]*:[ \t]*(['"]?)([^\s'"#,}]+)\1""")
 # workflow の step の `uses:` の値（囲みの引用符を外す・行末のコメントは見ない）。コメントの行・job の名は呼び口でない。
 USES = re.compile(r"^[ \t]*(?:-[ \t]+)?uses[ \t]*:[ \t]*(['\"]?)([^\s'\"#]+)\1", re.M)
 LOCAL_ACTION = "./public-guard"
@@ -302,21 +321,94 @@ def _foundation():
         return ""
 
 
-def calls_public_guard(raw, foundation=None):
-    """workflow の text が土台の action public-guard を呼ぶか。`uses:` の値を @ の前の道で、土台の
-    `<owner>/<repo>/public-guard`（大小を問わない）か `./public-guard`（土台そのもの）と全体で比べる。版の印は問わない
-    （止めた版でも公開の repo には変わりない）。似た名の action・fork・名を道に含む別の出所は呼び口と見ない。
+def _indent(line):
+    return len(line) - len(line.lstrip(" "))
+
+
+def _steps(raw):
+    """workflow の text の並びの要素（`- ` で始まる塊）ごとに (要素の鍵の字下げ, 塊の行の並び)。
+    塊は `- ` の行から、それより深く字下げした行（と空行）まで。コメントの行は塊に入れない。"""
+    lines = [ln for ln in raw.splitlines() if not ln.lstrip().startswith("#")]
+    out = []
+    for i, ln in enumerate(lines):
+        m = re.match(r"^( *)-[ \t]+(\S)", ln)
+        if not m:
+            continue
+        ind = len(m.group(1))
+        key_col = m.start(2)
+        block = [" " * key_col + ln[key_col:]]
+        for nxt in lines[i + 1:]:
+            if nxt.strip() and _indent(nxt) <= ind:
+                break
+            block.append(nxt)
+        out.append((key_col, block))
+    return out
+
+
+def _own(block, key_col):
+    """塊のうち要素そのものの鍵の行（字下げが key_col ちょうど）と、その鍵の下の行の組の並び。"""
+    out, cur = [], None
+    for ln in block:
+        if ln.strip() and _indent(ln) == key_col:
+            cur = [ln]
+            out.append(cur)
+        elif ln.strip() and _indent(ln) < key_col:
+            cur = None
+        elif cur is not None:
+            cur.append(ln)
+    return out
+
+
+def _calls(path, found):
+    path = path.partition("@")[0]
+    if path == LOCAL_ACTION:
+        return True
+    if found:
+        return path.lower() == (found + "/public-guard").lower()
+    return path.rsplit("/", 1)[-1] == "public-guard"
+
+
+def public_guard_steps(raw, foundation=None):
+    """workflow の text のうち、土台の action public-guard を呼ぶ step の (鍵の字下げ, 塊) の並び。
+    呼ぶかは step そのものの `uses:` の値を @ の前の道で、土台の `<owner>/<repo>/public-guard`（大小を問わない）か
+    `./public-guard`（土台そのもの）と全体で比べる。版の印は問わない（止めた版でも公開の repo には変わりない）。
+    似た名の action・fork・名を道に含む別の出所・コメントの行・job の名は呼び口と見ない。
     土台の名が読めない時だけ、道の最後が public-guard の呼び口を公開と見る（照らさないより多く照らす）。"""
     found = _foundation() if foundation is None else foundation
-    for m in USES.finditer(raw):
-        path = m.group(2).partition("@")[0]
-        if path == LOCAL_ACTION:
-            return True
-        if found and path.lower() == (found + "/public-guard").lower():
-            return True
-        if not found and path.rsplit("/", 1)[-1] == "public-guard":
-            return True
-    return False
+    out = []
+    for key_col, block in _steps(raw):
+        for group in _own(block, key_col):
+            m = USES.match(group[0])
+            if m and _calls(m.group(2), found):
+                out.append((key_col, block))
+                break
+    return out
+
+
+def calls_public_guard(raw, foundation=None):
+    """workflow の text が土台の action public-guard を呼ぶか（public_guard_steps が 1 つでも在るか）。"""
+    return bool(public_guard_steps(raw, foundation))
+
+
+def deny_words_file(raw, foundation=None):
+    """public-guard を呼ぶ step の `with:` の deny-words-file の値か ""。同じ workflow の別の step・job の
+    deny-words-file（別の道具の語の表）は見ない。"""
+    for key_col, block in public_guard_steps(raw, foundation):
+        for group in _own(block, key_col):
+            if not re.match(r"^ *with[ \t]*:", group[0]):
+                continue
+            head = group[0].split(":", 1)[1]
+            m = DENY_KEY.search(head) if head.strip().startswith("{") else None
+            if m:
+                return m.group(2)
+            sub = [ln for ln in group[1:] if ln.strip()]
+            col = min((_indent(ln) for ln in sub), default=0)
+            for ln in sub:
+                if _indent(ln) == col:
+                    m = re.match(r"""^ *deny-words-file[ \t]*:[ \t]*(['"]?)([^\s'"#]+)\1""", ln)
+                    if m:
+                        return m.group(2)
+    return ""
 
 
 def _checkout_of(repo, data):
@@ -346,9 +438,9 @@ def public_target(repo, data, vals):
             except OSError:
                 continue
             if calls_public_guard(raw):
-                m = DENY_FILE.search(raw)
-                return True, top, (os.path.join(top, m.group(1)) if m else "")
-    if repo and _listed(vals.get("public_repos_extra"), repo):
+                name = deny_words_file(raw)
+                return True, top, (os.path.join(top, name) if name else "")
+    if repo and _public_extra(repo, data, vals):
         return True, top, ""
     return False, top, ""
 
@@ -464,6 +556,6 @@ def check(data, vals):
     lines.append("直し方:")
     lines += ["- [%s] %s" % (c, HOW[c]) for c in codes]
     lines.append("誤って止めた時: 整地を PR 本文の外に置く repo・言葉の照らしが合わない repo は、値の表の guard.pr_cleanup_exempt_repos・"
-                 "guard.pr_words_exempt_repos（owner/repo の名の全体に当てる正規表現・owner ごとなら ^owner/.*$）に足す（PR とレビューを通す）。判定の形と公開の検査は"
+                 "guard.pr_words_exempt_repos（owner/repo の名の全体に当てる正規表現・repo 1 つなら ^owner/repo$・owner ごとなら ^owner/.*$）に足す（PR とレビューを通す）。判定の形と公開の検査は"
                  "外さない（決まりの正本を直す）。細目は skill `guard:guard-rules`。")
     return "\n".join(lines)
