@@ -256,9 +256,12 @@ def test_作業場と変更の無い作業部屋の掃除は離席中でも通�
 
 
 # ── context_size（文脈の量）──
-def usage_log(tmp_path, tokens, first="作り物の頼み"):
+def usage_log(tmp_path, tokens, first="作り物の頼み", origin=None):
+    head = {"type": "user", "message": {"content": first}}
+    if origin:
+        head["origin"] = {"kind": origin}       # 頼みの行の記録（人が打ったか・別の窓から来たか）
     return write_log(tmp_path / "ctx.jsonl", [
-        {"type": "user", "message": {"content": first}},
+        head,
         {"type": "assistant", "message": {"usage": {"input_tokens": 10, "cache_read_input_tokens": tokens - 10,
                                                     "cache_creation_input_tokens": 0}, "content": []}}])
 
@@ -279,8 +282,21 @@ def test_文脈が目安を越えた最初の1回だけ知らせる(env, tmp_pat
 
 
 def test_子の窓には止まる側の知らせを出す(env, tmp_path):
-    tpath = usage_log(tmp_path, 400_000, first="あなたは書く窓です（親窓 session_ABC123 の子）。")
+    tpath = usage_log(tmp_path, 400_000, first="あなたは書く窓です（親窓 session_ABC123 の子）。", origin="task-notification")
     assert "引き継ぎを書いて止まって" in hook(env, "post", post_tool(tpath))["additionalContext"]
+
+
+CHILD_TEXTS = ["あなたは書く窓です（親窓 session_ABC123 の子）。", "作り物を調べて（返し先=session_ABC123）。"]
+
+
+@pytest.mark.parametrize("first", CHILD_TEXTS)
+@pytest.mark.parametrize("origin", [None, "human", "person"])
+def test_注入_人が引き継ぎの文を貼った窓は子の窓にしない(env, tmp_path, first, origin):
+    """頼みの文の親窓・返し先は手で書いた写し。頼みの行の記録が人（または記録なし）なら子の窓と見ない
+    （前の形: 文だけで決め、オーナーが貼った引き継ぎの文でオーナー相手の窓が子の窓の知らせになった）。"""
+    tpath = usage_log(tmp_path, 400_000, first=first, origin=origin)
+    ctx = hook(env, "post", post_tool(tpath))["additionalContext"]
+    assert "引き継ぎを書いて止まって" not in ctx, ctx
 
 
 def test_文脈の目安は値の表で変えられる(env, tmp_path):

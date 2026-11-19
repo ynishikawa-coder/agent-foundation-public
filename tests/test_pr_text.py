@@ -23,7 +23,9 @@ def env(tmp_path):
     e = {k: v for k, v in os.environ.items() if not k.startswith(("AF_", "SKILL_VALUES", "CLAUDE_PROJECT_DIR"))}
     e.update({"AF_GUARD_TMP": str(tmp_path / "tmp"), "AF_GUARD_STATE": str(tmp_path / "state"),
               "CLAUDE_PROJECT_DIR": str(proj), "PYTHONDONTWRITEBYTECODE": "1",
-              "TMPDIR": str(tmp_path / "scratch")})
+              "TMPDIR": str(tmp_path / "scratch"),
+              # 判定を出す窓の本物の id の記録（harness が窓の環境に置く cse_<x>）。試験はレビューの窓に固定する
+              "CLAUDE_CODE_REMOTE_SESSION_ID": "cse_" + REVIEWER[len("session_"):]})
     return e
 
 
@@ -50,14 +52,20 @@ def gh(tool, owner="fake-owner", repo="fake-private", **ti):
 FAKE_HEAD = "0123456789ab" + "c" * 28
 
 
-def _fake_gh(env, head=FAKE_HEAD, writer=WRITER, fail=False):
-    """作り物の gh（PR の先端と本文の `書いた窓:` を返す）を PATH の頭に置く。実の GitHub へは出ない。"""
+def _fake_gh(env, head=FAKE_HEAD, writer=WRITER, fail=False, commits=None):
+    """作り物の gh を PATH の頭に置く。実の GitHub へは出ない。
+    PR を引く呼び出しには先端と本文の `書いた窓:`（写し）を、commit を引く呼び出しには各 commit の説明（`Claude-Session:` の
+    記録。既定は書いた窓の 1 本）を返す。commits の None の要素は記録の無い commit。"""
     bindir = Path(env["CLAUDE_PROJECT_DIR"]).parent / "fakebin"
     bindir.mkdir(exist_ok=True)
     gh_path = bindir / "gh"
     body = "書いた窓: %s\\n" % writer if writer else "作り物の本文\\n"
+    commits = [WRITER] if commits is None else commits
+    msgs = "".join("作り物の commit\\n\\n" + ("Claude-Session: https://claude.ai/code/%s\\n" % c if c else "")
+                   for c in commits)
     gh_path.write_text("#!/bin/sh\n" + ("echo 'not found' >&2; exit 1\n" if fail else
-                       "printf '%%s\\n%%s' '%s' '%s'\n" % (head, body)), encoding="utf-8")
+                       'case "$*" in *"/commits"*) printf \'%s\' ;; *) printf \'%%s\\n%%s\' \'%s\' \'%s\' ;; esac\n'
+                       % (msgs, head, body)), encoding="utf-8")
     gh_path.chmod(0o755)
     env["PATH"] = str(bindir) + os.pathsep + env.get("PATH", "")
     return env
@@ -281,8 +289,10 @@ def test_pr_text_判定の材料は_PR_から引き_引けなければ止め_先
     assert "[verdict]" in deny_reason(env, p) and "先端" in deny_reason(env, p)
     _fake_gh(env, writer=REVIEWER)                                 # 書いた窓が自分の PR に判定を付けた
     assert "[verdict]" in deny_reason(env, p)
-    _fake_gh(env, writer="")                                       # PR 本文に書いた窓が無い
-    assert "書いた窓" in deny_reason(env, p)
+    _fake_gh(env, writer="")                                       # PR 本文に書いた窓が無い（写しが無くても記録で照らす）
+    assert deny_reason(env, p) == ""
+    _fake_gh(env, commits=[None])                                  # commit に書き手の記録が無い（本文の写しだけでは決めない）
+    assert "判定の材料" in deny_reason(env, p) and "Claude-Session" in deny_reason(env, p)
     _fake_gh(env, fail=True)                                       # PR を引けない
     assert "判定の材料" in deny_reason(env, p)
     env["PATH"] = str(Path(env["CLAUDE_PROJECT_DIR"]).parent / "空")   # gh が無い
@@ -308,3 +318,72 @@ def test_pr_text_の照らす物は_plugin_の説明と一覧に欠けずに書�
     assert "GitHub へ出す前の PR の文（判定の形・整地の欄・窓の id・公開の repo に置かない物）" in desc
     readme = [ln for ln in (ROOT / "plugins" / "README.md").read_text(encoding="utf-8").splitlines() if ln.startswith("- **guard**")]
     assert len(readme) == 1 and "GitHub へ出す前の PR の文" in readme[0]
+
+
+# ── 窓の名乗りは記録から（手で書いた写しは照らされる側）──
+def test_注入_判定の名乗りを偽っても出す窓の記録で照らす(env):
+    """書いた窓が、レビューの窓の id を 1 行目に書いて自分の PR に green を出す（前の形: 1 行目の字を判定した窓と読み、通った）。"""
+    p = gh("add_issue_comment", issue_number=1, body=verdict_comment())      # 1 行目は REVIEWER と名乗る
+    _fake_gh(env)
+    assert deny_reason(env, p) == ""                                          # 出す窓が本当に REVIEWER なら通る
+    env["CLAUDE_CODE_REMOTE_SESSION_ID"] = "cse_" + WRITER[len("session_"):]  # 出す窓は本当は書いた窓
+    why = deny_reason(env, p)
+    assert "[verdict]" in why and "判定を出す窓" in why, why
+    env["CLAUDE_CODE_REMOTE_SESSION_ID"] = "cse_" + STRANGER[len("session_"):]  # 書いていない第三の窓が他の窓を名乗る
+    assert "[verdict]" in deny_reason(env, p)
+
+
+@pytest.mark.parametrize("value", [None, "", "session_01BBBB", "cse_", "cse_ab-cd"])
+def test_注入_出す窓の記録が無ければ判定を通さない(env, value):
+    p = gh("add_issue_comment", issue_number=1, body=verdict_comment())
+    _fake_gh(env)
+    if value is None:
+        env.pop("CLAUDE_CODE_REMOTE_SESSION_ID")
+    else:
+        env["CLAUDE_CODE_REMOTE_SESSION_ID"] = value
+    why = deny_reason(env, p)
+    assert "判定の材料" in why and "CLAUDE_CODE_REMOTE_SESSION_ID" in why, why
+
+
+def test_注入_途中の_commit_を書いた窓も書いた側(env):
+    """commit が A→B→A と並ぶと、途中を書いた B の判定は別の目でない（前の形: 本文の写し・先端の 1 窓だけを書いた窓と見た）。"""
+    p = gh("add_issue_comment", issue_number=1, body=verdict_comment())
+    _fake_gh(env, commits=[WRITER, REVIEWER, None, WRITER])                  # 本文は WRITER・先端も WRITER
+    why = deny_reason(env, p)
+    assert "[verdict]" in why and "別の目でない" in why, why
+    _fake_gh(env, commits=[WRITER, STRANGER, WRITER])                         # 途中の窓が出す窓と違えば通る
+    assert deny_reason(env, p) == ""
+
+
+def test_注入_本文の書いた窓の写しを偽っても_commit_の記録で照らす(env):
+    p = gh("add_issue_comment", issue_number=1, body=verdict_comment())
+    _fake_gh(env, writer=WRITER, commits=[REVIEWER])     # 本文の写しは最初の窓のまま・直しの commit は出す窓が書いた
+    why = deny_reason(env, p)
+    assert "[verdict]" in why and "別の目でない" in why, why
+
+
+def _tail():
+    """整地の欄の揃った本文の、頭の塊（最初の空行まで）を除いた残り（窓の id を含まない）。"""
+    return cleanup_body().split("\n\n", 1)[1]
+
+
+WORDS_BAD = [
+    ("頭の塊の検査の欄", "親窓: %s\n書いた窓: %s\n検査: %s の結果\n\n" % (WRITER, WRITER, STRANGER)),
+    ("頭の塊の job の欄", "job: %s\n\n" % STRANGER),
+    ("頭の塊の外の書いた窓の行", "job: x\n\n書いた窓: %s が直した\n\n" % STRANGER),
+    ("頭の塊の外の親窓の行", "job: x\n\n## 何をどう変えたか\n親窓: %s の頼み\n\n" % STRANGER),
+    ("頭の塊の外の検査の行", "job: x\n\n検査: %s の結果\n\n" % STRANGER),
+]
+
+
+@pytest.mark.parametrize("name,head", WORDS_BAD, ids=[c[0] for c in WORDS_BAD])
+def test_注入_窓の_id_を数えない欄は頭の塊の親窓と書いた窓だけ(env, name, head):
+    """前の形: 行頭が job: や 検査: ならどの行でも窓の id を数えず、公開の PR にそのまま出た。"""
+    assert STRANGER not in _tail()
+    why = deny_reason(env, gh("create_pull_request", title="作り物", head="b", base="main", body=head + _tail()))
+    assert "[words]" in why and STRANGER in why, why
+
+
+def test_頭の塊の親窓と書いた窓の欄の窓の_id_は数えない(env):
+    body = "親窓: %s\n書いた窓: %s\njob: 20261119-fake\n検査: 緑\n\n" % (STRANGER, WRITER) + _tail()
+    assert deny_reason(env, gh("create_pull_request", title="作り物", head="b", base="main", body=body)) == ""

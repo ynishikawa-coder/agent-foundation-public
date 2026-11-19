@@ -10,10 +10,28 @@ import pytest
 from test_session_watch import CLOUD, LOGS, OK_REPLY, rows, set_title, stop_data, stop_env, sw
 
 
-def test_返し先が別の窓の子窓には親が付けた題を付け直すよう知らせる():
-    """親が create_session で付けた題は会話ログに無く、返事の差し戻しが照らせない＝付け直させる。"""
-    text = sw.remind({"prompt": "作り物を見て（親窓 session_X の子）"}, CLOUD)
+def test_返し先が別の窓の子窓には親が付けた題を付け直すよう知らせる(tmp_path):
+    """親が create_session で付けた題は会話ログに無く、返事の差し戻しが照らせない＝付け直させる。
+    子の窓かは頼みの文（写し）と頼みの行の記録（別の窓から来た）の両方で決める。"""
+    log = tmp_path / "child.jsonl"
+    row = {"type": "user", "message": {"content": "作り物を見て（親窓 session_X の子）"}, "origin": {"kind": "task-notification"}}
+    log.write_text(json.dumps(row, ensure_ascii=False) + "\n", encoding="utf-8")
+    text = sw.remind({"prompt": "作り物を見て（親窓 session_X の子）", "transcript_path": str(log)}, CLOUD)
     assert text and "set_session_title" in text and "付け直す" in text
+
+
+@pytest.mark.parametrize("origin", [None, {"kind": "human"}])
+def test_注入_人が貼った引き継ぎの文では子窓の知らせにしない(tmp_path, origin):
+    """オーナーが引き継ぎの文を貼った窓（記録が人・記録なし）は、文に親窓が在っても子の窓の知らせにしない。"""
+    log = tmp_path / "owner.jsonl"
+    row = {"type": "user", "message": {"content": "作り物を見て（親窓 session_X の子）"}}
+    if origin:
+        row["origin"] = origin
+    log.write_text(json.dumps(row, ensure_ascii=False) + "\n", encoding="utf-8")
+    text = sw.remind({"prompt": row["message"]["content"], "transcript_path": str(log)}, CLOUD)
+    assert text and "付け直す" not in text
+    assert sw.remind({"prompt": row["message"]["content"]}, CLOUD) and "付け直す" not in sw.remind(
+        {"prompt": row["message"]["content"]}, CLOUD)
 
 
 # ── 返事の中身の差し戻し（平文の問い・中の言葉・時刻・完了の言い切り・題の材料・秘密）──

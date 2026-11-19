@@ -24,8 +24,10 @@
   neighbor … 上の inner・secret の正本（隣の plugin guard・公開の検査）が見つからず照らせないか
 
 窓の種類＝「オーナーが相手の窓か」（この窓が誰に返すか）。誰が立てたか（親の窓の有無・
-parent_session_id・origin）では決めない。会話ログの最初の頼みの文に書かれた返し先だけで決める:
+parent_session_id）では決めない。会話ログの最初の頼みの文に書かれた返し先で決める:
   `返し先=オーナー` → 🙋 ／ `返し先=session_…` → 🤖 ／ `（親窓 session_… の子）` → 🤖 ／ 書いていない → 決めない。
+  別の窓を指す返し先は手で書いた写しなので、頼みの行の記録（origin.kind が人でない・promptSource が system＝
+  別の窓や仕組みから来た頼み）と合う時だけ数える。オーナーが引き継ぎの文を貼った窓（記録は人）は 🤖 にしない。
 
 使い方:
   python3 session_watch.py <transcript.jsonl>  … 拾った物を 1 行ずつ出す（拾えば exit 1）
@@ -115,6 +117,8 @@ CARDS = ("✅", "❓", "⏳", "🛑")
 # 最初の頼みの文に書く返し先（型はここ 1 か所）。
 RETURN_TO = re.compile(r"返し先\s*[=＝:：]\s*(オーナー|session_[A-Za-z0-9]+)")
 CHILD_OF = re.compile(r"（親窓\s*session_[A-Za-z0-9]+\s*の子）")
+# 人が打った頼みの記録（会話ログの行の origin.kind。plugin guard の guard_common.HUMAN_ORIGINS と同じ線）
+HUMAN_ORIGINS = ("human", "person")
 
 # 締めの 2 行の型（ここ 1 か所）。前後の ` と ** は許す。
 CLOSE_AI = re.compile(r"^[`*]*AI がこの後やること: ?\S")
@@ -191,6 +195,16 @@ def text_of(row):
     return ""
 
 
+def seeded_by_record(row):
+    """頼みの行が人の打った物でなく別の窓・仕組みから来た事を、行の記録が示すか。記録が無ければ False。"""
+    if not isinstance(row, dict):
+        return False
+    origin = row.get("origin")
+    if isinstance(origin, dict) and isinstance(origin.get("kind"), str) and origin["kind"]:
+        return origin["kind"] not in HUMAN_ORIGINS
+    return row.get("promptSource") == "system"
+
+
 def is_owner_text(row):
     """ターンの境界になる頼みの文か（道具の返り・見張りの差し戻し〔isMeta〕を除く）。"""
     if row.get("type") != "user" or row.get("isMeta") or "toolUseResult" in row:
@@ -232,6 +246,7 @@ class Log(object):
     def __init__(self, rows):
         self.events = []        # 出た順: ("title", str) / ("ask", [問い]) / ("answer", {問い: 答え}) / ("owner", str)
         self.first_prompt = ""
+        self.first_seeded = False   # 最初の頼みの行の記録が、人でなく別の窓・仕組みから来た頼みを示すか
         self.cloud = False
         turn_start = 0
         for row in rows:
@@ -241,6 +256,7 @@ class Log(object):
             if is_owner_text(row):
                 if not self.first_prompt:
                     self.first_prompt = text_of(row)
+                    self.first_seeded = seeded_by_record(row)
                 self.events.append(("owner", text_of(row)))
                 turn_start = len(self.events)
                 continue
@@ -304,12 +320,15 @@ def _norm(text):
 
 
 # ── 窓の種類と題 ──────────────────────────────────────────────
-def kind_of(first_prompt):
-    """最初の頼みの文に書かれた返し先で種類を決める。書いていなければ None（決めない）。"""
+def kind_of(first_prompt, seeded=False):
+    """最初の頼みの文に書かれた返し先で種類を決める。書いていなければ None（決めない）。
+    別の窓を指す返し先（写し）は、頼みの行の記録が人の打った物でない時（seeded）だけ数える。"""
     m = RETURN_TO.search(first_prompt or "")
-    if m:
-        return HUMAN if m.group(1) == "オーナー" else AI
-    if CHILD_OF.search(first_prompt or ""):
+    if m and m.group(1) == "オーナー":
+        return HUMAN
+    if not seeded:
+        return None
+    if m or CHILD_OF.search(first_prompt or ""):
         return AI
     return None
 
@@ -483,7 +502,7 @@ def hedge_hits(body):
 
 def ai_window(log):
     """返し先が別の窓の窓（🤖）か。最初の頼みの返し先か、最後の題の種類で決める。"""
-    if kind_of(log.first_prompt) == AI:
+    if kind_of(log.first_prompt, log.first_seeded) == AI:
         return True
     last = None
     for k, v in log.events:
@@ -569,7 +588,7 @@ def check(log, closing=None, data=None):
     """拾った物を [(code, 説明)] で返す。closing を渡せば、それを締めの返事として見る（Stop の hook）。
     data は hook の入力（値の表の在り処＝cwd を読む）。"""
     found = []
-    kind = kind_of(log.first_prompt)
+    kind = kind_of(log.first_prompt, log.first_seeded)
     closing = log.closing_text() if closing is None else closing
     _, close = split_close(closing)
 
@@ -753,7 +772,7 @@ def remind(data, env=None):
 def remind_title(log, data):
     if titled(log):
         return None
-    kind = kind_of(log.first_prompt or str(data.get("prompt") or ""))
+    kind = kind_of(log.first_prompt, log.first_seeded) if log.first_prompt else kind_of(str(data.get("prompt") or ""))
     if kind == AI:
         return REMIND_CHILD   # 親が create_session で付けた題は会話ログに無い＝返事の差し戻しで照らせないので、付け直させる
     which = ("%s（最初の頼みの返し先から）" % kind) if kind else (
