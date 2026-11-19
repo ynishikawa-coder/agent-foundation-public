@@ -381,23 +381,33 @@ QUOTED = re.compile(r"「[^」\n]*」|『[^』\n]*』|\"[^\"\n]*\"")
 # 時刻（核 §6）: 人に見せる時刻は日本時間。印は「日本時間」「JST」「+09:00」。
 CLOCK = re.compile(r"(?<![\d:])(\d{1,2})[:：](\d{2})(?:[:：]\d{2})?(?:\.\d+)?(?![\d])")
 ZONE = re.compile(r"^\s*(Z(?![A-Za-z])|UTC|GMT|[+-]\d{2}:?\d{2}(?!\d))")
-JST_AFTER = re.compile(r"^\s*(?:[〜~\-–ー]\s*(?:\d{1,2}/\d{1,2}\s*)?\d{1,2}[:：]\d{2}\s*)?[（(]?\s*(日本時間|JST|\+09:?00)")
+JST_LINE = re.compile(r"日本時間|JST|\+09:?00")      # 同じ行に印があれば、その行の印の無い時刻は日本時間と読む
 DATE_BEFORE = re.compile(r"(\d{4}[-/年]\d{1,2}[-/月]\d{1,2}日?|(?<![\d/])\d{1,2}/\d{1,2}|\d{1,2}月\d{1,2}日)"
                          r"\s*(?:[（(][月火水木金土日][)）])?\s*T?\s*$")
-JST_BEFORE = re.compile(r"(日本時間|JST)\s*[:：]?\s*$")
 
 # 完了の言い切り（核 §7）: ✅ の返事で、終わりの語と同じ文に言い切らない語。
 HEDGE = re.compile(r"ほぼ|大体|だいたい|たぶん|多分|おそらく|恐らく|はず(?![しすさせれ])|と思(?:う|い|われ)|かもしれ")
 FINISH = re.compile(r"終わ|済ん|済み|完了|直っ|直り|直せ|直した|でき|出来|通っ|通る|通り|緑|動い|動く|効い|効く|揃っ|片付")
+AHEAD = re.compile(r"次の|次回|来週|来月|明日|今後|あとで|後で|予定|見込み")   # 先の事の見込みは完了の言い切りでない
 SENTENCE = re.compile(r"[^。！？!?\n]+")
 
 
 def reply_exempt(data=None):
-    """値の表の session_watch.reply_exempt（行に当てる正規表現の並び）。当たる行は inner・time・done で見ない。"""
+    """値の表の session_watch.reply_exempt（行に当てる正規表現の並び）。当たる行は inner・time・done で見ない。
+    (通る形の並び, 通らない形の並び)。通らない形（正規表現として読めない）は捨てる＝1 つの誤りで照らしを全部止めない。"""
     G = neighbor("guard_common")
     got = G.table("session_watch", data) if G else {}
     pats = got.get("reply_exempt") if isinstance(got, dict) else None
-    return [p for p in pats or [] if isinstance(p, str) and p]
+    ok, bad = [], []
+    for p in pats or []:
+        if not isinstance(p, str) or not p:
+            continue
+        try:
+            re.compile(p)
+            ok.append(p)
+        except re.error:
+            bad.append(p)
+    return ok, bad
 
 
 def prose(text, exempt=()):
@@ -421,8 +431,7 @@ def time_hits(body):
             z = ZONE.match(after)
             if z and not re.match(r"^\s*\+09:?00", after):
                 hits.append((m.group(0) + z.group(1), "日本時間でない"))
-            elif not z and DATE_BEFORE.search(before) and not JST_AFTER.match(after) \
-                    and not JST_BEFORE.search(DATE_BEFORE.sub("", before)):
+            elif not z and DATE_BEFORE.search(before) and not JST_LINE.search(ln):
                 hits.append(((DATE_BEFORE.search(before).group(1) + " " + m.group(0)).strip(), "日本時間の印が無い"))
     return hits
 
@@ -432,7 +441,7 @@ def hedge_hits(body):
     out = []
     for sent in SENTENCE.findall(QUOTED.sub(" ", body)):
         h = HEDGE.search(sent)
-        if h and FINISH.search(sent):
+        if h and FINISH.search(sent) and not AHEAD.search(sent):
             out.append(sent.strip()[:40])
     return out
 
@@ -453,39 +462,56 @@ def words(log, closing, data=None):
     found = []
     if not closing.strip():
         return found
-    exempt = reply_exempt(data)
+    # 照らしは札ごとに分けて走らせる: 1 つ（値の表の誤った形・隣の正本の故障）が壊れても、他の札は黙って抜けない。
+    #   壊れた札は neighbor で名指す（AI には直せない＝窓ごとに 1 回だけ差し戻す）。
+    def part(name, fn):
+        try:
+            fn()
+        except Exception as e:      # noqa: BLE001
+            found.append(("neighbor", "%s の照らしが壊れて照らせない（%s: %s）" % (name, type(e).__name__, str(e)[:60])))
+
+    exempt, bad = reply_exempt(data)
+    if bad:
+        found.append(("neighbor", "値の表 session_watch.reply_exempt に正規表現として読めない形がある（捨てて照らした）: %s"
+                      % "／".join(b[:30] for b in bad[:3])))
     body = prose(closing, exempt)
 
-    PG = neighbor("public_guard")
-    if PG is None or not hasattr(PG, "secret_labels"):
-        found.append(("neighbor", "秘密の形の正本（公開の検査 public-guard/guard.py）が見つからず、返事の鍵を照らせない"))
-    else:
+    def secret():
+        PG = neighbor("public_guard")
+        if PG is None or not hasattr(PG, "secret_labels"):
+            found.append(("neighbor", "秘密の形の正本（公開の検査 public-guard/guard.py）が見つからず、返事の鍵を照らせない"))
+            return
         labels = PG.secret_labels(closing)
         if labels:
             found.append(("secret", "返事に秘密の形がある（%s）。値を消し、在り処の名だけを書く（核 §1）" % "・".join(labels)))
 
-    if not ai_window(log):
-        A = neighbor("ask_shape")
-        G = neighbor("guard_common")
-        if A is None or not hasattr(A, "inner_terms"):
-            found.append(("neighbor", "中の言葉の正本（plugin guard の ask_shape）が見つからず、返事の言葉を照らせない"))
-        else:
-            vals = G.values(data) if G else {}
-            hits = A.inner_terms(body, vals, A.REPLY_KINDS)
-            if hits:
-                shown = "／".join("%s「%s」" % (n, t[:30]) for n, t in hits[:6])
-                found.append(("inner", "人への返事に AI の中の言葉らしい字: %s%s" % (
-                    shown, "（ほか %d 件）" % (len(hits) - 6) if len(hits) > 6 else "")))
+    def inner():
+        if ai_window(log):
+            return
+        A, G = neighbor("ask_shape"), neighbor("guard_common")
+        if A is None or not hasattr(A, "inner_terms") or G is None:
+            found.append(("neighbor", "中の言葉の正本（plugin guard の ask_shape・guard_common）が見つからず、返事の言葉を照らせない"))
+            return
+        hits = A.inner_terms(body, G.values(data), A.REPLY_KINDS)
+        if hits:
+            shown = "／".join("%s「%s」" % (n, t[:30]) for n, t in hits[:6])
+            found.append(("inner", "人への返事に AI の中の言葉らしい字: %s%s" % (
+                shown, "（ほか %d 件）" % (len(hits) - 6) if len(hits) > 6 else "")))
 
-    th = time_hits(body)
-    if th:
-        found.append(("time", "時刻が日本時間の形でない: %s" % "／".join("「%s」%s" % (t, why) for t, why in th[:4])))
+    def time():
+        th = time_hits(body)
+        if th:
+            found.append(("time", "時刻が日本時間の形でない: %s" % "／".join("「%s」%s" % (t, why) for t, why in th[:4])))
 
-    lines = [ln.strip() for ln in closing.splitlines() if ln.strip()]
-    if lines and re.match(r"^[#>*\s]*✅", lines[0]):
-        hh = hedge_hits(body)
-        if hh:
-            found.append(("done", "✅ の返事に、終わったと言い切らない語がある: %s" % "／".join("「%s」" % x for x in hh[:3])))
+    def done():
+        lines = [ln.strip() for ln in closing.splitlines() if ln.strip()]
+        if lines and re.match(r"^[#>*\s]*✅", lines[0]):
+            hh = hedge_hits(body)
+            if hh:
+                found.append(("done", "✅ の返事に、終わったと言い切らない語がある: %s" % "／".join("「%s」" % x for x in hh[:3])))
+
+    for name, fn in (("secret", secret), ("inner", inner), ("time", time), ("done", done)):
+        part(name, fn)
     return found
 
 

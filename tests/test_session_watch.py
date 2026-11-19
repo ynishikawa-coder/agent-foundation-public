@@ -522,6 +522,10 @@ GOOD_REPLIES = [
     owner_reply("期限は 11月20日 18:00 日本時間。"),
     owner_reply("済んだ。思ったより早く終わった。"),
     owner_reply("Wi-Fi と PDF の作り物を直した。"),
+    owner_reply("会議は 11月19日 10:00 から（日本時間）。"),
+    owner_reply("期限は 2026-11-19 17:00 まで、日本時間で。"),
+    owner_reply("日本時間で 2026-11-19 17:00 まで。"),
+    owner_reply("作り物を直した。次の版はたぶん来週できる。"),
     # 鍵の在り処の名だけ
     owner_reply("鍵は環境の値 GITHUB_TOKEN に在る（値は書かない）。"),
     # 一言の返事
@@ -608,3 +612,22 @@ def test_クラウドの窓で題が会話ログに無ければ差し戻し_付�
                                                                       AF_SESSION_WATCH_TMP=str(tmp_path / "b"))) is None
     local = [r for r in rs if "claude-code-remote" not in json.dumps(r, ensure_ascii=False)]   # 題の道具を持たない窓
     assert sw.stop(stop_data(OK_REPLY, owner_log(tmp_path, local)), stop_env(tmp_path, AF_SESSION_WATCH_TMP=str(tmp_path / "c"))) is None
+
+
+def test_値の表に読めない形があっても他の札は黙って抜けず_読めない事を知らせる(tmp_path, monkeypatch):
+    """1 つの誤った正規表現で差し戻しが全部抜ける（hook が例外を受けて黙って通す）形に戻すと赤。"""
+    table = tmp_path / "values.json"
+    table.write_text(json.dumps({"session_watch": {"reply_exempt": ["(", "^元の記録:"]},
+                                 "guard": {"ask_term_allow": ["["]}}), encoding="utf-8")
+    monkeypatch.setenv("SKILL_VALUES", str(table))
+    got = stopped(tmp_path, owner_reply("鍵は " + FAKE_KEY, "#616 を 08:53 UTC に入れた。", "元の記録: 2026-11-19T08:53:00Z"))
+    assert {"secret", "time", "neighbor"} <= set(got)
+    reason = sw.stop(stop_data(owner_reply("鍵は " + FAKE_KEY), owner_log(tmp_path)),
+                     stop_env(tmp_path, AF_SESSION_WATCH_TMP=str(tmp_path / "b")))
+    assert "reply_exempt に正規表現として読めない形" in reason and "- secret:" in reason
+
+
+def test_値の表の読み口が無ければ中の言葉を黙って抜かない(tmp_path, monkeypatch):
+    monkeypatch.setattr(sw, "_loaded", dict(sw._loaded, guard_common=None))
+    sw.neighbor("ask_shape"); sw.neighbor("public_guard")
+    assert "neighbor" in stopped(tmp_path, owner_reply("#616 を入れた。"))
