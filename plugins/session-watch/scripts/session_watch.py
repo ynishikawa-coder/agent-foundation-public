@@ -6,7 +6,9 @@
   close    … 返事の最後が締めの 2 行（`AI がこの後やること: …`／`あなたがやること: …`）か。あなたがやることが「なし」なら窓を閉じてよいかを、
              「なし」でなければ「これが済むまで <何> に進めません」を書いているか
   card     … 返事の 1 行目が 4 札（✅❓⏳🛑）のどれかで始まるか
-  plain    … 答えを求める問いを、選択肢モーダル（AskUserQuestion）でなく平文で書いたか
+  plain    … 答えを求める問いを、選択肢モーダル（AskUserQuestion）でなく平文で書き、AI の今の読みも添えていないか
+             （開いた問い＝意味・考え・前提はチャットで聞いてよい。その時は「AI の今の読み」を添える・細目 §4）
+  idk      … 選択肢モーダルの問いに「分からない」の選択肢が無いか
   unanswered … モーダルで出した問いに、答えが返らないまま残っている物があるか
   rest     … 締めの `AI がこの後やること` が「なし」でないのに、この窓で残りを動かす手（子窓・送る・見張り・後で起こす・背で走る助手）を一度も打っていないか
   hand     … 手の窓（題 `🙋⏳ 手: <何を>`）の返事に、目的・手順・済んだ目印・済んだ後が揃っているか。
@@ -61,6 +63,10 @@ STRONG = re.compile(
     r"|決めてください|選んでください|返してください|返事をください|OK／NG|OK/NG|ご判断|どちらに|どちらが"
     r"|どちらで|教えてください(?!.*(なら|たら)))")
 COND = re.compile(r"(なら|たら|れば|場合)[^。]*(教えて|声をかけて|言って)")
+# 開いた問いをチャットで聞く時に添える AI の読み（細目 §4）。これが在る平文の問いは拾わない。
+READING = re.compile(r"AI の(今の)?読み")
+# 選択肢モーダルのどの問いにも置く選択肢（細目 §4）。
+IDK = "分からない"
 CARD_LINE = re.compile(r"^[#>*\s]*(✅|❓|⏳|🛑)")
 
 # AI がこの後やることを動かす手（子窓や背で走る助手に頼む・PR を見張る・自分を後で起こす）。名の末尾で見る。
@@ -183,8 +189,12 @@ class Log(object):
                 if name.endswith(SET_TITLE_SUFFIX):
                     self.events.append(("title", str(inp.get("title") or "")))
                 elif name == ASK:
-                    qs = [_norm(q.get("question")) for q in inp.get("questions") or [] if isinstance(q, dict)]
+                    items = [q for q in inp.get("questions") or [] if isinstance(q, dict)]
+                    qs = [_norm(q.get("question")) for q in items]
                     self.events.append(("ask", [q for q in qs if q]))
+                    lack = [_norm(q.get("question")) for q in items if not has_idk(q)]
+                    if lack:
+                        self.events.append(("noidk", lack))
                 else:
                     self.events.append(("tool", name))
                     if moves(name, inp):
@@ -203,6 +213,14 @@ class Log(object):
 
     def turn_asked(self):
         return any(k == "ask" for k, _ in self.turn)
+
+
+def has_idk(question):
+    """選択肢の中に「分からない」が在るか。"""
+    for o in question.get("options") or []:
+        if isinstance(o, dict) and IDK in str(o.get("label") or ""):
+            return True
+    return False
 
 
 def _norm(text):
@@ -357,10 +375,17 @@ def check(log):
                                   "後で起こすのどれかを打ってから締める）: %s" % close.splitlines()[0][:60]))
 
     # 平文の問い（このターンにモーダルが無いのに、問いで締めた）
-    if closing.strip() and not log.turn_asked() and is_plain_question(closing):
+    if closing.strip() and not log.turn_asked() and is_plain_question(closing) \
+            and not READING.search(split_close(closing)[0]):
         body, _ = split_close(closing)
         last = [x.strip() for x in strip_code(body).splitlines() if x.strip()]
-        found.append(("plain", "問いを平文で書いた（モーダルで聞くか、推奨で決めて進む）: %s" % (last[-1][-60:] if last else "")))
+        found.append(("plain", "問いを平文で書いた（選ぶ問いはモーダルで、開いた問いは AI の今の読みを添えて聞くか、推奨で決めて進む）: %s" % (last[-1][-60:] if last else "")))
+
+    # 「分からない」の無いモーダルの問い（細目 §4）
+    for k, v in log.events:
+        if k == "noidk":
+            for q in v:
+                found.append(("idk", "選択肢の画面の問いに「分からない」の選択肢が無い（足して出す）: %s" % q[:60]))
 
     # 答えの無い問い（一度も答えが返っていない問い）
     asked, answered = [], set()

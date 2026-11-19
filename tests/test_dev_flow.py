@@ -61,17 +61,20 @@ def test_土台の中で閉じる():
     assert not hits, hits
 
 
-def test_整地は根治の_4_つの問いを持ち_注入の試験と残る穴の欄が在る():
+def test_整地は根治の_4_段を持ち_解決の段に注入の試験と残る穴が在る():
     skill_dir = PLUGIN / "skills" / "preimpl-cleanup"
     tpl = (skill_dir / "整地受領証.template.md").read_text(encoding="utf-8")
     heads = [l for l in tpl.splitlines() if l.startswith("## ")]
-    assert heads == ["## 1. 構造の原因", "## 2. 同じ原因から起きている他の問題",
-                     "## 3. 構造の変え方（足す物・畳む物）", "## 4. 注入の試験と残る穴"], heads
+    assert heads == ["## 1. 問題", "## 2. 原因と同じ原因の他の問題",
+                     "## 3. 解決（足す物・畳む物・注入の試験と残る穴）", "## 4. 未来"], heads
     for hole in ["手で写す所", "選べる値の外が入る所", "黙って進む所", "正しい道を通らずに出る所", "申告で済む確かめ"]:
         assert hole in tpl, f"残る穴の行が無い: {hole}"
     skill = (skill_dir / "SKILL.md").read_text(encoding="utf-8")
-    assert "4 つの問い" in frontmatter(skill)["description"]
-    assert "3 つの問い" not in skill and "3 欄の" not in skill, "古い 3 問の言い回しが残る"
+    assert "4 段" in frontmatter(skill)["description"]
+    assert "読むだけの助手" in skill and "自分の読みや直し方は渡さない" in skill, "同じ原因の他の問題を別の目が探す段が無い"
+    assert "試験を足す段ではない" in skill or "試験の名を並べる欄ではない" in skill, "未来が試験の段に縮んでいる"
+    for old in ["3 つの問い", "4 つの問い", "構造の原因"]:
+        assert old not in skill and old not in tpl, f"古い根治の言い回しが残る: {old}"
 
 
 def test_規律を足す時も止める物かの後に誤りが入れない形と注入の試験を書く():
