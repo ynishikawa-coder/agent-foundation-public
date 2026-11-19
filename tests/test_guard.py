@@ -18,7 +18,7 @@ def env(tmp_path):
     proj = tmp_path / "proj"
     proj.mkdir()
     (tmp_path / "scratch").mkdir()
-    e = {k: v for k, v in os.environ.items() if not k.startswith(("AF_", "SKILL_VALUES", "CLAUDE_PROJECT_DIR"))}
+    e = {k: v for k, v in os.environ.items() if not k.startswith(("AF_", "_AF_", "SKILL_VALUES", "CLAUDE_PROJECT_DIR"))}
     e.update({"AF_GUARD_TMP": str(tmp_path / "tmp"), "AF_GUARD_STATE": str(tmp_path / "state"),
               "CLAUDE_PROJECT_DIR": str(proj), "PYTHONDONTWRITEBYTECODE": "1",
               "TMPDIR": str(tmp_path / "scratch")})     # 作業場を tmp_path の下の 1 か所に絞る（repo は作業場の外）
@@ -26,7 +26,7 @@ def env(tmp_path):
 
 
 def hook(env, event, payload):
-    p = subprocess.run([sys.executable, str(GUARD), event], input=json.dumps(payload, ensure_ascii=False),
+    p = subprocess.run([sys.executable, env.get("_AF_TEST_GUARD") or str(GUARD), event], input=json.dumps(payload, ensure_ascii=False),
                        capture_output=True, text=True, env=env, timeout=60)
     assert p.returncode == 0, p.stderr
     out = p.stdout.strip()
@@ -352,6 +352,18 @@ def filled_qa_page(dest="artifact"):
     return mod.filled_template(dest)
 
 
+def without_check(env, tmp_path, ver="v1", docs_kit_ver=None):
+    """guard を入れた plugin の形（cache/<市場>/guard/<版>）に写して回す env。docs-kit は docs_kit_ver の版にだけ置く（None なら置かない）。
+    hook の入口は _AF_TEST_GUARD（試験の中だけの差し替え・hook の本体は読まない）。"""
+    market = tmp_path / "cache" / "market"
+    root = market / "guard" / ver
+    if not root.exists():
+        shutil.copytree(PLUGIN, root)
+    if docs_kit_ver:
+        shutil.copytree(ROOT / "plugins" / "docs-kit", market / "docs-kit" / docs_kit_ver, dirs_exist_ok=True)
+    return dict(env, _AF_TEST_GUARD=str(root / "scripts" / "guard.py"))
+
+
 def publish(path, cwd="", **extra):
     return {"tool_name": "Artifact", "cwd": cwd, "tool_input": {"file_path": str(path), **extra}}
 
@@ -399,7 +411,7 @@ def test_qa_page_型の印があれば中身が崩れていても止まる(env, 
 def test_qa_page_radioと答えを外へ出す仕組みが揃えば問いのページと見る(env, tmp_path, body):
     page = tmp_path / "poll.html"
     page.write_text(body, encoding="utf-8")
-    env = dict(env, AF_QA_CHECK=str(tmp_path / "無い.mjs"))
+    env = without_check(env, tmp_path)
     assert "見つからず" in deny_reason(env, publish(page))
 
 
@@ -417,14 +429,14 @@ def test_qa_page_radioと答えを外へ出す仕組みが揃えば問いのペ�
 def test_qa_page_問いのページでない物と_publish_でない物は見ない(env, tmp_path, name, body, extra):
     page = tmp_path / ("p.json" if body.startswith("{") else "p.html")
     page.write_text(body, encoding="utf-8")
-    env = dict(env, AF_QA_CHECK=str(tmp_path / "無い.mjs"))     # 見たら必ず止まる形にして、見ていない事を確かめる
+    env = without_check(env, tmp_path)     # 見たら必ず止まる形にして、見ていない事を確かめる
     assert not denied(env, publish(page, **extra)), name
 
 
 def test_qa_page_検査が無い時は止まる(env, tmp_path):
     page = tmp_path / "kakunin.html"
     page.write_text(STATE_PAGE, encoding="utf-8")
-    env = dict(env, AF_QA_CHECK=str(tmp_path / "無い.mjs"))
+    env = without_check(env, tmp_path)
     assert "緑を確かめられない" in deny_reason(env, publish(page))
 
 
@@ -436,32 +448,52 @@ def test_qa_page_値の表で外した_file_は見ない(env, tmp_path):
     (tmp_path / "quiz").mkdir()
     page = tmp_path / "quiz" / "q.html"
     page.write_text(STATE_PAGE, encoding="utf-8")
-    env = dict(env, AF_QA_CHECK=str(tmp_path / "無い.mjs"))
+    env = without_check(env, tmp_path)
     assert not denied(env, publish(page))
 
 
-def test_qa_page_入れた_plugin_の形でも検査を見つける(tmp_path):
+def _qa_page_mod():
     sys.path.insert(0, str(PLUGIN / "scripts"))
     try:
         import qa_page
     finally:
         sys.path.pop(0)
+    return qa_page
+
+
+def test_qa_page_入れた_plugin_の形では同じ版の検査だけを見つける(tmp_path):
+    qa_page = _qa_page_mod()
     rel = Path("skills") / "qa-html" / "check.mjs"
     for ver in ("aaa", "bbb"):
         (tmp_path / "market" / "docs-kit" / ver / rel).parent.mkdir(parents=True)
         (tmp_path / "market" / "docs-kit" / ver / rel).write_text("//", encoding="utf-8")
     guard_root = tmp_path / "market" / "guard" / "aaa"
     guard_root.mkdir(parents=True)
-    old = os.environ.pop("AF_QA_CHECK", None)
-    try:
-        assert qa_page.find_check(str(guard_root)) == str(tmp_path / "market" / "docs-kit" / "aaa" / rel)
-        other = tmp_path / "market" / "guard" / "ccc"         # 同じ版の docs-kit が無い時は新しい物
-        other.mkdir()
-        os.utime(tmp_path / "market" / "docs-kit" / "aaa" / rel, (1, 1))
-        assert qa_page.find_check(str(other)) == str(tmp_path / "market" / "docs-kit" / "bbb" / rel)
-    finally:
-        if old is not None:
-            os.environ["AF_QA_CHECK"] = old
+    assert qa_page.find_check(str(guard_root)) == str(tmp_path / "market" / "docs-kit" / "aaa" / rel)
+    # 注入: 同じ版の docs-kit が無く、別の版（新しい物）だけがある → 見つけない（前は新しい物で照らしていた）
+    other = tmp_path / "market" / "guard" / "ccc"
+    other.mkdir()
+    assert qa_page.find_check(str(other)) == ""
+
+
+def test_qa_page_path_を渡す口では別の検査に替えられない(tmp_path, monkeypatch):
+    qa_page = _qa_page_mod()
+    fake = tmp_path / "写した" / "check.mjs"
+    fake.parent.mkdir()
+    fake.write_text("process.exit(0)", encoding="utf-8")       # 何でも緑にする写し
+    monkeypatch.setenv("AF_QA_CHECK", str(fake))
+    assert qa_page.find_check() == str(ROOT / "plugins" / "docs-kit" / "skills" / "qa-html" / "check.mjs")
+
+
+@needs_node
+def test_qa_page_別の版の_docs_kit_しか無ければ止まる(env, tmp_path):
+    page = tmp_path / "確認.html"
+    page.write_text(filled_qa_page("artifact"), encoding="utf-8")
+    env = without_check(env, tmp_path, ver="v1", docs_kit_ver="v0")   # 別の版の docs-kit だけ（型と検査が食い違いうる）
+    why = deny_reason(env, publish(page))
+    assert "同じ版（v1）で見つからず" in why and "別の版の検査では照らさない" in why
+    env = without_check(env, tmp_path, ver="v1", docs_kit_ver="v1")   # 同じ版を入れれば通る
+    assert not denied(env, publish(page))
 
 
 # ── ask_shape（選択肢の画面の問いの形）──

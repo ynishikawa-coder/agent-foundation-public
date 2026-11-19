@@ -12,13 +12,14 @@
         ③ <script id="state"> などの JSON に、問いの並び（qs・questions）で、選択肢（options・choices）を持つ物
   JSON: 問いの並び（questions・qs）で、選択肢を持つ物（Artifact 型へ渡す問いのデータ）
 検査が走らない（check.mjs が見つからない・node が無い・検査が壊れた）時も止める＝緑を確かめられない物は出さない。
-  check.mjs の在り処: 環境変数 AF_QA_CHECK → 同じ repo の plugins/docs-kit → 入れた plugin の docs-kit（同じ版を先に）。
+  check.mjs の在り処は guard と同じ commit の docs-kit だけ: 同じ repo の plugins/docs-kit か、入れた plugin の
+  cache/<市場>/docs-kit/<guard と同じ版>。別の版の docs-kit・path を渡す口（前の AF_QA_CHECK）は使わない＝型と検査の版が
+  食い違ったまま判定しない（同じ版が無ければ止めて、docs-kit を同じ版で入れ直すよう名指しする）。
 問いのページでないのに止まる時は、repo の値の表 guard.qa_page_exempt（file の path に当てる正規表現の並び）で外す
 （値の表は PR とレビューを通るので、窓の中の一存では外れない）。
 """
 from __future__ import annotations
 
-import glob
 import json
 import os
 import re
@@ -80,24 +81,18 @@ def why_question_page(path, raw):
 
 
 def find_check(guard_root=None):
-    """check.mjs の path か ""。"""
-    env = os.environ.get("AF_QA_CHECK") or ""
-    if env:
-        return env if os.path.isfile(env) else ""
+    """guard と同じ commit の docs-kit の check.mjs の path か ""（別の版へは降りない）。"""
     here = guard_root or os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     rel = os.path.join("skills", "qa-html", "check.mjs")
-    # repo の形: plugins/guard と plugins/docs-kit が隣
+    # repo の形: plugins/guard と plugins/docs-kit が隣（marketplace の clone も同じ形）
     cand = os.path.join(os.path.dirname(here), "docs-kit", rel)
     if os.path.isfile(cand):
         return cand
-    # 入れた plugin の形: cache/<市場>/guard/<版> と cache/<市場>/docs-kit/<版>。同じ版を先に、無ければ新しい物
+    # 入れた plugin の形: cache/<市場>/guard/<版> と cache/<市場>/docs-kit/<版>。版の名は入れた commit＝同じ名だけ
     ver = os.path.basename(here)
     market = os.path.dirname(os.path.dirname(here))
     same = os.path.join(market, "docs-kit", ver, rel)
-    if os.path.isfile(same):
-        return same
-    found = sorted(glob.glob(os.path.join(market, "docs-kit", "*", rel)), key=os.path.getmtime, reverse=True)
-    return found[0] if found else ""
+    return same if os.path.isfile(same) else ""
 
 
 def _resolve(path, data):
@@ -148,7 +143,9 @@ def check(data, vals):
     chk = find_check()
     node = shutil.which("node")
     if not chk:
-        return reason(path, why, ["  検査（docs-kit の qa-html の check.mjs）が見つからず、緑を確かめられない。plugin docs-kit を入れる（または AF_QA_CHECK に path）"])
+        here = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        return reason(path, why, ["  検査（docs-kit の qa-html の check.mjs）が guard と同じ版（%s）で見つからず、緑を確かめられない。"
+                                  "別の版の検査では照らさない。plugin docs-kit を guard と同じ版で入れ直す（claude plugin install docs-kit@<市場>）" % os.path.basename(here)])
     if not node:
         return reason(path, why, ["  node が無く、検査（check.mjs）を走らせられない。node を入れる"], chk)
     try:
