@@ -1,6 +1,7 @@
 #!/usr/bin/env node
-// qa-html の確認ページの検査（外部依存ゼロ・node だけで動く）。決まりの表はこのファイルの頭の RULES の 1 か所（なぜ聞くかの 5 文だけは SKILL.md の表を直に読む）。
-//   repo ごとに足す語・上限は repo の根の config/skill-values.json の docs-kit.qa-html.internal_words・limits。
+// qa-html の確認ページの検査（外部依存ゼロ・node と python3 で動く）。決まりの表はこのファイルの頭の RULES の 1 か所（なぜ聞くかの 5 文だけは SKILL.md の表を直に読む）。
+//   repo ごとに足す語・上限は repo の根の config/skill-values.json の docs-kit.qa-html.internal_words・limits
+//   （表の探し方と鍵の一覧は土台の 1 本の口 ../../lib/skill_values.py が持つ）。
 // 赤にする物（形の約束は SKILL.md §型の約束）:
 //   型: 宛先の印（data-dest＝send・copy・artifact）が無い／qa:css・qa:js・qa:foot が型（references/template.html）と違う
 //     （qa:foot は「この後のこと」だけ差してよい）／型の外に許す物の表（ALLOW）に無い要素・属性・URL を書いた
@@ -38,7 +39,7 @@
 //                                           知らない形・知らない鍵・欠けた鍵・形の違う値は赤＝写した古い形のままなら止まる
 import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 // ── 問いの決まりの表（1 か所）。会社ごとに足す語は config/skill-values.json の docs-kit.qa-html.internal_words
@@ -210,28 +211,29 @@ const UNKNOWN = RULES.unknown.value;
 const WHYS = Object.keys(RULES.why);
 const TEMPLATE = fileURLToPath(new URL("./references/template.html", import.meta.url));
 
-// 会社の表（config/skill-values.json）を、渡した path か、ファイルの dir と今の dir から上へ探す。
-export function findValues(...starts) {
-  for (const s of starts.filter(Boolean)) {
-    let d = resolve(s);
-    for (;;) {
-      const p = join(d, "config", "skill-values.json");
-      if (existsSync(p)) return p;
-      const up = dirname(d);
-      if (up === d) break;
-      d = up;
+// 会社の表（config/skill-values.json）の docs-kit.qa-html の欄。探し方と鍵の一覧は土台の 1 本の口（plugin の lib/skill_values.py
+// ＝正本 skill-values/ への symlink）が持つ＝ここに写さない。知らない鍵・畳んだ鍵・型の違う値は { error } で名指しする（黙って捨てない）。
+const VALUES_PY = fileURLToPath(new URL("../../lib/skill_values.py", import.meta.url));
+export function loadValues({ explicit = null, starts = [] } = {}) {
+  const argv = [VALUES_PY, "section", "docs-kit", "qa-html"];
+  if (explicit) argv.push("--values", explicit);
+  for (const s of starts.filter(Boolean)) argv.push("--start", s);
+  const r = spawnSync("python3", argv, { encoding: "utf8" });
+  if (r.error) return { path: explicit, company: {}, error: `値の表を読む口（python3 ${VALUES_PY}）が走らない: ${r.error.message}` };
+  if (r.status !== 0) return { path: explicit, company: {}, error: String(r.stderr ?? "").trim() || `値の表を読む口が ${r.status} で終わった` };
+  const got = JSON.parse(r.stdout);
+  const company = got.values ?? {};
+  // limits・why の中の鍵は、この検査の表（RULES）が正本＝ここで照らす
+  const bad = [];
+  for (const k of ["limits", "why"]) {
+    for (const [kk, v] of Object.entries(company[k] ?? {})) {
+      if (kk.startsWith("_")) continue;
+      if (!(kk in RULES[k])) bad.push(`docs-kit.qa-html.${k}.${kk} は知らない鍵（効かない）。この欄の鍵: ${Object.keys(RULES[k]).join("・")}`);
+      else if (typeof v !== typeof RULES[k][kk]) bad.push(`docs-kit.qa-html.${k}.${kk} の型が違う（${typeof RULES[k][kk]} で書く）`);
     }
   }
-  return null;
-}
-
-function loadCompany(valuesPath) {
-  if (!valuesPath) return {};
-  try {
-    return JSON.parse(readFileSync(valuesPath, "utf8"))?.["docs-kit"]?.["qa-html"] ?? {};
-  } catch {
-    return {};
-  }
+  if (bad.length) return { path: got.path, company: {}, error: `値の表 ${got.path} に直す所がある:\n${bad.map((b) => `  - ${b}`).join("\n")}` };
+  return { path: got.path, company };
 }
 
 const mask = (s) => s.replace(/<!--[\s\S]*?(-->|$)/g, (m) => " ".repeat(m.length));
@@ -852,12 +854,14 @@ function checkRec(q, id, dest, format, limits, red) {
 }
 
 // ── 決まり: 問いの形（HTML でも JSON でも同じ物）を 1 か所で見る
-export function checkPage(page, { valuesPath = null, prior = null } = {}) {
-  const company = loadCompany(valuesPath);
+export function checkPage(page, { valuesPath = null, valuesStarts = [], values = null, prior = null } = {}) {
+  const loaded = values ?? loadValues({ explicit: valuesPath, starts: valuesStarts });
+  const company = loaded.company;
   const limits = { ...RULES.limits, ...(company.limits ?? {}) };
   const words = compileWords(company);
   const rx = (k) => new RegExp(RULES[k], k === "recommend" ? "iu" : "u");
   const red = [...page.shape];
+  if (loaded.error) red.push(loaded.error);
   const warn = [];
   const { dest, holes, questions: qs } = page;
 
@@ -1264,9 +1268,9 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
     }
   }
   // guard の qa_page は cwd をページの dir にして呼ぶ＝ページが repo の外（窓の scratchpad）でも値の表を見つけるため、窓の repo も起点に足す
-  const valuesPath = at("--values") ?? findValues(dirname(resolve(file)), process.cwd(), process.env.CLAUDE_PROJECT_DIR);
+  const values = loadValues({ explicit: at("--values"), starts: [dirname(resolve(file))] });
   const priorPath = at("--prior") ?? priorPathFor(file);
-  let opts = { valuesPath, priorPath, priorExplicit: args.includes("--prior") };
+  let opts = { values, priorPath, priorExplicit: args.includes("--prior") };
   if (args.includes("--prior-input") || args.includes("--run-prior")) {
     const page = readPage(file);
     if (page.error) {
@@ -1277,19 +1281,23 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
       console.log(JSON.stringify(priorInput(page), null, 2));
       process.exit(0);
     }
-    const cmd = String(loadCompany(valuesPath).prior_check_cmd ?? "").trim();
+    if (values.error) {
+      console.error(values.error);
+      process.exit(2);
+    }
+    const cmd = String(values.company.prior_check_cmd ?? "").trim();
     if (!cmd) {
       console.error("--run-prior: 値の表（config/skill-values.json）に docs-kit.qa-html.prior_check_cmd が無い");
       process.exit(2);
     }
-    const got = runPrior(page, cmd, { cwd: valuesPath ? dirname(dirname(resolve(valuesPath))) : process.cwd() });
+    const got = runPrior(page, cmd, { cwd: values.path ? dirname(dirname(resolve(values.path))) : process.cwd() });
     // 落ちた時も書き換える（前の回の結果を残すと、後でページの path だけで呼ぶ guard が古い結果で緑にする）
     writeFileSync(priorPath, JSON.stringify(got.raw ? { ...got.raw, page_version: page.version } : { error: got.error }, null, 2) + "\n");
-    opts = { valuesPath, prior: { ...got, from: `prior_check_cmd → ${priorPath}` } };
+    opts = { values, prior: { ...got, from: `prior_check_cmd → ${priorPath}` } };
   }
   const results = files.map((f) => {
-    const v = at("--values") ?? findValues(dirname(resolve(f)), process.cwd(), process.env.CLAUDE_PROJECT_DIR);
-    const o = f === file ? opts : { valuesPath: v, priorPath: priorPathFor(f), priorExplicit: false };
+    const o = f === file ? opts
+      : { values: loadValues({ explicit: at("--values"), starts: [dirname(resolve(f))] }), priorPath: priorPathFor(f), priorExplicit: false };
     return { file: resolve(f), ...checkFile(f, o) };
   });
   if (args.includes("--json")) console.log(JSON.stringify(results.length === 1 ? results[0] : results, null, 2));
