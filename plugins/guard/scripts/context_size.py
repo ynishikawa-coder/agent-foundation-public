@@ -11,7 +11,7 @@
 止めた文の最後には入口（guard.py）が、出し直すだけで済ませず原因を細目 §3「まず構造を疑う」で探す行を付ける。
 Stop（締めの差し戻し・オーナー同意 2026-11-19: 文で知らせるだけの所は AI だけ止めて書き直させる形にしてよい）:
   目安を越えた後、越えた行より後に引き継ぎの跡（値の表の context_handoff の跡の形に道具の名と入力の欄が当たる
-  道具の呼び出し〔形は guard_common の「跡の形」〕。既定は後継の窓を立てる・親の窓へ送る・引き継ぎの file を書く）が
+  道具の呼び出し〔形は guard_common の trace_matchers〕。既定は後継の窓を立てる・親の窓へ送る・引き継ぎの file を書く）が
   無いまま AI が締めようとしたら、
   decision=block で AI だけを差し戻し、引き継がせる。人の入力・操作は止めない（返事が届くのが引き継ぎの後になるだけ）。
   上限: 同じターンで context_stop_max 回（既定 2）まで。越えたら通して届ける（窓が回り続けない）。0 で差し戻さない。
@@ -95,11 +95,11 @@ def check(data, vals):
 
 # ── Stop: 目安を越えた後も引き継がずに締める AI を差し戻す ──
 def _handed(row, matchers):
-    return any(G.matches_tool(b, matchers) for b in G.tool_uses(row))
+    return any(m(b) for m in matchers for b in G.tool_uses(row))
 
 
 def handoff_state(tpath, limit, matchers):
-    """(目安を越えたか, 越えた後に引き継ぎの跡が在るか)。跡は道具の名と入力の欄で見る（guard_common の「跡の形」）。"""
+    """(目安を越えたか, 越えた後に引き継ぎの跡が在るか)。跡は道具の名と入力の欄で見る（guard_common の trace_matchers）。"""
     over, handed = False, False
     for row in G.iter_rows(tpath):
         if row.get("type") != "assistant":
@@ -149,7 +149,7 @@ def stop(data, vals):
     if cap <= 0:
         return ""
     limit = vals.get("context_limit") or G.DEFAULTS["context_limit"]
-    matchers, bad = G.tool_matchers(vals, "context_handoff")     # 壊れた形は跡に数えない（黙って通さない）
+    matchers, bad = G.trace_matchers(vals, "context_handoff")     # 壊れた形は跡に数えない（黙って通さない）
     try:
         if measure(tpath) < limit:     # 目安の手前（まとめ直して縮んだ後も）＝差し戻さない
             return ""

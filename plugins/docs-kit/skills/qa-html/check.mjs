@@ -1312,6 +1312,6 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
     if (results.some((r) => !r.ok)) console.log(ROOT_CAUSE);
     if (results.length > 1) console.log(`照らした file ${results.length}・赤 ${results.filter((r) => !r.ok).length}`);
   }
-  if (priorMark) (args.includes("--json") ? console.error : console.log)(priorMark);   // 最後の行（| tail でも残る）
+  if (priorMark) (args.includes("--json") ? console.error : console.log)(priorMark);   // 最後の行（guard の prior_ask はこの命令だけの呼び出しの返りの、最後の空でない行だけを見る）
   process.exit(results.every((r) => r.ok) ? 0 : 1);
 }

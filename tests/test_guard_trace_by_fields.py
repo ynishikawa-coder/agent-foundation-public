@@ -176,12 +176,11 @@ def test_引く命令の字を含むだけのBashは走らせた跡に数えな�
 MARKED = "🟢 緑  作り物.html（問い 2）\nprior-check: 2 件"     # check.mjs --run-prior が引き終えた時の返り
 
 RAN = [
-    ("前置きの環境変数と向け替え", "A=1 python3 tools/作り物の引く道具.py < q.json 2>&1"),
-    ("管の後", "cat q.json | python3 tools/作り物の引く道具.py"),
-    ("bash -c の中", "bash -lc 'cd /x; python3 tools/作り物の引く道具.py'"),
-    ("env・time・sudo の前置き", "sudo -u a env B=2 time python3 tools/作り物の引く道具.py"),
-    ("node に旗を付けて check.mjs", "node --no-warnings /x/qa-html/check.mjs p.html --run-prior 2>&1 | tail -3"),
-    ("改行で分けた 2 行目", "ls\nnode /x/check.mjs p.html --run-prior"),
+    ("前置きの環境変数と入力の向け替え", "A=1 python3 tools/作り物の引く道具.py < q.json"),
+    ("ヒアドキュメントで問いを渡す", "python3 tools/作り物の引く道具.py <<'EOF'\n{\"questions\": []}\nEOF"),
+    ("前の cd と &&", "cd /x && python3 tools/作り物の引く道具.py"),
+    ("node に旗を付けて check.mjs", "node --no-warnings /x/qa-html/check.mjs p.html --run-prior"),
+    ("前の cd と改行の 2 行目", "cd /x\nnode /x/check.mjs p.html --run-prior"),
 ]
 
 
@@ -209,7 +208,7 @@ FALSY_INPUT = [("並び", []), ("null", None), ("空の字", ""), ("空の {}", 
 @pytest.mark.parametrize("name,inp", FALSY_INPUT, ids=[c[0] for c in FALSY_INPUT])
 def test_跡の形のinputの偽の値は名だけの形に広げず名指す(env, tmp_path, name, inp):
     with pytest.raises(ValueError):
-        G.compile_matcher({"tool": "Bash", "input": inp})
+        G.trace_matcher({"tool": "Bash", "input": inp})
     lookup(env, tmp_path, [{"tool": "Bash", "input": inp}])
     why = deny_reason(env, ask_with(log(tmp_path, call("Bash", {"command": "ls"}))))
     assert "引いた跡が会話ログに無い" in why and "壊れた形" in why, why
@@ -269,7 +268,7 @@ def test_値の表の並びの鍵は全部壊れの名指しの分けに載る()
 
 
 def test_既定の引き継ぎの跡の形は全部読める():
-    ok, bad = G.tool_matchers(G.DEFAULTS, "context_handoff")
+    ok, bad = G.trace_matchers(G.DEFAULTS, "context_handoff")
     assert not bad and len(ok) == len(G.DEFAULTS["context_handoff"])
 
 
@@ -289,21 +288,22 @@ NOT_COUNTED = [
     ("ヒアドキュメントの本文に命令", [call("Bash", {"command": "cat > notes.md <<'EOF'\n%s\nEOF" % CMD}, out="")],
      None),
     ("ヒアドキュメントの本文に check.mjs", [call("Bash", {"command": "cat > a.md <<EOF\n%s\nEOF" % RUN}, out="")], None),
-    ("false && の後", [call("Bash", {"command": "false && " + CMD}, out="Exit code 1", err=True)], "条件の枝"),
-    ("cd && の後", [call("Bash", {"command": "cd /x && " + CMD})], "条件の枝"),
-    ("exit の後", [call("Bash", {"command": "exit 0; " + CMD}, out="")], "exit"),
-    ("改行で書いた if false の枝", [call("Bash", {"command": "if false\nthen\n%s\nfi" % CMD}, out="")], "制御の語"),
-    ("while false の中", [call("Bash", {"command": "while false\ndo\n%s\ndone" % CMD}, out="")], "制御の語"),
-    ("呼ばない関数の本体", [call("Bash", {"command": "f() {\n%s\n}" % CMD}, out="")], "括弧の組"),
+    ("false && の後", [call("Bash", {"command": "false && " + CMD}, out="Exit code 1", err=True)], "&&"),
+    ("exit の後", [call("Bash", {"command": "exit 0; " + CMD}, out="")], "命令 1 つだけの形でない"),
+    ("改行で書いた if false の枝", [call("Bash", {"command": "if false\nthen\n%s\nfi" % CMD}, out="")],
+     "命令 1 つだけの形でない"),
+    ("while false の中", [call("Bash", {"command": "while false\ndo\n%s\ndone" % CMD}, out="")], "命令 1 つだけの形でない"),
+    ("呼ばない関数の本体", [call("Bash", {"command": "f() {\n%s\n}" % CMD}, out="")], "関数の定義"),
     ("$(…) の中", [call("Bash", {"command": "x=$(%s)" % RUN}, out="")], "$(…)"),
     ("`…` の中", [call("Bash", {"command": "x=`%s`" % CMD}, out="")], None),
     ("shell への管", [call("Bash", {"command": "echo '%s' | bash" % CMD}, out=MARKED)], None),
     ("権限で拒まれた", [call("Bash", {"command": CMD}, out=DENIED, err=True)], "拒まれた"),
     ("hook に止められた check.mjs", [call("Bash", {"command": RUN}, out=BLOCKED, err=True)], "拒まれた"),
-    ("誤りで終わった命令", [call("Bash", {"command": CMD}, out="Exit code 1\nTraceback 作り物", err=True)], "0 でない"),
+    ("誤りで終わった命令", [call("Bash", {"command": CMD}, out="Exit code 1\nTraceback 作り物", err=True)], "Exit code 1"),
     ("返りの無い呼び出し", [use("Bash", {"command": CMD})], "無い"),
-    ("出力の無い命令（file へ向け替え）", [call("Bash", {"command": CMD + " > out.json"},
-                                               out="(Bash completed with no output)")], "出力が空"),
+    ("出力の無い命令", [call("Bash", {"command": CMD}, out="(Bash completed with no output)")], "出力が空"),
+    ("出力を file へ向け替え", [call("Bash", {"command": CMD + " > out.json"}, out="(Bash completed with no output)")],
+     "出力の向け替え"),
     ("引き終えた行の無い check.mjs", [call("Bash", {"command": RUN}, out="--run-prior: 値の表に無い")], "prior-check"),
     ("落ちた check.mjs", [call("Bash", {"command": RUN}, out="Exit code 2\n読めない", err=True)], "prior-check"),
     ("返りの tool_use_id が違う", [use("Bash", {"command": RUN}), result("toolu_別の呼び出し", MARKED)], "無い"),
@@ -323,7 +323,7 @@ COUNTED = [
     ("check.mjs が引き終えた行を返した", [call("Bash", {"command": RUN}, out=MARKED)]),
     ("ページが赤で 0 でない数で終わっても引き終えた行が在る",
      [call("Bash", {"command": RUN}, out="Exit code 1\n🔴 赤\nprior-check: 2 件", err=True)]),
-    ("| tail でも最後の行が残る", [call("Bash", {"command": RUN + " 2>&1 | tail -3"}, out=MARKED)]),
+    ("前の cd と && の後の値の表の命令", [call("Bash", {"command": "cd /x && " + CMD})]),
     ("値の表の命令が出力を返した", [call("Bash", {"command": CMD + " < q.json"}, out='{"checked": {"q1": "x"}}')]),
     ("拒まれた後に走らせ直した", [call("Bash", {"command": CMD}, out=DENIED, err=True), call("Bash", {"command": CMD})]),
 ]
@@ -346,7 +346,7 @@ def test_値の表の引く先の跡も拒まれた呼び出しは数えない(e
 def test_値の表の命令が読み切れない形なら名指してcheck_mjsだけを数える(env, tmp_path):
     values(env, tmp_path, {"docs-kit": {"qa-html": {"prior_check_cmd": "cd tools && " + CMD}}})
     why = deny_reason(env, ask_with(log(tmp_path, call("Bash", {"command": "cd tools && " + CMD}))))
-    assert "引いた跡が会話ログに無い" in why and "prior_check_cmd が読み切れない形" in why, why
+    assert "引いた跡が会話ログに無い" in why and "prior_check_cmd が素の命令 1 つでない" in why, why
     assert deny_reason(env, ask_with(log(tmp_path, call("Bash", {"command": RUN}, out=MARKED), name="b.jsonl"))) == ""
 
 
@@ -368,3 +368,95 @@ def test_check_mjs_の本物の返りを跡に数え落ちた回は数えない(
         tpath = log(tmp_path, call("Bash", {"command": run}, out=out, err=res.returncode != 0), name="n%d.jsonl" % i)
         why = deny_reason(env, ask_with(tpath, sid="n%d" % i))
         assert (why == "") is counted, (cmd, out, why)
+
+
+# ── 7. 走った証は呼び出し全体の返りでなく、命令 1 つの返り（PR #82 の 3 回目の red の所見 1）──
+# 注入: どれも引く命令が引き終えた証にならないのに、b713f7d は跡に数えて画面を通していた
+MOVED = "Command was moved to the background (ID: b1). Output is being written to a file; it was not interrupted."
+BG = "Command running in background with ID: b2"
+LOOKED = '{"checked": {"q1": "作り物"}}'
+
+
+def bare(tid, out, **extra):
+    """is_error の欄を作り物の値にした（か欄の無い）返り。"""
+    return {"type": "user", "toolUseResult": {"stdout": out},
+            "message": {"content": [dict({"type": "tool_result", "tool_use_id": tid, "content": out}, **extra)]}}
+
+
+def call_bare(inp, out, **extra):
+    u = use("Bash", inp)
+    return [u, bare(u["message"]["content"][0]["id"], out, **extra)]
+
+
+def dup_results(cmd, *outs):
+    u = use("Bash", {"command": cmd})
+    return [u] + [result(u["message"]["content"][0]["id"], o) for o in outs]
+
+
+WHOLE_CALL = [
+    ("命令の後に ; echo", [call("Bash", {"command": CMD + "; echo x"}, out="Traceback 作り物\nx")], ";"),
+    ("命令の後に | head -1", [call("Bash", {"command": CMD + " | head -1"}, out="Traceback 作り物")], "|"),
+    ("命令を & で背に回して echo", [call("Bash", {"command": CMD + " & echo started"}, out="started")], "&"),
+    ("命令の後ろに & だけ", [call("Bash", {"command": CMD + " &"}, out="[1] 4242")], "&"),
+    ("命令に --help", [call("Bash", {"command": CMD + " --help"}, out="usage: 作り物")], "引数が値の表の命令と違う"),
+    ("命令の後に || true", [call("Bash", {"command": CMD + " || true"}, out=LOOKED)], "||"),
+    ("命令の後に && echo", [call("Bash", {"command": CMD + " && echo ok"}, out="ok")], "&&"),
+    ("stderr を stdout へ", [call("Bash", {"command": CMD + " 2>&1"}, out=LOOKED)], "出力の向け替え"),
+    ("bash -c の中", [call("Bash", {"command": "bash -lc 'cd /x; %s'" % CMD}, out=LOOKED)], "bash -c"),
+    ("bash -c の中の向け替え", [call("Bash", {"command": "bash -c '%s > out.json'" % CMD}, out="(no output)")],
+     "bash -c"),
+    ("sudo・env・time の前置き", [call("Bash", {"command": "sudo -u a env B=2 time " + CMD}, out=LOOKED)], "前置き"),
+    ("管の後ろの命令", [call("Bash", {"command": "cat q.json | " + CMD}, out=LOOKED)], "|"),
+    ("Bash が背景に回した返り", [call("Bash", {"command": CMD}, out=MOVED)], "背景"),
+    ("run_in_background の呼び出し", [call("Bash", {"command": CMD, "run_in_background": True}, out=BG)], "背景"),
+    ("run_in_background で返りの字は普通", [call("Bash", {"command": CMD, "run_in_background": True}, out=LOOKED)],
+     "背景"),
+    ("is_error の欄が無い返り", [call_bare({"command": CMD}, LOOKED)], "is_error の欄が無い"),
+    ("is_error が字の true の拒まれた返り", [call_bare({"command": CMD}, DENIED, is_error="true")], "真偽でない"),
+    ("is_error が字の false", [call_bare({"command": CMD}, LOOKED, is_error="false")], "真偽でない"),
+    ("check.mjs の後に echo で印の字", [call("Bash", {"command": RUN + "; echo 'prior-check: 1 件'"},
+                                          out="--run-prior: 値の表に無い\nprior-check: 1 件")], ";"),
+    ("check.mjs の後に cat で下書き", [call("Bash", {"command": RUN + "; cat draft.md"},
+                                         out="--run-prior: 値の表に無い\nprior-check: 3 件")], ";"),
+    ("check.mjs の印が最後の行でない", [call("Bash", {"command": RUN}, out="prior-check: 2 件\n🔴 その後の行")],
+     "最後の行"),
+    ("check.mjs の | tail", [call("Bash", {"command": RUN + " 2>&1 | tail -3"}, out=MARKED)], "|"),
+    ("check.mjs を背景に回した返り", [call("Bash", {"command": RUN}, out=MOVED + "\nprior-check: 2 件")], "背景"),
+    ("check.mjs の返りに is_error の欄が無い", [call_bare({"command": RUN}, MARKED)], "is_error の欄が無い"),
+    ("同じ id の返りが 2 つ", [dup_results(RUN, "x", MARKED)], "2 つ以上"),
+]
+
+
+@pytest.mark.parametrize("name,rows,named", WHOLE_CALL, ids=[c[0] for c in WHOLE_CALL])
+def test_呼び出し全体の返りを命令1つの走った証に数えない(env, tmp_path, name, rows, named):
+    prior_values(env, tmp_path)
+    why = deny_reason(env, ask_with(log(tmp_path, *rows)))
+    assert "引いた跡が会話ログに無い" in why, (name, why)
+    assert "跡に数えなかった呼び出し" in why and named in why, (name, why)
+
+
+def test_値の表の引く先の跡もBashは命令1つと在る印で見る(env, tmp_path):
+    lookup(env, tmp_path, [{"tool": "Bash", "input": {"command": "作り物の表を引く"}}])
+    bad = [("; echo", call("Bash", {"command": "作り物の表を引く q; echo x"}, out="x")),
+           ("背景", call("Bash", {"command": "作り物の表を引く q"}, out=MOVED)),
+           ("欄が無い", call_bare({"command": "作り物の表を引く q"}, LOOKED)),
+           ("Exit code", call("Bash", {"command": "作り物の表を引く q"}, out="Exit code 1\n落ちた", err=True))]
+    for i, (name, rows) in enumerate(bad):
+        why = deny_reason(env, ask_with(log(tmp_path, rows, name="L%d.jsonl" % i), sid="L%d" % i))
+        assert "引いた跡が会話ログに無い" in why, (name, why)
+    assert deny_reason(env, ask_with(log(tmp_path, call("Bash", {"command": "作り物の表を引く q"}), name="ok.jsonl"),
+                                     sid="Lok")) == ""
+
+
+def test_tool_use_ran_は在る印だけで走ったと言う():
+    u = use("Bash", {"command": CMD})
+    tid = u["message"]["content"][0]["id"]
+    assert G.tool_use_ran([u, result(tid, LOOKED)], tid) == (True, LOOKED, "")
+    assert G.tool_use_ran([u, result(tid, "Exit code 3\nx", True)], tid) == (True, "Exit code 3\nx", "Exit code 3")
+    for rows in ([u], [u, bare(tid, LOOKED)], [u, bare(tid, LOOKED, is_error=None)], [u, result(tid, MOVED)],
+                 [u, result(tid, DENIED, True)], [u, result(tid, "a"), result(tid, "b")], [result(tid, LOOKED)]):
+        ran, _, why = G.tool_use_ran(rows, tid)
+        assert not ran and why, rows
+    m = use(LOOKUP_TOOL, {"q": "会議"})
+    mid = m["message"]["content"][0]["id"]
+    assert G.tool_use_ran([m, bare(mid, LOOKED)], mid)[0], "Bash の外の道具は欄の無い返りを誤りでないと読む"
