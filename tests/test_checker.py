@@ -175,7 +175,8 @@ def test_同じ見出しの節が_2_つ在ると赤():
     assert any("`## 点` の節が 2 個" in e for e in vf.check(text, writer="session_WRITER01"))
 
 
-def test_ファイルを2つ渡すと2つ目も照らす(tmp_path, capsys):
+def test_ファイルを2つ渡すと2つ目も照らす(tmp_path, capsys, monkeypatch):
+    monkeypatch.setenv("CLAUDE_CODE_REMOTE_SESSION_ID", "cse_REVIEW01")
     good, bad = tmp_path / "a.md", tmp_path / "b.md"
     good.write_text(GREEN, encoding="utf-8")
     bad.write_text(GREEN.replace("## verdict\ngreen", "## verdict\nred"), encoding="utf-8")
