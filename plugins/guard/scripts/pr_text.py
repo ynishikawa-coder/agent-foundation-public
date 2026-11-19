@@ -15,14 +15,14 @@ AI が自分で回すか、出した後に CI やレビューが拾うだけだ�
            ＝MCP から出す commit の説明。公開の検査だけを当てる
   push   … Bash の git push（どの remote の枝にも無い commit の説明と名義）。公開の検査だけを当てる。命令の字に正規表現を
            当てず、guard_common.parse_shell で走る命令の語に分けて見る（前置き・bash -c・eval の中も）。読み切れない形は git と
-           push の字が在れば push と見る
+           push の字が在れば push と見て、窓の cwd と読めた cd・-C の先の全部を照らす。先が字で決まらなければ止める
 照らす物（見分けは正本を直に読む・呼ぶ。ここに決まりを写さない）:
   verdict … （材料: 出す先の PR の先端と、PR 本文の頭の `書いた窓:` を gh で引き、--writer・--head で渡す。引けなければ止める）
             コメントがレビューの判定（verdict_form の LINE1 に合う行・その字の欄が窓の id と green|red と揃う崩れた行・
             verdict の見出し）なら、checker の `scripts/verdict_form.py` をそのまま呼ぶ。赤なら止める。道具が見つからない・
             壊れた時も止める。PR の review の event が APPROVE・REQUEST_CHANGES なら本文によらず判定と見る。形が合えば、
             点 4 の物差しの最後の行が、この窓か助手が物差しを回した道具の呼び出し（値の表 pr_ruler_trace の跡の形・
-            Bash は読み切れる物差しの命令 1 つだけ・tool_use の id で結ぶ・誤りでない）の結果の最後の行と同じか（回した跡）も
+            Bash は読み切れる物差しの命令 1 つだけ・tool_use の id で結ぶ・走った＝誤りなく返ったか Exit code N で始まる）の結果の最後の行と同じか（回した跡）も
             照らす。PR 本文を読んだ結果・同じ呼び出しの他の命令の出力・結果の途中の字は数えない
   cleanup … PR の本文（本文を渡す時だけ）に、dev-flow の preimpl-cleanup の `整地受領証.template.md` の 4 つの見出し
             （`## 1.`〜`## 4.`。見出しの名は雛形から読む）が全部在り、雛形の `〔…〕` が残っていない事。整地の要らない PR
@@ -84,33 +84,74 @@ QUOTE = re.compile(r"^[ \t]*>.*$", re.M)                  # 引用の行（人�
 GIT_OPT_ARG = ("-C", "-c", "--git-dir", "--work-tree", "--namespace", "--exec-path", "--config-env")
 
 
-def git_push(cmd):
-    """Bash の命令が git push を走らせるなら (push する dir の手がかり, True)、走らせないなら ("", False)。
-    命令の字に正規表現を当てず、guard_common.parse_shell で走る単純な命令の語に分けて見る（前置き・bash -c・eval の中も）。
-    手がかりは git の -C か、前の cd。読み切れない形（parse_shell の unknowns: $(…)・関数・| bash・表に無い前置き等）が在り、
-    命令の字に git と push の字が在れば push と見る（知らない形を push でないと見て通さない＝照らす側に倒す）。"""
-    cmds, unknowns = G.parse_shell(cmd or "")
-    cd = ""
-    for argv in cmds:
-        if argv[0] in ("cd", "pushd") and len(argv) == 2:
-            cd = os.path.join(cd, argv[1]) if cd and not os.path.isabs(os.path.expanduser(argv[1])) else argv[1]
-            continue
-        if os.path.basename(argv[0]) != "git":
-            continue
-        i, where = 1, cd
-        while i < len(argv) and argv[i].startswith("-"):
-            w = argv[i]
-            if w in GIT_OPT_ARG:
-                if w == "-C" and i + 1 < len(argv):
-                    where = os.path.join(where, argv[i + 1]) if where and not os.path.isabs(argv[i + 1]) else argv[i + 1]
-                i += 2
-            else:
+# push する dir を変える語（cd・pushd・popd・git の -C・--git-dir・--work-tree・env -C・GIT_DIR= など）。命令の字と読めた語で数を比べ、
+# 字に在るのに読めた語に無い（$(…)・関数・bash -c の中の読めない所・前置きの外した所に在る）なら、push の先を読み切れないと見る。
+DIR_WORD = re.compile(r"(?<![\w./-])(?:cd|pushd|popd|-C|--chdir|-D|--git-dir|--work-tree)(?![\w-])|\bGIT_(?:DIR|WORK_TREE)\b")
+
+
+# parse_shell の読み切れない所（Unknown.code）のどれで照らす側に倒すか。code で決め、訳の字は見ない。今は全部の code
+# （知らない code が足されても、guard_common.UNKNOWN_CODES に在れば倒す側に入る）。
+PUSH_UNREAD = G.UNKNOWN_CODES          # git と push の字が在れば push と見る
+RULER_UNREAD = G.UNKNOWN_CODES         # 物差しの呼び出しと数えない
+
+
+def _join(base, d):
+    d = os.path.expanduser(d)
+    return os.path.join(base, d) if base and not os.path.isabs(d) else d
+
+
+def _git_dir(argv, k, cd, dirs, bad):
+    """argv[k] の git の -C・--git-dir・--work-tree の先を dirs に足し、その git が push なら push する dir を返す（でなければ None）。"""
+    i, where = k + 1, cd
+    while i < len(argv) and argv[i].startswith("-"):
+        opt, eq, val = argv[i].partition("=")
+        if opt in GIT_OPT_ARG:
+            if not eq and i + 1 < len(argv):
+                val = argv[i + 1]
                 i += 1
-        if i < len(argv) and argv[i] == "push":
-            return where, True
-    if unknowns and "git" in (cmd or "") and "push" in (cmd or ""):
-        return "", True
-    return "", False
+            if opt in ("-C", "--git-dir", "--work-tree"):
+                if G.is_dyn(val) or not val:
+                    bad.append("git の %s の先が字で決まらない" % opt)
+                else:
+                    where = _join(where, val) if opt == "-C" else _join(cd, val)
+                    dirs.append(where)
+        i += 1
+    return where if i < len(argv) and argv[i] == "push" else None
+
+
+def git_push(cmd):
+    """Bash の命令が git push を走らせるなら (push しうる dir の並び, True, 読めない理由)、走らせないなら ([], False, "")。
+    命令の字に正規表現を当てず、guard_common.parse_shell で走る単純な命令の語に分けて見る（前置き・bash -c・eval の中も）。
+    dir は窓の cwd からの相対（"" が窓の cwd）。読み切れる命令では push する git の -C か前の cd の 1 つ。読み切れない形
+    （parse_shell の unknowns: $(…)・関数・| bash・表に無い前置き等）が在り、命令の字に git と push の字が在れば push と見て
+    （知らない形を push でないと見て通さない＝照らす側に倒す）、窓の cwd と読めた cd・-C の先の全部を返す（読めた cd を捨てない）。
+    cd・-C の先が字で決まらない（変数・命令の置き換え・引数の無い cd・cd -・popd）か、dir を変える語が読めない所に在れば、
+    理由を返す（呼ぶ側が止める）。"""
+    cmd = cmd or ""
+    cmds, unknowns = G.parse_shell(cmd)
+    cd, dirs, pushes, bad = "", [""], [], []
+    for argv in cmds:
+        if argv[0] in ("cd", "pushd", "popd"):
+            args = [w for w in argv[1:] if w != "--"]
+            if argv[0] == "popd" or len(args) != 1 or args[0] == "-" or G.is_dyn(args[0]):
+                bad.append("%s の先が字で決まらない（変数・命令の置き換え・引数なし・cd -・popd）" % argv[0])
+                continue
+            cd = _join(cd, args[0])
+            dirs.append(cd)
+            continue
+        for k in [k for k, w in enumerate(argv) if os.path.basename(w) == "git"]:     # flock … git -C x push の類の中の git も
+            where = _git_dir(argv, k, cd, dirs, bad)
+            if k == 0 and where is not None:
+                pushes.append(where)
+    said = len(DIR_WORD.findall(cmd))
+    read = sum(len(DIR_WORD.findall(" ".join(argv))) for argv in cmds)
+    if said > read:
+        bad.append("dir を変える語（cd・-C・GIT_DIR 等）が読み切れない所に在る")
+    if {u.code for u in unknowns} & PUSH_UNREAD and "git" in cmd and "push" in cmd:
+        return list(dict.fromkeys(dirs)), True, "・".join(bad)
+    if pushes:
+        return list(dict.fromkeys(pushes)), True, "・".join(bad)
+    return [], False, ""
 
 
 def tool_kind(name, ti=None):
@@ -324,7 +365,7 @@ def is_ruler(block, matchers):
         return G.matches_tool(block, matchers)
     inp = block.get("input") if isinstance(block.get("input"), dict) else {}
     cmds, unknowns = G.parse_shell(inp.get("command") or "")
-    if unknowns:
+    if {u.code for u in unknowns} & RULER_UNREAD:
         return False                    # 読み切れない命令は物差しと数えない（数える側に倒さない）
     while cmds and cmds[0][0] in ("cd", "pushd"):
         cmds = cmds[1:]                 # 前の cd は出力を出さない
@@ -332,22 +373,18 @@ def is_ruler(block, matchers):
 
 
 def ruler_results(path, matchers):
-    """会話ログの、物差しを回した道具の呼び出し（tool_use の id で結ぶ）の誤りでない結果の字を順に出す。ほかの道具の結果（PR 本文を
-    読んだ結果など）は出さない＝本文に書かれた物差しの行を跡に数えない。"""
-    ids, results = set(), []
-    for row in _rows(path):
-        for blk in G.tool_uses(row):
-            if blk.get("id") and is_ruler(blk, matchers):
-                ids.add(blk["id"])
-        content = (row.get("message") or {}).get("content") if isinstance(row.get("message"), dict) else None
-        for blk in content if isinstance(content, list) else []:
-            if isinstance(blk, dict) and blk.get("type") == "tool_result" and not blk.get("is_error"):
-                c = blk.get("content")
-                if isinstance(c, list):
-                    c = "\n".join(x.get("text", "") for x in c if isinstance(x, dict))
-                if isinstance(c, str):
-                    results.append((blk.get("tool_use_id"), c))
-    return [c for i, c in results if i in ids]
+    """会話ログの、物差しを回した道具の呼び出し（tool_use の id で結ぶ）の、走った結果の字を順に出す。走ったかは
+    guard_common.tool_use_ran（誤りなく返った物と、Bash が走って 0 でない数で終わった物＝返りの頭が Exit code N・物差しが赤を
+    返した物。拒まれた・hook に止められた・中断した・返りの無い呼び出しは出さない）。ほかの道具の結果（PR 本文を読んだ結果など）は
+    出さない＝本文に書かれた物差しの行を跡に数えない。"""
+    rows = list(_rows(path))
+    ids = [blk["id"] for row in rows for blk in G.tool_uses(row) if blk.get("id") and is_ruler(blk, matchers)]
+    out = []
+    for i in dict.fromkeys(ids):
+        ran, text, _ = G.tool_use_ran(rows, i)
+        if ran:
+            out.append(text)
+    return out
 
 
 def last_line(text):
@@ -494,9 +531,9 @@ def workflow_lines(raw):
     return YAML_COMMENT.sub("", raw)
 
 
-def _checkout_of(repo, data):
-    """窓の repo の取り出しが owner/repo なら、その根。"""
-    root = G.project_dir(data)
+def _checkout_of(repo, data, root=None):
+    """窓の repo（push では push する dir＝root）の取り出しが owner/repo なら、その根。"""
+    root = root or G.project_dir(data)
     if not root or not repo:
         return ""
     try:
@@ -521,10 +558,10 @@ def visibility(repo):
     return {"false": True, "true": False}.get(v)
 
 
-def public_target(repo, data, vals):
+def public_target(repo, data, vals, root=None):
     """(公開か, 取り出しの根, 置かない語の表の path, 誤り)。公開かは GitHub の repo の visibility が正本（取り出しの有無に頼らない）。
     引けない時だけ取り出しの workflow と値の表 public_repos_extra で見分け、それでも決まらなければ誤り（照らせない文は出さない）。"""
-    top = _checkout_of(repo, data)
+    top = _checkout_of(repo, data, root)
     vis = visibility(repo)
     words = ""
     if top:
@@ -561,8 +598,8 @@ def find_public_guard(top=""):
         return os.path.join(top, rel)
     return G.foundation_file(rel)
 
-def check_public(texts, repo, data, vals):
-    is_public, top, words, err = public_target(repo, data, vals)
+def check_public(texts, repo, data, vals, root=None):
+    is_public, top, words, err = public_target(repo, data, vals, root)
     if err:
         return [err]
     if not is_public:
@@ -593,10 +630,11 @@ def check_public(texts, repo, data, vals):
 
 
 # ── push（Bash の git push で出す commit の説明と名義）──
-def push_dir(cmd, data):
-    d = git_push(cmd)[0]
+def push_dirs(cmd, data):
+    """(push しうる dir の絶対の並び, 読めない理由)。"""
+    dirs, _, bad = git_push(cmd)
     base = (data.get("cwd") if isinstance(data.get("cwd"), str) else "") or G.project_dir(data)
-    return os.path.join(base, os.path.expanduser(d.strip("'\""))) if d else base
+    return list(dict.fromkeys(os.path.normpath(_join(base, d)) if d else base for d in dirs or [""])), bad
 
 
 def push_texts(d):
@@ -731,10 +769,15 @@ def findings(data, vals):
     if not kind or not isinstance(ti, dict):
         return []
     if kind == "push":
-        repo, texts, err = push_texts(push_dir(ti.get("command") or "", data))
-        if err:
-            return [("public", err)]
-        return [("public", m) for m in check_public(texts, repo, data, vals)] if texts else []
+        dirs, bad = push_dirs(ti.get("command") or "", data)
+        if bad:
+            return [("public", "push する repo を読み切れず、公開の検査を当てられない（%s）。cd・-C の先を字で書き、push を"
+                               "それだけの命令で走らせる" % bad)]
+        out = []
+        for d in dirs:                  # push しうる repo の全部に公開の検査を当てる
+            repo, texts, err = push_texts(d)
+            out += [("public", err)] if err else [("public", m) for m in check_public(texts, repo, data, vals, d)] if texts else []
+        return list(dict.fromkeys(out))
     repo = _repo_name(ti)
     title = ti.get("title") if isinstance(ti.get("title"), str) else ""
     body = ti.get("body") if isinstance(ti.get("body"), str) else ""

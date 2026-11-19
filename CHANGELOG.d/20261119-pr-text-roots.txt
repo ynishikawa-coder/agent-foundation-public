@@ -8,4 +8,6 @@
 - 直した: 連絡板の照らしは、連絡板の repo を細目から読めない・連絡板の在る無しを引けない時に止める（黙って通さない）
 - 直した: git push の見分けを命令を語に分ける形にした（前の代入・env・command・time・sudo・nice・xargs・bash -c・eval の付いた形も照らす）。語に分ける口は guard_common.parse_shell（注は語の頭の # だけ・読み切れない形〔$(…)・関数・| bash・表に無い前置き・find -exec など〕を名指しで返す）で、読み切れない形は命令の字に git と push が在れば push と見る
 - 直した: PR の review の event が APPROVE・REQUEST_CHANGES なら本文によらず判定の形を照らす・公開かの見分けで workflow の注を数えず、ssh の remote も owner/repo に読む
-- 直した: 物差しの跡は、読み切れる物差しの命令 1 つだけの呼び出し（前の cd は可）の、誤りでない結果の最後の行が点 4 の行と同じ時だけ数える（同じ呼び出しの他の命令の出力・結果の途中の字は数えない）。既定の跡の形は --version・--help など走らせない形を外す
+- 直した: 物差しの跡は、読み切れる物差しの命令 1 つだけの呼び出し（前の cd は可）の、走った結果（誤りなく返った物か、返りの頭が Exit code N＝物差しが赤を返した物。拒まれた・hook に止められた・中断した・is_error の欄の無い返りは数えない＝guard_common.tool_use_ran）の最後の行が点 4 の行と同じ時だけ数える＝物差しが赤の時も赤の判定を出せる（同じ呼び出しの他の命令の出力・結果の途中の字は数えない）。既定の跡の形は --version・--help など走らせない形を外す
+- 直した: git push の照らしで、読み切れない形でも読めた cd・pushd・git の -C・--git-dir・--work-tree の先を捨てず、窓の cwd と合わせた push しうる repo の全部に公開の検査を当てる。cd・-C の先が字で決まらない（変数・$(…)・引数の無い cd・cd -・popd）か、dir を変える語（cd・-C・env -C・GIT_DIR= など）が読めない所に在れば止める
+- 直した: guard_common.parse_shell の読み切れない所を Unknown(code, message) で返す（code は UNKNOWN_CODES の変わらない名・呼ぶ側は code で決める）。道具の呼び出しが走ったかの口 guard_common.tool_use_ran を足し、parse_shell と tool_use_ran は guard_common だけに置く（guard の script の同じ名の関数の 2 度の定義と外の写しを AST で見張る試験）

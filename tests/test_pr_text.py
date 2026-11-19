@@ -41,7 +41,7 @@ def transcript_rows(results, command=RULER_CMD, tool="Bash"):
         rows.append({"type": "assistant", "message": {"role": "assistant", "content": [
             {"type": "tool_use", "id": "t%d" % i, "name": tool, "input": inp}]}})
         rows.append({"type": "user", "message": {"role": "user", "content": [
-            {"type": "tool_result", "tool_use_id": "t%d" % i, "content": r}]}})
+            {"type": "tool_result", "tool_use_id": "t%d" % i, "content": r, "is_error": False}]}})
     return rows
 
 
