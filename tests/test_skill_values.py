@@ -180,6 +180,8 @@ def test_repo_自身の欄と注は照らさない(tmp_path):
     ({"common": {"save_dir": ["a"]}}, "common.save_dir の型が違う"),
     ({"common": {"rules": {"no_confirm": "x"}}}, "common.rules は畳んだ鍵"),          # 束 B（PR #43）で畳んだ写し
     ({"dev-flow": {"verify": {"code_done_rule": "x"}}}, "dev-flow.verify.code_done_rule は畳んだ鍵"),
+    ({"dev-flow": {"codex": {"task_rule": "x"}}}, "dev-flow.codex.task_rule は畳んだ鍵"),          # 原因の台帳へ移した（#36）
+    ({"dev-flow": {"preimpl-cleanup": {"cleanup_followup": "x"}}}, "dev-flow.preimpl-cleanup.cleanup_followup は畳んだ鍵"),
 ])
 def test_知らない鍵_畳んだ鍵_型違いを名指しする(tmp_path, table, word):
     r = make_repo(tmp_path, table)
