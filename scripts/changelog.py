@@ -120,7 +120,7 @@ def main(argv: list[str]) -> int:
         errs = check()
         for e in errs:
             print(e)
-        print("changelog: 赤" if errs else "changelog: 緑")
+        print("changelog: 赤 直し: 赤の行を 1 つずつ潰さず、細目 §3「まず構造を疑う」で原因から直す" if errs else "changelog: 緑")
         return 1 if errs else 0
     for name, when, body in entries():
         print(f"## {name.removesuffix('.txt')}（{when}）\n\n{body}\n")

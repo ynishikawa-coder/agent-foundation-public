@@ -10,7 +10,7 @@ Chrome の headless で `<html>?selftest` を開き、枠の selftest が書い�
 
 終了コード:
     0 = SELFTEST OK
-    1 = SELFTEST NG（NG 行を出す）／selftest の結果が DOM に無い
+    1 = SELFTEST NG（NG 行と、最後に根治の入口を指す `直し:` の行を出す）／selftest の結果が DOM に無い
     2 = Chrome が無い・起動できない
 標準ライブラリだけ。
 """
@@ -28,6 +28,8 @@ from pathlib import Path
 
 CHROME_ENV = "CHROME"   # 明示の時だけ（既定は下の探し方）
 TIMEOUT_SEC = 90
+# NG の時の最後の行（中身は細目 §3 が正本＝ここは指すだけ）
+ROOT_CAUSE = "直し: NG の行を 1 つずつ潰さず、細目 §3「まず構造を疑う」で原因（枠の使い方・題材の組み方）から直す"
 
 
 def find_chrome() -> str | None:
@@ -111,12 +113,12 @@ def main(argv: list[str]) -> int:
         return 2
 
     m = re.search(r'<pre id="selftest"[^>]*>(.*?)</pre>', dom, re.S)
-    if not m:
-        print("NG selftest の結果が DOM に無い（枠が起動前に落ちた／template の枠でない）")
-        return 1
-    text = html.unescape(m.group(1)).strip()
+    text = html.unescape(m.group(1)).strip() if m else "NG selftest の結果が DOM に無い（枠が起動前に落ちた／template の枠でない）"
     print(text)
-    return 0 if text.startswith("SELFTEST OK") else 1
+    if text.startswith("SELFTEST OK"):
+        return 0
+    print(ROOT_CAUSE)
+    return 1
 
 
 if __name__ == "__main__":
