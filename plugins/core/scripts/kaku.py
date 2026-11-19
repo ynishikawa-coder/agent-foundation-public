@@ -10,8 +10,8 @@
                                       この窓を新しい窓へ引き継いで閉じるよう AI に知らせる（人の作業は止めない）。
   python3 kaku.py check [--claude P]  核と振る舞いの既定が在り、上限の内かを照らす。--claude を渡すと、その CLAUDE.md（写しの枠が在れば
                                       枠の外だけ）が各社固有の上限の内かも照らす。
-  python3 kaku.py grow --base REF     毎回差し込む物（injected() の一覧）が git の REF の時より増えていないかを照らす。
-                                      足すなら同じ変更で同じだけ畳む（上限の内で足し続けて満杯にしない）。
+  python3 kaku.py grow --base REF     増やさない物（guarded() の一覧＝毎回差し込む物と形の細目）が git の REF の時より
+                                      増えていないかを照らす。足すなら同じ変更で同じだけ畳む（上限の内で足し続けて満杯にしない）。
 exit: inject と fresh は何が起きても 0（窓の起動も人の作業も止めない）。check・grow は 0=緑 / 1=越えた・増えた / 2=読めない。
 """
 from __future__ import annotations
@@ -66,6 +66,11 @@ def outside_frame(text: str) -> str:
 def injected() -> tuple[Path, ...]:
     """毎回差し込む物の一覧（差し込む inject と増え方を照らす grow が同じこの 1 つを読む）。頭の核は欠けたら差し込まない。"""
     return (KAKU, FURUMAI)
+
+
+def guarded() -> tuple[Path, ...]:
+    """増やさない物の一覧＝毎回差し込む物と、核から押し出した物の行き先の細目（細目だけ照らさないと押し出した物がそこで膨らむ）。"""
+    return (*injected(), SAIMOKU)
 
 
 def inject_text() -> str:
@@ -286,7 +291,7 @@ def check(claude: Path | None) -> int:
     return 0
 
 
-# 毎回差し込む物（injected）＝増やさない物。足す時は同じ変更で同じだけ畳む（上限の内でも純増は赤）。
+# 増やさない物（guarded＝毎回差し込む物と細目）。足す時は同じ変更で同じだけ畳む（上限の内でも純増は赤）。
 GROW_FIX = "直し: 足すなら同じ変更で同じだけ畳む（重複を細目・skill の正本へ寄せる）。量を合わせるだけで済ませず、細目 §3「まず構造を疑う」で増えた原因から畳む"
 
 
@@ -304,7 +309,7 @@ def base_text(ref: str, path: Path) -> str:
 
 def grow(ref: str) -> int:
     bad = []
-    for path in injected():
+    for path in guarded():
         try:
             now = size(path.read_text(encoding="utf-8"))
             before = size(base_text(ref, path))
@@ -321,7 +326,7 @@ def grow(ref: str) -> int:
     if bad:
         print(GROW_FIX)
         return 1
-    print("✅ 毎回差し込む物は増えていない")
+    print("✅ 毎回差し込む物と細目は増えていない")
     return 0
 
 
@@ -332,7 +337,7 @@ def main(argv=None) -> int:
     sub.add_parser("fresh", help="UserPromptSubmit の hook から呼ぶ")
     c = sub.add_parser("check", help="量の上限を照らす")
     c.add_argument("--claude", type=Path, help="照らす repo の根の CLAUDE.md")
-    g = sub.add_parser("grow", help="毎回差し込む物が REF より増えていないかを照らす")
+    g = sub.add_parser("grow", help="毎回差し込む物と細目が REF より増えていないかを照らす")
     g.add_argument("--base", required=True, help="比べる元の git の ref（例: main との分かれ目）")
     a = ap.parse_args(argv)
     if a.cmd == "inject":
