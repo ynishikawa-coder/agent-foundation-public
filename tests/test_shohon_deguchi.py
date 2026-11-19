@@ -220,6 +220,7 @@ def test_outbound_gh_の本文の_file_の鍵も止める(env, tmp_path):
     tool("mcp__github__add_issue_comment", owner="o", repo="r", issue_number=1, body="E05 お願い"),
     tool("Bash", command="gh pr comment 3 --body '#7 やって'"),
     tool("Bash", command="gh issue create -t 作り物 -b 'E02 よろしく'"),
+    tool("Bash", command="gh pr merge 3 -t 作り物 -b '#7 やって'"),
     tool("Bash", command="curl -X POST https://hooks.example.invalid -d '{\"text\": \"#9 進めて\"}'"),
 ])
 def test_outbound_番号だけの頼みは欄の名と_gh_curl_で拾う(env, payload):
@@ -263,6 +264,9 @@ def test_paid_upstream_試験を回して_log_を書くだけの命令は止め�
     "echo \"a | " + "OPENAI" + "_API_KEY\" > tests/test_x.py",
     "echo " + "OPENAI" + "_API_KEY 2>&1 | tee tests/test_y.py",
     "echo \"" + "OPENAI" + "_API_KEY > tests/test_z.py",          # 引用符が閉じない＝切らずに見る
+    "echo \"line1\n" + "OPENAI" + "_API_KEY\" > tests/test_m.py",  # 引用符の中に改行
+    "echo " + "OPENAI" + "_API_KEY |& tee tests/test_s.py",
+    "python3 -c \"print('" + "OPENAI" + "_API_KEY')\" > tests/test_c.py",
 ])
 def test_paid_upstream_引用符と_redirect_の中の区切りで中身を見落とさない(env, cmd):
     assert "有料の上流" in deny_reason(env, bash(cmd))

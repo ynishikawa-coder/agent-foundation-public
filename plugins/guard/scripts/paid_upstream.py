@@ -105,7 +105,7 @@ def _split(line):
             cur += line[i:i + 2]
             i += 2
             continue
-        elif line.startswith(("&&", "||"), i):
+        elif line.startswith(("&&", "||", "|&"), i):
             parts += [cur, line[i:i + 2]]
             cur = ""
             i += 2
@@ -117,7 +117,7 @@ def _split(line):
             cur += c
         i += 1
     if q:
-        return [line]
+        return None
     return parts + [cur]
 
 
@@ -138,6 +138,8 @@ def _segments(cmd):
             i += 1
             bodies.append("\n".join(body))
         parts = _split(line)
+        if parts is None:
+            return None
         prev = ""
         for j in range(0, len(parts), 2):
             seg = parts[j]
@@ -153,24 +155,45 @@ def _prog(seg):
     return os.path.basename(words[0]) if words else ""
 
 
+# 中身を命令の字に持つ書き手（echo・printf・heredoc・その場の式を走らせる interpreter）。これ以外の命令の出力は、
+# 命令の字の外で作られる中身（試験を回した log など）なので見ない。分からない形は命令の文全体を見る（既定で止める側）。
+_INLINE = re.compile(r"^(?:python[0-9.]*|node|deno|bun|perl|ruby|php|bash|sh|zsh)$")
+
+
+def _writes_inline(seg, bodies):
+    prog = _prog(seg)
+    if bodies or prog in _PRINTERS or prog in ("sed", "perl", "cat", "tee", ""):
+        return True
+    return bool(_INLINE.match(prog) and re.search(r"\s-(?:c|e|E|p|r)\b|\s--eval\b", seg))
+
+
 def bash_writes(cmd):
-    """Bash の命令が file へ書く (的, 書く中身) の並び（推し量り）。中身の見えない書き込みは中身を空にする。"""
+    """Bash の命令が file へ書く (的, 照らす中身) の並び（推し量り）。中身が命令の字に在る書き込みと、読めない形は
+    命令の文全体を照らす（main の時と同じ）。命令の出力だけを書く形（試験を回して log を書く）は中身を空にする。"""
     out = []
     segs = _segments(cmd)
+    if segs is None:                      # 引用符が行をまたぐ等、切れない形＝全体を見る
+        return [(t, cmd) for t in _loose_targets(cmd)]
     for k, (prev, seg, bodies) in enumerate(segs):
-        prog = _prog(seg)
-        own = "\n".join(bodies + ([seg] if prog in _PRINTERS else []))
+        own = cmd if _writes_inline(seg, bodies) else ""
         for m in _REDIRECT.finditer(seg):
             out.append((m.group(1), own))
         for m in _TEE.finditer(seg):
-            fed = ""
-            if prev == "|" and k:
-                p_seg, p_bodies = segs[k - 1][1], segs[k - 1][2]
-                fed = "\n".join(p_bodies + ([p_seg] if _prog(p_seg) in _PRINTERS else []))
+            fed = cmd
+            if prev in ("|", "|&") and k and not _writes_inline(segs[k - 1][1], segs[k - 1][2]):
+                fed = ""
             out += [(t, fed) for t in m.group(2).split()]
         for m in _INPLACE.finditer(seg + "\n"):
-            out.append((m.group(1), seg))
+            out.append((m.group(1), cmd))
     return [(t.strip("'\""), c) for t, c in out if t.strip("'\"") not in ("/dev/null", "-")]
+
+
+def _loose_targets(cmd):
+    out = [m.group(1) for m in _REDIRECT.finditer(cmd)]
+    for m in _TEE.finditer(cmd):
+        out += m.group(2).split()
+    out += [m.group(1) for m in _INPLACE.finditer(cmd)]
+    return [t.strip("'\"") for t in out if t.strip("'\"") not in ("/dev/null", "-")]
 
 
 def bash_targets(cmd):

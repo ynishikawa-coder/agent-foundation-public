@@ -47,7 +47,7 @@ CURL_FIELDS = ("text", "message", "body", "content")
 # 外へ送る Bash の命令（鍵の形の正本が読めない時に止める物）
 OUT_BASH = re.compile(r"(?:^|[\s;&|(`])(?:gh|curl|wget|ssh|scp|rsync|nc|ncat|http|https|xh)\s|\bgit\s+push\b")
 GH_TEXT = re.compile(r"^(?:pr|issue)$")
-GH_WRITE = ("create", "comment", "edit", "review")
+GH_WRITE = ("create", "comment", "edit", "review", "merge")
 # 済んだ事を知らせる文の終わり（頼みでない）
 REPORT_END = re.compile(r"(?:した|った|んだ|いた|いだ|えた|れた|せた|てた|ました|でした|済み|済んだ|終わった|完了|合流済|done|merged|closed)"
                         r"\s*[)）」』]*\s*$", re.I)
