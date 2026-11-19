@@ -101,10 +101,10 @@ def _row(i):
 
 
 def test_使う側に貼る塊は古い入口でも先に目録を取り直す():
-    """docs の塊の 1 行目が marketplace update を打つ（clone が入口の直しより古い箱でも、古い入口の前に先端へ進む）。
+    """docs の塊の marketplace add の行が続けて marketplace update を打つ（clone が入口の直しより古い箱でも、古い入口の前に先端へ進む）。
     注入: update を外した塊は古い形 no-marketplace-update に当たる（使う側に残れば起動の hook が名指す）。"""
     block = re.search(r"<!-- setup-script.*?-->\s*```bash\n(.*?)\n\s*```", DOC.read_text(encoding="utf-8"), re.S).group(1)
-    first = block.splitlines()[0]
+    first = next(s for s in block.splitlines() if "marketplace add" in s)
     assert first.index("marketplace add") < first.index("marketplace update agent-foundation")
     row = _row("no-marketplace-update")
     assert not row["re"].search(block)

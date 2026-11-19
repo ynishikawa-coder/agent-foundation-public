@@ -135,7 +135,7 @@ def test_使う側に貼る_setup_script_は_plugin_の名を写さない():
     assert "plugin install" not in block and "want=" not in block
 
 
-@pytest.mark.parametrize("flags", ["-c", "-ec"])  # 貼る先の setup script が set -e でも 3 行目の知らせまで届く
+@pytest.mark.parametrize("flags", ["-c", "-ec"])  # 貼る先の setup script が set -e でも 最後の行の知らせまで届く
 def test_setup_script_の塊は目録が取れない時も起動を止めず知らせる(tmp_path, flags):
     home = tmp_path / "home"
     home.mkdir()

@@ -1,4 +1,4 @@
-"""本物の claude で: 前の setup の目録の clone が残る箱に、出所が先へ進んだ後で使う側の塊（docs の 3 行）を回すと、
+"""本物の claude で: 前の setup の目録の clone が残る箱に、出所が先へ進んだ後で使う側の塊（docs の塊）を回すと、
 入った plugin が全部出所の先端の commit に揃い、足された plugin も入る。
 
 作り物の claude（tests/test_setup_plugins_catalog_tip.py）が本物の振る舞い（marketplace add は既に在れば何もしない・
@@ -43,7 +43,7 @@ def commit(up, names, msg):
     return git(up, "rev-parse", "HEAD")
 
 
-# 入口の直しより前の入口（目録を取り直さない）。clone にこれが残る箱では、塊の 1 行目だけが先端へ進める
+# 入口の直しより前の入口（目録を取り直さない）。clone にこれが残る箱では、塊の marketplace update の行だけが先端へ進める
 OLD_ENTRY = ENTRY.read_text(encoding="utf-8").replace(
     'r = claude("plugin", "marketplace", "update", market)', "r = subprocess.CompletedProcess([], 0)")
 
