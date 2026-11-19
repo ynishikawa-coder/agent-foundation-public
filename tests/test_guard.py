@@ -581,28 +581,30 @@ def _ask_post(question, labels, answered, sid):
             "tool_response": {"questions": [qq], "answers": {question: labels[0]} if answered else {}}}
 
 
-def test_言い直して出した問いに答えが返れば元の問いも降りる(env):
+def test_言い直した問いに答えが返っても元の問いは機械では結ばずAIが降ろす(env):
     labels = ["A に置く（推奨）", "B に置く", "分からない"]
     hook(env, "post", _ask_post("作り物の置き場を A と B のどちらにしますか", labels, False, "s1"))
     hook(env, "post", _ask_post("前の窓の続きです。作り物の置き場はどちらにしますか", labels, True, "s2"))
-    assert hook(env, "start", {"session_id": "s3"}) == {}
-
-
-def test_言い直してまた閉じても同じ問いを2行で持たない(env):
-    labels = ["A に置く（推奨）", "B に置く"]
-    hook(env, "post", _ask_post("作り物の置き場を A と B のどちらにしますか", labels, False, "s1"))
-    hook(env, "post", _ask_post("作り物の置き場はどちらが良いですか", labels, False, "s2"))
     again = hook(env, "start", {"session_id": "s3"}).get("additionalContext", "")
-    assert "1 件あります" in again and "どちらが良いですか" in again
+    assert "作り物の置き場を A と B のどちらにしますか" in again and "言い直した問いに答えが" in again
+    key = run_cli(env, "list").stdout.split("\t")[0]
+    assert run_cli(env, "drop", key, "--why", "言い直した問いに答えが返った").returncode == 0
+    assert hook(env, "start", {"session_id": "s4"}) == {}
 
 
 @pytest.mark.parametrize("left,right,labels", [
     ("設定の保存は終わりましたか", "鍵の登録は済みましたか", ["終わった（推奨）", "うまくいかない", "分からない"]),
     ("請求書を先方へ送ってよいですか？", "古い請求書の控えを消してよいですか？", ["はい（推奨）", "いいえ", "分からない"]),
     ("資料の共有の範囲をどちらにしますか", "資料を社外へ送る時期をどちらにしますか", ["今週（推奨）", "来週", "分からない"]),
+    ("資料の置き場はどこにしますか", "議事録の置き場はどこにしますか", ["共有の棚（推奨）", "個人の棚", "分からない"]),
+    ("請求書は郵送とメールのどちらで送りますか", "見積書は郵送とメールのどちらで送りますか", ["メール（推奨）", "郵送", "分からない"]),
+    ("A社への請求書の送り方はどちらにしますか", "B社への請求書の送り方はどちらにしますか", ["メール（推奨）", "郵送", "分からない"]),
 ])
-def test_決まった選択肢の組や語が1つ重なるだけでは別の問いを閉じない(env, left, right, labels):
+def test_同じ選択肢で物だけ違う問いを閉じず重ねもしない(env, left, right, labels):
     hook(env, "post", _ask_post(left, labels, False, "s1"))
     hook(env, "post", _ask_post(right, labels, True, "s2"))
     again = hook(env, "start", {"session_id": "s3"}).get("additionalContext", "")
     assert left in again
+    hook(env, "post", _ask_post(right, labels, False, "s4"))
+    again = hook(env, "start", {"session_id": "s5"}).get("additionalContext", "")
+    assert "2 件あります" in again and left in again and right in again

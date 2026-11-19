@@ -19,8 +19,8 @@
     - 窓（セッション）ごとの印 1 個。止める側は在席中は stat 1 回で終わる。持ち越した問いは窓を開けない
       ＝1 件の未回答がずっと戻せない操作を塞ぐことは起きない。
 
-同じ問いの見分け: key（文面）の一致・文面の含有、または選択肢の見出しの組が同じで問いの語を共にする（出し直しで
-  文面を言い直しても、答えが返れば台帳の元の問いが降りる）。
+同じ問いの見分け: key（文面）の一致か文面の含有だけ（字の形で別の問いを結ばない＝知らない時は結ばない）。
+  文面を言い直して出した問いに答えが返ったら、AI が元の問いを drop <元の key> で降ろす（出し直しの文で渡す）。
 判定の線: 問い 1 つを単位に「その問いの文面が answers のキーに無い」＝答えが無い（afkTimeoutMs は見ない。
   時間切れの印つきでも一部だけ答えが返る返りがある）。
 子の窓も問う窓（オーナーへ直に問う）として同じに扱う。値の表の unattended_env が真の窓だけ働かない。
@@ -68,38 +68,6 @@ def same_question(a, b):
     if na == nb:
         return True
     return len(na) >= CONTAIN_MIN and len(nb) >= CONTAIN_MIN and (na in nb or nb in na)
-
-
-_REC = re.compile(r"[（(]\s*推奨\s*[)）]")
-# どの問いにも付く決まった答え（これだけが重なっても同じ問いとは言えない）
-GENERIC_LABELS = {"はい", "いいえ", "分からない", "わからない", "分からない・確かめてから答える", "終わった", "済んだ",
-                  "うまくいかない", "まだ", "その他", "ほかの答え", "進める", "進めない", "やる", "やらない", "よい", "だめ",
-                  "ok", "ng", "yes", "no", "入れる", "入れない", "待つ", "今は決めない"}
-OVERLAP_MIN = 0.5      # 言い直しとみなす問いの語の重なり（小さい方の語の数に対する割合）
-
-
-def label_set(opts):
-    """選択肢の見出しの組（推奨の印と空白を除く）。"""
-    return frozenset(_REC.sub("", norm(o.get("label"))).strip() for o in opts or []
-                     if isinstance(o, dict) and norm(o.get("label")))
-
-
-def same_by_options(a, b):
-    """言い直した問いの見分け: 選択肢の見出しの組が同じで、決まった答えの外の見出しが 2 つ以上あり、
-    問いの文の語（2 字の並び）の半分以上を共にする。決まった答えの組（はい／いいえ・終わった／うまくいかない）や、
-    語が 1 つ重なるだけの別の問いは結ばない（片方の答えで、答えの無いもう片方を黙って降ろさない）。"""
-    la, lb = label_set(a.get("options")), label_set(b.get("options"))
-    if la != lb or len({x for x in la if x.lower() not in GENERIC_LABELS}) < 2:
-        return False        # 決まった答え（はい／いいえ・終わった／うまくいかない）の組では結ばない
-    try:
-        import ask_shape
-        wa = ask_shape._words({"question": a.get("question")}, G.DEFAULTS)    # 見出しは窓ごとに同じ物が付きやすいので見ない
-        wb = ask_shape._words({"question": b.get("question")}, G.DEFAULTS)
-    except Exception:       # noqa: BLE001
-        return False
-    if not wa or not wb:
-        return False
-    return len(wa & wb) >= OVERLAP_MIN * min(len(wa), len(wb))
 
 
 def question_payload(q):
@@ -232,12 +200,6 @@ def carry(data, items, session_id):
         if not k:
             continue
         cur = by_key.get(k)
-        if cur is None:     # 言い直して出した問いがまた閉じた＝元の問いに重ねる（同じ事を 2 行で持たない）
-            old = next((p for p in by_key.values() if same_by_options(p, it)), None)
-            if old is not None:
-                del by_key[old.get("key")]
-                cur = dict(old, key=k)
-                by_key[k] = cur
         if cur is None:
             cur = dict(it, first_seen_session=session_id, first_seen_at=now, timeouts=1)
             by_key[k] = cur
@@ -263,8 +225,8 @@ def close_answered(data, pairs):
     for p in data.get("pending", []):
         if not isinstance(p, dict):
             continue
-        hit = next(((t, a) for k, t, a, q in pairs
-                    if p.get("key") == k or same_question(p.get("question"), t) or same_by_options(p, q)), None)
+        hit = next(((t, a) for k, t, a, _q in pairs
+                    if p.get("key") == k or same_question(p.get("question"), t)), None)
         if hit is None:
             keep.append(p)
             continue
@@ -383,8 +345,8 @@ def resurface(data, vals):
              "- 答え済み（今の頼み・会話・決定の記録で答えが出ている）か、もう要らない問い → 出さずに台帳から降ろす:",
              "    %s" % DROP_CMD,
              "- 今の頼みと関わる問い → 出す前にチャットで前提（何の件で・なぜまだ答えが要るか）を 1〜2 文書き、"
-             "AskUserQuestion で出し直す。問いの文は今の流れに合わせて短く言い直してよい（選択肢の見出しは変えない＝"
-             "同じ問いと見分ける印。答えが返れば台帳の元の問いも降りる）。",
+             "AskUserQuestion で出し直す。問いの文は今の流れに合わせて短く言い直してよい。言い直した問いに答えが"
+             "返ったら、元の問いを上の drop で降ろす（言い直した問いを機械は元の問いと結ばない）。",
              "- 今の頼みと関わらない問い → この窓の最初に画面で出さない。返事の締めの「あなたがやること」に 1 行"
              "（何の件の問いが残っているか）で知らせ、オーナーが求めた時に出す。",
              "同じ問いを言い方だけ変えて何度も出さない。", ""]
