@@ -18,6 +18,8 @@
     ask_term_allow           … 中の言葉と数えない字（見つけた字に当てる正規表現の並び・誤って止まる時だけ）
     ask_topic_stopwords_extra … 話題の語と数えない語の足し
     ask_shape_exempt         … 問いの形の見張りから外す問いの文（正規表現の並び・誤って止まる時だけ）
+    ask_rec_notice_kinds     … 推奨の印を付けない問いの形 {名: [正規表現]}（既定は ask_shape.REC_NOTICE_KINDS・知らせるだけ）
+    ask_rec_notice_exempt    … 上の知らせから外す問いの文（正規表現の並び）
 """
 from __future__ import annotations
 
@@ -43,6 +45,8 @@ DEFAULTS = {
     "ask_term_allow": [],
     "ask_topic_stopwords_extra": [],
     "ask_shape_exempt": [],
+    "ask_rec_notice_kinds": {},
+    "ask_rec_notice_exempt": [],
 }
 
 # 窓の種類の決まり（session-watch の title-mark と同じ線）: 最初の頼みの文の返し先が別の窓なら子の窓（文脈の知らせだけが読む）。
