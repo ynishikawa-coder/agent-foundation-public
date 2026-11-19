@@ -1,8 +1,9 @@
 """guard の見張りは 1 見張り 1 file で足せるか（並ぶ PR が同じ所へ足して衝突する形が戻らないかの注入の試験）。
 
 見張りを足す PR が全部、skill guard-rules の SKILL.md の表と値の表の例・plugin の説明・plugins/README.md・
-guard_common.py の DEFAULTS へ行を足して、続けて衝突した。正本は見張りの file の頭（HOOKS・VALUES）と
-skills/guard-rules/見張り/<名>.md の 2 つだけにし、皆の所には見張りの名も鍵も並べない。
+guard_common.py の DEFAULTS へ行を足して、続けて衝突した。見張りの正本は見張りの file の頭（HOOKS）と
+skills/guard-rules/見張り/<名>.md、鍵・型・既定の正本は土台の skill-values/schema.json（値の表の 1 本の口）だけにし、
+皆の所には見張りの名も鍵も並べない。
 """
 import json
 import os
@@ -20,40 +21,60 @@ HEADS = ("## 止められた・知らされた時の直し方", "## 値の表の
 
 
 def _common(root):
+    """root の guard_common と、それが読む root の lib/skill_values（鍵の一覧）を読み直す。"""
     sys.path.insert(0, str(root / "scripts"))
     try:
         import importlib
-        import guard_common
-        return importlib.reload(guard_common)
+        sys.modules.pop("skill_values", None)
+        sys.modules.pop("guard_common", None)
+        return importlib.import_module("guard_common")
     finally:
         sys.path.pop(0)
 
 
+def _section(text, head):
+    """見出し head の節の本文（次の ## まで）。無ければ ""。"""
+    m = re.search(r"^%s\n(.*?)(?=^## |\Z)" % re.escape(head), text, re.M | re.S)
+    return m.group(1) if m else ""
+
+
 def problems(root: Path) -> list[str]:
-    """guard の plugin の dir（root）を照らした崩れの並び。空なら緑。"""
+    """guard の plugin の dir（root）を照らした崩れの並び。空なら緑。
+    鍵・型・既定の正本は lib/schema.json（土台の skill-values/ への symlink）の guard の欄。各鍵の持ち主は、
+    その鍵を「## 値の表の鍵」の節の値の表の例（`"鍵":`）に書いた 見張り/<名>.md（1 つだけ）か、
+    SKILL.md の「## 値の表（皆の鍵）」の例。"""
     G = _common(root)
     errs = []
     docs = root / "skills" / "guard-rules" / "見張り"
-    decl = {}
+    names = []
     for p in G.watcher_files(str(root / "scripts")):
         name = Path(p).stem
-        d = G.declared(p)
-        if "VALUES" not in d or not isinstance(d["VALUES"], dict):
-            errs.append(f"{name}: 頭に VALUES（この見張りだけが読む鍵と既定・無ければ {{}}）が無い")
-        decl[name] = d.get("VALUES") or {}
+        if not isinstance(G.declared(p).get("HOOKS"), dict):
+            continue                                   # 宣言の無い file は見張りでない（手伝いの部品）
+        names.append(name)
     have = {p.stem for p in docs.glob("*.md")}
-    for name in sorted(set(decl) - have):
+    for name in sorted(set(names) - have):
         errs.append(f"{name}: 直し方の file 見張り/{name}.md が無い")
-    for name in sorted(have - set(decl)):
+    for name in sorted(have - set(names)):
         errs.append(f"見張り/{name}.md: 見張りの file scripts/{name}.py が無い（消した見張りの直し方は一緒に消す）")
-    seen = {}
-    for name, vals in decl.items():
-        for k in vals:
-            if k in G.COMMON or k in seen:
-                errs.append(f"{name}: 鍵 {k} は {seen.get(k, '皆の鍵')} と重なる（鍵は 1 つの見張りか皆の鍵のどちらか 1 か所）")
-            seen[k] = name
+    skill = (root / "skills" / "guard-rules" / "SKILL.md").read_text(encoding="utf-8")
+    keys = list(G.SV.keys_of("guard") or {})
+    common = [k for k in keys if f'"{k}":' in _section(skill, "## 値の表（皆の鍵）")]
+    owner = {}
+    for name in sorted(set(names) & have):
+        sec = _section((docs / f"{name}.md").read_text(encoding="utf-8"), "## 値の表の鍵")
+        for k in keys:
+            if f'"{k}":' in sec:
+                if k in common or k in owner:
+                    errs.append(f"見張り/{name}.md: 鍵 {k} は {owner.get(k, '皆の鍵（SKILL.md）')} と重なる"
+                                f"（鍵の値の表の例は 1 つの見張りか皆の鍵のどちらか 1 か所）")
+                owner.setdefault(k, name)
+    for k in keys:
+        if k not in common and k not in owner:
+            errs.append(f"鍵 {k}（schema.json の guard の欄）の書き方（値の表の例の \"{k}\":）が、どの 見張り/<名>.md の"
+                        f"「## 値の表の鍵」にも SKILL.md の「## 値の表（皆の鍵）」にも無い")
     shared = {
-        "skills/guard-rules/SKILL.md": (root / "skills" / "guard-rules" / "SKILL.md").read_text(encoding="utf-8"),
+        "skills/guard-rules/SKILL.md": skill,
         ".claude-plugin/plugin.json": json.loads((root / ".claude-plugin" / "plugin.json").read_text(encoding="utf-8"))["description"],
         "scripts/guard_common.py": (root / "scripts" / "guard_common.py").read_text(encoding="utf-8"),
         "scripts/guard.py": (root / "scripts" / "guard.py").read_text(encoding="utf-8"),
@@ -62,31 +83,21 @@ def problems(root: Path) -> list[str]:
     if readme.is_file():
         shared["plugins/README.md"] = "\n".join(ln for ln in readme.read_text(encoding="utf-8").splitlines()
                                                 if ln.startswith("- **guard**"))
-    for name in sorted(decl):
-        f = docs / f"{name}.md"
-        if not f.is_file():
-            continue
-        text = f.read_text(encoding="utf-8")
+    for name in sorted(set(names) & have):
+        text = (docs / f"{name}.md").read_text(encoding="utf-8")
         first = text.splitlines()[0] if text else ""
         if not first.startswith(f"# {name}"):
             errs.append(f"見張り/{name}.md: 1 行目が「# {name}（呼び名）」でない")
         for h in HEADS:
             if h not in text:
                 errs.append(f"見張り/{name}.md: 欄「{h}」が無い")
-        for k in decl[name]:
-            if f"`{k}`" not in text and f'"{k}"' not in text:
-                errs.append(f"見張り/{name}.md: この見張りの鍵 {k} の書き方が無い")
         call = re.search(r"（(.+?)）", first)
-        words = [name] + list(decl[name]) + ([call.group(1)] if call else [])
+        words = [name] + [k for k, n in owner.items() if n == name] + ([call.group(1)] if call else [])
         for where, body in shared.items():
             for w in words:
                 if re.search(r"(?<![0-9A-Za-z_])%s(?![0-9A-Za-z_])" % re.escape(w), body):
                     errs.append(f"{where}: 見張り {name} の「{w}」を並べた（並ぶ PR が全部ここへ足して衝突する。"
-                                f"見張り/{name}.md と見張りの頭に置く）")
-    skill = shared["skills/guard-rules/SKILL.md"]
-    for k in G.COMMON:
-        if f"`{k}`" not in skill:
-            errs.append(f"skills/guard-rules/SKILL.md: 皆の鍵 {k} の書き方が無い")
+                                f"見張り/{name}.md に置く）")
     return errs
 
 
@@ -115,10 +126,10 @@ def test_SKILL_の表へ見張りの行を足すと赤(copy):
     assert any("SKILL.md" in e and "spec_gate" in e for e in problems(copy))
 
 
-def test_皆の既定へ見張りの鍵を足すと赤(copy):
-    _edit(copy / "scripts" / "guard_common.py", 'COMMON = {\n', 'COMMON = {\n    "context_limit": 300_000,\n')
-    errs = problems(copy)
-    assert any("guard_common.py" in e and "context_limit" in e for e in errs)
+def test_皆の鍵の節へ見張りの鍵を足すと赤(copy):
+    _edit(copy / "skills" / "guard-rules" / "SKILL.md", '"state_dir": "~/.claude/af-guard"',
+          '"state_dir": "~/.claude/af-guard",\n    "context_limit": 300000')
+    assert any("context_limit" in e and "重なる" in e for e in problems(copy))
 
 
 def test_plugin_の説明と_README_に見張りを並べると赤(copy):
@@ -132,19 +143,26 @@ def test_plugin_の説明と_README_に見張りを並べると赤(copy):
     assert any("README.md" in e and "irreversible" in e for e in errs)
 
 
-def test_直し方の_file_の無い見張りと_VALUES_の無い見張りは赤(copy):
+def test_直し方の_file_の無い見張りは赤(copy):
     (copy / "scripts" / "zz_sakumono.py").write_text('HOOKS = {"pre": "check"}\n\n\ndef check(data, vals):\n    return ""\n',
                                                      encoding="utf-8")
-    errs = problems(copy)
-    assert any("zz_sakumono" in e and "見張り/zz_sakumono.md" in e for e in errs)
-    assert any("zz_sakumono" in e and "VALUES" in e for e in errs)
+    assert any("zz_sakumono" in e and "見張り/zz_sakumono.md" in e for e in problems(copy))
 
 
-def test_鍵の重なりと書き方の無い鍵は赤(copy):
-    _edit(copy / "scripts" / "spec_gate.py", "VALUES = {}", 'VALUES = {"context_limit": 1, "spec_sakumono": []}')
+def _add_schema_key(copy, key):
+    f = copy / "lib" / "schema.json"
+    d = json.loads(f.read_text(encoding="utf-8"))
+    d["sections"]["guard"]["keys"][key] = {"type": "list", "default": []}
+    f.write_text(json.dumps(d, ensure_ascii=False), encoding="utf-8")
+
+
+def test_書き方の無い鍵と_2_つの見張りに書いた鍵は赤(copy):
+    _add_schema_key(copy, "spec_sakumono")
     errs = problems(copy)
-    assert any("context_limit" in e and "重なる" in e for e in errs)
-    assert any("spec_gate.md" in e and "spec_sakumono" in e for e in errs)
+    assert any("spec_sakumono" in e and "書き方" in e for e in errs)
+    f = copy / "skills" / "guard-rules" / "見張り" / "spec_gate.md"
+    _edit(f, "## 値の表の鍵\n", '## 値の表の鍵\n\n```json\n{"guard": {"ask_term_allow": []}}\n```\n')
+    assert any("spec_gate.md" in e and "ask_term_allow" in e and "重なる" in e for e in problems(copy))
 
 
 def test_見張りの無い直し方の_file_は赤(copy):
@@ -152,12 +170,12 @@ def test_見張りの無い直し方の_file_は赤(copy):
     assert any("見張り/spec_gate.md" in e for e in problems(copy))
 
 
-def test_既定は皆の鍵と各見張りの_VALUES_から組む(copy):
+def test_既定は_schema_の_guard_の欄から組み_見張りの_file_に写さない(copy):
     G = _common(GUARD)
     assert G.DEFAULTS["context_limit"] == 300_000 and G.DEFAULTS["state_dir"].endswith("af-guard")
     assert G.DEFAULTS["context_stop_max"] == 2 and G.DEFAULTS["ask_prior_lookup"] == []
-    _edit(copy / "scripts" / "context_size.py", '"context_limit": 300_000,', '"context_limit": 123,')
-    assert _common(copy).DEFAULTS["context_limit"] == 123
+    for p in G.watcher_files():
+        assert not re.search(r"^VALUES\s*=", Path(p).read_text(encoding="utf-8"), re.M), f"{p} に値の既定を写した"
     _common(GUARD)
 
 
@@ -170,12 +188,3 @@ def test_止めた文は見張りの直し方の_file_を指し_その_file_が�
     reason = json.loads(p.stdout)["hookSpecificOutput"]["permissionDecisionReason"]
     m = re.search(r"直し方と値の表の鍵: (\S+\.md)", reason)
     assert m and Path(m.group(1)).is_file() and Path(m.group(1)).stem == "spec_gate", reason
-
-
-@pytest.mark.parametrize("bad", ["dict(x=1)", '{["a"]: 1}'], ids=["式", "鍵が並び"])
-def test_壊れた_VALUES_は自分の_HOOKS_を巻き込まず_試験は赤(copy, bad):
-    _edit(copy / "scripts" / "spec_gate.py", "VALUES = {}", "VALUES = " + bad)
-    G = _common(copy)
-    assert G.declared(str(copy / "scripts" / "spec_gate.py")).get("HOOKS") == {"pre": "check"}
-    assert any("spec_gate" in e and "VALUES" in e for e in problems(copy))
-    _common(GUARD)

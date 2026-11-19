@@ -2,9 +2,8 @@
 
 土台は main の先端をそのまま配るので、合流の前の CI の job `plugin-smoke` が、使う側と同じ入れ方で入れて起動する。
 ここはその試験自身が「壊すと赤・戻すと緑」かを、作り物の写しで見る（注入の試験）。
-claude の命令が無い所（手元）では飛ばす。CI の job `plugin-smoke` は AF_REQUIRE_CLAUDE=1 で回し、無ければ赤にする。
+本物の claude を要る印 real_claude を付ける（飛ばす条件と CI で拾う所は tests/conftest.py の 1 か所）。
 """
-import os
 import shutil
 import subprocess
 import sys
@@ -17,11 +16,7 @@ import smoke_breaks
 ROOT = Path(__file__).resolve().parent.parent
 SMOKE = ROOT / "scripts" / "plugin_smoke.py"
 
-if not shutil.which("claude"):
-    if os.environ.get("AF_REQUIRE_CLAUDE") == "1":
-        pytest.fail("claude の命令が無い（CI の job plugin-smoke では入れてから回す）", pytrace=False)
-    pytest.skip("claude の命令が無い所では入れて起動する試験を飛ばす（CI の job plugin-smoke が回す）",
-                allow_module_level=True)
+pytestmark = pytest.mark.real_claude
 
 
 def _git(cwd, *a):

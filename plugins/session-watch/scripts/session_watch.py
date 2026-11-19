@@ -23,9 +23,15 @@
   secret   … 返事に鍵・トークンの形が在るか。形の正本は公開の検査 public-guard/guard.py の secret_labels（直に呼ぶ）
   neighbor … 上の inner・secret の正本（隣の plugin guard・公開の検査）が見つからず照らせないか
 
-窓の種類＝「オーナーが相手の窓か」（この窓が誰に返すか）。誰が立てたか（親の窓の有無・
-parent_session_id・origin）では決めない。会話ログの最初の頼みの文に書かれた返し先だけで決める:
+窓の種類＝「オーナーが相手の窓か」。誰が立てたかだけでは決めない（立てた記録は返し先の写しを数えるかの照らしにだけ使う）。
+決め方の正本は window_kind 1 つ（決まりの文 KIND_RULE を skill title-mark がそのまま載せ、細目 §4 は skill を指す。試験が照らす）:
+  手の窓（作業名が `手:` で始まる窓）は返し先によらず 🙋 ／ それ以外は最初の頼みの文に書かれた返し先で
   `返し先=オーナー` → 🙋 ／ `返し先=session_…` → 🤖 ／ `（親窓 session_… の子）` → 🤖 ／ 書いていない → 決めない。
+  別の窓を指す返し先は手で書いた写しなので、頼みの行の記録（origin.kind が人でない・promptSource が system＝
+  別の窓や仕組みから来た頼み）と合う時だけ数える。行がまだ無い最初の知らせでは記録を読めないので決めず、サーバの記録
+  （get_session の parent_session_id）を AI に読ませる。窓の環境の CLAUDE_CODE_CHILD_SESSION は Claude Code が hook・Bash の
+  子プロセス全部に付ける印（公式の文書 env-vars）＝どの窓でも 1 なので見分けに使わない。
+  記録の読み方と人の印の表の正本は隣の plugin guard の guard_common.seeded_by_record（写さない）。オーナーが引き継ぎの文を貼った窓は 🤖 にしない。
 
 使い方:
   python3 session_watch.py <transcript.jsonl>  … 拾った物を 1 行ずつ出す（拾えば exit 1）
@@ -49,10 +55,11 @@ PLUGIN_ROOT = os.path.dirname(HERE)
 
 
 # ── 隣の正本（写さず直に呼ぶ）──────────────────────────────────
-#  中の言葉 … plugin guard の scripts/ask_shape.py（inner_terms）・値の表は scripts/guard_common.py
+#  中の言葉・「分からない」の見分け … plugin guard の scripts/ask_shape.py（inner_terms・is_dunno）・値の表は scripts/guard_common.py
 #  秘密の形 … 公開の検査 public-guard/guard.py（secret_labels。plugin の外＝市場の写しから読む）
-#  探す順: 環境変数 → 同じ repo（plugins/session-watch の隣）→ 入れた plugin の同じ版 → 市場の写し → 入れた plugin の新しい版
-#  どこにも無ければ None（check は neighbor の札を出す＝黙って照らしを抜かない）。
+#  探す順: 環境変数 → 同じ repo（plugins/session-watch の隣）→ 入れた plugin の同じ版 → 市場の写し（HEAD が同じ版の時だけ）
+#  版の合う物が無ければ None（check は neighbor の札を出す＝黙って照らしを抜かない）。手近な別の版（mtime の新しい版・
+#  版の違う市場の写し）は拾わない（入った版と違う決まりで返事を照らさない）。
 NEIGHBORS = {
     "ask_shape": ("AF_ASK_SHAPE", "plugins/guard/scripts/ask_shape.py", "guard", "scripts/ask_shape.py"),
     "guard_common": ("AF_GUARD_COMMON", "plugins/guard/scripts/guard_common.py", "guard", "scripts/guard_common.py"),
@@ -70,14 +77,25 @@ def neighbor_path(name, env=None):
     ver, market = os.path.basename(PLUGIN_ROOT), os.path.basename(up2)
     if plugin:
         cands.append(os.path.join(up2, plugin, ver, rel))
-    cands.append(os.path.join(os.path.dirname(os.path.dirname(up2)), "marketplaces", market, repo_rel))
-    if plugin:
-        import glob
-        cands += sorted(glob.glob(os.path.join(up2, plugin, "*", rel)), key=os.path.getmtime, reverse=True)
+    clone = os.path.join(os.path.dirname(os.path.dirname(up2)), "marketplaces", market)
+    if _same_version(clone, ver):
+        cands.append(os.path.join(clone, repo_rel))
     for c in cands:
         if c and os.path.isfile(c):
             return c
     return None
+
+
+def _same_version(clone, ver):
+    """市場の写し（目録の clone）の HEAD が入った版（cache の dir の名＝commit の頭）と同じか。分からなければ False。"""
+    if not re.fullmatch(r"[0-9a-f]{7,64}", ver or "") or not os.path.isdir(clone):
+        return False
+    import subprocess
+    try:
+        r = subprocess.run(["git", "-C", clone, "rev-parse", "HEAD"], capture_output=True, text=True, timeout=5)
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return r.returncode == 0 and r.stdout.strip().startswith(ver)
 
 
 def neighbor(name):
@@ -133,8 +151,6 @@ STRONG = re.compile(
 COND = re.compile(r"(なら|たら|れば|場合)[^。]*(教えて|声をかけて|言って)")
 # 開いた問いをチャットで聞く時に添える AI の読み（細目 §4）。これが在る平文の問いは拾わない。
 READING = re.compile(r"AI の(今の)?読み")
-# 選択肢モーダルのどの問いにも置く選択肢（細目 §4）。
-IDK = "分からない"
 CARD_LINE = re.compile(r"^[#>*\s]*(✅|❓|⏳|🛑)")
 DONE_LINE = re.compile(r"^[#>*\s]*✅(?!\s*終わった\s*[（(]\s*一部)")   # 終わった（「✅終わった（一部）」は除く・核 §7）
 # 一言で済む返事（細目 §5）の行数の上限。札で始めた返事・問いを出したターンは長さに関わらず札と締めを見る。
@@ -193,6 +209,14 @@ def text_of(row):
     return ""
 
 
+def seeded_by_record(row):
+    """子の窓の見分けの記録（頼みの行の origin）。正本は隣の plugin guard の
+    guard_common.seeded_by_record（人の印の表もそこ 1 か所＝写さない）。隣が無い時は False（文だけで子の窓と決めない。
+    返事の差し戻しが neighbor の札で名指す）。"""
+    G = neighbor("guard_common")
+    return bool(G.seeded_by_record(row)) if G is not None else False
+
+
 def is_owner_text(row):
     """ターンの境界になる頼みの文か（道具の返り・見張りの差し戻し〔isMeta〕を除く）。"""
     if row.get("type") != "user" or row.get("isMeta") or "toolUseResult" in row:
@@ -234,6 +258,7 @@ class Log(object):
     def __init__(self, rows):
         self.events = []        # 出た順: ("title", str) / ("ask", [問い]) / ("answer", {問い: 答え}) / ("owner", str)
         self.first_prompt = ""
+        self.first_seeded = False   # 最初の頼みの行の記録が、人でなく別の窓・仕組みから来た頼みを示すか
         self.cloud = False
         turn_start = 0
         for row in rows:
@@ -243,6 +268,7 @@ class Log(object):
             if is_owner_text(row):
                 if not self.first_prompt:
                     self.first_prompt = text_of(row)
+                    self.first_seeded = seeded_by_record(row)
                 self.events.append(("owner", text_of(row)))
                 turn_start = len(self.events)
                 continue
@@ -266,9 +292,12 @@ class Log(object):
                     items = [q for q in inp.get("questions") or [] if isinstance(q, dict)]
                     qs = [_norm(q.get("question")) for q in items]
                     self.events.append(("ask", [q for q in qs if q]))
-                    lack = [_norm(q.get("question")) for q in items if not has_idk(q)]
+                    idk = [(q, has_idk(q)) for q in items]
+                    lack = [_norm(q.get("question")) for q, ok in idk if ok is False]
                     if lack:
                         self.events.append(("noidk", lack))
+                    if any(ok is None for _, ok in idk):
+                        self.events.append(("noidk_blind", True))
                 else:
                     self.events.append(("tool", name))
                     if moves(name, inp):
@@ -290,11 +319,12 @@ class Log(object):
 
 
 def has_idk(question):
-    """選択肢の中に「分からない」が在るか。"""
-    for o in question.get("options") or []:
-        if isinstance(o, dict) and IDK in str(o.get("label") or ""):
-            return True
-    return False
+    """選択肢の中に「分からない」（細目 §4）が在るか。見分けは plugin guard の ask_shape.is_dunno を直に呼ぶ（写さない）。
+    正本が見つからない時は None（見分けられない＝在るとも無いとも言わず、neighbor の札で知らせる）。"""
+    A = neighbor("ask_shape")
+    if A is None or not hasattr(A, "is_dunno"):
+        return None
+    return any(isinstance(o, dict) and A.is_dunno(o.get("label")) for o in question.get("options") or [])
 
 
 def _norm(text):
@@ -302,14 +332,30 @@ def _norm(text):
 
 
 # ── 窓の種類と題 ──────────────────────────────────────────────
-def kind_of(first_prompt):
-    """最初の頼みの文に書かれた返し先で種類を決める。書いていなければ None（決めない）。"""
+# 窓の種類の決まりの文（skill title-mark はこの文をそのまま載せ、細目 §4 は skill を指す＝試験が照らす）。決め方は window_kind。
+KIND_RULE = ("種類の決め方は 2 段: まず手の窓（作業名が `手:` で始まる窓）は返し先によらず `🙋`（相手はオーナー）。"
+             "それ以外は窓の最初の頼みの文に書いた返し先だけで決める: `返し先=オーナー` → `🙋`／"
+             "`返し先=session_…` か `（親窓 session_… の子）` → `🤖`（別の窓を指す返し先は手で書いた写しなので、頼みの行の記録が人の打った物でない時（行がまだ無い最初の知らせでは get_session の `parent_session_id`＝別の窓が立てた記録が在る時）＝別の窓や仕組みから来た頼みの時だけ数える。オーナーが引き継ぎの文を貼った窓は `🤖` にしない）／どれも無い → 窓が自分で決める（点検は種類の食い違いを拾わない）。")
+
+
+def kind_of(first_prompt, seeded=False):
+    """最初の頼みの文に書かれた返し先で種類を決める。書いていなければ None（決めない）。手の窓は見ない＝window_kind を使う。
+    別の窓を指す返し先（写し）は、頼みの行の記録が人の打った物でない時（seeded）だけ数える。"""
     m = RETURN_TO.search(first_prompt or "")
-    if m:
-        return HUMAN if m.group(1) == "オーナー" else AI
-    if CHILD_OF.search(first_prompt or ""):
+    if m and m.group(1) == "オーナー":
+        return HUMAN
+    if not seeded:
+        return None
+    if m or CHILD_OF.search(first_prompt or ""):
         return AI
     return None
+
+
+def window_kind(first_prompt, title=None, seeded=False):
+    """窓の種類の正本（KIND_RULE）。手の窓（作業名が `手:`）は返し先によらず 🙋、ほかは最初の頼みの返し先。"""
+    if HAND_TITLE.match(split_title(title)[2]):
+        return HUMAN
+    return kind_of(first_prompt, seeded)
 
 
 def split_title(title):
@@ -399,9 +445,11 @@ URL = re.compile(r"https?://\S+")
 QUOTED = re.compile(r"「[^」\n]*」|『[^』\n]*』|\"[^\"\n]*\"")
 
 # 時刻（核 §6）: 人に見せる時刻は日本時間。印は「日本時間」「JST」「+09:00」。
-CLOCK = re.compile(r"(?<![\d:])(\d{1,2})[:：](\d{2})(?:[:：]\d{2})?(?:\.\d+)?(?![\d])")
+CLOCK = re.compile(r"(?<![\d:])(\d{1,2})(?:[:：](\d{2})(?:[:：]\d{2})?(?:\.\d+)?(?![\d])|\s*時\s*(\d{1,2})\s*分)")
+#   「17:53」と「17時53分」の 2 つの書き方（字の形が違うだけで同じ時刻）。
 ZONE = re.compile(r"^\s*(Z(?![A-Za-z])|UTC|GMT|[+-]\d{2}:?\d{2}(?!\d))")
-JST_LINE = re.compile(r"日本時間|JST|\+09:?00")      # 同じ行に印があれば、その行の印の無い時刻は日本時間と読む
+JST_MARK = re.compile(r"日本時間|JST|\+09:?00")
+CLAUSE = re.compile(r"[^、。,，;；！？!?\n]+")   # 句。時刻を持つ句の印はその句の時刻だけに掛かる（別の句の時刻を日本時間と読まない）
 DATE_BEFORE = re.compile(r"(\d{4}[-/年]\d{1,2}[-/月]\d{1,2}日?|(?<![\d/])\d{1,2}/\d{1,2}|\d{1,2}月\d{1,2}日)"
                          r"\s*(?:[（(][月火水木金土日][)）])?\s*T?\s*$")
 
@@ -409,8 +457,11 @@ DATE_BEFORE = re.compile(r"(\d{4}[-/年]\d{1,2}[-/月]\d{1,2}日?|(?<![\d/])\d{1
 HEDGE = re.compile(r"ほぼ|大体|だいたい|たぶん|多分|おそらく|恐らく|はず(?![しすさせれ])|と思(?:う|い|われ)|かもしれ")
 FINISH = re.compile(r"終わ|済ん|済み|完了|直っ|直り|直せ|直した|でき|出来|通っ|通る|通り|緑|動い|動く|効い|効く|揃っ|片付")
 AHEAD = re.compile(r"次の|次回|来週|来月|明日|今後|あとで|後で|予定|見込み")   # 先の事の見込みは完了の言い切りでない
-PAST = re.compile(r"た\s*$|た[、,）)」]|ました|でした|済み|完了")   # 過去の言い切り（見込みの語が在っても数える）
+PAST = re.compile(r"た\s*$|た[）)」]|ました|でした|済み|完了")   # 過去の言い切り（見込みの語が在っても数える）
 SENTENCE = re.compile(r"[^。！？!?\n]+")
+#   照らす単位は 2 段: 見込みかどうか（AHEAD・PAST）は句（、で切る）ごとに見て見込みの句だけを外し、
+#   言い切らない語と終わりの語の重なりは残りの文で見る。「書き直した、次の版はたぶん来週できる。」の「た、」は
+#   見込みの句に掛からず、「直った、と思います。」のように 2 つの語が「、」をまたぐ言い切りは拾う。
 
 
 def reply_exempt(data=None):
@@ -422,7 +473,8 @@ def reply_exempt(data=None):
     pats = got.get("reply_exempt") if isinstance(got, dict) else None
     ok, bad = [], []
     for p in pats or []:
-        if not isinstance(p, str) or not p:
+        p = G.SV._row_pattern(p) if G and hasattr(G, "SV") else (p if isinstance(p, str) else None)   # 行は字か {"pattern": 字}（型 patterns）
+        if not p:
             continue
         try:
             re.compile(p)
@@ -443,40 +495,44 @@ def prose(text, exempt=()):
 
 
 def time_hits(body):
-    """日本時間でない時刻・日付つきで印の無い時刻の並び [(字, 訳)]。"""
+    """日本時間でない時刻・日付つきで印の無い時刻の並び [(字, 訳)]。日本時間の印は時刻と同じ句の中だけを見る。"""
     hits = []
     for ln in body.splitlines():
-        for m in CLOCK.finditer(ln):
-            if int(m.group(1)) > 23 or int(m.group(2)) > 59:
-                continue
-            after, before = ln[m.end():m.end() + 24], ln[max(0, m.start() - 24):m.start()]
-            z = ZONE.match(after)
-            if z and not re.match(r"^\s*\+09:?00", after):
-                hits.append((m.group(0) + z.group(1), "日本時間でない"))
-            elif not z and DATE_BEFORE.search(before) and not JST_LINE.search(ln):
-                hits.append(((DATE_BEFORE.search(before).group(1) + " " + m.group(0)).strip(), "日本時間の印が無い"))
+        clauses = list(CLAUSE.finditer(ln))
+        # 時刻を持たない句の印（「〜まで、日本時間で。」）は行の時刻全部に掛かる。時刻を持つ句の印はその句の時刻だけ。
+        loose = any(JST_MARK.search(c.group(0)) and not CLOCK.search(c.group(0)) for c in clauses)
+        for c in clauses:
+            cl = c.group(0)
+            for m in CLOCK.finditer(cl):
+                hh, mm = m.group(1), m.group(2) or m.group(3)
+                if int(hh) > 23 or int(mm) > 59:
+                    continue
+                after, before = ln[c.start() + m.end():c.start() + m.end() + 24], cl[max(0, m.start() - 24):m.start()]
+                z = ZONE.match(after)
+                if z and not re.match(r"^\s*\+09:?00", after):
+                    hits.append((m.group(0) + z.group(1), "日本時間でない"))
+                elif not z and DATE_BEFORE.search(before) and not (loose or JST_MARK.search(cl)):
+                    hits.append(((DATE_BEFORE.search(before).group(1) + " " + m.group(0)).strip(), "日本時間の印が無い"))
     return hits
 
 
 def hedge_hits(body):
-    """終わりの語と同じ文にある言い切らない語の並び（「」の中の言葉＝引いた言葉は数えない）。"""
+    """見込みの句を外した文に、終わりの語と並んで在る言い切らない語の並び（「」の中の言葉＝引いた言葉は数えない）。"""
     out = []
     for sent in SENTENCE.findall(QUOTED.sub(" ", body)):
-        h = HEDGE.search(sent)
-        if h and FINISH.search(sent) and not (AHEAD.search(sent) and not PAST.search(sent)):
+        kept = "、".join(c for c in CLAUSE.findall(sent) if not (AHEAD.search(c) and not PAST.search(c)))
+        if HEDGE.search(kept) and FINISH.search(kept):
             out.append(sent.strip()[:40])
     return out
 
 
 def ai_window(log):
-    """返し先が別の窓の窓（🤖）か。最初の頼みの返し先か、最後の題の種類で決める。"""
-    if kind_of(log.first_prompt) == AI:
-        return True
+    """返し先が別の窓の窓（🤖）か。種類の正本 window_kind（手の窓は 🙋）か、決まらなければ最後の題の種類で決める。"""
     last = None
     for k, v in log.events:
         if k == "title":
             last = v
-    return split_title(last)[0] == AI
+    return (window_kind(log.first_prompt, last, log.first_seeded) or split_title(last)[0]) == AI
 
 
 def words(log, closing, data=None):
@@ -492,6 +548,9 @@ def words(log, closing, data=None):
         except Exception as e:      # noqa: BLE001
             found.append(("neighbor", "%s の照らしが壊れて照らせない（%s: %s）" % (name, type(e).__name__, str(e)[:60])))
 
+    if neighbor("guard_common") is None:   # 値の表を空とみなして黙って進めない（外す形・足す形が効かないまま照らす）
+        found.append(("neighbor", "値の表の正本（plugin guard の guard_common）が見つからず、値の表の reply_exempt・"
+                                  "ask_term_allow・ask_inner_terms_extra を読めないまま照らした"))
     exempt, bad = reply_exempt(data)
     if bad:
         found.append(("neighbor", "値の表 session-watch.watch-log.reply_exempt に正規表現として読めない形がある（捨てて照らした）: %s"
@@ -511,9 +570,11 @@ def words(log, closing, data=None):
         if ai_window(log):
             return
         A, G = neighbor("ask_shape"), neighbor("guard_common")
-        if A is None or not hasattr(A, "inner_terms") or G is None:
-            found.append(("neighbor", "中の言葉の正本（plugin guard の ask_shape・guard_common）が見つからず、返事の言葉を照らせない"))
+        if A is None or not hasattr(A, "inner_terms"):
+            found.append(("neighbor", "中の言葉の正本（plugin guard の ask_shape）が見つからず、返事の言葉を照らせない"))
             return
+        if G is None:
+            return            # 値の表が読めない事は上で名指した（外す形の無いまま照らすと正しい返事を差し戻す）
         vals = G.values(data)
         bad = A.bad_patterns(vals) if hasattr(A, "bad_patterns") else []
         if bad:
@@ -551,7 +612,6 @@ def check(log, closing=None, data=None):
     """拾った物を [(code, 説明)] で返す。closing を渡せば、それを締めの返事として見る（Stop の hook）。
     data は hook の入力（値の表の在り処＝cwd を読む）。"""
     found = []
-    kind = kind_of(log.first_prompt)
     closing = log.closing_text() if closing is None else closing
     _, close = split_close(closing)
 
@@ -577,9 +637,11 @@ def check(log, closing=None, data=None):
                                    "（同じ題でもよい。会話ログに載れば照らせる）"))
         if title is not None:
             tk, tm, _ = split_title(title)
+            kind = window_kind(log.first_prompt, title, log.first_seeded)
             found += [("title", m) for m in title_shape(title)]
             if tk is not None and kind and tk != kind:
-                found.append(("title", "題の種類が %s だが、この窓の返し先から種類は %s（題: %s）" % (tk, kind, title)))
+                found.append(("title", "題の種類が %s だが、この窓の種類は %s（題: %s・決め方は skill title-mark の種類の決め方）"
+                              % (tk, kind, title)))
             if tm == ASKING and not open_ask and answered:
                 found.append(("title", "答えが返ったのに題に %s が残っている" % ASKING))
             # ✅ は「終わった」（核 §7）の印。AI の手が尽きた（AI がこの後やること: なし）とは結ばない。
@@ -590,7 +652,13 @@ def check(log, closing=None, data=None):
                     found.append(("title", "%s の窓が %s終わった で報告するのに、題の状態が %s でない" % (AI, DONE, DONE)))
                 elif not done and tm == DONE:
                     found.append(("title", "%s の窓が 終わった でない札（止まった・一部・待ち・問い）で締めるのに、題が %s" % (AI, DONE)))
-            if tm == WAITING and HAND_TITLE.match(split_title(title)[2]) and closing.strip():
+            # 手の窓（細目 §4）: 済んだ目印を確かめたら頼んだ窓へ返して閉じる。✅ で締めるのに、このターンに頼んだ窓へ
+            #   返した跡（send_message）が無ければ、済んだ手の窓が頼んだ窓に済んだと分からないまま残る。
+            hand_done = bool(DONE_LINE.match(first)) and bool(HAND_TITLE.match(split_title(title)[2]))
+            if hand_done and not any(k == "move" and str(v).endswith("send_message") for k, v in log.turn):
+                found.append(("title", "手の窓が %s終わった で締めるのに、頼んだ窓へ済んだ目印を返した跡（send_message）が"
+                                       "このターンに無い（返してから締め、自分を閉じる）" % DONE))
+            if tm == WAITING and HAND_TITLE.match(split_title(title)[2]) and closing.strip() and not hand_done:
                 lack = [p for p in HAND_PARTS if p not in closing]
                 if lack:
                     found.append(("hand", "手の窓の返事に %s が無い（目的・手順〔貼る文は全部〕・済んだ目印・済んだ後を書く）"
@@ -644,6 +712,8 @@ def check(log, closing=None, data=None):
         if k == "noidk":
             for q in v:
                 found.append(("idk", "選択肢の画面の問いに「分からない」の選択肢が無い（足して出す）: %s" % q[:60]))
+    if any(k == "noidk_blind" for k, _ in log.events):
+        found.append(("neighbor", "「分からない」の見分けの正本（plugin guard の ask_shape.is_dunno）が見つからず、選択肢の画面の問いを照らせない"))
 
     # 答えの無い問い（一度も答えが返っていない問い）
     asked, answered = [], set()
@@ -672,6 +742,12 @@ REMIND = (
     "[session-watch] この窓の題にまだ種類の印（%s／%s）が無い。最初の返事を書く前に、"
     "%s の `set_session_title` で題を `<種類><状態> <作業名>` に付ける（自分の session id は `get_session` を "
     "session_id を省いて読む）。種類: %s。形の細目は skill `session-watch:title-mark`。")
+
+
+REMIND_PARENT = ("[session-watch] 最初の頼みの文の返し先が別の窓を指すが、頼みの行の記録をまだ読めない（文は人が貼った写しかもしれない）。"
+                 "最初の返事の前に `get_session` を session_id を省いて読み、`parent_session_id` が在れば（別の窓が立てた記録）🤖 の窓"
+                 "として、親が付けた今の題を `set_session_title` で付け直す（親が付けた題は会話ログに載らず、返事の差し戻しが照らせない）。"
+                 "`parent_session_id` が無ければ人が立てた窓なので 🙋 で題を付ける。形の細目は skill `session-watch:title-mark`。")
 
 
 REMIND_CHILD = ("[session-watch] 親が付けた題は会話ログに載らず、返事の差し戻し（Stop）が照らせない。最初の返事の前に "
@@ -727,7 +803,15 @@ def remind(data, env=None):
 def remind_title(log, data):
     if titled(log):
         return None
-    kind = kind_of(log.first_prompt or str(data.get("prompt") or ""))
+    if log.first_prompt:
+        kind = window_kind(log.first_prompt, None, log.first_seeded)
+    else:
+        # 頼みの行がまだ無い（最初の頼みを受けた hook）: 記録を読めないので文だけで子の窓と決めない（人の窓の側へ倒す）。
+        # 文が別の窓を指す時だけ、サーバの記録（parent_session_id）で決めさせる。窓の環境の印は読まない（どの窓でも 1）。
+        prompt = str(data.get("prompt") or "")
+        kind = window_kind(prompt, None, False)
+        if kind is None and kind_of(prompt, True) == AI:
+            return REMIND_PARENT
     if kind == AI:
         return REMIND_CHILD   # 親が create_session で付けた題は会話ログに無い＝返事の差し戻しで照らせないので、付け直させる
     which = ("%s（最初の頼みの返し先から）" % kind) if kind else (

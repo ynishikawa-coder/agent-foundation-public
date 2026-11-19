@@ -204,7 +204,7 @@ def test_赤の最後の行は根治の入口を指し緑は指さない(tmp_pat
     red = _cli(_repo(tmp_path), {"GITHUB_ACTIONS": "true"})
     assert red.returncode == 1 and "細目 §3「まず構造を疑う」" in red.stdout.strip().splitlines()[-1], red.stdout
     (tmp_path / "g").mkdir()
-    green = _cli(_repo(tmp_path / "g"), {})
+    green = _cli(_repo(tmp_path / "g"), {"AF_DENY_WORDS": "置かない作り物の語"})
     assert green.returncode == 0 and "まず構造を疑う" not in green.stdout
 
 
@@ -214,8 +214,12 @@ def test_見回りで外れが在れば最後の行が根治の入口を指す(m
     assert "細目 §3「まず構造を疑う」" in capsys.readouterr().out.strip().splitlines()[-1]
 
 
-def test_手元で顧客の語が無ければ飛ばして緑(tmp_path):
+def test_注入_手元で顧客の語が無ければ照合を飛ばし緑に数えない(tmp_path):
+    """前の形は照合の一部を飛ばしても exit 0 で、check_all が緑に数えた。今は exit 3（照らしていない）。"""
     res = _cli(_repo(tmp_path), {})
+    assert res.returncode == 3 and "照らしていない" in res.stdout, res.stdout
+    (tmp_path / "g").mkdir()
+    res = _cli(_repo(tmp_path / "g"), {"AF_DENY_WORDS": "置かない作り物の語"})
     assert res.returncode == 0, res.stdout
 
 
@@ -294,7 +298,10 @@ def _routes(full, wf_text=None, contexts=(), rules=()):
     return r
 
 
-CALLER = "    steps:\n      - uses: ynishikawa-coder/agent-foundation-public/public-guard@main\n"
+# 呼び口の雛形と同じ形（PR・push で走る workflow の job public-guard の step）。見分けは workflow の読み手が正本。
+CALLER = ("on:\n  push:\n    branches: [main]\n  pull_request:\njobs:\n  public-guard:\n    name: public-guard\n"
+          "    runs-on: ubuntu-latest\n    steps:\n      - uses: ynishikawa-coder/agent-foundation-public/public-guard@main\n")
+LOCAL_CALLER = CALLER.replace("ynishikawa-coder/agent-foundation-public/public-guard@main", "./public-guard")
 
 
 def test_見回り_呼び口と守りがあれば外れ0():
@@ -332,14 +339,14 @@ def test_見回り_非公開とarchiveは見ない():
 
 def test_見回り_土台は自分の枝の物を呼んでよい():
     full = patrol.FOUNDATION
-    gh = FakeGitHub(_routes(full, "      - uses: ./public-guard\n", rules=["public-guard", "plugin-smoke"]))
+    gh = FakeGitHub(_routes(full, LOCAL_CALLER, rules=["public-guard", "plugin-smoke"]))
     assert patrol.patrol(gh, [full.split("/")[0]]) == {}
 
 
 def test_見回り_土台は_plugin_smoke_が必須でなければ外れ():
     """main の先端を配る代わりの守り（入れて起動する試験）が合流の必須から外れたら知らせる（注入の試験）。"""
     full = patrol.FOUNDATION
-    found = patrol.patrol(FakeGitHub(_routes(full, "      - uses: ./public-guard\n", rules=["public-guard"])),
+    found = patrol.patrol(FakeGitHub(_routes(full, LOCAL_CALLER, rules=["public-guard"])),
                           [full.split("/")[0]])
     assert any("plugin-smoke" in p for p in found[full])
 
@@ -451,11 +458,12 @@ def test_照らす範囲が読めない時は理由を出して赤(tmp_path):
 
 
 def test_手元で照らす範囲が読めない時は_main_の取り方を言う(tmp_path):
-    """注入: main の無い手元の clone で回す → 赤のまま、取り方の 1 行を出す（CI では出さない＝CI の取り出しは ci.yml が決める）。"""
+    """注入: 出所（origin）の無い手元の clone で回す → 緑にせず「照らせない」で止める（手元の範囲の元は出所の今の main で、
+    聞けない時に手元の物で黙って比べない）。CI では取り方の 1 行を出さない（CI の取り出しは ci.yml が決める）。"""
     repo = _repo(tmp_path)
     env = {k: v for k, v in os.environ.items() if k not in ENV_KEYS}
     r = subprocess.run([sys.executable, str(GUARD), "--repo", str(repo)], capture_output=True, text=True, env=env, timeout=60)
-    assert r.returncode == 1 and "照らす範囲を読めない" in r.stdout and "git fetch origin main" in r.stdout
+    assert r.returncode == 2 and "照らせない" in r.stdout and "出所の今の main" in r.stdout, r.stdout
     r = subprocess.run([sys.executable, str(GUARD), "--repo", str(repo)], capture_output=True, text=True,
                        env={**env, "GITHUB_ACTIONS": "true"}, timeout=60)
     assert "git fetch origin main" not in r.stdout

@@ -256,9 +256,12 @@ def test_作業場と変更の無い作業部屋の掃除は離席中でも通�
 
 
 # ── context_size（文脈の量）──
-def usage_log(tmp_path, tokens, first="作り物の頼み"):
+def usage_log(tmp_path, tokens, first="作り物の頼み", origin=None):
+    head = {"type": "user", "message": {"content": first}}
+    if origin:
+        head["origin"] = {"kind": origin}       # 頼みの行の記録（人が打ったか・別の窓から来たか）
     return write_log(tmp_path / "ctx.jsonl", [
-        {"type": "user", "message": {"content": first}},
+        head,
         {"type": "assistant", "message": {"usage": {"input_tokens": 10, "cache_read_input_tokens": tokens - 10,
                                                     "cache_creation_input_tokens": 0}, "content": []}}])
 
@@ -279,7 +282,7 @@ def test_文脈が目安を越えた最初の1回だけ知らせる(env, tmp_pat
 
 
 def test_子の窓には止まる側の知らせを出す(env, tmp_path):
-    tpath = usage_log(tmp_path, 400_000, first="あなたは書く窓です（親窓 session_ABC123 の子）。")
+    tpath = usage_log(tmp_path, 400_000, first="あなたは書く窓です（親窓 session_ABC123 の子）。", origin="task-notification")
     assert "引き継ぎを書いて止まって" in hook(env, "post", post_tool(tpath))["additionalContext"]
 
 
@@ -447,9 +450,9 @@ def test_時刻は字でなく時刻で比べる(env, tmp_path):
 
 
 def test_1つの見張りが_import_で壊れても他の見張りは走る(env, tmp_path):
-    broken = tmp_path / "plugin"
     import shutil
-    shutil.copytree(PLUGIN / "scripts", broken)
+    shutil.copytree(PLUGIN, tmp_path / "plugin")   # 入れた時と同じく lib/ の symlink は実体で写る
+    broken = tmp_path / "plugin" / "scripts"
     (broken / "irreversible.py").write_text("raise ImportError('作り物の故障')\n", encoding="utf-8")
     payload = {"tool_name": "Write", "tool_input": {"file_path": "/x/tests/test_a.py", "content": "OPENAI_API_KEY"}}
     p = subprocess.run([sys.executable, str(broken / "guard.py"), "pre"], input=json.dumps(payload),
@@ -493,7 +496,19 @@ def without_check(env, tmp_path, ver="v1", docs_kit_ver=None):
     pg = tmp_path / "marketplaces" / "market" / "public-guard"
     if not pg.exists():
         shutil.copytree(ROOT / "public-guard", pg)
+    clone_at(pg.parent, ver)  # 市場の取り出しは git で、入った版（cache の dir の名）が歴史に在る
     return dict(env, _AF_TEST_GUARD=str(root / "scripts" / "guard.py"))
+
+
+def clone_at(clone, ver):
+    """作り物の市場の取り出しを git にし、今の中身を版 ver（tag）として持たせる（guard は入った版の中身だけを読む）。"""
+    g = lambda *a: subprocess.run(["git", "-C", str(clone), "-c", "user.name=t", "-c", "user.email=t@example.invalid", *a],
+                                  capture_output=True, text=True)
+    if not (clone / ".git").exists():
+        g("init", "-q")
+        g("add", "-A")
+        g("commit", "-qm", "版")
+    g("tag", "-f", ver)
 
 
 def publish(path, cwd="", **extra):
@@ -862,8 +877,9 @@ def test_ask_shape_判定の値は値の表で変えられ誤って止まる形�
     env["SKILL_VALUES"] = str(table)
     table.write_text(json.dumps({"guard": {"ask_question_max_chars": 120}}), encoding="utf-8")
     assert deny_reason(env, long_q) == ""
-    table.write_text(json.dumps({"guard": {"ask_term_allow": ["^ISO\\d+$"]}}), encoding="utf-8")
-    assert deny_reason(env, ask_pre(q("ISO9001 の書き方に合わせますか"))) == ""
+    assert "B202" in deny_reason(env, ask_pre(q("B202 の部屋で会いますか")))
+    table.write_text(json.dumps({"guard": {"ask_term_allow": ["^B\\d+$"]}}), encoding="utf-8")
+    assert deny_reason(env, ask_pre(q("B202 の部屋で会いますか"))) == ""
     assert "E02" in deny_reason(env, ask_pre(q("E02 を入れますか")))
     table.write_text(json.dumps({"guard": {"ask_shape_exempt": ["^作り物の例外"]}}), encoding="utf-8")
     assert deny_reason(env, ask_pre(q("作り物の例外 E02 を入れますか"))) == ""

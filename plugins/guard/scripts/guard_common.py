@@ -2,11 +2,11 @@
 
 どの口も壊れた時は既定に倒す（見張りの故障で窓を止めない）。仕事の中身や特定の窓の名前は持たない。
 
-値の表（在る時だけ読む・無ければ既定で動く）:
-  repo の根の config/skill-values.json の "guard"。読む順は 環境変数 SKILL_VALUES → $CLAUDE_PROJECT_DIR → hook の cwd。
-  鍵と既定の正本は、皆が使う 2 つ（下の COMMON）と、各見張りの file の頭の VALUES（その見張りだけが読む鍵）。
-  鍵の意味と変え方は skills/guard-rules/SKILL.md（皆の鍵）と skills/guard-rules/見張り/<見張りの名>.md（各見張りの鍵）。
-  ここに鍵の一覧を写さない（見張りを足す PR が全部この一覧へ足して衝突した）。
+値の表（在る時だけ読む・無ければ既定で動く）: config/skill-values.json の "guard"。探し方・鍵の一覧・型・既定は
+  plugin の lib/skill_values.py と lib/schema.json（＝土台の skill-values/ の正本への symlink）が持つ＝ここに写さない。
+  知らない鍵・畳んだ鍵・型の違う値は、その鍵だけ既定で動き（守りを止めない）、窓の起動の時に名指しで知らせる。
+  鍵の意味は skill guard:guard-rules の「値の表」（皆の鍵）と skills/guard-rules/見張り/<見張りの名>.md（各見張りの鍵）。
+  ここに見張りの名や鍵を並べない（見張りを足す PR が全部ここへ足して衝突した）。
 """
 from __future__ import annotations
 
@@ -15,35 +15,28 @@ import glob
 import json
 import os
 import re
+import sys
 import tempfile
 from datetime import datetime, timezone
 
-VALUES_REL = os.path.join("config", "skill-values.json")
-# 皆が使う鍵（人のいない窓の印・置き場）。各見張りの鍵は見張りの頭の VALUES が正本（declared() で読む）。
-COMMON = {
-    "unattended_env": ["AF_UNATTENDED"],
-    "state_dir": os.path.join("~", ".claude", "af-guard"),
-}
+sys.dont_write_bytecode = True
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib"))
+import skill_values as SV  # noqa: E402  値の表の 1 本の口（土台の skill-values/ への symlink）
+
+DEFAULTS = SV.defaults("guard")
 HERE = os.path.dirname(os.path.abspath(__file__))
 HELPERS = ("guard", "guard_common")
 
 
 def declared(path):
-    """見張りの file の頭の宣言 {名: 値}（HOOKS・VALUES）を、import せず字の宣言として読む。宣言の無い名は入らない。
-    宣言ごとに読む＝VALUES が壊れても HOOKS は読める（壊れた宣言は入らず、試験が「VALUES が無い」で赤にする）。
+    """見張りの file の頭の宣言 HOOKS を、import せず字の宣言として読む（{"HOOKS": …} か宣言が無ければ {}）。
     file 自体が読めない（構文の誤り）時は例外を上げる（呼ぶ側がその file だけを外す）。"""
     with open(path, encoding="utf-8") as f:
         tree = ast.parse(f.read())
-    out = {}
     for n in tree.body:
-        if isinstance(n, ast.Assign):
-            for t in n.targets:
-                if isinstance(t, ast.Name) and t.id in ("HOOKS", "VALUES"):
-                    try:
-                        out[t.id] = ast.literal_eval(n.value)
-                    except (ValueError, TypeError, SyntaxError, MemoryError, RecursionError):
-                        pass
-    return out
+        if isinstance(n, ast.Assign) and any(isinstance(t, ast.Name) and t.id == "HOOKS" for t in n.targets):
+            return {"HOOKS": ast.literal_eval(n.value)}
+    return {}
 
 
 def watcher_files(here=None):
@@ -52,24 +45,8 @@ def watcher_files(here=None):
     return [p for p in sorted(glob.glob(os.path.join(d, "*.py")))
             if os.path.basename(p)[:-3] not in HELPERS]
 
-
-def defaults(here=None):
-    """値の表の既定 = COMMON ＋ 各見張りの VALUES。読めない宣言は飛ばす（1 つの故障で他の既定を落とさない）。"""
-    out = dict(COMMON)
-    for p in watcher_files(here):
-        try:
-            v = declared(p).get("VALUES")
-        except Exception:   # noqa: BLE001
-            continue
-        if isinstance(v, dict):
-            for k, x in v.items():
-                out.setdefault(k, x)
-    return out
-
-
-DEFAULTS = defaults()
-
 # 窓の種類の決まり（session-watch の title-mark と同じ線）: 最初の頼みの文の返し先が別の窓なら子の窓（文脈の知らせだけが読む）。
+# 文の返し先は手で書いた写しなので、最初の頼みの行の記録（人が打った頼みでない＝seeded_by_record）と合う時だけ数える。
 RETURN_TO_WINDOW = re.compile(r"返し先\s*[=＝:：]\s*session_[A-Za-z0-9]+")
 CHILD_OF = re.compile(r"（親窓\s*session_[A-Za-z0-9]+\s*の子）")
 
@@ -93,18 +70,52 @@ def sibling_plugin_file(plugin, rel, guard_root=None):
     return same if os.path.isfile(same) else ""
 
 
+def _clone_git(clone, *args):
+    import subprocess
+    try:
+        r = subprocess.run(["git", "-C", clone, *args], capture_output=True, timeout=10)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return r.stdout if r.returncode == 0 else None
+
+
 def foundation_file(rel, guard_root=None):
-    """土台の repo の根からの file（plugin の外・例 public-guard/guard.py）の path か ""。
+    """土台の repo の根からの file（plugin の外・例 public-guard/guard.py）の、入った guard と同じ版の path か ""。
     repo の形: plugins/guard の 2 つ上が repo の根。
-    入れた plugin の形: <plugins>/cache/<市場>/guard/<版> → <plugins>/marketplaces/<市場>/（市場の取り出し＝repo 全体）。"""
+    入れた plugin の形: <plugins>/cache/<市場>/guard/<版> → <plugins>/marketplaces/<市場>/（市場の取り出し＝repo 全体）。
+    市場の取り出しの今の checkout は入った guard と同じ版の時だけ読む（clone が先へ進んだ・古い clone が残った時に
+    違う版の決まりで照らさない）。版が違えば、その版の中身を clone の歴史から取り出して読む（取り出せなければ ""
+    ＝呼ぶ側が止めて名指しする）。版は cache の dir の名（commit の頭）。"""
     here = guard_root or GUARD_ROOT
     cand = os.path.join(os.path.dirname(os.path.dirname(here)), rel)
     if os.path.isfile(cand):
         return cand
     market = os.path.dirname(os.path.dirname(here))
     cache = os.path.dirname(market)
-    cand = os.path.join(os.path.dirname(cache), "marketplaces", os.path.basename(market), rel)
-    return cand if os.path.isfile(cand) else ""
+    clone = os.path.join(os.path.dirname(cache), "marketplaces", os.path.basename(market))
+    ver = os.path.basename(here)
+    if not os.path.isdir(clone) or not re.fullmatch(r"[0-9A-Za-z._-]{1,64}", ver or ""):
+        return ""
+    head = (_clone_git(clone, "rev-parse", "HEAD") or b"").decode().strip()
+    at = (_clone_git(clone, "rev-parse", "--verify", "-q", f"{ver}^{{commit}}") or b"").decode().strip()
+    if not head or not at:
+        return ""  # 入った版が clone の歴史に無い・clone が git でない＝同じ版か分からない
+    cand = os.path.join(clone, rel)
+    if at == head:
+        return cand if os.path.isfile(cand) else ""
+    body = _clone_git(clone, "show", f"{at}:{rel.replace(os.sep, '/')}")
+    if body is None:
+        return ""
+    out = os.path.join(tempfile.gettempdir(), "af-foundation-at", ver, rel)
+    try:
+        os.makedirs(os.path.dirname(out), exist_ok=True)
+        tmp = f"{out}.{os.getpid()}"
+        with open(tmp, "wb") as f:
+            f.write(body)
+        os.replace(tmp, out)
+    except OSError:
+        return ""
+    return out
 
 
 def load_module(name, path):
@@ -123,30 +134,55 @@ def project_dir(payload=None):
     return d
 
 
+def _starts(payload):
+    root = project_dir(payload)
+    return [root] if root else []
+
+
 def values(payload=None):
-    """値の表の "guard" を既定に重ねて返す。読めない・型が違う値は既定のまま。"""
+    """値の表の "guard" を既定に重ねて返す。読めない・問題のある鍵は既定のまま（名指しは values_problems）。"""
     out = dict(DEFAULTS)
-    for k, v in table("guard", payload).items():
-        if k in DEFAULTS and isinstance(v, type(DEFAULTS[k])) and not (isinstance(v, bool)):
+    try:
+        got, _ = SV.section("guard", strict=False, starts=_starts(payload))
+    except Exception:  # noqa: BLE001  見張りの故障で窓を止めない
+        return out
+    for k, v in got.items():
+        if k in DEFAULTS and v is not None:
             out[k] = v
     return out
 
 
 def table(section, payload=None):
-    """値の表の 1 つの節を dict で返す（無い・読めない時は {}）。読む順は values() と同じ。他の plugin の口も使う。"""
-    path = os.environ.get("SKILL_VALUES") or ""
-    if not path:
-        root = project_dir(payload)
-        path = os.path.join(root, VALUES_REL) if root else ""
-    if not path or not os.path.isfile(path):
-        return {}
+    """値の表の 1 つの節を dict で返す（無い・読めない時は {}）。探し方は値の表の 1 本の口（lib/skill_values.py）。他の plugin の口も使う。"""
     try:
-        with open(path, encoding="utf-8") as f:
-            got = json.load(f)
-        got = got.get(section) if isinstance(got, dict) else None
-    except Exception:
+        tbl, _ = SV.load(SV.find(starts=_starts(payload)))
+    except Exception:  # noqa: BLE001  見張りの故障で窓を止めない
         return {}
+    got = tbl.get(section) if isinstance(tbl, dict) else None
     return got if isinstance(got, dict) else {}
+
+
+def values_problems(payload=None):
+    """(表の path, 表全体の問題の並び)。表が無ければ (None, [])。"""
+    path = SV.find(starts=_starts(payload))
+    table, problems = SV.load(path)
+    return path, problems + SV.check(table)
+
+
+def patterns(vals, key, flags=0):
+    """値の表 guard の正規表現の鍵を、型の正本（schema.json の against・match）の当て方で読んだ形（SV.hit に渡す）。
+    鍵ごとに re.search・fullmatch を書き分けない＝当て方の正本は schema の spec の 1 か所。"""
+    return SV.patterns_of("guard", None, key, vals, flags)
+
+
+def tool_sig(block):
+    """道具の呼び出し 1 つの当てる相手: 道具の名・空白 1 つ・入力の JSON（鍵の順に並べた 1 行）。
+    値の表 guard の「道具の呼び出し 1 つ」に当てる鍵（schema.json の against がこの形の鍵）の当てる相手の正本。"""
+    try:
+        body = json.dumps(block.get("input") or {}, ensure_ascii=False, sort_keys=True)
+    except (TypeError, ValueError):
+        body = str(block.get("input") or "")
+    return "%s %s" % (block.get("name") or "", body)
 
 
 def truthy(v):
@@ -179,6 +215,9 @@ def state_dir(vals, payload=None):
             return ""
         d = os.path.join(root, d)
     return d
+
+
+GUARD_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
 def now_utc():
@@ -246,15 +285,50 @@ def is_owner_row(row):
             and bool(text_of(row).strip()))
 
 
-def first_owner_text(path):
+# 人が打った頼みの記録（会話ログの行の origin.kind。Claude Code が頼みを受けた口で付ける＝文の中身では変わらない）。
+# 正本はここ 1 か所（plugin session-watch も隣の正本としてこれを直に読む＝写さない）。
+HUMAN_ORIGINS = ("human", "person")
+# 窓の環境の CLAUDE_CODE_CHILD_SESSION は読まない: 公式の文書（code.claude.com/docs/en/env-vars）では「Claude Code が Bash・
+# hook・status line で起動する子プロセスに付く 1」で、どの窓でも hook の中では 1＝別の窓が立てた窓の見分けにならない。
+# 頼みの行がまだ無い時の見分けは、サーバの記録（get_session の parent_session_id）を AI に読ませる（session-watch の知らせ）。
+
+
+def seeded_by_record(row):
+    """頼みの行が、人が打った物でなく別の窓・仕組みから来た事を、記録が示すか（子の窓の見分けの記録の正本）。
+    記録: 頼みの行の origin.kind が人の物でない（別の窓の create_session・send_message・知らせ等）か promptSource が system。
+    行が無い・記録が無い・読めない時は False（文だけで子の窓と決めない＝人の窓の側へ倒す）。"""
+    if not isinstance(row, dict):
+        return False
+    origin = row.get("origin")
+    if isinstance(origin, dict) and isinstance(origin.get("kind"), str) and origin["kind"]:
+        return origin["kind"] not in HUMAN_ORIGINS
+    return row.get("promptSource") == "system"
+
+
+def first_owner_row(path):
     try:
         for row in iter_rows(path):
             if is_owner_row(row):
-                return text_of(row)
+                return row
     except Exception:
-        return ""
-    return ""
+        return None
+    return None
 
 
-def is_child_prompt(text):
+def first_owner_text(path):
+    row = first_owner_row(path)
+    return text_of(row) if row else ""
+
+
+def is_child_prompt(text, seeded=False):
+    """子の窓か。頼みの文の返し先（写し）が別の窓を指し、かつ頼みの行の記録が人の打った物でない時だけ。
+    オーナーが引き継ぎの文を貼った窓（記録は人）は、文に親窓や返し先が在っても子の窓にしない。"""
+    if not seeded:
+        return False
     return bool(RETURN_TO_WINDOW.search(text or "") or CHILD_OF.search(text or ""))
+
+
+def is_child_log(path):
+    """会話ログの最初の頼みの行で子の窓かを決める（文と記録の両方を読む）。"""
+    row = first_owner_row(path)
+    return bool(row) and is_child_prompt(text_of(row), seeded_by_record(row))

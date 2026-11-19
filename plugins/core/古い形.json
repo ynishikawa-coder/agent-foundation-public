@@ -26,7 +26,7 @@
         ":(exclude)CHANGELOG.md",
         ":(exclude)**/CHANGELOG.md"
       ],
-      "pattern": "(?sm)plugins?\\s+(?:install|i)\\b(?:[^\\n]|\\\\\\n)*?@[^\\n]*agent-foundation|^[ \\t]*(?:export[ \\t]+)?\\w+=[\"']?agent-foundation[\"']?[ \\t]*$|\\A(?!.*setup_plugins\\.py).*?marketplace\\s+add\\b[^\\n]*agent-foundation",
+      "pattern": "(?sm)plugins?\\s+(?:install|i)\\b(?:[^\\n]|\\\\\\n)*?@agent-foundation(?![\\w.-])|^[ \\t]*(?:export[ \\t]+)?\\w+=[\"']?agent-foundation[\"']?[ \\t]*$|\\A(?!.*setup_plugins\\.py).*?marketplace\\s+add\\s+(?:--?[\\w-]+(?:[ =](?:user|project|local))?\\s+)*[\"']?(?:https://github\\.com/)?ynishikawa-coder/agent-foundation-public(?:\\.git)?(?:#[^\\s\"']*)?[\"']?(?=[\\s;|&)]|$)",
       "fix": "土台の docs/核の届け方.md の setup script の形（目録を足して scripts/setup_plugins.py を呼ぶ）に替える",
       "example": "claude plugin install core@agent-foundation --scope user || true"
     },
@@ -45,9 +45,47 @@
         ":(exclude)CHANGELOG.md",
         ":(exclude)**/CHANGELOG.md"
       ],
-      "pattern": "(?s)\\A(?=.*setup_plugins\\.py)(?=.*?marketplace\\s+add\\b[^\\n]*agent-foundation)(?!.*marketplace\\s+update\\b)",
-      "fix": "土台の docs/核の届け方.md の setup script の 1 行目（marketplace add の後に claude plugin marketplace update agent-foundation）に替える",
-      "example": "claude plugin marketplace add o/agent-foundation-public --scope user || true; python3 \"$af/scripts/setup_plugins.py\" || true"
+      "pattern": "(?s)\\A(?=.*setup_plugins\\.py)(?=.*?marketplace\\s+add\\s+(?:--?[\\w-]+(?:[ =](?:user|project|local))?\\s+)*[\"']?(?:https://github\\.com/)?ynishikawa-coder/agent-foundation-public(?:\\.git)?(?:#[^\\s\"']*)?[\"']?(?=[\\s;|&)]|$))(?!.*marketplace\\s+update\\s+(?:--?[\\w-]+(?:[ =](?:user|project|local))?\\s+)*[\"']?agent-foundation(?![\\w.-]))",
+      "fix": "土台の docs/核の届け方.md の setup script の marketplace add の行（add の後に claude plugin marketplace update agent-foundation）に替える",
+      "example": "claude plugin marketplace add ynishikawa-coder/agent-foundation-public --scope user || true; python3 \"$af/scripts/setup_plugins.py\" || true"
+    },
+    {
+      "id": "no-stale-catalog-remove",
+      "what": "土台の目録を足して入口 scripts/setup_plugins.py を呼ぶが、前の目録（版や枝に止めた・出所の違う・入口を持たない）を外さない setup（作り置きの容器に前の目録が残ると add が飛ばされ、古い目録から入る）。この形の 3 行は 1 行が 200 バイトを超え、クラウドの窓の道具 update_environment で貼れない",
+      "files": [
+        "*.sh",
+        "*.md",
+        "*.yml",
+        "*.yaml",
+        "*.py",
+        ":(exclude)tests/**",
+        ":(exclude)**/tests/**",
+        ":(exclude)**/test_*.py",
+        ":(exclude)CHANGELOG.md",
+        ":(exclude)**/CHANGELOG.md"
+      ],
+      "pattern": "(?s)\\A(?=.*setup_plugins\\.py)(?=.*?marketplace\\s+add\\s+(?:--?[\\w-]+(?:[ =](?:user|project|local))?\\s+)*[\"']?(?:https://github\\.com/)?ynishikawa-coder/agent-foundation-public(?:\\.git)?(?:#[^\\s\"']*)?[\"']?(?=[\\s;|&)]|$))(?!.*marketplace\\s+remove\\s+(?:--?[\\w-]+(?:[ =](?:user|project|local))?\\s+)*[\"']?agent-foundation(?![\\w.-]))",
+      "fix": "土台の docs/核の届け方.md の setup script の塊（前の目録を外す marketplace remove の行つき・1 行 200 バイト以下）をそのまま貼り替える",
+      "example": "claude plugin marketplace add ynishikawa-coder/agent-foundation-public --scope user || true; claude plugin marketplace update agent-foundation || true; python3 \"$af/scripts/setup_plugins.py\" || true"
+    },
+    {
+      "id": "stale-remove-substring",
+      "what": "setup script の前の目録を外す条件が、目録の出所を文字列の包含（a[2] not in json.dumps(s)）で見る形（fork や名を道に含む別の出所を今の目録と見なして外さず、その目録から入る）。#83 の塊をそのまま貼った写しに残る",
+      "files": [
+        "*.sh",
+        "*.md",
+        "*.yml",
+        "*.yaml",
+        "*.py",
+        ":(exclude)tests/**",
+        ":(exclude)**/tests/**",
+        ":(exclude)**/test_*.py",
+        ":(exclude)CHANGELOG.md",
+        ":(exclude)**/CHANGELOG.md"
+      ],
+      "pattern": "(?s)\\A(?=.*setup_plugins\\.py).*?\\bnot\\s+in\\s+json\\.dumps\\(\\s*s\\s*\\)",
+      "fix": "土台の docs/核の届け方.md の setup script の塊（出所を (s.get(\"repo\") or s.get(\"url\"))!=a[2] の一致で比べる形）をそのまま貼り替える。環境の setup script に貼った写しも同じ仕事で貼り替える",
+      "example": "af_old=\"$af_old\"';sys.exit(not(s.get(\"ref\") or a[2] not in json.dumps(s) or not os.path.isfile(m[\"installLocation\"]+\"/\"+a[3])))'  # scripts/setup_plugins.py"
     },
     {
       "id": "atonobin-tag",
@@ -74,14 +112,34 @@
       "example": "## 他の窓へ回す"
     },
     {
-      "id": "cleanup-followup-key",
-      "what": "preimpl-cleanup の値の表の鍵 cleanup_followup（土台が畳んだ。[後片付け] は原因の台帳の行にする）",
+      "id": "pr-parent-field",
+      "what": "PR の型の頭の `親窓:` の欄（手で書く写しで、どの道具も窓の親の記録と照らせない）",
+      "files": [
+        ".github/pull_request_template.md"
+      ],
+      "pattern": "^親窓\\s*[:：]",
+      "fix": "PR の型から `親窓:` の行を消す。窓の親はサーバの記録（get_session の parent_session_id）を読む",
+      "example": "親窓: <session id>"
+    },
+    {
+      "id": "values-pattern-partial",
+      "what": "値の表 guard の全体に当てる鍵（irreversible_tools_extra・qa_page_exempt・ask_term_allow・outbound_secret_allow・ask_prior_lookup・context_handoff）の正規表現が ^ で始まり $ で終わらない前の形（1 段目の間は前の読み方＝相手の一部に当てる。delete は undelete_item も止め、\\bGrep\\b.*問いの表 は Bash の echo にも当たる。2 段目で受けを畳むと全体の形の行だけが効く）",
       "files": [
         "config/skill-values.json"
       ],
-      "pattern": "\"cleanup_followup\"\\s*:",
-      "fix": "鍵を消す。[後片付け] は原因の台帳の行にする（土台の dev-flow:preimpl-cleanup）",
-      "example": "      \"cleanup_followup\": \"…\""
+      "pattern": "(?s)\"(?:irreversible_tools_extra|qa_page_exempt|ask_term_allow|outbound_secret_allow|ask_prior_lookup|context_handoff)\"\\s*:\\s*\\[(?:\\s*\"(?:[^\"\\\\]|\\\\.)*\"\\s*,)*\\s*\"(?!\\^(?:[^\"\\\\]|\\\\.)*\\$\")(?:[^\"\\\\]|\\\\.)+\"",
+      "fix": "型の正本 skill-values/schema.json の鍵の against（当てる相手）の全体に当たる形に書き直す（例: 道具の名なら ^mcp__server__delete_item$・path なら ^quiz/[^/]+\\.html$・道具の呼び出しなら ^Grep \\{.*問いの表.*\\}$）",
+      "example": "\"guard\": {\"irreversible_tools_extra\": [\"delete\"]}"
+    },
+    {
+      "id": "codex-glob-star-crosses",
+      "what": "値の表 dev-flow.codex の self_allow の glob の行が dir/* の形（前の読み方〔fnmatch〕では * が / をまたぎ下の dir 全部に当たった。1 段目の間は前の読み方でだけ当たる path も通して builder が名指す。2 段目で受けを畳むと dir の直下だけに当たる）",
+      "files": [
+        "config/skill-values.json"
+      ],
+      "pattern": "(?s)\"self_allow\"\\s*:\\s*\\[(?:\\s*\"[^\"]*\"\\s*,)*\\s*\"[^\"]*/\\*\"",
+      "fix": "下の dir まで許すなら dir/** に、直下だけなら dir/* のままにする（どちらのつもりかを決めて書く）。clients.<名>.paths の dir/* も同じ",
+      "example": "\"codex\": {\"self_allow\": [\"tools/*\"]}"
     }
   ]
 }

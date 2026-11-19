@@ -66,10 +66,6 @@ _WS = re.compile(r"\s+")
 # この見張りが回る出来事と関数（guard.py がこの宣言を読んで回す＝入口の一覧に足さない）
 HOOKS = {"post": "capture", "start": "resurface"}
 
-# この見張りだけが読む値の表の鍵と既定（guard_common.declared が読む＝皆の一覧に足さない。意味は skills/guard-rules/見張り/unanswered.md）
-VALUES = {}
-
-
 def norm(text):
     return _WS.sub(" ", text).strip() if isinstance(text, str) else ""
 

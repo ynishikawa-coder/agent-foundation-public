@@ -47,16 +47,6 @@ MSG_UNATTENDED = (
 # この見張りが回る出来事と関数（guard.py がこの宣言を読んで回す＝入口の一覧に足さない）
 HOOKS = {"post": "check", "stop": "stop"}
 
-# この見張りだけが読む値の表の鍵と既定（guard_common.declared が読む＝皆の一覧に足さない。意味は skills/guard-rules/見張り/context_size.md）
-VALUES = {
-    "context_limit": 300_000,
-    "context_stop_max": 2,
-    # 後継の窓を立てる・返し先の窓へ送る・引き継ぎの file を書く（道具の名は Claude Code の窓の物。会社の物は持たない）
-    "context_handoff": [r"create_session\b", r"send_message\b",
-                        r'"file_path": "[^"]*(?:引き継ぎ|handoff)[^"]*"'],
-}
-
-
 def measure(tpath):
     """最新の assistant の入力の総量＝今の文脈の大きさ。"""
     ctx = 0
@@ -73,7 +63,7 @@ def measure(tpath):
 
 
 def unattended(tpath, vals):
-    return G.unattended_by_env(vals) or G.is_child_prompt(G.first_owner_text(tpath))
+    return G.unattended_by_env(vals) or G.is_child_log(tpath)
 
 
 def _mark(session_id):
@@ -109,11 +99,7 @@ def _tool_sigs(row):
     c = msg.get("content") if isinstance(msg, dict) else None
     for b in c if isinstance(c, list) else []:
         if isinstance(b, dict) and b.get("type") == "tool_use":
-            try:
-                body = json.dumps(b.get("input") or {}, ensure_ascii=False, sort_keys=True)
-            except (TypeError, ValueError):
-                body = str(b.get("input") or "")
-            yield "%s %s" % (b.get("name") or "", body)
+            yield G.tool_sig(b)
 
 
 def handoff_state(tpath, limit, patterns):
@@ -123,7 +109,7 @@ def handoff_state(tpath, limit, patterns):
         if row.get("type") != "assistant":
             continue
         if over:
-            if any(re.search(p, sig) for sig in _tool_sigs(row) for p in patterns):
+            if any(G.SV.hit(patterns, sig) is not None for sig in _tool_sigs(row)):
                 handed = True
                 break
             continue
@@ -133,7 +119,7 @@ def handoff_state(tpath, limit, patterns):
             if tot >= limit:
                 over = True
                 # 越えた行そのものの道具の呼び出しも越えた後に数える
-                if any(re.search(p, sig) for sig in _tool_sigs(row) for p in patterns):
+                if any(G.SV.hit(patterns, sig) is not None for sig in _tool_sigs(row)):
                     handed = True
                     break
     return over, handed
@@ -167,7 +153,7 @@ def stop(data, vals):
     if cap <= 0:
         return ""
     limit = vals.get("context_limit") or G.DEFAULTS["context_limit"]
-    patterns = [p for p in (vals.get("context_handoff") or []) if isinstance(p, str) and p]
+    patterns = G.patterns(vals, "context_handoff")
     try:
         if measure(tpath) < limit:     # 目安の手前（まとめ直して縮んだ後も）＝差し戻さない
             return ""
@@ -190,7 +176,7 @@ def stop(data, vals):
         "2026-11-19・止めたのは AI の締めだけ・人の操作は止めていない）。" % format(limit, ","),
         "直し方: " + how,
         "引き継ぎの跡と数える物: 目安を越えた後の道具の呼び出しのうち、値の表 guard.context_handoff に当たる物"
-        "（今の値: %s）。一度あれば、この窓ではもう差し戻さない。" % ("・".join(patterns[:6]) or "無し"),
+        "（今の値: %s）。一度あれば、この窓ではもう差し戻さない。" % ("・".join(str(r) for _, _, r in patterns[:6]) or "無し"),
         "上限: 同じターンで %d 回まで差し戻し、越えたら通して届ける。" % cap,
         "誤って差し戻された時（別の道で引き継いだ等）: その道の呼び出しに当たる形を値の表の guard.context_handoff に足す。"
         "差し戻しそのものを外すのは guard.context_stop_max を 0 に（どちらも PR とレビューを通す）。細目は skill `guard:guard-rules`。",

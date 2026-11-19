@@ -47,10 +47,6 @@ _SPLIT = re.compile(r"&&|\|\||;|\n|\||&")
 # この見張りが回る出来事と関数（guard.py がこの宣言を読んで回す＝入口の一覧に足さない）
 HOOKS = {"pre": "check"}
 
-# この見張りだけが読む値の表の鍵と既定（guard_common.declared が読む＝皆の一覧に足さない。意味は skills/guard-rules/見張り/irreversible.md）
-VALUES = {"irreversible_bash_extra": [], "irreversible_tools_extra": []}
-
-
 def _compile(pairs):
     out = []
     for p in pairs:
@@ -60,6 +56,11 @@ def _compile(pairs):
         except re.error:
             continue
     return out
+
+
+def _why(row):
+    """値の表の行（字か {"pattern", "why"}）の理由。"""
+    return str((row.get("why") if isinstance(row, dict) else None) or "戻せない操作")
 
 
 def _git(cwd, *args):
@@ -201,17 +202,23 @@ def rm_restorable(cmd, cwd):
 def match(tool_name, tool_input, cwd, vals):
     """戻せない操作なら理由、そうでなければ ""。"""
     name = str(tool_name or "")
-    for rx, why in _compile(_TOOLS) + _compile(vals.get("irreversible_tools_extra") or []):
+    for rx, why in _compile(_TOOLS):
         if rx.search(name):
             return why
+    row = G.SV.hit(G.patterns(vals, "irreversible_tools_extra", re.IGNORECASE), name)
+    if row is not None:
+        return _why(row)
     if name != "Bash":
         return ""
     cmd = str((tool_input or {}).get("command") or "") if isinstance(tool_input, dict) else ""
     if recursive_rm(cmd) and not rm_restorable(cmd, cwd):
         return RM_WHY
-    for rx, why in _compile(_BASH) + _compile(vals.get("irreversible_bash_extra") or []):
+    for rx, why in _compile(_BASH):
         if rx.search(cmd):
             return why
+    row = G.SV.hit(G.patterns(vals, "irreversible_bash_extra", re.IGNORECASE), cmd)
+    if row is not None:
+        return _why(row)
     return ""
 
 

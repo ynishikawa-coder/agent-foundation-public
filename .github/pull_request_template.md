@@ -1,5 +1,4 @@
-親窓: <session id>
-書いた窓: <session id>
+書いた窓: <先端の commit の Claude-Session の session id>
 job: <YYYYMMDD-話題>
 検査: <CI の結果 1 行。例: check_all: 緑 (1 本)>
 
@@ -30,6 +29,7 @@ job: <YYYYMMDD-話題>
 <!-- この PR で片付かなかった物（担当の外・レビューの「台帳へ」・Codex の DEFER・一時しのぎの恒久の直し・入らなかった仕事）は全部、各社の原因の台帳に行を入れてから、1 行ずつ `- 台帳の行 <行の id の末尾 12 字>` だけを書く（題・行き先・直す窓は台帳の行が正本＝ここに写さない。手で写すと後で行き先が変わった時に付いて来ない。行の URL は Notion のページの URL なので公開の PR に書かない＝CONTRIBUTING.md §4）。無ければ「なし」 -->
 
 <!--
+書いた窓は先端の commit の `Claude-Session:` の窓。直しの往復で別の窓が commit したら、その窓が頭の行を自分に書き換える（違えば CI の job check が赤＝plugins/checker/scripts/pr_writer.py）。
 レビューは書いた窓と別の窓がする（どちらのアカウントの窓でもよい）。green が今の先端に付いたら Javis 側の親窓が squash で入れる。レビューした窓は PR に次の 2 行で始まるコメントを残す:
 レビューした窓: <session id> 判定: green|red
 見た先端: <SHA の先頭 12 文字>

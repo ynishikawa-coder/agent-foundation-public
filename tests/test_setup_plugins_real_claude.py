@@ -1,9 +1,9 @@
-"""本物の claude で: 前の setup の目録の clone が残る箱に、出所が先へ進んだ後で使う側の塊（docs の 3 行）を回すと、
+"""本物の claude で: 前の setup の目録の clone が残る箱に、出所が先へ進んだ後で使う側の塊（docs の塊）を回すと、
 入った plugin が全部出所の先端の commit に揃い、足された plugin も入る。
 
 作り物の claude（tests/test_setup_plugins_catalog_tip.py）が本物の振る舞い（marketplace add は既に在れば何もしない・
 plugin update は目録を進めない）とずれていないかを見る歯。出所は手元の git の repo を https の名で見せる（鍵も外の網も要らない）。
-claude の命令が無い所（手元）では飛ばす。CI の job plugin-smoke は AF_REQUIRE_CLAUDE=1 で回し、無ければ赤にする。
+本物の claude を要る印 real_claude を付ける（飛ばす条件と CI で拾う所は tests/conftest.py の 1 か所）。
 """
 import json
 import os
@@ -16,13 +16,11 @@ import pytest
 
 ROOT = Path(__file__).resolve().parent.parent
 ENTRY = ROOT / "scripts" / "setup_plugins.py"
+KAKU = ROOT / "plugins" / "core" / "scripts" / "kaku.py"
 DOC = ROOT / "docs" / "核の届け方.md"
 URL = "https://example.invalid/o/agent-foundation-public.git"
 
-if not shutil.which("claude"):
-    if os.environ.get("AF_REQUIRE_CLAUDE") == "1":
-        pytest.fail("claude の命令が無い（CI の job plugin-smoke では入れてから回す）", pytrace=False)
-    pytest.skip("claude の命令が無い所では飛ばす（CI の job plugin-smoke が回す）", allow_module_level=True)
+pytestmark = pytest.mark.real_claude
 
 
 def git(cwd, *a):
@@ -43,7 +41,7 @@ def commit(up, names, msg):
     return git(up, "rev-parse", "HEAD")
 
 
-# 入口の直しより前の入口（目録を取り直さない）。clone にこれが残る箱では、塊の 1 行目だけが先端へ進める
+# 入口の直しより前の入口（目録を取り直さない）。clone にこれが残る箱では、塊の marketplace update の行だけが先端へ進める
 OLD_ENTRY = ENTRY.read_text(encoding="utf-8").replace(
     'r = claude("plugin", "marketplace", "update", market)', "r = subprocess.CompletedProcess([], 0)")
 
@@ -53,6 +51,8 @@ def test_古い目録が残った箱で塊を回すと先端に揃う(tmp_path, 
     up = tmp_path / "up"
     (up / "scripts").mkdir(parents=True)
     (up / ".claude-plugin").mkdir()
+    (up / "plugins" / "core" / "scripts").mkdir(parents=True)
+    shutil.copy2(KAKU, up / "plugins" / "core" / "scripts" / "kaku.py")  # 入口が読む比べ方の正本（本物の出所は repo 全体）
     if old_entry:
         assert OLD_ENTRY != ENTRY.read_text(encoding="utf-8")
         (up / "scripts" / "setup_plugins.py").write_text(OLD_ENTRY, encoding="utf-8")

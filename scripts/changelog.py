@@ -5,7 +5,8 @@
 全部の PR が同じ所（CHANGELOG.md の先頭）へ行を足して互いに衝突する形を無くす。
 
   python3 scripts/changelog.py check   # 形を照らす（赤なら 1 で終わる）
-  python3 scripts/changelog.py         # 全部を新しい物が上で見せる（git の履歴で並べる）
+  python3 scripts/changelog.py         # 全部を新しい物が上で見せる（main の first-parent で入った時で並べる・
+                                       #   main に無い断片は「まだ入っていない」。main は出所の今の main）
   python3 scripts/changelog.py adopt <古い形の CHANGELOG.md> <断片の file>
       # 古い形で書いた記録の行のうち、CHANGELOG.d/ のどこにも無い物を、断片の file の頭へ移す
       # （断片の形の前に枝を切った PR が main を取り込む時の移し方・CHANGELOG.d/README.md）
@@ -26,7 +27,21 @@ OLD_FILE = "00000000-断片へ移す前.txt"
 # 移す前の記録は動かさない（頭へ足せば、同じ所へ追記する形がこの file へ移るだけ）。中身の印で止める。
 OLD_SHA256 = "93e5dda7492211d6997bb3046b0bd8659069845e88da658d149b85fb6430eaff"
 NAME_RE = re.compile(r"^\d{8}-[0-9A-Za-z][0-9A-Za-z._-]*\.txt$")
-LINE_RE = re.compile(r"^- (壊れる|足した|直した|畳んだ)(（[^）\n]+）)?: \S")
+README = ROOT / DIR_NAME / "README.md"
+
+
+def load_cards(path=README):
+    """札の並び。正本は CHANGELOG.d/README.md の「札は `…`・`…` のどれか」の行（ここに写さない）。読めなければ例外。"""
+    for ln in Path(path).read_text(encoding="utf-8").splitlines():
+        m = re.search(r"札は(.+?)のどれか", ln)
+        cards = re.findall(r"`([^`]+)`", m.group(1)) if m else []
+        if cards:
+            return tuple(cards)
+    raise ValueError("札の並びが読めない: %s" % path)
+
+
+CARDS = load_cards()
+LINE_RE = re.compile(r"^- (%s)(（[^）\n]+）)?: \S" % "|".join(map(re.escape, CARDS)))
 JST = timezone(timedelta(hours=9))
 # CHANGELOG.md の中身はこれだけ（記録を書く所は CHANGELOG.d/）。見出しや地の文でも足せば赤。
 MAIN_TEXT = """# 変更の記録
@@ -77,7 +92,7 @@ def check(root: Path = ROOT) -> list[str]:
             continue
         for n, line in enumerate(text.splitlines(), 1):
             if line.strip() and not LINE_RE.match(line):
-                errs.append(f"{DIR_NAME}/{p.name}:{n}: 行は「- 壊れる: …」「- 足した: …」「- 直した: …」「- 畳んだ: …」の形"
+                errs.append(f"{DIR_NAME}/{p.name}:{n}: 行は" + "".join(f"「- {c}: …」" for c in CARDS) + "の形"
                             "（札の後に（…）を添えてよい）。1 項は 1 行")
     return errs
 
@@ -86,14 +101,35 @@ def _git(root: Path, *args: str) -> str:
     return subprocess.run(["git", "-C", str(root), *args], check=True, capture_output=True, text=True).stdout
 
 
-def entries(root: Path = ROOT) -> list[tuple[str, str, str]]:
-    """(名, 入った時, 中身) を新しい物が上で返す。入った時は、その file を足した最初の commit の時刻。
-    まだ commit されていない断片は一番上。履歴が浅い（shallow）時は並べられないので止まる。"""
+def main_ref(root: Path = ROOT) -> str:
+    """並べる正本の main。出所（origin）が在れば出所の今の main（scripts/pr_shape.py の fresh_main・手元の
+    origin/main や今の HEAD の履歴を正本にしない）、出所の無い repo は手元の main の枝。どちらも無ければ止まる。"""
+    if subprocess.run(["git", "-C", str(root), "remote", "get-url", "origin"], capture_output=True).returncode != 0:
+        try:
+            return _git(root, "rev-parse", "--verify", "-q", "refs/heads/main^{commit}").strip()
+        except subprocess.CalledProcessError:
+            raise SystemExit("並べられない: 出所（origin）も main の枝も無い") from None
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("af_pr_shape", Path(__file__).resolve().parent / "pr_shape.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    try:
+        return mod.fresh_main(root)
+    except OSError as e:
+        raise SystemExit(f"並べられない: {e}") from None
+
+
+def entries(root: Path = ROOT, main: str | None = None) -> list[tuple[str, str, str]]:
+    """(名, 入った時, 中身) を新しい物が上で返す。入った時は、main の first-parent の上でその file が入った commit
+    （PR の合流）の時刻（枝で足した時でなく main に入った時）。main に無い断片（枝だけ・まだ commit していない）は
+    「まだ入っていない」で一番上。履歴が浅い（shallow）時は並べられないので止まる。"""
     if _git(root, "rev-parse", "--is-shallow-repository").strip() == "true":
         raise SystemExit("履歴が浅いので並べられない: git fetch --unshallow をしてから回す")
+    main = main or main_ref(root)
     rows = []
     for p in sorted((root / DIR_NAME).glob("*.txt")):
-        out = _git(root, "log", "--diff-filter=A", "--format=%ct", "--", str(p.relative_to(root))).split()
+        out = _git(root, "log", "--first-parent", "--diff-merges=first-parent", "--no-patch", "--diff-filter=A", "--format=%ct",
+                   main, "--", str(p.relative_to(root))).split()
         ts = int(out[-1]) if out else None
         when = (datetime.fromtimestamp(ts, JST).strftime("%Y-%m-%d %H:%M 日本時間") if ts else "まだ入っていない")
         key = ts if ts is not None else float("inf")

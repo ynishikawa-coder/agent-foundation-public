@@ -16,7 +16,7 @@
   check.mjs の在り処は guard と同じ commit の docs-kit だけ: 同じ repo の plugins/docs-kit か、入れた plugin の
   cache/<市場>/docs-kit/<guard と同じ版>。別の版の docs-kit・path を渡す口（前の AF_QA_CHECK）は使わない＝型と検査の版が
   食い違ったまま判定しない（同じ版が無ければ止めて、docs-kit を同じ版で入れ直すよう名指しする）。
-問いのページでないのに止まる時は、repo の値の表 guard.qa_page_exempt（file の path に当てる正規表現の並び）で外す
+問いのページでないのに止まる時は、repo の値の表 guard.qa_page_exempt（repo の根からの file の path の全体に当てる正規表現の並び・各行 ^…$）で外す
 （値の表は PR とレビューを通るので、窓の中の一存では外れない）。
 """
 from __future__ import annotations
@@ -50,10 +50,6 @@ OPT_KEYS = ("options", "choices", "opts")
 
 # この見張りが回る出来事と関数（guard.py がこの宣言を読んで回す＝入口の一覧に足さない）
 HOOKS = {"pre": "check"}
-
-# この見張りだけが読む値の表の鍵と既定（guard_common.declared が読む＝皆の一覧に足さない。意味は skills/guard-rules/見張り/qa_page.md）
-VALUES = {"qa_page_exempt": []}
-
 
 def _has_question_list(data, depth=0):
     """問いの並び（questions・qs）で、選択肢を持つ問いが 1 つでもあるか。入れ子は 3 段まで見る。"""
@@ -157,12 +153,25 @@ def check(data, vals):
     return ""
 
 
+def repo_rel(path):
+    """値の表 qa_page_exempt の当てる相手: file の path を repo の根（.git の在る dir）から / 区切りで。
+    repo の外の file は絶対 path（/ 区切り）。repo の上の dir の名には当てない。"""
+    full = os.path.abspath(os.path.expanduser(path))
+    d = os.path.dirname(full)
+    while True:
+        if os.path.exists(os.path.join(d, ".git")):
+            return os.path.relpath(full, d).replace(os.sep, "/")
+        up = os.path.dirname(d)
+        if up == d:
+            return full.replace(os.sep, "/")
+        d = up
+
+
 def check_page(path, vals):
     if not path.lower().endswith(PAGE_EXT):
         return ""
-    for pat in vals.get("qa_page_exempt") or []:
-        if isinstance(pat, str) and pat and re.search(pat, path.replace(os.sep, "/")):
-            return ""
+    if G.SV.hit(G.patterns(vals, "qa_page_exempt"), repo_rel(path), path.replace(os.sep, "/")) is not None:
+        return ""
     try:
         with open(path, encoding="utf-8") as f:
             raw = f.read()

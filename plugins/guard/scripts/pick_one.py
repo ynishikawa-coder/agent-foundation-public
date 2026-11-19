@@ -19,7 +19,13 @@
 """
 from __future__ import annotations
 
+import os
 import re
+import sys
+
+sys.dont_write_bytecode = True
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib"))
+import skill_values as SV  # noqa: E402  値の表の当て方の 1 本の口（土台の skill-values/ への symlink）
 
 ASK_TOOL = "AskUserQuestion"
 
@@ -67,10 +73,6 @@ HOW = (
 # この見張りが回る出来事と関数（guard.py がこの宣言を読んで回す＝入口の一覧に足さない）
 HOOKS = {"pre": "check"}
 
-# この見張りだけが読む値の表の鍵と既定（guard_common.declared が読む＝皆の一覧に足さない。意味は skills/guard-rules/見張り/pick_one.md）
-VALUES = {"ask_pick_one_exempt": []}
-
-
 def classify(question, vals=None):
     """1 問を見て、止めるなら理由の札（work／first／cause）、通すなら ""。"""
     if not isinstance(question, dict) or question.get("multiSelect"):
@@ -78,9 +80,8 @@ def classify(question, vals=None):
     text = re.sub(r"\s+", " ", str(question.get("question") or "")).strip()
     if not text:
         return ""
-    for pat in (vals or {}).get("ask_pick_one_exempt") or []:
-        if isinstance(pat, str) and pat and re.search(pat, text):
-            return ""
+    if SV.hit(SV.patterns_of("guard", None, "ask_pick_one_exempt", vals), text) is not None:
+        return ""
     for o in question.get("options") or []:
         if isinstance(o, dict) and ALL_WAY.search(str(o.get("label") or "")):
             return ""

@@ -2,6 +2,7 @@
 （Artifact の files・Bash の書き込み）が、止めるべき入力で止まり、通すべき入力で通るか。入力は全部作り物。"""
 import json
 import os
+import subprocess
 import sys
 from pathlib import Path
 
@@ -147,6 +148,16 @@ def test_outbound_題の形の見分けは_session_watch_の正本を直に呼�
     assert "作り物の正本が止めた" in why
 
 
+def _commit_all(repo):
+    g = lambda *a: subprocess.run(["git", "-C", str(repo), "-c", "user.name=t", "-c", "user.email=t@example.invalid", *a],
+                                  check=True, capture_output=True, text=True).stdout.strip()
+    if not (repo / ".git").exists():
+        g("init", "-q")
+    g("add", "-A")
+    g("commit", "-qm", "版")
+    return g("rev-parse", "HEAD")
+
+
 def test_outbound_正本の在り処は_repo_の形と入れた_plugin_の形の両方で見つかる(tmp_path):
     sys.path.insert(0, str(PLUGIN / "scripts"))
     try:
@@ -157,12 +168,13 @@ def test_outbound_正本の在り処は_repo_の形と入れた_plugin_の形の
     assert G.sibling_plugin_file("session-watch", os.path.join("scripts", "session_watch.py")) == \
         str(ROOT / "plugins" / "session-watch" / "scripts" / "session_watch.py")
     plugins = tmp_path / "plugins"
-    guard_root = plugins / "cache" / "market" / "guard" / "aaa"
-    guard_root.mkdir(parents=True)
     pg = plugins / "marketplaces" / "market" / "public-guard" / "guard.py"
     pg.parent.mkdir(parents=True)
     pg.write_text("#", encoding="utf-8")
-    sw = plugins / "cache" / "market" / "session-watch" / "aaa" / "scripts" / "session_watch.py"
+    ver = _commit_all(pg.parent.parent)[:12]  # 入った版＝cache の dir の名（市場の取り出しの HEAD と同じ版）
+    guard_root = plugins / "cache" / "market" / "guard" / ver
+    guard_root.mkdir(parents=True)
+    sw = plugins / "cache" / "market" / "session-watch" / ver / "scripts" / "session_watch.py"
     sw.parent.mkdir(parents=True)
     sw.write_text("#", encoding="utf-8")
     assert G.foundation_file(os.path.join("public-guard", "guard.py"), str(guard_root)) == str(pg)

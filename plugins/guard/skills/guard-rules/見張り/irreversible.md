@@ -9,13 +9,13 @@
 
 ## 値の表の鍵
 
-repo の根の `config/skill-values.json` の `"guard"` に書く（既定はこの見張りの file の頭の `VALUES`）。
+repo の根の `config/skill-values.json` の `"guard"` に書く（鍵・型・既定・当て方〔`against`＝当てる相手・`match`＝`whole` は相手の全体・`part` は相手の一部〕の正本は土台の `skill-values/schema.json`）。
 
 ```json
 {
   "guard": {
     "irreversible_bash_extra": [{"pattern": "\\bmy-db\\s+--wipe\\b", "why": "DB の破棄"}],
-    "irreversible_tools_extra": []
+    "irreversible_tools_extra": ["^mcp__[^ ]*__delete_item$"]
   }
 }
 ```
