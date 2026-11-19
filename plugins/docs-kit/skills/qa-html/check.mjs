@@ -403,6 +403,8 @@ function allowlistReds(outside) {
   const red = tokenReds(outside);
   const els = new Set(ALLOW.elements);
   const ats = new Set(ALLOW.attributes);
+  const ids = new Map();
+  const fors = [];
   for (const m of outside.matchAll(/<([A-Za-z][A-Za-z0-9-]*)((?:"[^"]*"|'[^']*'|[^'">])*)>/g)) {
     const tag = m[1].toLowerCase();
     const show = m[0].slice(0, 50);
@@ -430,6 +432,16 @@ function allowlistReds(outside) {
       else attrs[name] = val;
       if (!ats.has(name) && !ALLOW.attribute_prefixes.some((p) => name.startsWith(p))) red.push(`型の外に許していない属性「${name}」: ${show}`);
     }
+    // label の for は、ひとことの欄（textarea#supp_鍵）を指す形だけ＝選択肢と答えの欄の結び付きを「label.opt の中の欄」1 つにする
+    if ("for" in attrs) {
+      if (tag !== "label" || !/^supp_[A-Za-z0-9_]+$/.test(attrs.for)) red.push(`for はひとことの欄を指す label だけ（for="supp_問いの鍵"）＝選択肢の label に付けると押した時に選ばれる欄がずれる: ${show}`);
+      else fors.push([attrs.for, show]);
+    }
+    if ("id" in attrs) {
+      if (ids.has(attrs.id)) red.push(`id「${attrs.id}」が 2 つある: ${show}`);
+      ids.set(attrs.id, tag);
+      if (tag === "input" && /^(?:radio|checkbox)$/i.test(attrs.type ?? "")) red.push(`選択（radio・checkbox）に id を付けない（label の for で別の選択肢から選ばせない）: ${show}`);
+    }
     if ("name" in attrs && !["input", "select", "textarea", "meta"].includes(tag)) red.push(`<${tag}> に name を付けない（name は答えの欄 input・select・textarea だけ＝型の JS は name を持つ要素を答えとして読む）: ${show}`);
     if ("style" in attrs && tag !== "body") red.push(`<${tag}> に style がある（色や形は変えない・会社の色は body の --brand だけ）`);
     if (tag === "meta" && red.length === before && !("charset" in attrs) && !ALLOW.meta.names.includes((attrs.name ?? "").toLowerCase())) red.push(`許していない meta: ${show}`);
@@ -438,6 +450,7 @@ function allowlistReds(outside) {
     if ("src" in attrs && (tag !== "img" || !new RegExp(ALLOW.img_src).test(attrs.src))) red.push(`外のリソース・許していない src（写真は img の data:image/ だけ）: ${show}`);
     if (!strict && red.length === before) red.push(`属性は空白で区切り、値は引用符（"…"）で囲む（検査が読めない書き方）: ${show}`);
   }
+  for (const [f, show] of fors) if (ids.get(f) !== "textarea") red.push(`for="${f}" の指す ひとことの欄（textarea id="${f}"）が無い: ${show}`);
   return red;
 }
 
@@ -552,6 +565,8 @@ export function readHtml(raw) {
         rec: recs.length ? text(recs[0][1]) : null,   // null＝印なし・字＝理由
         hasInput: /^(?:radio|checkbox)$/i.test(attr(inp, "type") ?? "") && (o[1].match(/<input\b/gi) ?? []).length === 1,
         inputName: attr(inp, "name"),
+        // 初めから選ばれている・選べない・見えない選択肢（印の付いた問いでは赤）
+        locked: hasAttr(inp, "checked") || hasAttr(inp, "disabled") || hasAttr(inp, "hidden") || hasAttr(/<label\b[^>]*>/i.exec(o[0])[0], "hidden"),
         recCount: recs.length,
         needSupp: attr(inp, "data-supp") === "need",
         suppBad: attr(inp, "data-supp") != null && attr(inp, "data-supp") !== "need" ? String(attr(inp, "data-supp")) : null,
@@ -720,6 +735,8 @@ function checkRec(q, id, dest, format, limits, red) {
   const marked = q.options.map((o, i) => ({ o, i })).filter(({ o }) => o.rec != null);
   if (!marked.length) return;
   const mark = format === "html" ? "small.rec" : '"recommended"';
+  if (q.options.some((o) => o.locked))
+    red.push(`${id}: 推奨の印の付いた問いの選択肢に checked・disabled・hidden を付けない（印の選択肢が初めから選ばれている・選べない・見えない形にしない）`);
   if (q.keyFieldsInOpts === false)
     red.push(`${id}: 推奨の印の付いた問いは、答えの欄（name="${q.key}"）をどれも選択肢（label.opt）の中の radio・checkbox にする（select・字の欄・hidden・label.opt の外の欄があると、ブラウザでは 1 つ目がずれる）`);
   const est = format === "html" ? ".estimate" : '"estimate"';

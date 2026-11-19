@@ -5,3 +5,4 @@
 - 直した: qa-html の検査で、問いの選択（radio・checkbox）がどれも `label.opt` の中に無ければ赤（選択肢の定義を 1 つにし、外の選択で 1 つ目をずらさせない）。木の組み直しの赤を HTML の決まりどおりに広げた（表の区切りの内に開いている `<p>` を閉じる塊・li／dt／dd／td／th／tr／option／form の同じ種類の中の開き・見出しの中の見出し・select の中の input）。選択肢の class の読みも区切りを HTML の空白だけにした。
 - 直した: qa-html の検査で、推奨の印の付いた問いの答えの欄（name が問いの鍵の物・ページのどこでも）が、どれも `label.opt` の中の radio・checkbox でなければ赤（select・字の欄・hidden で、ブラウザでの 1 つ目をずらさせない）。
 - 直した: qa-html の検査で、型の外の `name` は答えの欄（input・select・textarea）と meta だけ（型の JS は name を持つ要素ならどれも答えとして読む）。推奨の印の付いた問いの答えの欄は、要素の種類を問わず name で数える。
+- 直した: qa-html の検査で、型の外の `for` はひとことの欄を指す label（`for="supp_鍵"` で textarea が在る）だけ・選択（radio・checkbox）に id を付ければ赤・id の重なりは赤（選択肢の label から別の欄を選ばせない）。推奨の印の付いた問いの選択肢に checked・disabled・hidden が在れば赤。

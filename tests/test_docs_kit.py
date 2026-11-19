@@ -809,6 +809,12 @@ REC_HIDE = [
      "問い q3: 推奨の印の付いた問いは、答えの欄"),
     ("option の name で答えを足す", lambda r: _mark(0)(r).replace('<label class="opt">', '<select name="pick"><option name="q3" value="d3">3 日</option></select><label class="opt">', 1),
      "<option> に name を付けない"),
+    ("label.opt の for で 2 つ目を選ばせる", lambda r: _mark(0)(r).replace('<label class="opt">', '<label class="opt" for="x14">', 1).replace('value="d14"', 'value="d14" id="x14"', 1),
+     "for はひとことの欄を指す label だけ"),
+    ("label.opt の for で別の問いを選ばせる", lambda r: _mark(0)(r).replace('<label class="opt">', '<label class="opt" for="zz">', 1), "for はひとことの欄を指す label だけ"),
+    ("radio の id", lambda r: _mark(0)(r).replace('value="d14"', 'value="d14" id="x14"', 1), "選択（radio・checkbox）に id を付けない"),
+    ("印の選択肢を初めから選ぶ", lambda r: _mark(0)(r).replace('value="d7" required', 'value="d7" required checked', 1), "問い q3: 推奨の印の付いた問いの選択肢に checked"),
+    ("印の選択肢を隠す", lambda r: _mark(0)(r).replace('<label class="opt">', '<label class="opt" hidden>', 1), "問い q3: 推奨の印の付いた問いの選択肢に checked"),
     ("閉じタグの中の空白で選択肢の切り方をずらす", lambda r: _mark(1)(r).replace("</label>", "</label >", 1), "検査が読めない < の書き方"),
     ("</ と空白の崩れたタグ", lambda r: _mark(0)(r).replace(REC, '</ x <!-- >' + REC + '<!-- -->', 1), "検査が読めない < の書き方"),
 ]
