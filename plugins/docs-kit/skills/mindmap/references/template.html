@@ -736,18 +736,21 @@
     const errs=[]; const oe=console.error;
     console.error=(...a)=>{ errs.push("console.error "+a.map(String).join(" ")); oe.apply(console,a); };
     window.addEventListener("error",e=>errs.push("例外 "+e.message));
+    // 見るのは prep の後の model（SKILL の schema: id が空なら engine が自動採番＝空の id は通す）。
+    // 書いた id は prep が替えないので、重複・形（c+数字）の崩れはここで拾う。
     const ids=new Set(); let n=0;
     (function w(x,path){ n++;
       const at="#"+(x.id||"?")+"（"+path+"）";
       if(!x.id) errs.push(at+": id が無い");
+      else if(!/^c[0-9]+$/.test(String(x.id))) errs.push(at+": id が c+数字の形でない");
       else if(ids.has(x.id)) errs.push(at+": id が重複"); else ids.add(x.id);
       if(!String(x.t||"").trim()) errs.push(at+": 題（t）が空");
       if(x.badge!=null&&!BADGES.has(x.badge)) errs.push(at+": 知らない badge "+x.badge);
       if(x.kind!=null&&x.kind!=="memo") errs.push(at+": 知らない kind "+x.kind);
       if(x.children!=null&&!Array.isArray(x.children)) errs.push(at+": children が並びでない");
       (Array.isArray(x.children)?x.children:[]).forEach((c,i)=>w(c,path+"/"+(i+1)));
-    })(SEED,"根");
-    if(!SEED.root) errs.push("#"+SEED.id+": 根のカードに root が無い");
+    })(model,"根");
+    if(!model.root) errs.push("#"+model.id+": 根のカードに root が無い");
     try{
       collapsed.clear(); render();
       const drawn=tree.querySelectorAll(".node").length;

@@ -44,7 +44,7 @@ repo ごとに違う値は、repo の根（`git rev-parse --show-toplevel`）の
 3. **`const PREMISE` を埋める**（前提＝ステップの外側でずっと効く土台。goal/verify/work/cross の4欄。不要な欄は1項目で薄く）。
 4. **ヘッダー**（`.eyebrow`/`h1`/`.lead`）と **凡例（`.legend`）** を題材に合わせて書き換え（凡例は色→段名の対応。SEED の STEP 色と合わせる）。`.hint`（操作説明）は触らない。
 5. **保存** = 表の `docs-kit.mindmap.save_dir`（無ければ `common.save_dir`・それも無ければ窓の scratchpad＝git の外）。`common.save_dir_avoid` には置かない。名前は `確認_<件名>_マインドマップ_<YYYYMMDD>.html`。
-6. **検査してから渡す** = `python3 <この skill>/../../scripts/page_selftest.py <保存した html>` で `SELFTEST OK <n> cards`（exit 0）を取る（全カードをひらいて描き、id の重複・空の題・知らない badge／kind・コピーの形に出ないカード・例外を拾う）。NG なら細目 §3「まず構造を疑う」で原因（ツリーの組み方）から直す。exit 2 は Chrome が無い＝検査できていない（OK と言わない）。Artifact で出す時は guard の `page_check` が publish の前に同じ検査を回し、赤・回せない時は止める（型の印 `<meta name="af-page">` を消さない＝消すと止まる）。
+6. **検査してから渡す** = `python3 <この skill>/../../scripts/page_selftest.py <保存した html>` で `SELFTEST OK <n> cards`（exit 0）を取る（全カードをひらいて描き、自動採番の後の id の重複・形の崩れ・空の題・知らない badge／kind・コピーの形に出ないカード・例外を拾う）。NG なら細目 §3「まず構造を疑う」で原因（ツリーの組み方）から直す。exit 2 は Chrome が無い＝検査できていない（OK と言わない）。Artifact で出す時は guard の `page_check` が publish の前に同じ検査を回し、赤・回せない時は止める（型の印 `<meta name="af-page">` を消さない＝消すと止まる）。
 7. **渡す** = 表の `docs-kit.mindmap.delivery`（無ければ `common.delivery`・それも無ければ `file:///…` の絶対パスをチャットに1行）+ 「どういう背骨で組んだか・特に見てほしい枝」を数行だけ添える（HTML本文をチャットに再展開しない＝二重出力禁止）。
 
 ## ノード schema（`const SEED` = 入れ子オブジェクト。engine が読む欄）
@@ -65,7 +65,7 @@ const SEED = {
 
 | 欄 | 意味 |
 |---|---|
-| `id` | `"c1"` 形式。**#id は組み替えても不変**＝貼り戻しで枝を指す鍵。空なら engine が自動採番 |
+| `id` | `"c1"` 形式（c+数字）。**#id は組み替えても不変**＝貼り戻しで枝を指す鍵。省くか空なら engine が自動採番（検査は採番の後のカードを見るので通る）。書いた id の重複・形の崩れは検査が NG |
 | `root:true` | 入口カード（濃紺）。1つだけ |
 | `step:true` + `no` | 背骨カード。`no:"STEP ①"` の見出しが付く。`col` で段の色 |
 | `t` / `sub` | タイトル / 説明メモ（どちらもクリックで書き換え可） |
