@@ -395,7 +395,7 @@ function treeReds(rest) {
         if (tags.some((t) => /^<details\b/i.test(t))) { red.push("選択肢の枠（label.opt）を <details> の中に置かない（閉じると見えない）"); break; }
         const box = tags.findLast((t) => /^<fieldset\b/i.test(t));
         if (!box || !/^[A-Za-z0-9_]+$/.test(attr(box, "data-qkey") ?? "")) { red.push("選択肢の枠（label.opt）は、鍵（data-qkey＝半角英数字と _）を持つ問いの箱（fieldset.q）の中にだけ置く"); break; }
-        if (tags.some((t) => /^<(?:a|summary)\b/i.test(t))) { red.push("選択肢の枠（label.opt）を <a>・<summary> の中に置かない（押した先がリンク・開け閉めになる）"); break; }
+        if (tags.some((t) => /^<(?:a|summary|figure)\b/i.test(t))) { red.push("選択肢の枠（label.opt）を <a>・<summary>・<figure> の中に置かない（押した先がリンク・開け閉め・切り抜きの拡大になる）"); break; }
       }
       // 表の区切りより内側（一番近い table・td・th より上）に開いている物だけが、ブラウザの閉じの的になる
       let from = 0;

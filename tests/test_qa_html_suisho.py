@@ -138,7 +138,7 @@ REC_HIDE = [
     ("印の選択肢を閉じた details で包む", lambda r: _mark(0)(r).replace('<label class="opt">', '<details><label class="opt">', 1).replace("</label>", "</label></details>", 1), "選択肢の枠（label.opt）を <details> の中に置かない"),
     ("印の選択肢を fieldset disabled で包む", lambda r: _mark(0)(r).replace('<label class="opt">', '<fieldset disabled><label class="opt">', 1).replace("</label>", "</label></fieldset>", 1), "<fieldset> の中に <fieldset> を置かない"),
     ("問いの fieldset に disabled", lambda r: _mark(0)(r).replace('data-kind="judge"', 'data-kind="judge" disabled', 1), "disabled の属性を付けない"),
-    ("印の選択肢をリンクで包む", lambda r: _mark(0)(r).replace('<label class="opt">', '<a href="#x"><label class="opt">', 1).replace("</label>", "</label></a>", 1), "選択肢の枠（label.opt）を <a>・<summary> の中に置かない"),
+    ("印の選択肢をリンクで包む", lambda r: _mark(0)(r).replace('<label class="opt">', '<a href="#x"><label class="opt">', 1).replace("</label>", "</label></a>", 1), "選択肢の枠（label.opt）を <a>・<summary>・<figure> の中に置かない"),
     ("印の選択肢の中のリンク", lambda r: _mark(0)(r).replace(REC, '<a href="#x">x</a>' + REC, 1), "選択肢の枠（label.opt）の中に <a> を置かない"),
     ("印の選択肢に step の class", lambda r: _mark(0)(r).replace('<label class="opt">', '<label class="opt step">', 1), "型の外に class「step」を付けない"),
     ("印の選択肢を div.step で包む", lambda r: _mark(0)(r).replace('<label class="opt">', '<div class="step"><label class="opt">', 1).replace("</label>", "</label></div>", 1), "型の外に class「step」を付けない"),
@@ -148,6 +148,7 @@ REC_HIDE = [
     ("印の選択肢を空の鍵の問いの箱で包む", lambda r: _mark(0)(r).replace('<label class="opt">', '<fieldset class="q" data-qkey=""><label class="opt">', 1).replace("</label>", "</label></fieldset>", 1), "<fieldset> の中に <fieldset> を置かない"),
     ("印の選択肢を自由記入の箱で包む", lambda r: _mark(0)(r).replace('<label class="opt">', '<fieldset class="q" data-qkey="__自由記入__"><label class="opt">', 1).replace("</label>", "</label></fieldset>", 1), "<fieldset> の中に <fieldset> を置かない"),
     ("印の選択肢を開いた details で包む", lambda r: _mark(0)(r).replace('<label class="opt">', '<details open><label class="opt">', 1).replace("</label>", "</label></details>", 1), "選択肢の枠（label.opt）を <details> の中に置かない"),
+    ("印の選択肢を切り抜きの figure で包む", lambda r: _mark(0)(r).replace('<label class="opt">', '<figure class="clip"><label class="opt">', 1).replace("</label>", "</label></figure>", 1), "選択肢の枠（label.opt）を <a>・<summary>・<figure> の中に置かない"),
     ("閉じタグの中の空白で選択肢の切り方をずらす", lambda r: _mark(1)(r).replace("</label>", "</label >", 1), "検査が読めない < の書き方"),
     ("</ と空白の崩れたタグ", lambda r: _mark(0)(r).replace(REC, '</ x <!-- >' + REC + '<!-- -->', 1), "検査が読めない < の書き方"),
 ]
