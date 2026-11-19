@@ -430,6 +430,7 @@ function allowlistReds(outside) {
       else attrs[name] = val;
       if (!ats.has(name) && !ALLOW.attribute_prefixes.some((p) => name.startsWith(p))) red.push(`型の外に許していない属性「${name}」: ${show}`);
     }
+    if ("name" in attrs && !["input", "select", "textarea", "meta"].includes(tag)) red.push(`<${tag}> に name を付けない（name は答えの欄 input・select・textarea だけ＝型の JS は name を持つ要素を答えとして読む）: ${show}`);
     if ("style" in attrs && tag !== "body") red.push(`<${tag}> に style がある（色や形は変えない・会社の色は body の --brand だけ）`);
     if (tag === "meta" && red.length === before && !("charset" in attrs) && !ALLOW.meta.names.includes((attrs.name ?? "").toLowerCase())) red.push(`許していない meta: ${show}`);
     if (tag === "input" && !ALLOW.input_types.includes((attrs.type ?? "text").toLowerCase())) red.push(`許していない入力の欄 type="${attrs.type}": ${show}`);
@@ -609,7 +610,8 @@ export function readHtml(raw) {
       oneChoice: (inputs.length > 0 && inputs.length < 2) || (!inputs.length && sel.length === 1),
       freeInput: freeInputs.length > 0,
       // 問いの鍵を name に持つ欄（ページのどこでも・select・字の欄・hidden も）が、どれも label.opt の中の選択か（印の 1 つ目を検査とブラウザで同じにする）
-      keyFieldsInOpts: [...html.matchAll(/<(?:input|select|textarea)\b[^>]*>/gi)].filter((t) => attr(t[0], "name") === m[1]).length
+      //   型の JS は name を持つ要素ならどれも答えの欄として読む＝要素の種類を問わず数える
+      keyFieldsInOpts: [...html.matchAll(/<[A-Za-z][A-Za-z0-9-]*\b[^>]*>/g)].filter((t) => attr(t[0], "name") === m[1]).length
         === opts.filter((o) => o.hasInput && o.inputName === m[1]).length,
       numberInput: freeInputs.some((t) => /\btype\s*=\s*["']?number\b/i.test(t)),
       // radio と入力の欄は required で送れなくする。checkbox は required にすると「その 1 つを必ず選ぶ」になる＝型の JS が見る

@@ -807,6 +807,8 @@ REC_HIDE = [
      "問い q3: 推奨の印の付いた問いは、答えの欄"),
     ("問いの外の hidden で答えを足す", lambda r: _mark(0)(r).replace("</fieldset>", '</fieldset><input type="hidden" name="q3" value="d3">', 1),
      "問い q3: 推奨の印の付いた問いは、答えの欄"),
+    ("option の name で答えを足す", lambda r: _mark(0)(r).replace('<label class="opt">', '<select name="pick"><option name="q3" value="d3">3 日</option></select><label class="opt">', 1),
+     "<option> に name を付けない"),
     ("閉じタグの中の空白で選択肢の切り方をずらす", lambda r: _mark(1)(r).replace("</label>", "</label >", 1), "検査が読めない < の書き方"),
     ("</ と空白の崩れたタグ", lambda r: _mark(0)(r).replace(REC, '</ x <!-- >' + REC + '<!-- -->', 1), "検査が読めない < の書き方"),
 ]
