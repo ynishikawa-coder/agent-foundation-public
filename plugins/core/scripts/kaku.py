@@ -55,15 +55,22 @@ def outside_frame(text: str) -> str:
     return head + rest.split(FRAME_END, 1)[1]
 
 
+def injected() -> tuple[Path, ...]:
+    """毎回差し込む物の一覧（差し込む inject と増え方を照らす grow が同じこの 1 つを読む）。頭の核は欠けたら差し込まない。"""
+    return (KAKU, FURUMAI)
+
+
 def inject_text() -> str:
-    kaku = KAKU.read_text(encoding="utf-8").rstrip("\n")
-    try:
-        furumai = FURUMAI.read_text(encoding="utf-8").rstrip("\n")
-    except UNREADABLE as e:
-        # 欠けたまま黙って核だけにしない: 窓の起動は止めず、欠けた事を文脈に名指しで出す
-        print(f"plugin core: 振る舞い.md が読めない（{e}）", file=sys.stderr)
-        furumai = f"（振る舞いの既定 {FURUMAI} が読めず、差し込まれていない。最初にオーナーへ知らせる）"
-    return (kaku + "\n\n" + furumai + "\n\n"
+    head, *rest = injected()
+    parts = [head.read_text(encoding="utf-8").rstrip("\n")]
+    for path in rest:
+        try:
+            parts.append(path.read_text(encoding="utf-8").rstrip("\n"))
+        except UNREADABLE as e:
+            # 欠けたまま黙って核だけにしない: 窓の起動は止めず、欠けた事を文脈に名指しで出す
+            print(f"plugin core: {path.name} が読めない（{e}）", file=sys.stderr)
+            parts.append(f"（毎回差し込む {path} が読めず、差し込まれていない。最初にオーナーへ知らせる）")
+    return ("\n\n".join(parts) + "\n\n"
             + "（この核と振る舞いの既定は土台の plugin core が起動時に差し込んだ。"
             + f"返事・問い・手の窓などの形の細目は {SAIMOKU} の同じ番号の節。その形を書く時に Read する）\n")
 
@@ -115,8 +122,7 @@ def check(claude: Path | None) -> int:
     return 0
 
 
-# 毎回差し込む物＝増やさない物。足す時は同じ変更で同じだけ畳む（上限の内でも純増は赤）。
-ALWAYS = (KAKU, FURUMAI)
+# 毎回差し込む物（injected）＝増やさない物。足す時は同じ変更で同じだけ畳む（上限の内でも純増は赤）。
 GROW_FIX = "直し: 足すなら同じ変更で同じだけ畳む（重複を細目・skill の正本へ寄せる）。量を合わせるだけで済ませず、細目 §3「まず構造を疑う」で増えた原因から畳む"
 
 
@@ -134,7 +140,7 @@ def base_text(ref: str, path: Path) -> str:
 
 def grow(ref: str) -> int:
     bad = []
-    for path in ALWAYS:
+    for path in injected():
         try:
             now = size(path.read_text(encoding="utf-8"))
             before = size(base_text(ref, path))

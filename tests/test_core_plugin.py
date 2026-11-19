@@ -132,12 +132,41 @@ def test_MGkm_は根治の_4_段の呼び名で説明の頼みにも_4_段で答
 def test_問いは選ぶ問いと開いた問いに分け_分からないを置き_言葉を混ぜない():
     kaku_text = (PLUGIN / "核.md").read_text(encoding="utf-8")
     s4 = _節(kaku_text, 4)
-    for word in ["選択肢の画面", "「分からない」も置く", "開いた問い", "AI の読み", "「分からない」には問いを作り直す"]:
+    for word in ["選択肢の画面", "開いた問い", "AI の読み"]:
         assert word in s4, f"核 §4 に無い: {word}"
     assert "例え話にせず" in _節(kaku_text, 2)
     s4d = _節((PLUGIN / "細目.md").read_text(encoding="utf-8"), 4)
-    for word in ["どの問いにも「分からない」の選択肢", "AI の今の読み", "選ぶ問いと開いた問い", "問いの言葉", "開発用語", "業界の専門用語", "決まりの言葉", "オーナーの言葉", "例え話に替えず"]:
+    for word in ["どの問いにも「分からない」の選択肢", "「分からない」が返った", "AI の今の読み", "選ぶ問いと開いた問い", "問いの言葉", "開発用語", "業界の専門用語", "決まりの言葉", "オーナーの言葉", "例え話に替えず"]:
         assert word in s4d, f"細目 §4 に無い: {word}"
+
+
+def test_聞き方は見せてから聞き_前提の出所を分け_推奨の印は分かれ道だけ_待つ間は答えに頼らない事だけ():
+    """原因の台帳の 4 行（2026-11-19）: 問いの文に全部を詰める・推奨の印が済んだかにも付く・前提に AI の推測を事実として置く・
+    「待つ間も止まらない」が合意の要る事まで進める と読まれる。古い文を戻すと赤。"""
+    s4 = _節((PLUGIN / "核.md").read_text(encoding="utf-8"), 4)
+    for word in ["案と前提をチャットで先に見せ", "画面の問いは 1 文に", "推奨の印は作り方の分かれ道だけ",
+                 "済んだかは AI が確かめてから", "答えを待つ間は答えに頼らない事を進める"]:
+        assert word in s4, f"核 §4 に無い: {word}"
+    s4d = _節((PLUGIN / "細目.md").read_text(encoding="utf-8"), 4)
+    for word in ["**見せてから聞く**", "1〜2 文まで", "選択肢の説明へ", "**前提の出所**", "オーナーの言葉／記録の事実／AI の読み",
+                 "「ずれ」と決め込まない", "「なぜこの形か」を問う", "**推奨の印**", "済んだかの確認には付けない",
+                 "**答えを待つ間**", "推奨で先に進めない", "「終わった」「うまくいかない」「分からない」・推奨の印は付けない"]:
+        assert word in s4d, f"細目 §4 に無い: {word}"
+    mock = (ROOT / "plugins" / "docs-kit" / "skills" / "theory-mock" / "SKILL.md").read_text(encoding="utf-8")
+    assert "作り方の分かれ道（画面・データ・流れをどう作るか）だけを置き" in mock and "推奨を付けずにチャットで聞く" in mock
+    reminder = (ROOT / "plugins" / "guard" / "scripts" / "unanswered.py").read_text(encoding="utf-8")
+    assert "この答えに頼らない作業だけを進めて" in reminder
+    olds = ["答えを待つ間も止まらない", "①決めること ②なぜ今 ③材料", "推奨を 1 つ目に `(推奨)`", "「終わった（推奨）」",
+            "戻せる作業だけを推奨案で進めて", "答え待ちで推奨を採った", "質問（`Q`）は必ず推奨と", "推奨を 1 つ目・", "推奨を 1 つ目・1 画面 4 問まで"]
+    hits = []
+    for p in sorted(ROOT.rglob("*")):
+        rel = p.relative_to(ROOT)
+        if rel.parts[0] in {".git", "tests"} or p.name == "CHANGELOG.md":
+            continue
+        if p.is_file() and p.suffix in {".md", ".py", ".json", ".mjs", ".html"}:
+            text = p.read_text(encoding="utf-8")
+            hits += [f"{rel}: {o}" for o in olds if o in text]
+    assert not hits, hits
 
 
 def test_古い根治と聞き方の言い回しが土台に残らない():
@@ -197,7 +226,7 @@ def test_挙げた原因は全部台帳に行き先つきで持ち_全部済む�
     s7 = _節(kaku_text, 7)
     assert "「直した」か「直さない」になるまで終わったと言わない" in s7 and "直す窓の行が残れば一部" in s7
     s4 = _節(kaku_text, 4)
-    assert "1 つ選ばせる問いを出さない" in s4 and "挙がった物は全部やり" in s4
+    assert "並べて 1 つ選ばせる問いを出さない" in s4 and "全部やり、分け方は AI が決める" in s4
     saimoku = (PLUGIN / "細目.md").read_text(encoding="utf-8")
     assert "**原因の台帳**" in _節(saimoku, 3) and "**選ばせない**" in _節(saimoku, 4) and "**根治の終わり**" in _節(saimoku, 7)
     assert "1 本の列にせず" in (PLUGIN / "振る舞い.md").read_text(encoding="utf-8"), "引き継ぎの残りが番号の列に戻った"
@@ -440,7 +469,7 @@ def _git_repo(tmp_path, text):
 def test_毎回差し込む物が元より増えると赤で_同じか減れば緑(monkeypatch, tmp_path, capsys):
     """上限の内でも純増は赤（足すなら同じ変更で同じだけ畳む）。わざと 1 字足すと赤になる注入の試験。"""
     f = _git_repo(tmp_path, "元の核\n")
-    monkeypatch.setattr(kaku, "ALWAYS", (f,))
+    monkeypatch.setattr(kaku, "injected", lambda: (f,))
     assert kaku.grow("HEAD") == 0                       # 同じ
     f.write_text("元の核\n足\n", encoding="utf-8")
     assert kaku.grow("HEAD") == 1                       # 1 字でも増えたら赤
@@ -452,17 +481,31 @@ def test_毎回差し込む物が元より増えると赤で_同じか減れば�
 
 def test_比べる元が読めないと増え方の照らしは緑にせず止まる(monkeypatch, tmp_path, capsys):
     f = _git_repo(tmp_path, "元の核\n")
-    monkeypatch.setattr(kaku, "ALWAYS", (f,))
+    monkeypatch.setattr(kaku, "injected", lambda: (f,))
     assert kaku.grow("無い枝") == 2
     new = tmp_path / "新.md"                            # 元の時に無い file
     new.write_text("x", encoding="utf-8")
-    monkeypatch.setattr(kaku, "ALWAYS", (new,))
+    monkeypatch.setattr(kaku, "injected", lambda: (new,))
     assert kaku.grow("HEAD") == 2
     assert "照らせない" in capsys.readouterr().out
 
 
-def test_増え方の照らしは毎回差し込む物を全部見て_検査の入口から回る():
-    assert set(kaku.ALWAYS) == {kaku.KAKU, kaku.FURUMAI}
+def test_差し込む物を足すと増え方の照らしもそれを見る(monkeypatch, tmp_path, capsys):
+    """差し込む一覧と照らす一覧が別の写しに戻ると、足した物が黙って照らされず赤。"""
+    f = _git_repo(tmp_path, "元の核\n")
+    third = tmp_path / "三つ目.md"
+    third.write_text("三\n", encoding="utf-8")
+    subprocess.run(["git", "add", "-A"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "commit", "-q", "-m", "三"], cwd=tmp_path, check=True)
+    monkeypatch.setattr(kaku, "injected", lambda: (f, third))
+    assert "三" in kaku.inject_text()                   # 差し込む
+    third.write_text("三\n足\n", encoding="utf-8")
+    assert kaku.grow("HEAD") == 1                       # 照らす
+    assert "三つ目.md" in capsys.readouterr().out
+
+
+def test_増え方の照らしは検査の入口から回る():
+    assert kaku.injected() == (kaku.KAKU, kaku.FURUMAI)
     sh = (ROOT / "scripts" / "checks" / "kaku_growth.sh").read_text(encoding="utf-8")
     assert "kaku.py grow --base" in sh and "origin/main" in sh
     ci = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
