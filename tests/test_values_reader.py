@@ -1,8 +1,9 @@
 """値の表を読む土台の道具は、1 つの読み口（guard の values_keys・G.Strict）を通し、表に無い鍵を読むと実行の時に止まるか（注入の試験）。
 
-字の形を並べた網（`values.get("…")` など・tests/test_values_keys.py）は、並べない形（別名・分割代入・鍵の名を組み立てる形）で
-表に無い鍵を読んでも緑になる。読む時にも照らす: 読み口が鍵の一覧（土台の skill-values/schema.json＝SKILL.md の
-「repo ごとの値」の表と同じ）に載った鍵だけを読ませる。探す・読み込むのは値の表の 1 本の口（lib/skill_values.py）。ここでは、前の網を抜けた形でわざと表に無い鍵を読み、止まるのを見る。入力は全部作り物。
+字の形を並べた網（`values.get("…")` などを grep で拾う・main #48 の tests/test_values_keys.py に在った物・畳んだ）は、
+並べない形（別名・分割代入・鍵の名を組み立てる形）で表に無い鍵を読んでも緑になる。代わりに読む時に照らす: 読み口が鍵の一覧（土台の skill-values/schema.json＝SKILL.md の
+「repo ごとの値」の表と同じ）に載った鍵だけを読ませる。探す・読み込むのは値の表の 1 本の口（lib/skill_values.py）。ここでは、網を抜けた形でわざと表に無い鍵を
+読み（表に無い鍵を読み始める類）、鍵の一覧から行を消して（表から鍵を消す類）、本物の読み口が UnknownKey で止まるのを見る。入力は全部作り物。
 読み口を通らずに値の表を直に開く道具を足す形は構造で塞げない＝チェック役の点 10（review-pr）へ名指しで回す。
 """
 import importlib.util
@@ -204,6 +205,24 @@ def test_表から鍵の行を消すと_その鍵を読む道具が止まる(tmp
     assert r.returncode != 0 and "later_lead" in r.stderr
     r = node("strictCompany({}).later_lead;")                  # 元の表（行が在る）では通る
     assert r.returncode == 0, r.stderr
+
+
+def test_表から鍵の行を消すと_guard_と_make_deck_の読み口も止まる(tmp_path, monkeypatch):
+    """注入: 鍵の一覧から guard の context_limit・make-deck の accent を消すと、本物の読み口がその鍵を読む所で止まる。"""
+    import copy
+    G = load(PLUGINS / "guard/scripts/guard_common.py", "guard_common_drop")
+    assert G.values({}).get("context_limit") == G.DEFAULTS["context_limit"]
+    sch = copy.deepcopy(G.SV.schema())
+    sch["sections"]["guard"]["keys"].pop("context_limit")
+    monkeypatch.setattr(G.SV, "_SCHEMA", sch)
+    with pytest.raises(G.UnknownKey, match="context_limit"):
+        G.values({}).get("context_limit")
+    SV = load(PLUGINS / "docs-kit/lib/skill_values.py", "skill_values_drop")
+    p = _table(tmp_path, {"docs-kit": {"make-deck": {"accent": "#123456"}}})
+    assert SV.get("docs-kit", "make-deck", "accent", explicit=str(p)) == "#123456"
+    monkeypatch.setattr(SV, "_SCHEMA", _drop_key(copy.deepcopy(SV.schema()), "docs-kit", "make-deck", "accent"))
+    with pytest.raises(SV.UnknownKey, match="accent"):
+        SV.get("docs-kit", "make-deck", "accent", explicit=str(p))
 
 
 # ── 在り処: 入れた plugin の形でも隣の guard を読み、guard が無ければ止まる（qa-html は自分の lib/ の 1 本の口で読む） ──

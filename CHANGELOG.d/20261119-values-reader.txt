@@ -1,3 +1,3 @@
 - 直した: 値の表（config/skill-values.json）を Bash など Write・Edit 以外の道具で書いて土台が読まない鍵を残すと、道具の後に元へ戻すよう強く知らせる（道具の前に中身を控えて後で比べる・書き方に依らない）
-- 直した: 土台の道具（guard・dev-flow の codex と spec-doc・docs-kit の make-deck と qa-html・session-watch の watch-log）は値の表を 1 つの読み口（guard の values_keys）で読み、SKILL.md の表に無い鍵を読むと実行の時に止まる
-- 畳んだ: 道具のコードの字の形を並べて読む鍵を照らした試験（読み口の照らしに置き換えた）
+- 直した: 土台の道具（guard・dev-flow の codex と spec-doc・docs-kit の make-deck と qa-html・session-watch の watch-log）は値の表を読み口（guard は `G.values`＝Strict・dev-flow と session-watch は guard の values_keys・make-deck は `skill_values.get` の require・qa-html は `lib/skill_values.py keys` で鍵を取る strictCompany）で読み、鍵の一覧（skill-values/schema.json）に無い鍵を読むと実行の時に UnknownKey で止まる
+- 畳んだ: tests/test_values_keys.py の字の形の網（`_読む口`・`_読まない口`・`_鍵を読む形` と字の形の試験 4 本）。同じ類（表に無い鍵を読み始める・表から鍵を消す）は tests/test_values_reader.py の注入の試験で本物の読み口が止める
