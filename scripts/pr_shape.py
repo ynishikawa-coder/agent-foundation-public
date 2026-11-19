@@ -45,6 +45,11 @@ def check(root: Path, branch: str, base: str) -> list[str]:
     if not m:
         return [f"枝の名 {branch} が claude/<YYYYMMDD>-<話題> でない（変更の記録の断片の名が枝から決まらない）"]
     mb = git(root, "merge-base", base, "HEAD").strip()
+    # main を取り込む merge の途中（commit 前）は、取り込む側との分かれ目の方が新しい＝そちらと比べる
+    if subprocess.run(["git", "rev-parse", "-q", "--verify", "MERGE_HEAD"], cwd=root, capture_output=True).returncode == 0:
+        mm = git(root, "merge-base", base, "MERGE_HEAD").strip()
+        if subprocess.run(["git", "merge-base", "--is-ancestor", mb, mm], cwd=root).returncode == 0:
+            mb = mm
     # 作業の木と比べる（手元では commit 前の物・まだ git に載せていない新しい file も照らす。CI では HEAD と同じ）
     rows = [ln.split("\t") for ln in git(root, "diff", "--name-status", "--no-renames", mb).splitlines() if ln]
     rows += [["A", ln] for ln in git(root, "ls-files", "--others", "--exclude-standard").splitlines() if ln]

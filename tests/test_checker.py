@@ -175,6 +175,25 @@ def test_同じ見出しの節が_2_つ在ると赤():
     assert any("`## 点` の節が 2 個" in e for e in vf.check(text, writer="session_WRITER01"))
 
 
+def test_ファイルを2つ渡すと2つ目も照らす(tmp_path, capsys):
+    good, bad = tmp_path / "a.md", tmp_path / "b.md"
+    good.write_text(GREEN, encoding="utf-8")
+    bad.write_text(GREEN.replace("## verdict\ngreen", "## verdict\nred"), encoding="utf-8")
+    assert vf.main(["verdict_form.py", str(good), "--writer", "session_WRITER01", "--head", "0123456789ab"]) == 0
+    capsys.readouterr()
+    assert vf.main(["verdict_form.py", str(good), str(bad), "--writer", "session_WRITER01", "--head", "0123456789ab"]) == 1
+    out = capsys.readouterr().out
+    assert str(bad) in out and "誤りのあるファイル 1" in out
+
+
+def test_知らない印と値の無い印は止まる(tmp_path):
+    good = tmp_path / "a.md"
+    good.write_text(GREEN, encoding="utf-8")
+    assert vf.main(["verdict_form.py", str(good), "--writr", "x"]) == 2
+    assert vf.main(["verdict_form.py", str(good), "--writer"]) == 2
+    assert vf.main(["verdict_form.py", str(good), "--writer", "a", "--writer", "b"]) == 2
+
+
 def test_止めない気づきの札は台帳へで_古い後の便は通らない():
     """止めない気づきは原因の台帳へ行く札だけ。行き先の無い古い札（後の便）を戻すと赤。"""
     assert vf.check(GREEN) == []
