@@ -142,18 +142,57 @@ def load(path):
 
 
 # ── 照らし ──
+try:  # 正規表現の解析の口（字の頭と尻を見ず、解いた形で全体の一致かを決める）
+    from re import _constants as _RC, _parser as _RP
+except ImportError:  # 3.10 まで
+    import sre_constants as _RC  # noqa: N812
+    import sre_parse as _RP  # noqa: N812
+
+_HEADS = {_RC.AT_BEGINNING, _RC.AT_BEGINNING_STRING}
+_TAILS = {_RC.AT_END, _RC.AT_END_STRING}
+
+
+def _edge(seq, at, heads):
+    """解いた並び seq の at 番（0 か -1）が、全体の頭（heads が _HEADS）か尻（_TAILS）の錨か。囲み（group）と
+    分かれ（|）の中は、全部の道がそうなら錨と見る。"""
+    items = list(seq)
+    if not items:
+        return False
+    op, av = items[at]
+    if op == _RC.AT:
+        return av in heads
+    if op == _RC.SUBPATTERN:
+        return _edge(av[-1], at, heads)
+    if op == _RC.BRANCH:
+        return all(_edge(b, at, heads) for b in av[1])
+    return False
+
+
 def _anchored(x):
-    """^ で始まり、エスケープしない $ で終わる（全体に当てる形と読める）。"""
+    """^ で始まり、エスケープしない $ で終わる（字の形。型 patterns の全体の鍵の前の形と今の形の見分けに使う）。"""
     return isinstance(x, str) and x.startswith("^") and x.endswith("$") and not re.search(r"(?<!\\)(?:\\\\)*\\\$$", x)
+
+
+def _whole_regex(x):
+    """全体に当てる形と読める（正規表現として読め、解いた形の全部の道が頭の錨 ^・\\A で始まり尻の錨 $・\\Z で終わる）。
+    字の頭の ^ と尻の $ だけでは決めない（(?i)^o/r$ のように頭にフラグを置いた形・^a$|^b$ の分かれも全体の形。
+    \\$ で終わる形・^a|b$ は全体の形でない）。"""
+    if not isinstance(x, str):
+        return False
+    try:
+        seq = _RP.parse(x)
+    except (re.error, RecursionError, OverflowError):
+        return False
+    return _edge(seq, 0, _HEADS) and _edge(seq, -1, _TAILS)
 
 
 def bad_repo_names(v):
     """型 repo_names（owner/repo の名の全体に当てる正規表現の並び）に合わない行の並び。
-    各行は ^ で始まり（エスケープしない）$ で終わり、正規表現として読める。頭だけ（^owner/）・錨なし（owner/repo）の
+    各行は正規表現として読め、解いた形が ^ で始まり $ で終わる（_whole_regex。頭にフラグを置いた (?i)^o/r$ も全体の形）。頭だけ（^owner/）・錨なし（owner/repo）の
     前の形は、名の一部に当てる読み方と取り違えるので書けない（使う側は ^owner/repo$・owner ごとなら ^owner/.*$）。"""
     out = []
     for x in v if isinstance(v, list) else [v]:
-        ok = _anchored(x)
+        ok = _whole_regex(x)
         if ok:
             try:
                 re.compile(x)
