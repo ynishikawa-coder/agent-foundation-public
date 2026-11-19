@@ -9,7 +9,6 @@ PLUGIN = ROOT / "plugins" / "dev-flow"
 SKILLS = {p.name for p in (PLUGIN / "skills").iterdir() if p.is_dir()}
 # SKILL が指す付属の物（同じ dir に在ること）。
 ATTACHED = {
-    "codex": ["codex_pack.py"],
     "preimpl-cleanup": ["整地受領証.template.md"],
 }
 # 写す元の repo の中の置き場を指したら、土台の中で閉じていない。

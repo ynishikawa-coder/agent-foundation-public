@@ -9,9 +9,9 @@
 逃げ道: 中身に PAID_UPSTREAM_GUARD を書く（＝環境変数 1 本で本物へ切り替える共通の関所を通す宣言。既定は録画の再生か偽物）。
 
 見る口: Write / Edit / MultiEdit / NotebookEdit と、Bash で試験らしい path へ書く形（`>`・`>>` のリダイレクト・
-  `tee`・`sed -i`／`perl -i` の的）。Bash は、その的へ実際に書く中身（heredoc の中身・echo／printf の字・tee へ流す
-  echo／printf の字・sed／perl の式）にだけ印があるかを見る（命令の文全体を見ない＝鍵名を環境に置いて試験を回し、
-  出力を試験の dir の log へ書くだけの命令は止めない）。
+  `tee`・`sed -i`／`perl -i` の的）。Bash は命令の文全体（heredoc の中身を含む）に印があるかを見る。ただし命令の頭の
+  環境の代入（`ANTHROPIC_API_KEY=dummy pytest … > tests/out.log`）は書く中身でないので抜く（鍵名を環境に置いて試験を回し、
+  出力を試験の dir の log へ書くだけの命令は止めない）。命令の書き方は推し量らない（知らない書き方も全体を見る）。
 射程の外（正直に書く）: 自分のサーバを経た中継（例: 手元のサーバが本物の鍵で AI へ中継する）は見えない。
   Bash でも、書く中身が命令の外にある形（cp・mv・別の script の中で書く・python -c の中の open・命令の出力を書く形）は見えない。
 判定できない時は通す（1 つの不具合で書き込みを止めない）。
@@ -79,121 +79,58 @@ _TEE = re.compile(r"\btee\b((?:\s+-[a-zA-Z]+)*)((?:\s+[^\s;&|<>()-][^\s;&|<>()]*
 _INPLACE = re.compile(r"\b(?:sed|perl)\s+[^;&|]*?-i\S*[^;&|]*?\s([^\s;&|<>()]+)\s*(?:$|[;&|])", re.M)
 
 
-_HEREDOC = re.compile(r"<<-?\s*(['\"]?)([A-Za-z_][A-Za-z0-9_]*)\1")
-_ASSIGN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
-_PRINTERS = ("echo", "printf")
+# 命令の頭の環境の代入（`ANTHROPIC_API_KEY=dummy pytest …`）。鍵の名を環境に置いて試験を回すだけの形で、試験の file へ
+# 書く中身ではない。照らす字からこれだけを抜き、残りは命令の文全体を見る（命令の書き方を推し量らない＝知らない形も見る）。
+_ASSIGN_AT = re.compile(r"\s*((?:[A-Za-z_][A-Za-z0-9_]*=(?:'[^']*'|\"[^\"]*\"|[^\s;&|'\"]*)\s+)+)")
+_KEYWORD_AT = re.compile(r"\s*(?:then|do|else)\b")
 
 
-def _split(line):
-    """1 行を段と区切り（; && || | &）に分ける。引用符の中と、redirect の & （2>&1・&>・>&）では切らない。
-    引用符が閉じていない行は切らずに 1 段にする（読めない所で中身を見落とさない）。"""
-    parts, cur, q, i = [], "", "", 0
-    while i < len(line):
-        c = line[i]
+def written_text(cmd):
+    """照らす字: 命令の文全体から、命令の頭の環境の代入だけを抜いた物。引用符の中は命令の頭と見ない。
+    引用符が閉じない命令は何も抜かない（読めない形は全体を見る）。"""
+    out, i, q, head = [], 0, "", True
+    while i < len(cmd):
+        if not q and head:
+            m = _ASSIGN_AT.match(cmd, i)
+            if m:
+                i = m.end()
+                head = False
+                continue
+            k = _KEYWORD_AT.match(cmd, i)
+            if k:
+                out.append(cmd[i:k.end()])
+                i = k.end()
+                continue
+        c = cmd[i]
         if q:
-            if c == "\\" and q == '"' and i + 1 < len(line):
-                cur += line[i:i + 2]
+            if c == "\\" and q == '"':
+                out.append(cmd[i:i + 2])
                 i += 2
                 continue
             if c == q:
                 q = ""
-            cur += c
         elif c in "'\"":
             q = c
-            cur += c
-        elif c == "\\" and i + 1 < len(line):
-            cur += line[i:i + 2]
+        elif c == "\\":
+            out.append(cmd[i:i + 2])
             i += 2
+            head = False
             continue
-        elif line.startswith(("&&", "||", "|&"), i):
-            parts += [cur, line[i:i + 2]]
-            cur = ""
-            i += 2
-            continue
-        elif c in ";|" or (c == "&" and not (cur.endswith(">") or line.startswith("&>", i))):
-            parts += [cur, c]
-            cur = ""
-        else:
-            cur += c
+        out.append(c)
+        if not q:
+            head = c in ";&|(\n" or (head and c.isspace())
         i += 1
-    if q:
-        return None
-    return parts + [cur]
-
-
-def _segments(cmd):
-    """命令を (区切りの前の記号, 段の字, heredoc の中身の並び) に分ける。heredoc の中身は、その << を持つ段に付ける。"""
-    lines = cmd.split("\n")
-    out, i = [], 0
-    while i < len(lines):
-        line = lines[i]
-        i += 1
-        tags = [m.group(2) for m in _HEREDOC.finditer(line)]
-        bodies = []
-        for tag in tags:
-            body = []
-            while i < len(lines) and lines[i].strip() != tag:
-                body.append(lines[i])
-                i += 1
-            i += 1
-            bodies.append("\n".join(body))
-        parts = _split(line)
-        if parts is None:
-            return None
-        prev = ""
-        for j in range(0, len(parts), 2):
-            seg = parts[j]
-            n = len(_HEREDOC.findall(seg))
-            own, bodies = bodies[:n], bodies[n:]
-            out.append((prev, seg, own))
-            prev = parts[j + 1] if j + 1 < len(parts) else ""
-    return out
-
-
-def _prog(seg):
-    words = [w for w in seg.split() if not _ASSIGN.match(w)]
-    return os.path.basename(words[0]) if words else ""
-
-
-# 中身を命令の字に持つ書き手（echo・printf・heredoc・その場の式を走らせる interpreter）。これ以外の命令の出力は、
-# 命令の字の外で作られる中身（試験を回した log など）なので見ない。分からない形は命令の文全体を見る（既定で止める側）。
-_INLINE = re.compile(r"^(?:python[0-9.]*|node|deno|bun|perl|ruby|php|bash|sh|zsh)$")
-
-
-def _writes_inline(seg, bodies):
-    prog = _prog(seg)
-    if bodies or prog in _PRINTERS or prog in ("sed", "perl", "cat", "tee", ""):
-        return True
-    return bool(_INLINE.match(prog) and re.search(r"\s-(?:c|e|E|p|r)\b|\s--eval\b", seg))
+    return cmd if q else "".join(out)
 
 
 def bash_writes(cmd):
-    """Bash の命令が file へ書く (的, 照らす中身) の並び（推し量り）。中身が命令の字に在る書き込みと、読めない形は
-    命令の文全体を照らす（main の時と同じ）。命令の出力だけを書く形（試験を回して log を書く）は中身を空にする。"""
-    out = []
-    segs = _segments(cmd)
-    if segs is None:                      # 引用符が行をまたぐ等、切れない形＝全体を見る
-        return [(t, cmd) for t in _loose_targets(cmd)]
-    for k, (prev, seg, bodies) in enumerate(segs):
-        own = cmd if _writes_inline(seg, bodies) else ""
-        for m in _REDIRECT.finditer(seg):
-            out.append((m.group(1), own))
-        for m in _TEE.finditer(seg):
-            fed = cmd
-            if prev in ("|", "|&") and k and not _writes_inline(segs[k - 1][1], segs[k - 1][2]):
-                fed = ""
-            out += [(t, fed) for t in m.group(2).split()]
-        for m in _INPLACE.finditer(seg + "\n"):
-            out.append((m.group(1), cmd))
-    return [(t.strip("'\""), c) for t, c in out if t.strip("'\"") not in ("/dev/null", "-")]
-
-
-def _loose_targets(cmd):
+    """Bash の命令が file へ書く (的, 照らす字) の並び（推し量り）。照らす字は命令の文全体から頭の環境の代入を抜いた物。"""
+    text = written_text(cmd)
     out = [m.group(1) for m in _REDIRECT.finditer(cmd)]
     for m in _TEE.finditer(cmd):
         out += m.group(2).split()
     out += [m.group(1) for m in _INPLACE.finditer(cmd)]
-    return [t.strip("'\"") for t in out if t.strip("'\"") not in ("/dev/null", "-")]
+    return [(t.strip("'\""), text) for t in out if t.strip("'\"") not in ("/dev/null", "-")]
 
 
 def bash_targets(cmd):

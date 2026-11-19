@@ -1,7 +1,7 @@
 """出口・見張りが正本を写さず直に読み、道具の名や 1 つの欄で口を切らないか（誤りの類をわざと入れて拒むか）。入力は全部作り物。
 
   - 命令の印: 土台の命令は全部 shared/strict_args.py で印を読む（2 度書き・略記を止める）
-  - 鍵の形: Codex へのパックは公開の検査の SECRET_PATTERNS を直に読む（写しを持たない）
+  - Codex のための物（skill・渡すパックの道具・試験・記載）は畳んだ（オーナー決定: Codex はもう使わない）
   - 番号の形: 守りの ask_shape と確認ページの check.mjs が shared/number_shapes.json を直に読む
   - 窓の見分け: guard の子の窓の見分けは session-watch の kind_of を直に呼ぶ
   - outbound: 鍵はどの道具の入力でも照らし、番号だけの頼みは欄の名と Bash の gh・curl で拾う（済んだ知らせは止めない）
@@ -22,7 +22,6 @@ from test_guard import bash, denied, deny_reason, env  # noqa: F401  （env は 
 
 ROOT = Path(__file__).resolve().parent.parent
 SHARED = ROOT / "shared"
-CODEX = ROOT / "plugins" / "dev-flow" / "skills" / "codex" / "codex_pack.py"
 CHECK_MJS = ROOT / "plugins" / "docs-kit" / "skills" / "qa-html" / "check.mjs"
 SCRIPTS = ROOT / "plugins" / "guard" / "scripts"
 
@@ -90,7 +89,7 @@ def test_並べる印と_1_度書きは今までどおり():
 
 
 @pytest.mark.parametrize("cmd", [
-    [str(CODEX), "--dest", "self", "--dest", "client:x"],
+    [str(ROOT / "plugins" / "dev-flow" / "skills" / "spec-doc" / "seal.py"), "x", "--values", "a", "--values", "b"],
     [str(ROOT / "public-guard" / "guard.py"), "--repo", ".", "--repo", ".."],
     [str(ROOT / "scripts" / "pr_shape.py"), "--base", "a", "--base", "b"],
 ])
@@ -99,38 +98,16 @@ def test_実の命令も_2_度書きで止まる(cmd):
     assert res.returncode == 2 and "2 度書いた" in res.stderr, res.stderr[-300:]
 
 
-# ── 鍵の形（Codex へのパック）──
-def test_codex_pack_は鍵の形を写さず正本を読む():
-    text = CODEX.read_text(encoding="utf-8")
-    assert "BLOCK_PATTERNS = {" not in text
-    pg = load("af_pg_t", ROOT / "public-guard" / "guard.py")
-    mod = load("codex_pack_t", CODEX)
-    assert not set(mod.CODEX_ONLY_PATTERNS) & set(pg.SECRET_PATTERNS), "正本の札と同じ名を Codex 側に置かない"
-    for pat in pg.SECRET_PATTERNS.values():
-        assert pat not in text, "正本の形を字で写している: %s" % pat
-
-
-def test_正本に足した鍵の形は_codex_pack_でも止まる(tmp_path):
-    # 正本（の写しの場所）へ作り物の形を足すと、Codex へのパックも同じ物で止まる＝2 か所を直す必要が無い
-    plug = tmp_path / "dev-flow"
-    shutil.copytree(ROOT / "plugins" / "dev-flow", plug, symlinks=False,
-                    ignore=shutil.ignore_patterns("__pycache__"))
-    lib = plug / "lib" / "public_guard.py"
-    lib.write_text(lib.read_text(encoding="utf-8").replace(
-        "SECRET_PATTERNS = {", 'SECRET_PATTERNS = {\n    "作り物の鍵": r"zzfake_[0-9]{8}",', 1), encoding="utf-8")
-    mod = load("codex_pack_t2", plug / "skills" / "codex" / "codex_pack.py")
-    blocks, _ = mod.scan("x = 1\nzzfake_12345678\n")
-    assert "作り物の鍵" in blocks
-
-
-def test_鍵の形の正本が読めなければ_codex_pack_は止まる(tmp_path):
-    plug = tmp_path / "dev-flow"
-    shutil.copytree(ROOT / "plugins" / "dev-flow", plug, symlinks=False,
-                    ignore=shutil.ignore_patterns("__pycache__"))
-    (plug / "lib" / "public_guard.py").unlink()
-    mod = load("codex_pack_t3", plug / "skills" / "codex" / "codex_pack.py")
-    with pytest.raises(mod.Abort):
-        mod.scan("x = 1\n")
+# ── Codex を畳んだ ──
+def test_Codex_のための物は残っていない():
+    assert not (ROOT / "plugins" / "dev-flow" / "skills" / "codex").exists()
+    hits = []
+    for base in (".claude-plugin", ".github", "plugins", "scripts", "public-guard", "shared", "docs"):
+        for p in (ROOT / base).rglob("*"):
+            if p.is_file() and "__pycache__" not in p.parts and p.suffix in (".md", ".py", ".json", ".mjs", ".yml", ".txt"):
+                if re.search(r"codex", p.read_text(encoding="utf-8", errors="replace"), re.I):
+                    hits.append(str(p.relative_to(ROOT)))
+    assert not hits, hits
 
 
 # ── 番号の形 ──
@@ -254,6 +231,7 @@ def test_outbound_鍵の正本が読めない時は外への出口だけ止め�
 @pytest.mark.parametrize("cmd", [
     "ANTHROPIC" + "_API_KEY=dummy pytest tests/test_a.py > tests/out.log 2>&1",
     "OPENAI" + "_API_KEY=x npm test | tee tests/run.log",
+    "cd x && " + "ANTHROPIC" + "_API_KEY='a b' pytest -q > tests/out.log",
 ])
 def test_paid_upstream_試験を回して_log_を書くだけの命令は止めない(env, cmd):
     assert not denied(env, bash(cmd))
@@ -267,6 +245,15 @@ def test_paid_upstream_試験を回して_log_を書くだけの命令は止め�
     "echo \"line1\n" + "OPENAI" + "_API_KEY\" > tests/test_m.py",  # 引用符の中に改行
     "echo " + "OPENAI" + "_API_KEY |& tee tests/test_s.py",
     "python3 -c \"print('" + "OPENAI" + "_API_KEY')\" > tests/test_c.py",
+    "awk 'BEGIN{print \"" + "OPENAI" + "_API_KEY\"}' > tests/test_a.py",
+    "{ echo " + "OPENAI" + "_API_KEY; } > tests/test_b.py",
+    "(echo " + "OPENAI" + "_API_KEY) > tests/test_b.py",
+    "env X=1 echo " + "OPENAI" + "_API_KEY > tests/test_b.py",
+    "command echo " + "OPENAI" + "_API_KEY > tests/test_b.py",
+    "jq -n '\"" + "OPENAI" + "_API_KEY\"' > tests/test_b.py",
+    "yes " + "OPENAI" + "_API_KEY | head -1 > tests/test_b.py",
+    "for i in 1; do echo " + "OPENAI" + "_API_KEY; done > tests/test_b.py",
+    "if true; then echo " + "OPENAI" + "_API_KEY; fi > tests/test_b.py",
 ])
 def test_paid_upstream_引用符と_redirect_の中の区切りで中身を見落とさない(env, cmd):
     assert "有料の上流" in deny_reason(env, bash(cmd))

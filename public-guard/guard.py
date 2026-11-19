@@ -38,7 +38,7 @@ import sys
 import unicodedata
 from pathlib import Path
 
-# 鍵・トークンの形の正本（外へ渡す出口は全部ここを直に読む: 公開の検査・守りの outbound・Codex へのパック）。
+# 鍵・トークンの形の正本（外へ渡す出口は全部ここを直に読む: 公開の検査・守りの outbound）。
 # 下限は出口の中で一番広く拾う物に揃える（短く切れた鍵も止める）。直す時はここだけを直す。
 SECRET_PATTERNS = {
     "GitHub のトークン": r"gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}",
