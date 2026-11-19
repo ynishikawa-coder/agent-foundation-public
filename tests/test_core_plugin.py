@@ -259,22 +259,25 @@ def test_核から細目へ移した物が細目に在る():
     "plugins/session-watch/skills/watch-log/SKILL.md": [],
     "plugins/dev-flow/skills/verify/SKILL.md": ["＋恒久の対応を残りに書く"],
     "CONTRIBUTING.md": ["試験を飛ばして緑にしない。赤を消すために試験を消さない。", "red の時は、同じ枝に直して push し"],
-    "plugins/checker/scripts/verdict_form.py": [],
-    "plugins/docs-kit/skills/qa-html/check.mjs": [],
     "plugins/guard/scripts/unanswered.py": [],
-    "plugins/session-watch/scripts/session_watch.py": [],
-    "plugins/guard/scripts/qa_page.py": ["が緑になってから、もう一度 publish する"],
     "scripts/check_all.sh": ['本: ${failed[*]})"'],
-    "plugins/docs-kit/skills/blueprint/scripts/check_blueprint.py": [],
-    "plugins/docs-kit/skills/theory-mock/scripts/check_theory_mock.py": [],
-    "plugins/guard/scripts/irreversible.py": [],
-    "plugins/guard/scripts/paid_upstream.py": [],
-    "plugins/core/scripts/kaku.py": [],
-    "plugins/dev-flow/skills/codex/codex_pack.py": [],
-    "plugins/docs-kit/skills/make-deck/scripts/render_prompt.py": [],
-    "plugins/docs-kit/skills/make-deck/scripts/finish_deck.py": [],
     "scripts/release/next_tag.py": [],
 }
+# 道具（script・hook）の側は上に手で載せない。下の試験が、失敗で終わる道具を repo から自分で拾う。
+
+
+# 失敗で終わる・止める道具の印（exit 1・return 1・hook の deny・緑でなければ 1）
+失敗で終わる = re.compile(r'sys\.exit\(1\)|\breturn 1\b|^\s*exit 1\b|process\.exit\(1\)|\? 0 : 1|"deny"|1 if \w+ else 0', re.M)
+
+
+def test_失敗で終わる道具は一覧に載せなくても全部根治の入口を指す():
+    """新しい道具が赤・NG・止めの文で根治の入口を指さずに足されたら、一覧へ手で足すのを待たずに赤。"""
+    out = subprocess.run(["git", "ls-files", "plugins", "scripts", "public-guard"], cwd=ROOT, capture_output=True, text=True, check=True)
+    tools = [r for r in out.stdout.split() if r.endswith((".py", ".sh", ".mjs", ".js"))]
+    found = [r for r in tools if 失敗で終わる.search((ROOT / r).read_text(encoding="utf-8"))]
+    assert "public-guard/guard.py" in found and "plugins/guard/scripts/guard.py" in found, "拾い方が壊れた"
+    missing = [r for r in found if "細目 §3「まず構造を疑う」" not in (ROOT / r).read_text(encoding="utf-8")]
+    assert not missing, f"失敗で終わるのに根治の入口を指さない道具: {missing}"
 
 
 # 古い形の類（直した文だけでなく、同じ file のどこに残っても拾う）

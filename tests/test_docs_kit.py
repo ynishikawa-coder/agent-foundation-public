@@ -912,3 +912,13 @@ def test_Blueprint_の検査は_NG_なら最後に根治の入口を指し_OK_�
     monkeypatch.setattr(bp, "open_dom", lambda target, mode: _dom("SELFTEST OK 1 tabs 2 steps"))
     assert bp.check(str(page)) == 0
     assert "まず構造を疑う" not in capsys.readouterr().out
+
+
+def test_Blueprint_の比較で材料が読めなければ最後に根治の入口を指す(tmp_path, monkeypatch, capsys):
+    bp = _load(SKILLS / "blueprint" / "scripts" / "check_blueprint.py", "check_blueprint")
+    a, b = tmp_path / "a.html", tmp_path / "b.html"
+    for f in (a, b):
+        f.write_text("<html></html>", encoding="utf-8")
+    monkeypatch.setattr(bp, "open_dom", lambda target, mode: "<html></html>")
+    assert bp.compare(str(a), str(b)) == 1
+    assert "細目 §3「まず構造を疑う」" in capsys.readouterr().out.strip().splitlines()[-1]

@@ -395,8 +395,9 @@ def finish(args):
     else:
         print("出力: ❌ 納品ファイルは作っていない（unsafe %d 枚）／診断のみ: %s" % (len(unsafe), saved_path))
         print("  → --wm-rect で領域を当て直す / 該当ページを目視 / 有色背景は今回スコープ外")
-        print(ROOT_CAUSE)
     print("次の人間判断: 表紙の社名/タイトル/日付・要確認ページ・納品前チェックリスト（SKILL.md）")
+    if unsafe:
+        print(ROOT_CAUSE)
     return 1 if unsafe else 0
 
 
