@@ -171,6 +171,7 @@ _読む口 = {   # path: その file が読む値の表の枠
     "plugins/dev-flow/skills/spec-doc/seal.py": ("dev-flow", "spec-doc"),
     "plugins/docs-kit/skills/make-deck/scripts/finish_deck.py": ("docs-kit", "make-deck"),
     "plugins/docs-kit/skills/make-deck/scripts/render_prompt.py": ("docs-kit", "make-deck"),
+    "plugins/docs-kit/skills/big-picture/scripts/big_picture.py": ("docs-kit", "big-picture"),
     "plugins/session-watch/scripts/session_watch.py": ("session-watch", "watch-log"),
     **{f"plugins/guard/scripts/{p.name}": ("guard",) for p in (ROOT / "plugins/guard/scripts").glob("*.py")},
 }

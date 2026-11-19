@@ -10,6 +10,7 @@
   6. `## 点` に、review-pr の SKILL.md の「見る点」の表の点（番号と名）が全部 1 行ずつ在り、
      各行の値が pass／fail／N/A のどれか（点 3 は `書いた窓 <id> ≠ この窓` も可）。
      欠け・重なり・表に無い点・選べる値の外・同じ見出しの節が 2 つ在るのは誤り。
+     点「全体の絵」は N/A にできず、pass は `pass（差なし・版 <版>）` の形だけ（照らさずに通さない）。
      点の正本は SKILL.md の表 1 か所（ここに写さない）。表が読めない時は止まる（点を見ずに通さない）。
   7. red（blocked を除く）は `## verdict` に `直し: 細目 §3「まず構造を疑う」` の行が在る
      （所見を直す行の一覧として返さず、根治の入口を指す。中身は細目が正本＝ここは指すだけ）。
@@ -35,6 +36,9 @@ STOP_CARD = "止める"   # 1 つでも在れば red になる札（判定の決
 POINT_ROW = re.compile(r"^\| (\d+) (\S[^|]*?) \|")
 POINT_LINE = re.compile(r"^- (\d+) ([^:：]+)[:：] ?(.*)$")
 VALUE = re.compile(r"^(pass|fail|N/A)(?:$|[ （(])")
+PICTURE = "全体の絵"
+_PV = r"(?:[^／）\s]+ )?\d{4}-\d{2}-\d{2}\.\d+"
+PICTURE_PASS = re.compile(r"^pass（差なし・版 " + _PV + r"(?:／" + _PV + r")*）$")
 OTHER_EYE = re.compile(r"^書いた窓 (session_[A-Za-z0-9]+) ≠ この窓$")
 ROOT_CAUSE = "直し: 細目 §3「まず構造を疑う」"
 
@@ -118,6 +122,11 @@ def check_points(lines, points, reviewer=None, writer=None):
         if not mv:
             errs.append("点 %d の値が pass／fail／N/A のどれでもない: %s" % (no, val[:20]))
             continue
+        if points[no] == PICTURE:
+            if mv.group(1) == "N/A":
+                errs.append("点 %d %s は N/A にできない（絵が無ければ fail）" % (no, PICTURE))
+            elif mv.group(1) == "pass" and not PICTURE_PASS.match(val):
+                errs.append("点 %d %s の pass が `pass（差なし・版 YYYY-MM-DD.n）` でない（照らした版を書く）" % (no, PICTURE))
         if mv.group(1) == "fail":
             fails += 1
     for no in sorted(set(points) - seen):

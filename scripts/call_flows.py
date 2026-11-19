@@ -10,7 +10,7 @@
 
 拾う物（道具＝plugins/<名>/ の下の .py .mjs .js .sh の file）:
   - 別の plugin の道具の file 名（その名の file が plugin の外にも在る時は path ごと書いた物だけ）
-  - 別の plugin の道具の path（plugins/<名>/…/<道具の file 名>）
+  - 別の plugin の道具の path（plugins/<名>/…/<道具の file 名>、または手順の文で plugin の根を `<名>/…` と置いた形）
   拾わない物: skill の名を文で挙げるだけの物・文書（.md）の path（道具を呼ぶ流れでない）。
 絵との対応: 絵の箱のうち tab が arch で、題の頭（「（」の前）が plugin の名と同じ箱をその plugin の箱とみる。
   箱が無い plugin・2 つ在る plugin は照らせない＝赤（黙って通さない）。矢印の向きは 呼ぶ側 → 呼ばれる側。
@@ -57,7 +57,8 @@ def flows(repo: Path) -> dict[tuple[str, str], list[str]]:
     pats = []
     for name, ys in owner.items():
         for y in ys:
-            path_pat = re.compile(r"plugins/%s/(?:[^\s'\"`)]*/)?%s(?![\w.])" % (re.escape(y), re.escape(name)))
+            path_pat = re.compile(r"(?:plugins/%s|<%s>)/(?:[^\s'\"`)]*/)?%s(?![\w.])"
+                                  % (re.escape(y), re.escape(y), re.escape(name)))
             bare = None if (name in outside or len(ys) > 1) else re.compile(r"(?<![\w./-])%s(?![\w])" % re.escape(name))
             pats.append((y, name, path_pat, bare))
     out: dict[tuple[str, str], list[str]] = defaultdict(list)
