@@ -114,12 +114,39 @@ def test_核の根治は問題_原因_解決_未来の_4_段で_未来は試験�
 def test_問いは選ぶ問いと開いた問いに分け_分からないを置き_言葉を混ぜない():
     kaku_text = (PLUGIN / "核.md").read_text(encoding="utf-8")
     s4 = _節(kaku_text, 4)
-    for word in ["選択肢の画面", "「分からない」も置く", "開いた問い", "AI の読み", "「分からない」には問いを作り直す"]:
+    for word in ["選択肢の画面", "開いた問い", "AI の読み"]:
         assert word in s4, f"核 §4 に無い: {word}"
     assert "例え話にせず" in _節(kaku_text, 2)
     s4d = _節((PLUGIN / "細目.md").read_text(encoding="utf-8"), 4)
-    for word in ["どの問いにも「分からない」の選択肢", "AI の今の読み", "選ぶ問いと開いた問い", "問いの言葉", "開発用語", "業界の専門用語", "決まりの言葉", "オーナーの言葉", "例え話に替えず"]:
+    for word in ["どの問いにも「分からない」の選択肢", "「分からない」が返った", "AI の今の読み", "選ぶ問いと開いた問い", "問いの言葉", "開発用語", "業界の専門用語", "決まりの言葉", "オーナーの言葉", "例え話に替えず"]:
         assert word in s4d, f"細目 §4 に無い: {word}"
+
+
+def test_聞き方は見せてから聞き_前提の出所を分け_推奨の印は分かれ道だけ_待つ間は答えに頼らない事だけ():
+    """原因の台帳の 4 行（2026-11-19）: 問いの文に全部を詰める・推奨の印が済んだかにも付く・前提に AI の推測を事実として置く・
+    「待つ間も止まらない」が合意の要る事まで進める と読まれる。古い文を戻すと赤。"""
+    s4 = _節((PLUGIN / "核.md").read_text(encoding="utf-8"), 4)
+    for word in ["案・前提・材料をチャットで先に見せ", "画面の問いは決める事の 1 文", "推奨の印は作り方の分かれ道だけ",
+                 "済んだかは AI が確かめてから", "答えを待つ間は答えに頼らない事を進める"]:
+        assert word in s4, f"核 §4 に無い: {word}"
+    s4d = _節((PLUGIN / "細目.md").read_text(encoding="utf-8"), 4)
+    for word in ["**見せてから聞く**", "1〜2 文まで", "選択肢の説明へ", "**前提の出所**", "オーナーの言葉／記録の事実／AI の読み",
+                 "「ずれ」と決め込まない", "「なぜこの形か」を問う", "**推奨の印**", "済んだかの確認には付けない",
+                 "**答えを待つ間**", "推奨で先に進めない", "「終わった」「うまくいかない」「分からない」・推奨の印は付けない"]:
+        assert word in s4d, f"細目 §4 に無い: {word}"
+    reminder = (ROOT / "plugins" / "guard" / "scripts" / "unanswered.py").read_text(encoding="utf-8")
+    assert "この答えに頼らない作業だけを進めて" in reminder
+    olds = ["答えを待つ間も止まらない", "①決めること ②なぜ今 ③材料", "推奨を 1 つ目に `(推奨)`", "「終わった（推奨）」",
+            "戻せる作業だけを推奨案で進めて", "答え待ちで推奨を採った", "推奨を 1 つ目・1 画面 4 問まで"]
+    hits = []
+    for p in sorted(ROOT.rglob("*")):
+        rel = p.relative_to(ROOT)
+        if rel.parts[0] in {".git", "tests"} or p.name == "CHANGELOG.md":
+            continue
+        if p.is_file() and p.suffix in {".md", ".py", ".json", ".mjs", ".html"}:
+            text = p.read_text(encoding="utf-8")
+            hits += [f"{rel}: {o}" for o in olds if o in text]
+    assert not hits, hits
 
 
 def test_古い根治と聞き方の言い回しが土台に残らない():
