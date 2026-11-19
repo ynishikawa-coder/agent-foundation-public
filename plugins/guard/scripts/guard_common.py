@@ -5,6 +5,8 @@
 値の表（在る時だけ読む・無ければ既定で動く）:
   repo の根の config/skill-values.json の "guard"。読む順は 環境変数 SKILL_VALUES → $CLAUDE_PROJECT_DIR → hook の cwd。
     context_limit            … 文脈の量の目安（token・既定 300000）
+    context_stop_max         … 目安を越えて引き継がずに締める AI を同じターンで差し戻す回数の上限（既定 2・0 で差し戻さない）
+    context_handoff          … 引き継ぎの跡とみなす道具の呼び出し（「道具の名 + 入力の JSON」に当てる正規表現の並び）
     unattended_env           … 真なら「人のいない窓」（夜の自走など）とみなす環境変数の名の並び（既定 ["AF_UNATTENDED"]）
     state_dir                … 未回答の台帳を置く dir（既定 ~/.claude/af-guard。相対なら repo の根から）
     paid_markers_extra       … 有料の上流の印（鍵名・エンドポイント）の足し
@@ -20,11 +22,18 @@
     ask_shape_exempt         … 問いの形の見張りから外す問いの文（正規表現の並び・誤って止まる時だけ）
     ask_rec_notice_kinds     … 推奨の印を付けない問いの形 {名: [正規表現]}（既定は ask_shape.REC_NOTICE_KINDS・知らせるだけ）
     ask_rec_notice_exempt    … 上の知らせから外す問いの文（正規表現の並び）
+    ask_prior_lookup         … 決定の記録と問いの表を引いた跡とみなす道具の呼び出し（「道具の名 + 入力の JSON」に当てる
+                               正規表現の並び・会社ごとに違うので既定は無し＝無い repo は窓ごとに 1 回だけ止める）
+    ask_prior_exempt         … 引いた跡の見張りから外す問いの文（正規表現の並び・引く要の無い問いだけ）
     outbound_secret_allow    … 外へ渡す道具の入力の鍵の照らしで、鍵と数えない字（当たった字に当てる正規表現の並び・作り物の見本だけ）
     number_request_exempt    … 番号だけの頼みの照らしから外す文（正規表現の並び・誤って止まる時だけ）
+    pr_cleanup_exempt_repos  … PR 本文の整地の欄を照らさない repo（owner/repo に当てる正規表現の並び・整地を PR 本文の外に置く repo だけ）
+    pr_words_exempt_repos    … PR の題・本文の言葉を照らさない repo（同じ形）
+    public_repos_extra       … 手元に取り出しが無くても公開とみなす repo（同じ形）
 """
 from __future__ import annotations
 
+import glob
 import json
 import os
 import re
@@ -34,6 +43,10 @@ from datetime import datetime, timezone
 VALUES_REL = os.path.join("config", "skill-values.json")
 DEFAULTS = {
     "context_limit": 300_000,
+    "context_stop_max": 2,
+    # 後継の窓を立てる・返し先の窓へ送る・引き継ぎの file を書く（道具の名は Claude Code の窓の物。会社の物は持たない）
+    "context_handoff": [r"create_session\b", r"send_message\b",
+                        r'"file_path": "[^"]*(?:引き継ぎ|handoff)[^"]*"'],
     "unattended_env": ["AF_UNATTENDED"],
     "state_dir": os.path.join("~", ".claude", "af-guard"),
     "paid_markers_extra": [],
@@ -49,8 +62,13 @@ DEFAULTS = {
     "ask_shape_exempt": [],
     "ask_rec_notice_kinds": {},
     "ask_rec_notice_exempt": [],
+    "ask_prior_lookup": [],
+    "ask_prior_exempt": [],
     "outbound_secret_allow": [],
     "number_request_exempt": [],
+    "pr_cleanup_exempt_repos": [],
+    "pr_words_exempt_repos": [],
+    "public_repos_extra": [],
 }
 
 # 窓の種類の決まり（session-watch の title-mark と同じ線）: 最初の頼みの文の返し先が別の窓なら子の窓（文脈の知らせだけが読む）。
@@ -163,6 +181,9 @@ def state_dir(vals, payload=None):
             return ""
         d = os.path.join(root, d)
     return d
+
+
+GUARD_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
 def now_utc():

@@ -54,7 +54,7 @@ def test_outbound_Artifact_で出す_file_と_files_の中の鍵も止める(env
 
 @pytest.mark.parametrize("payload", [
     tool(SEND, session_id="session_x", message="PR #31 の CHANGELOG の衝突は main を merge して直した。先端 1a21016e8983。"),
-    tool("mcp__github__create_pull_request", title="作り物", body="鍵は環境の秘密に入れた（値は書かない）。sk-ant- で始まる形を止める。"),
+    tool("mcp__github__create_pull_request", title="作り物", body="鍵は環境の秘密に入れた（値は書かない）。sk-ant- で始まる形を止める。\n整地: 不要（試験の作り物の本文）"),
     tool("mcp__notion__notion-fetch", id="https://example.invalid/page"),
     tool("Bash", command="echo " + FAKE_KEYS["GitHub のトークン"]),     # 外へ渡す道具でない（返事・Bash は別の守り）
 ])
