@@ -173,3 +173,10 @@ def test_答えの形の赤は根治の入口を指し緑なら出さない():
     assert bad.returncode == 1 and "細目 §3「まず構造を疑う」" in bad.stdout.strip().splitlines()[-1]
     good = run(GOOD)
     assert good.returncode == 0 and "まず構造を疑う" not in good.stdout
+
+
+@needs_node
+@pytest.mark.parametrize("args", [["--template", "x"], ["--answer", "-", "--jsno"], ["--answer", "a.json", "b.json"], ["--answer", "-", "--extra"]])
+def test_口の知らない引数は黙って捨てず止まる(args):
+    p = subprocess.run([NODE, str(CHECK), *args], input="{}", capture_output=True, text=True, timeout=60)
+    assert p.returncode == 2 and "知らない引数" in p.stderr, (args, p.stdout, p.stderr)

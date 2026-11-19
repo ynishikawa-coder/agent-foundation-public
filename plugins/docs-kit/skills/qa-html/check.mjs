@@ -946,13 +946,29 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
   const args = process.argv.slice(2);
   // 使う側が写さずに直に読む口（型・答えの形）。ページの検査とは別の入口
   if (args[0] === "--template") {
+    if (args.length > 1) {
+      console.error(`--template は引数を取らない（知らない引数: ${args.slice(1).join(" ")}）`);
+      process.exit(2);
+    }
     process.stdout.write(readFileSync(TEMPLATE, "utf8"));
     process.exit(0);
   }
   if (args[0] === "--answer") {
+    // 知らない引数は黙って捨てず止める（--json・--extra 鍵,鍵・file か - の 1 つだけ）
+    const rest = args.slice(1);
+    const extraAt = rest.indexOf("--extra");
+    const known = rest.filter((x, i) => !(x === "--json" || x === "--extra" || (extraAt >= 0 && i === extraAt + 1)));
+    if (known.length > 1 || known.some((x) => x.startsWith("--") && x !== "-") || (extraAt >= 0 && (rest[extraAt + 1] == null || rest[extraAt + 1].startsWith("--")))) {
+      console.error(`使い方: check.mjs --answer <file|-> [--extra 鍵,鍵] [--json]（知らない引数: ${rest.join(" ")}）`);
+      process.exit(2);
+    }
+    if (!known.length && process.stdin.isTTY) {
+      console.error("--answer: 答えの file か - を渡す（標準入力が端末のまま待たない）");
+      process.exit(2);
+    }
     let res;
     try {
-      const src = args[1] == null || args[1].startsWith("--") || args[1] === "-" ? readFileSync(0, "utf8") : readFileSync(args[1], "utf8");
+      const src = !known.length || known[0] === "-" ? readFileSync(0, "utf8") : readFileSync(known[0], "utf8");
       const ex = args.indexOf("--extra") >= 0 ? String(args[args.indexOf("--extra") + 1] ?? "").split(",").map((x) => x.trim()).filter(Boolean) : [];
       res = checkAnswer(JSON.parse(src), { extra: ex });
     } catch (e) {
