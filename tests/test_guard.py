@@ -54,9 +54,9 @@ def bash(cmd, sid="s1", cwd="", tpath=""):
 
 
 # ── hook の配線 ──
-def test_hooks_json_が3つの出来事で入口を回す():
+def test_hooks_json_が4つの出来事で入口を回す():
     data = json.loads((PLUGIN / "hooks" / "hooks.json").read_text(encoding="utf-8"))["hooks"]
-    want = {"PreToolUse": "pre", "PostToolUse": "post", "SessionStart": "start"}
+    want = {"PreToolUse": "pre", "PostToolUse": "post", "SessionStart": "start", "Stop": "stop"}
     assert set(data) == set(want)
     for event, arg in want.items():
         cmd = data[event][0]["hooks"][0]["command"]
@@ -64,7 +64,7 @@ def test_hooks_json_が3つの出来事で入口を回す():
 
 
 def test_壊れた入力では何も出さず通す(env):
-    for event in ("pre", "post", "start"):
+    for event in ("pre", "post", "start", "stop"):
         p = subprocess.run([sys.executable, str(GUARD), event], input="こわれた", capture_output=True, text=True, env=env)
         assert p.returncode == 0 and p.stdout.strip() == ""
 
