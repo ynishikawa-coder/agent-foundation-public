@@ -63,24 +63,30 @@ def find_chrome() -> str | None:
     return mac if Path(mac).is_file() else None
 
 
-def chrome_cmd(chrome: str, prof: str, url: str, no_sandbox: bool = False) -> list[str]:
+def chrome_cmd(chrome: str, prof: str, url: str) -> list[str]:
     cmd = [chrome, "--headless=new", "--disable-gpu", "--no-first-run",
            "--no-default-browser-check", f"--user-data-dir={prof}"]
-    if no_sandbox:
-        cmd.append("--no-sandbox")
+    if hasattr(os, "geteuid") and os.geteuid() == 0:
+        cmd.append("--no-sandbox")   # コンテナの root では sandbox が立たない
     return cmd + ["--dump-dom", url]
 
 
+SOCKET_MAX = 107   # unix の socket の path の上限（バイト）
+
+
+def short_tmp() -> str:
+    """Chrome は TMPDIR の下に dir を作りその中に socket を置く（<TMPDIR>/org.chromium.Chromium.XXXXXX/SingletonSocket）。
+    TMPDIR が長い窓・試験（日本語の名の dir など）では path が上限を越えて Chrome が落ちる（2026-11-19 CI で実測）。
+    越える時は短い置き場（/tmp）を使う。"""
+    d = tempfile.gettempdir()
+    need = len(os.path.join(d, "org.chromium.Chromium.XXXXXX", "SingletonSocket").encode())
+    return d if need <= SOCKET_MAX or not os.access("/tmp", os.W_OK) else "/tmp"
+
+
 def run_chrome(chrome: str, url: str) -> tuple[str | None, str]:
-    """sandbox ありで開き、sandbox が立たずに落ちた時だけ sandbox なしで開き直す。
-    sandbox が立つかは機械（コンテナの root・user namespace を閉じた CI 等）で決まり、uid では決まらない。"""
-    why = ""
-    for no_sandbox in (False, True):
-        with tempfile.TemporaryDirectory(prefix="blueprint-chrome-") as prof:
-            dom, why = dump_dom(chrome_cmd(chrome, prof, url, no_sandbox))
-        if dom is not None or "sandbox" not in why.lower():
-            return dom, why
-    return None, why
+    """Chrome で url を開いて DOM を返す（(DOM か None, DOM が無い訳)）。Chrome の一時の置き場は短い path に置く。"""
+    with tempfile.TemporaryDirectory(prefix="blueprint-chrome-", dir=short_tmp()) as prof:
+        return dump_dom(chrome_cmd(chrome, prof, url))
 FATE_TEXT = {"keep": "保存される", "lost": "消える", "calc": "その場で計算", "gap": "未定"}
 
 
@@ -93,7 +99,8 @@ def dump_dom(cmd: list[str]) -> tuple[str | None, str]:
     ため、`</html>` まで読んだら Chrome を止める。返すのは (DOM か None, DOM が無い訳)。
     訳には Chrome の stderr の末尾を入れる（黙って捨てると、別の機械で回せない訳が誰にも見えない）。"""
     with tempfile.TemporaryFile(mode="w+", encoding="utf-8", errors="replace") as err:
-        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=err, text=True)
+        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=err, text=True,
+                                env=dict(os.environ, TMPDIR=short_tmp()))
         buf: list[str] = []
         done = threading.Event()
 
@@ -115,7 +122,7 @@ def dump_dom(cmd: list[str]) -> tuple[str | None, str]:
             return out, ""
         err.seek(0)
         lines = [ln.strip() for ln in err.read().splitlines() if ln.strip()]
-        loud = [ln for ln in lines if re.search(r"FATAL|ERROR|sandbox", ln, re.I)]   # 落ちた訳の行を先に
+        loud = [ln for ln in lines if re.search(r"FATAL", ln)]   # 落ちた訳の行を先に
         tail = " / ".join(loud[:4] or lines[-4:])[:600]
     why = (f"Chrome が {TIMEOUT_SEC} 秒で DOM を返さない" if not ok
            else f"Chrome が DOM を返さずに終わった（exit {code}）")
