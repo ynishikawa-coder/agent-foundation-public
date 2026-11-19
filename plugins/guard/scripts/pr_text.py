@@ -15,8 +15,8 @@ AI が自分で回すか、出した後に CI やレビューが拾うだけだ�
            ＝MCP から出す commit の説明。公開の検査だけを当てる
 照らす物（見分けは正本を直に読む・呼ぶ。ここに決まりを写さない）:
   verdict … （材料: 出す先の PR の先端と、PR 本文の頭の `書いた窓:` を gh で引き、--writer・--head で渡す。引けなければ止める）
-            コメントがレビューの判定（どの行かに `レビューした窓: … 判定: green|red` が揃うか、verdict の見出しが在る）なら、checker の
-            `scripts/verdict_form.py` をそのまま呼ぶ。赤なら止める。道具が見つからない・壊れた時も止める
+            コメントが判定か（`verdict_form.py --looks`）と判定の形（`verdict_form.py`）を、checker の正本に直に聞く
+            （見分けも形もここに写さない）。赤なら止める。道具が見つからない・壊れた時も止める
   cleanup … PR の本文（本文を渡す時だけ）に、dev-flow の preimpl-cleanup の `整地受領証.template.md` の 4 つの見出し
             （`## 1.`〜`## 4.`。見出しの名は雛形から読む）が全部在り、雛形の `〔…〕` が残っていない事。整地の要らない PR
             （振る舞いを変えない: 誤字・記録だけ・版だけ等）は本文に `整地: 不要（<訳>）` の 1 行を書く（訳はレビューが照らす）
@@ -54,15 +54,11 @@ COMMIT_FIELDS = (("commit_title", "commit の題"), ("commit_message", "commit �
 VERDICT_FORM = ("checker", os.path.join("scripts", "verdict_form.py"), "AF_VERDICT_FORM")
 CLEANUP_TEMPLATE = ("dev-flow", os.path.join("skills", "preimpl-cleanup", "整地受領証.template.md"), "AF_CLEANUP_TEMPLATE")
 
-# 判定の形の印（review-pr の形）: 名乗りの欄と判定が 1 行に揃う行（どの行でも・`:` の全角半角を問わない）か、verdict の見出し
-# （# の数・大小文字を問わない）。引用（行頭の `>`）の中は、前の判定を引いた返事なので数えない。
-VERDICT_LINE = re.compile(r"^[ \t]*レビューした窓\s*[:：].*判定\s*[:：]\s*(?:green|red)\b", re.M | re.I)
-VERDICT_HEAD = re.compile(r"^[ \t]*#{1,6}\s*verdict\s*$", re.M | re.I)
 NOT_NEEDED = re.compile(r"^\s*(?:[-*]\s*)?\**整地\**\s*[:：]\s*(?:不要|要らない)\s*[（(]\s*(?![<＜〔])\S[^)）]*[)）]", re.M)
 TEMPLATE_HEAD = re.compile(r"^## (\d+)\. (.+?)\s*$", re.M)
 PLACEHOLDER = re.compile(r"〔[^〕\n]{4,}〕")
 HEAD_FIELD = re.compile(r"^\s*(?:親窓|書いた窓|job|触る path|検査)\s*[:：]")
-SESSION_ID = re.compile(r"(?<![A-Za-z0-9_/])session_0[A-Za-z0-9]{15,}")
+SESSION_ID = re.compile(r"(?<![A-Za-z0-9_/])" + G.W.SESSION_ID_PAT)   # 窓の id の形の正本は window_shape
 URL = re.compile(r"https?://\S+")
 FENCE = re.compile(r"^\s*(```|~~~).*?^\s*\1", re.M | re.S)
 INLINE = re.compile(r"`[^`\n]+`")
@@ -113,14 +109,7 @@ def _run(cmd, cwd=None):
 
 
 # ── verdict（レビューの判定の形）──
-def looks_verdict(body):
-    """判定のコメントか。判定の形そのものの印（名乗りと判定が揃う行か verdict の見出し）だけで見分ける。
-    文中に「判定: green」と書いた普通のコメントや「レビューした窓は…」で始まる文は判定と見なさない。"""
-    body = FENCE.sub(" ", COMMENT.sub(" ", body))
-    return bool(VERDICT_LINE.search(body) or VERDICT_HEAD.search(body))
-
-
-WRITER_LINE = re.compile(r"^\s*書いた窓\s*[:：]\s*(session_[A-Za-z0-9]+)", re.M)
+WRITER_LINE = re.compile(r"^\s*書いた窓\s*[:：]\s*(%s)" % G.W.SESSION_ID_PAT, re.M)
 NUMBER_KEYS = ("issue_number", "pullNumber", "pull_number")
 
 
@@ -160,18 +149,29 @@ def pr_facts(repo, ti):
 
 
 def check_verdict(body, data):
-    if not looks_verdict(body):
-        return []
+    # 判定のコメントかの見分けも判定の形の正本（checker の verdict_form.looks_verdict）を直に呼ぶ＝写さない。
+    # 道具が無い・読めない時は判定かどうかも分からないので止める（判定を見分けの外へ逃がさない）。
     tool = _find_sibling(*VERDICT_FORM, data)
     if not tool:
-        return ["判定の形の道具（checker の verdict_form.py）が見つからず、形を確かめられない。plugin checker を入れる"
-                "（または AF_VERDICT_FORM に path）"]
+        return ["判定の形の道具（checker の verdict_form.py）が見つからず、判定かどうかも形も確かめられない。plugin checker を"
+                "guard と同じ版で入れる（または AF_VERDICT_FORM に path）"]
+    body_file = _tmp_file(body, "verdict")
+    try:
+        p = _run([sys.executable, tool, "--looks", body_file])
+    except (OSError, subprocess.SubprocessError) as e:
+        return ["判定の形の道具が走らなかった: %s" % e.__class__.__name__]
+    looks = p.stdout.strip()
+    if p.returncode != 0 or looks not in ("verdict", "other"):
+        tail = (p.stderr or p.stdout or "").strip().splitlines()[-2:]
+        return ["判定の形の道具が壊れた（--looks・exit %d）: %s" % (p.returncode, " / ".join(tail))]
+    if looks == "other":
+        return []
     ti = data.get("tool_input") or {}
     head, writer, err = pr_facts(_repo_name(ti), ti)
     if err:
         return ["判定の材料: " + err]
     try:
-        p = _run([sys.executable, tool, _tmp_file(body, "verdict"), "--writer", writer, "--head", head])
+        p = _run([sys.executable, tool, body_file, "--writer", writer, "--head", head])
     except (OSError, subprocess.SubprocessError) as e:
         return ["判定の形の道具が走らなかった: %s" % e.__class__.__name__]
     if p.returncode == 0:

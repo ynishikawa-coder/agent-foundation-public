@@ -120,13 +120,13 @@ def test_判定の雛形の点は見る点の表の点と同じ():
 
 def test_雛形で_pass_fail_だけの点に_N_A_を書くと赤():
     green = _read(ROOT / "tests/test_checker.py").split('GREEN = """', 1)[1].split('"""', 1)[0]
-    assert VF.check(green, writer="session_WRITER01") == []
+    assert VF.check(green, writer="session_01WRITER0100000000") == []
     only = [no for no, vs in VF.load_values().items() if vs == {"pass", "fail"}]
     assert only, "pass／fail だけの点が雛形に無い"
     names = VF.load_points()
     for no in only:
         text = re.sub(r"^- %d %s: .*$" % (no, re.escape(names[no])), "- %d %s: N/A" % (no, names[no]), green, flags=re.M)
-        assert any("点 %d の値" % no in e for e in VF.check(text, writer="session_WRITER01")), no
+        assert any("点 %d の値" % no in e for e in VF.check(text, writer="session_01WRITER0100000000")), no
 
 
 def test_選べる値は雛形の行から読む(tmp_path):
