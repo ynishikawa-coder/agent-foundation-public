@@ -385,6 +385,9 @@ function treeReds(rest) {
           red.push(`選択肢の枠（label.opt）の中の欄は radio か checkbox 1 つだけ（ほかの欄があると押した先が替わる）: ${m[0].slice(0, 50)}`); break;
         }
       }
+      // 問いの箱＝型の JS が画面と答えとして集める物（form の中の fieldset.q[data-qkey]）と同じ物だけを、検査も問いと読む
+      if (hasAttr(m[0], "data-qkey") && !(tag === "fieldset" && /(?:^|[ \t\n\f\r])q(?:[ \t\n\f\r]|$)/.test(attr(m[0], "class") ?? "") && stack.includes("form")))
+        { red.push(`data-qkey は form の中の fieldset.q にだけ付ける（型の JS が問いとして集めず、検査の読みとずれる）: ${m[0].slice(0, 50)}`); break; }
       // 型の JS は fieldset.q[data-qkey] を入れ子も問わず別の画面として集める＝fieldset は入れ子にしない
       if (tag === "fieldset" && stack.includes("fieldset")) { red.push("<fieldset> の中に <fieldset> を置かない（型の JS が別の画面として集め、中の選択肢が隠れる）"); break; }
       if ((tag === "a" || tag === "summary") && tags.some(isOpt)) { red.push(`選択肢の枠（label.opt）の中に <${tag}> を置かない（押した先がリンク・開け閉めになる）`); break; }

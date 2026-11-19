@@ -162,6 +162,22 @@ def test_印を検査から隠す書き方は赤(tmp_path, name, mutate, expect)
 
 
 @needs_node
+@pytest.mark.parametrize("name, mutate", [
+    ("class の q を外した問いの箱", lambda h: h.replace('<fieldset class="q" data-qkey="q3"', '<fieldset data-qkey="q3"', 1)),
+    ("form の外へ出した問いの箱", lambda h: (lambda i, j: h[:i] + h[j:].replace("</form>", "</form>" + h[i:j], 1))(
+        h.index('<fieldset class="q" data-qkey="q3"'), h.index("</fieldset>", h.index('<fieldset class="q" data-qkey="q3"')) + len("</fieldset>"))),
+], ids=["class の q を外す", "form の外へ出す"])
+def test_型の_JS_が集めない問いの箱は赤(tmp_path, name, mutate):
+    html = filled_template("copy")
+    head, rest = html.split('data-qkey="q3"', 1)
+    html = head + 'data-qkey="q3"' + _mark(0)(rest)
+    page = tmp_path / "確認.html"
+    page.write_text(mutate(html), encoding="utf-8")
+    red = run_check(page)["red"]
+    assert any(r.startswith("data-qkey は form の中の fieldset.q にだけ付ける") for r in red), (name, red)
+
+
+@needs_node
 def test_問いの外の印は赤(tmp_path):
     page = tmp_path / "確認.html"
     page.write_text(filled_template("send").replace('<input type="hidden" name="__受付番号__" value="">',
