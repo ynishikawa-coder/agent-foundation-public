@@ -383,7 +383,7 @@ def check(log):
             and not READING.search(split_close(closing)[0]):
         body, _ = split_close(closing)
         last = [x.strip() for x in strip_code(body).splitlines() if x.strip()]
-        found.append(("plain", "問いを平文で書いた（選ぶ問いはモーダルで、開いた問いは AI の今の読みを添えて聞くか、推奨で決めて進む）: %s" % (last[-1][-60:] if last else "")))
+        found.append(("plain", "問いを平文で書いた（選ぶ問いはモーダルで、開いた問いは AI の今の読みを添えて聞くか、AI が決めて進む）: %s" % (last[-1][-60:] if last else "")))
 
     # 「分からない」の無いモーダルの問い（細目 §4）
     for k, v in log.events:
