@@ -69,7 +69,7 @@
         ":(exclude)CHANGELOG.md",
         ":(exclude)**/CHANGELOG.md"
       ],
-      "pattern": "(?m)^#+\\s*他の窓へ回す|「他の窓へ回す」",
+      "pattern": "(?m)(?:^|[「『【\\[\"'`“])[ \\t#*]*他の窓へ回す",
       "fix": "欄を「## 残り（原因の台帳の行）」にし、残りは原因の台帳に行を入れてから行の題と行き先だけを写す（土台の .github/pull_request_template.md の形）",
       "example": "## 他の窓へ回す"
     },
