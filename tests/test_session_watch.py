@@ -6,6 +6,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 ROOT = Path(__file__).resolve().parent.parent
 PLUGIN = ROOT / "plugins" / "session-watch"
 SCRIPT = PLUGIN / "scripts" / "session_watch.py"
@@ -149,10 +151,11 @@ def test_手で回す口は拾えば_exit_1_型どおりなら_exit_0():
     assert run("child_ok.jsonl").returncode == 0
 
 
-def test_返事を止める_hook_を持たず_知らせる_hook_だけを持つ():
+def test_知らせる_hook_と返事の形を差し戻す_hook_を持つ():
     hooks = json.loads((PLUGIN / "hooks" / "hooks.json").read_text(encoding="utf-8"))["hooks"]
-    assert list(hooks) == ["UserPromptSubmit"]
+    assert list(hooks) == ["UserPromptSubmit", "Stop"]
     assert hooks["UserPromptSubmit"][0]["hooks"][0]["command"].endswith("session_watch.py\" --remind")
+    assert hooks["Stop"][0]["hooks"][0]["command"].endswith("session_watch.py\" --stop")
     assert json.loads((PLUGIN / ".claude-plugin" / "plugin.json").read_text(encoding="utf-8"))["name"] == "session-watch"
 
 
@@ -324,6 +327,96 @@ def test_問いを出したターンは短くても札を求める():
     rs.insert(len(rs) - 1, ask)  # 最後のターンで問いを出してから短く締める
     assert sw.Log(rs).turn_asked()
     assert "card" in codes(rs)
+
+
+# ── 返事の形の崩れを AI へ差し戻す（Stop の hook・止まるのは AI だけ）──
+OK_REPLY = ("✅終わった\n作り物を直した。\n根拠: 作り物の試験が緑。\nAI がこの後やること: なし\n"
+            "あなたがやること: なし。この窓は閉じて大丈夫です。")
+
+
+def stop_env(tmp_path, **extra):
+    return dict({"AF_SESSION_WATCH_TMP": str(tmp_path / "sw")}, **extra)
+
+
+def stop_data(text, tpath="", active=False, sid="s1"):
+    return {"hook_event_name": "Stop", "session_id": sid, "transcript_path": tpath,
+            "stop_hook_active": active, "last_assistant_message": text}
+
+
+@pytest.mark.parametrize("broken, code", [
+    (OK_REPLY.replace("✅終わった\n", "", 1) + "\n作り物の続き。", "card"),         # 1 行目の札が無い
+    (OK_REPLY.replace("あなたがやること: なし。この窓は閉じて大丈夫です。", ""), "close"),  # 締めの 2 行が無い
+    (OK_REPLY.replace("この窓は閉じて大丈夫です。", ""), "close"),                    # なしで閉じてよいかが無い
+])
+def test_返事の形を崩すと_AI_へ差し戻す(tmp_path, broken, code):
+    reason = sw.stop(stop_data(broken), stop_env(tmp_path))
+    assert reason and ("- %s:" % code) in reason and "書き直す" in reason
+    assert reason.strip().splitlines()[-1] == sw.ROOT_CAUSE, "差し戻しが書き直しだけを促す形に戻った"
+
+
+def test_型どおりの返事と一言の返事は差し戻さない(tmp_path):
+    assert sw.stop(stop_data(OK_REPLY), stop_env(tmp_path)) is None
+    assert sw.stop(stop_data("作り物は 3 つです。"), stop_env(tmp_path)) is None
+
+
+def test_題の印の崩れも差し戻し_過ぎた事は差し戻さない(tmp_path):
+    bad = set_title(rows("owner_ok.jsonl"), "🙋 作り物の続き", "作り物の続き")   # 種類の印が無い題
+    log = tmp_path / "t.jsonl"
+    log.write_text("\n".join(json.dumps(r, ensure_ascii=False) for r in bad) + "\n", encoding="utf-8")
+    reason = sw.stop(stop_data(OK_REPLY, str(log)), stop_env(tmp_path))
+    assert reason and "- title:" in reason
+    good = tmp_path / "g.jsonl"
+    good.write_text((LOGS / "owner_ok.jsonl").read_text(encoding="utf-8"), encoding="utf-8")
+    assert sw.stop(stop_data(OK_REPLY, str(good)), stop_env(tmp_path)) is None
+
+
+def test_差し戻しは同じターンで上限まで_新しい締めでは数え直す(tmp_path):
+    e, bad = stop_env(tmp_path), "作り物を直した。\n根拠は 2 つ。\n1 つ目。\n2 つ目。"
+    assert sw.stop(stop_data(bad), e)
+    assert sw.stop(stop_data(bad, active=True), e)
+    assert sw.stop(stop_data(bad, active=True), e) is None       # 上限を越えたら通して届ける
+    assert sw.stop(stop_data(bad, active=False), e)               # 次のターンは 0 から
+
+
+def test_差し戻しは環境変数で切れる(tmp_path):
+    bad = "作り物を直した。\n根拠は 2 つ。\n1 つ目。\n2 つ目。"
+    assert sw.stop(stop_data(bad), stop_env(tmp_path, AF_SESSION_WATCH_STOP="0")) is None
+
+
+def test_差し戻した後は書き直した返事だけを締めとして見る():
+    rs = rows("owner_ok.jsonl")
+    rs.append({"type": "assistant", "message": {"content": [{"type": "text", "text": "作り物を直した。\n崩れた返事。\nあ。\nい。"}]}})
+    rs.append({"type": "user", "isMeta": True, "message": {"content": "[session-watch] 返事の形が崩れている"}})
+    rs.append({"type": "assistant", "message": {"content": [{"type": "text", "text": OK_REPLY}]}})
+    assert sw.Log(rs).closing_text() == OK_REPLY
+
+
+def test_差し戻す口は_decision_block_で返し壊れた入力では黙る(tmp_path):
+    import os
+    run = lambda body: subprocess.run([sys.executable, str(SCRIPT), "--stop"], input=body, capture_output=True, text=True,
+                                      env=dict(os.environ, AF_SESSION_WATCH_TMP=str(tmp_path / "sw")))
+    out = run(json.dumps(stop_data("作り物を直した。\n根拠は 2 つ。\n1 つ目。\n2 つ目。"), ensure_ascii=False))
+    assert out.returncode == 0 and json.loads(out.stdout)["decision"] == "block"
+    assert run(json.dumps(stop_data(OK_REPLY), ensure_ascii=False)).stdout == ""
+    bad = run("壊れた")
+    assert bad.returncode == 0 and bad.stdout == ""
+
+
+def test_問いの前に題を問いの印にしなかった過ぎた事は差し戻さない(tmp_path):
+    """手で回す点検は拾うが、今の題を直しても消えない事なので、差し戻すと回り続ける＝差し戻さない。"""
+    def tool(name, inp):
+        return {"type": "assistant", "message": {"content": [{"type": "tool_use", "name": name, "input": inp}]}}
+    q = {"question": "作り物の置き場を A と B のどちらにしますか", "header": "置き場",
+         "options": [{"label": "A（推奨）"}, {"label": "B"}, {"label": "分からない"}]}
+    rs = [{"type": "user", "message": {"content": "作り物を直して（返し先=オーナー）"}},
+          tool("mcp__claude-code-remote__set_session_title", {"title": "🙋 作り物"}),
+          tool("AskUserQuestion", {"questions": [q]}),
+          {"type": "user", "toolUseResult": {"questions": [q], "answers": {q["question"]: "A（推奨）"}},
+           "message": {"content": [{"type": "tool_result", "content": "A"}]}}]
+    log = tmp_path / "t.jsonl"
+    log.write_text("\n".join(json.dumps(r, ensure_ascii=False) for r in rs) + "\n", encoding="utf-8")
+    assert any(c == "title" and m.startswith(sw.ASK_BEFORE) for c, m in sw.check(sw.Log(rs), OK_REPLY))
+    assert sw.stop(stop_data(OK_REPLY, str(log)), stop_env(tmp_path)) is None
 
 
 def test_拾えば最後の行で根治の入口を指し拾わなければ出さない():
