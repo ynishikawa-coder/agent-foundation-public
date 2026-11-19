@@ -26,6 +26,8 @@ import re
 import ask_shape
 import guard_common as G
 
+HOOKS = {"pre": "check"}
+
 SEND_TOOLS = ("SendMessage",)
 SEND_SUFFIX = "__send_message"
 CREATE_SUFFIX = "__create_session"
