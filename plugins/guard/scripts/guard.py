@@ -4,10 +4,12 @@
   guard.py pre    … PreToolUse（止める見張り）
   guard.py post   … PostToolUse（隣に知らせる見張り）
   guard.py start  … SessionStart（持ち越した問いの出し直し）
+  guard.py stop   … Stop（AI の締めを差し戻す見張り・decision=block・上限は各見張りが持つ）
   どの出来事でどの見張りが回るかは、各見張りの file の頭の HOOKS が正本（ここに一覧を写さない）。
 
-止めるのは pre だけ（permissionDecision=deny）。post と start は隣に文を出すだけ。
-どの見張りも壊れた時は黙って通す（1 つの故障で他の見張りや仕事を止めない）。exit は 0（試験の時だけ、値の表に無い鍵を読んだ見張りが在れば 3）。
+止めるのは pre（permissionDecision=deny）と stop（decision=block・AI の締めだけ・上限つき）。post と start は隣に文を出すだけ。
+どの見張りも壊れた時は黙って通す（1 つの故障で他の見張りや仕事を止めない）。exit は 0（試験の時〔GUARD_STRICT_KEYS が真〕だけ、
+値の表に無い鍵を読んだ見張りが在れば 3）。
 """
 import ast
 import glob
@@ -22,7 +24,7 @@ sys.path.insert(0, HERE)
 
 import guard_common as G  # noqa: E402
 
-EVENTS = {"pre": "PreToolUse", "post": "PostToolUse", "start": "SessionStart"}
+EVENTS = {"pre": "PreToolUse", "post": "PostToolUse", "start": "SessionStart", "stop": "Stop"}
 # 止めた時の最後の行（どの見張りの止めにも 1 か所で付ける。中身は細目 §3 が正本＝ここは指すだけ）
 UNKNOWN_READS = []   # 値の表に無い鍵を読んだ見張り（G.Strict が止めた所）
 # 試験の時（GUARD_STRICT_KEYS が真）は、表に無い鍵を読んだ見張りが在れば exit 3 にして試験を赤にする。窓の中では exit 0 のまま
@@ -76,6 +78,8 @@ def run(event, data):
     outs = [o for o in (_run(m, f, data, vals) for m, f in watchers(event)) if o]
     if not outs:
         return None
+    if event == "stop":
+        return {"decision": "block", "reason": "\n\n".join(outs + [ROOT_CAUSE])}
     if event == "pre":
         return {"hookSpecificOutput": {"hookEventName": EVENTS[event], "permissionDecision": "deny",
                                        "permissionDecisionReason": "\n\n".join(outs + [ROOT_CAUSE])}}
@@ -85,7 +89,7 @@ def run(event, data):
 def main(argv):
     event = argv[1] if len(argv) > 1 else ""
     if event not in EVENTS:
-        sys.stderr.write("使い方: guard.py pre|post|start（標準入力に hook の JSON）\n")
+        sys.stderr.write("使い方: guard.py pre|post|start|stop（標準入力に hook の JSON）\n")
         return 0
     try:
         data = json.load(sys.stdin)

@@ -24,7 +24,8 @@
       識別子・path の語の並び（session_PARENT01・pdf/base_v2 の類）でない物は止める。
    残る穴（正直に書く）: 窓の外にしか無い鍵で、16 字未満か、英字だけ・語の並びの形の物は形で見分けられず通る。
 
-値の表: repo の根の config/skill-values.json の `dev-flow.codex`（在る時だけ）。
+値の表: config/skill-values.json の `dev-flow.codex`（在る時だけ。探し方と鍵の一覧は plugin の lib/skill_values.py
+  ＝土台の skill-values/ の正本。知らない鍵・畳んだ鍵・型の違う値は名指しして中止＝黙って既定で動かない）。
   pack_dir（パックの置き場）・self_allow（[glob]）・clients（{名: {opt_in, no_training_tier, expires, paths}}）
   egress_log（送り出しの記録の jsonl の path。在る時だけ 1 行足す。本文・秘密は書かず、時刻・task・送り先・
   file の path・結果・件数・パックの sha256 だけ）
@@ -46,6 +47,10 @@ import re
 import subprocess
 import sys
 from pathlib import Path
+
+sys.dont_write_bytecode = True
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "lib"))
+import skill_values  # noqa: E402  値の表の 1 本の口（plugin の lib/＝土台の skill-values/ への symlink）
 
 # 書き込み前に止める秘密の形（block）。字はここで組み立てる（この file 自身が検査に当たらないため）。
 BLOCK_PATTERNS = {
@@ -125,24 +130,11 @@ def repo_root(start: Path) -> Path:
 
 
 def load_values(root: Path, path: str | None) -> dict:
-    p = Path(path) if path else root / "config" / "skill-values.json"
-    if not p.is_file():
-        if path:
-            raise Abort(f"--values に渡した値の表が無い: {p}")
-        return values_reader().section({}, "dev-flow", "codex")
+    # 探す・読み込む・照らすのは値の表の 1 本の口（skill_values）。読むのは読み口（表に無い鍵を読むと止まる）を通す。
     try:
-        data = json.loads(p.read_text(encoding="utf-8"))
-    except json.JSONDecodeError as e:
-        raise Abort(f"値の表が読めない（{p.name}: {e}）")
-    # 形の違う値の表は黙って空にしない（照合の口・外し方が消えて素通りになるため）。
-    if not isinstance(data, dict):
-        raise Abort("値の表の全体が表（JSON の object）でない")
-    flow = data.get("dev-flow", {})
-    if not isinstance(flow, dict):
-        raise Abort("値の表の dev-flow が表（JSON の object）でない")
-    vals = flow.get("codex", {})
-    if not isinstance(vals, dict):
-        raise Abort("値の表の dev-flow.codex が表（JSON の object）でない")
+        vals = skill_values.section("dev-flow", "codex", explicit=path, starts=[str(root)])
+    except skill_values.ValuesError as e:
+        raise Abort(str(e))
     return values_reader().section(vals, "dev-flow", "codex")
 
 
@@ -392,7 +384,7 @@ def main(argv=None) -> int:
     ap.add_argument("--mode", choices=["full", "diff"], default="full")
     ap.add_argument("--measured-at")
     ap.add_argument("--out-dir", help="パックの置き場（値の表の pack_dir より先）")
-    ap.add_argument("--values", help="値の表の path（既定は repo の根の config/skill-values.json）")
+    ap.add_argument("--values", help="値の表の path（既定は SKILL_VALUES → repo の根の config/skill-values.json）")
     ap.add_argument("--today", help=argparse.SUPPRESS)
     ap.add_argument("--dry-run", action="store_true")
     a = ap.parse_args(argv)

@@ -1,8 +1,8 @@
 """値の表を読む土台の道具は、1 つの読み口（guard の values_keys・G.Strict）を通し、表に無い鍵を読むと実行の時に止まるか（注入の試験）。
 
-前の形は道具のコードの字の形を並べた網（`values.get("…")` など）で照らし、並べない形（別名・分割代入・鍵の名を組み立てる形）で
-表に無い鍵を読んでも緑だった。今の形は読む時に照らす: 読み口が SKILL.md の「repo ごとの値」の表（guard は DEFAULTS）に
-載った鍵だけを読ませる。ここでは、前の網を抜けた形でわざと表に無い鍵を読み、止まるのを見る。入力は全部作り物。
+字の形を並べた網（`values.get("…")` など・tests/test_values_keys.py）は、並べない形（別名・分割代入・鍵の名を組み立てる形）で
+表に無い鍵を読んでも緑になる。読む時にも照らす: 読み口が鍵の一覧（土台の skill-values/schema.json＝SKILL.md の
+「repo ごとの値」の表と同じ）に載った鍵だけを読ませる。探す・読み込むのは値の表の 1 本の口（lib/skill_values.py）。ここでは、前の網を抜けた形でわざと表に無い鍵を読み、止まるのを見る。入力は全部作り物。
 読み口を通らずに値の表を直に開く道具を足す形は構造で塞げない＝チェック役の点 10（review-pr）へ名指しで回す。
 """
 import importlib.util
@@ -35,6 +35,7 @@ def fresh(monkeypatch):
 
 def _table(tmp_path, data):
     p = tmp_path / "skill-values.json"
+    tmp_path.mkdir(parents=True, exist_ok=True)
     p.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
     return p
 
@@ -68,6 +69,7 @@ def test_guard_の値は普通の_dict_に写して照らしの外で読む道�
 def _copy_guard(tmp_path, extra):
     d = tmp_path / "guard" / "scripts"
     shutil.copytree(PLUGINS / "guard/scripts", d, ignore=shutil.ignore_patterns("__pycache__"))
+    shutil.copytree(PLUGINS / "guard/lib", d.parent / "lib")   # 値の表の 1 本の口（symlink の先の中身が写る）
     (d / "zz_reader.py").write_text(extra, encoding="utf-8")
     (d / "zz_deny.py").write_text('HOOKS = {"pre": "check"}\n\n\ndef check(data, vals):\n    return "作り物の止め"\n',
                                   encoding="utf-8")   # 他の見張りの止め（消えてはいけない）
@@ -108,7 +110,7 @@ def test_試験の全体は表に無い鍵の読みを赤にする():
 ])
 def test_dev_flow_の道具は表に無い鍵を読むと止まる(tmp_path, fresh, rel, name, frame, known):
     mod = load(PLUGINS / rel, name)
-    p = _table(tmp_path, {"dev-flow": {frame: {known: "作り物", "zz_new": 1}}})
+    p = _table(tmp_path, {"dev-flow": {frame: {known: "作り物"}}})
     vals = mod.load_values(tmp_path, str(p))
     assert vals.get(known) == "作り物"
     VK = sys.modules["af_values_keys"]
@@ -117,21 +119,25 @@ def test_dev_flow_の道具は表に無い鍵を読むと止まる(tmp_path, fre
         alias.get("zz_" + "new")                       # 鍵の名を組み立てる形
     with pytest.raises(VK.G.UnknownKey):
         _ = {"x": alias["zz_new"]}
-    empty = mod.load_values(tmp_path / "無い", None) if frame == "codex" else mod.load_values(None, None)
-    with pytest.raises(VK.G.UnknownKey):               # 値の表が無い repo でも同じ照らし（表の中身に依らない）
+    empty = mod.load_values(tmp_path, str(_table(tmp_path / "空", {})))
+    with pytest.raises(VK.G.UnknownKey):               # 値の表が空の repo でも同じ照らし（表の中身に依らない）
         empty.get("zz_new")
+    bad = _table(tmp_path / "知らない", {"dev-flow": {frame: {known: "作り物", "zz_new": 1}}})
+    with pytest.raises(mod.Abort, match="zz_new"):      # 表の知らない鍵は黙って捨てず名指しで止める（値の表の 1 本の口）
+        mod.load_values(tmp_path, str(bad))
 
 
 # ── docs-kit（make-deck の skill_values・qa-html の check.mjs） ──
-def test_make_deck_の読み口は表に無い鍵を引くと止まる(tmp_path, fresh):
-    SV = load(PLUGINS / "docs-kit/skills/make-deck/scripts/skill_values.py", "skill_values_t")
-    table = {"docs-kit": {"make-deck": {"accent": "#123456", "zz_new": "x"}}}
-    assert SV.get("docs-kit", "make-deck", "accent", table=table) == "#123456"
+def test_make_deck_の読み口は表に無い鍵を引くと止まる(tmp_path):
+    """make-deck の scripts は値の表の 1 本の口（plugin の lib/skill_values.py）の get で引く。get は引く前に鍵の一覧で照らす。"""
+    SV = load(PLUGINS / "docs-kit/lib/skill_values.py", "skill_values_t")
+    p = _table(tmp_path, {"docs-kit": {"make-deck": {"accent": "#123456"}}})
     mk = ("docs-kit", "make-deck")
-    with pytest.raises(sys.modules["af_values_keys"].G.UnknownKey):
-        SV.get(*mk, "zz_" + "new", default="", table=table)
-    with pytest.raises(sys.modules["af_values_keys"].G.UnknownKey):
-        SV.get(*mk, "zz_new", default="", table={})    # 値の表が空でも止まる
+    assert SV.get(*mk, "accent", explicit=str(p)) == "#123456"
+    with pytest.raises(SV.UnknownKey):
+        SV.get(*mk, "zz_" + "new", default="", explicit=str(p))
+    with pytest.raises(SV.UnknownKey):
+        SV.get(*mk, "zz_new", default="", explicit=str(_table(tmp_path / "空", {})))   # 値の表が空でも止まる
 
 
 def node(code, cwd=ROOT, check_mjs=PLUGINS / "docs-kit/skills/qa-html/check.mjs"):
@@ -175,28 +181,32 @@ def _copy_plugins(dst):
     return dst
 
 
-def _drop_row(md, key):
-    t = md.read_text(encoding="utf-8")
-    lines = [ln for ln in t.splitlines(keepends=True) if not ln.startswith(f"| `{key}`")]
-    assert len(lines) < len(t.splitlines()), f"{key} の行が無い"
-    md.write_text("".join(lines), encoding="utf-8")
+def _drop_key(sch, plugin, skill, key):
+    """鍵の一覧（schema.json の中身）から 1 つの鍵を消す。"""
+    sch["sections"][plugin]["skills"][skill]["keys"].pop(key)
+    return sch
 
 
-def test_表から鍵の行を消すと_その鍵を読む道具が止まる(tmp_path, fresh):
-    d = _copy_plugins(tmp_path / "plugins")
-    _drop_row(d / "dev-flow/skills/codex/SKILL.md", "pack_dir")
-    mod = load(d / "dev-flow/skills/codex/codex_pack.py", "codex_pack_drop")
-    vals = mod.load_values(tmp_path, str(_table(tmp_path, {"dev-flow": {"codex": {"pack_dir": "x"}}})))
+def test_表から鍵の行を消すと_その鍵を読む道具が止まる(tmp_path, fresh, monkeypatch):
+    import copy
+    mod = load(PLUGINS / "dev-flow/skills/codex/codex_pack.py", "codex_pack_drop")
+    SVm = mod.values_reader().SV                      # 読み口が引く鍵の一覧（値の表の 1 本の口）
+    monkeypatch.setattr(SVm, "_SCHEMA", _drop_key(copy.deepcopy(SVm.schema()), "dev-flow", "codex", "pack_dir"))
+    vals = mod.load_values(tmp_path, str(_table(tmp_path, {})))
     with pytest.raises(sys.modules["af_values_keys"].G.UnknownKey):
         vals.get("pack_dir")
-    _drop_row(d / "docs-kit/skills/qa-html/SKILL.md", "docs-kit.qa-html.later_lead")
+    d = _copy_plugins(tmp_path / "plugins")
+    sch_path = d / "docs-kit/lib/schema.json"          # 写した plugin の鍵の一覧（symlink の先の中身が写る）
+    sch = _drop_key(json.loads(sch_path.read_text(encoding="utf-8")), "docs-kit", "qa-html", "later_lead")
+    sch_path.unlink()
+    sch_path.write_text(json.dumps(sch, ensure_ascii=False), encoding="utf-8")
     r = node("strictCompany({}).later_lead;", check_mjs=d / "docs-kit/skills/qa-html/check.mjs")
     assert r.returncode != 0 and "later_lead" in r.stderr
     r = node("strictCompany({}).later_lead;")                  # 元の表（行が在る）では通る
     assert r.returncode == 0, r.stderr
 
 
-# ── 在り処: 入れた plugin の形でも隣の guard を読み、guard が無ければ止まる ──
+# ── 在り処: 入れた plugin の形でも隣の guard を読み、guard が無ければ止まる（qa-html は自分の lib/ の 1 本の口で読む） ──
 def test_入れた_plugin_の形でも読み口を見つけ_無ければ止まる(tmp_path, fresh):
     market = tmp_path / "cache" / "市場"
     for name in ("guard", "dev-flow", "docs-kit"):
@@ -210,13 +220,17 @@ def test_入れた_plugin_の形でも読み口を見つけ_無ければ止ま�
     sys.modules.pop("af_values_keys", None)
     with pytest.raises(mod.Abort, match="読み口"):
         mod.values_reader()
+    shutil.rmtree(market / "docs-kit/docs-kit-v1/lib")
     r = node("strictCompany({});", check_mjs=market / "docs-kit/docs-kit-v1/skills/qa-html/check.mjs")
-    assert r.returncode != 0 and "読み口" in r.stderr
+    assert r.returncode != 0 and "読み口" in r.stderr     # 1 本の口が無ければ読み口を作らずに止まる
 
 
-def test_読み口は鍵の一覧を_JS_の道具へ渡す():
-    r = subprocess.run([sys.executable, str(PLUGINS / "guard/scripts/values_keys.py"), "--keys", "docs-kit", "qa-html"],
-                       capture_output=True, text=True, check=True)
+@pytest.mark.parametrize("argv", [
+    [str(PLUGINS / "guard/scripts/values_keys.py"), "--keys", "docs-kit", "qa-html"],
+    [str(PLUGINS / "docs-kit/lib/skill_values.py"), "keys", "docs-kit", "qa-html"],
+])
+def test_読み口は鍵の一覧を_JS_の道具へ渡す(argv):
+    r = subprocess.run([sys.executable, *argv], capture_output=True, text=True, check=True)
     got = json.loads(r.stdout)
     assert "later_lead" in got["keys"] and "customer" in got["keys"] and got["any"] is False
 
@@ -227,10 +241,9 @@ def test_session_watch_は表から行を消すと_その鍵を読む所で止�
     monkeypatch.setenv("SKILL_VALUES", str(p))
     SW = load(PLUGINS / "session-watch/scripts/session_watch.py", "session_watch_t")
     assert SW.reply_exempt({}) == (["^作り物"], [])
-    d = _copy_plugins(tmp_path / "plugins")
-    _drop_row(d / "session-watch/skills/watch-log/SKILL.md", "reply_exempt")
-    SW2 = load(d / "session-watch/scripts/session_watch.py", "session_watch_drop")
-    VK = SW2.neighbor("values_keys")
-    assert Path(VK.__file__).resolve().parent == (d / "guard/scripts").resolve()
+    import copy
+    VK = SW.neighbor("values_keys")
+    assert Path(VK.__file__).resolve().parent == (PLUGINS / "guard/scripts").resolve()
+    monkeypatch.setattr(VK.SV, "_SCHEMA", _drop_key(copy.deepcopy(VK.SV.schema()), "session-watch", "watch-log", "reply_exempt"))
     with pytest.raises(VK.G.UnknownKey):
-        SW2.reply_exempt({})
+        SW.reply_exempt({})

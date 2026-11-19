@@ -19,7 +19,8 @@ AI が照合を飛ばしても、決定の記録と食い違う設計書が LOCK
 止まらなければ、型の gate（<型>/check_spec_doc.py <設計書dir> --lock）を直に呼んで、その終わりの値をそのまま返す
 （gate の中身は写さない）。型が無い repo では gate を呼べない＝LOCK しない（exit 3）。
 
-値の表: repo の根の config/skill-values.json の `dev-flow.spec-doc`（在る時だけ）。
+値の表: config/skill-values.json の `dev-flow.spec-doc`（在る時だけ。探し方と鍵の一覧は plugin の lib/skill_values.py
+  ＝土台の skill-values/ の正本。知らない鍵・畳んだ鍵・型の違う値は名指しして止める＝黙って既定で動かない）。
   template_dir（型の置き場）・decision_match（照合の口の行の並び。在れば「未照合」で止める）・
   decision_match_allow（誤って止まる行に当てる正規表現の並び。当たる行は済みとみなす。PR とレビューを通る）
 
@@ -34,6 +35,10 @@ import re
 import subprocess
 import sys
 from pathlib import Path
+
+sys.dont_write_bytecode = True
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "lib"))
+import skill_values  # noqa: E402  値の表の 1 本の口（plugin の lib/＝土台の skill-values/ への symlink）
 
 UNMATCHED = "未照合"
 _HEAD = re.compile(r"^(#{1,6})\s*(.*?)\s*#*\s*$")
@@ -84,29 +89,11 @@ def repo_root(start: Path) -> Path | None:
 
 
 def load_values(root: Path | None, path: str | None) -> dict:
-    if path:
-        p = Path(path)
-    elif root is not None:
-        p = root / "config" / "skill-values.json"
-    else:
-        return values_reader().section({}, "dev-flow", "spec-doc")
-    if not p.is_file():
-        if path:
-            raise Abort(f"--values に渡した値の表が無い: {p}")
-        return values_reader().section({}, "dev-flow", "spec-doc")
+    # 探す・読み込む・照らすのは値の表の 1 本の口（skill_values）。読むのは読み口（表に無い鍵を読むと止まる）を通す。
     try:
-        data = json.loads(p.read_text(encoding="utf-8"))
-    except json.JSONDecodeError as e:
-        raise Abort(f"値の表が読めない（{p.name}: {e}）")
-    # 形の違う値の表は黙って空にしない（照合の口・外し方が消えて素通りになるため）。
-    if not isinstance(data, dict):
-        raise Abort("値の表の全体が表（JSON の object）でない")
-    flow = data.get("dev-flow", {})
-    if not isinstance(flow, dict):
-        raise Abort("値の表の dev-flow が表（JSON の object）でない")
-    vals = flow.get("spec-doc", {})
-    if not isinstance(vals, dict):
-        raise Abort("値の表の dev-flow.spec-doc が表（JSON の object）でない")
+        vals = skill_values.section("dev-flow", "spec-doc", explicit=path, starts=[str(root or Path.cwd())])
+    except skill_values.ValuesError as e:
+        raise Abort(str(e))
     return values_reader().section(vals, "dev-flow", "spec-doc")
 
 

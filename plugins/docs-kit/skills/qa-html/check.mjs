@@ -1,6 +1,7 @@
 #!/usr/bin/env node
-// qa-html の確認ページの検査（外部依存ゼロ・node だけで動く）。決まりの表はこのファイルの頭の RULES の 1 か所。
-//   repo ごとに足す語・上限は repo の根の config/skill-values.json の docs-kit.qa-html.internal_words・limits。
+// qa-html の確認ページの検査（外部依存ゼロ・node と python3 で動く）。決まりの表はこのファイルの頭の RULES の 1 か所。
+//   repo ごとに足す語・上限は repo の根の config/skill-values.json の docs-kit.qa-html.internal_words・limits
+//   （表の探し方と鍵の一覧は土台の 1 本の口 ../../lib/skill_values.py が持つ）。
 // 赤にする物（形の約束は SKILL.md §型の約束）:
 //   型: 宛先の印（data-dest＝send・copy・artifact）が無い／qa:css・qa:js・qa:foot が型（references/template.html）と違う
 //     （qa:foot は「この後のこと」だけ差してよい）／型の外に許す物の表（ALLOW）に無い要素・属性・URL を書いた
@@ -12,7 +13,8 @@
 //     くわしく details.more）のどれかが空・上限超え・見つけた事が一覧に無い資料を指す／なぜ聞くかが決まった 5 文でない／
 //     切り抜き（figure.clip）が 3 枚以上・一覧に無い資料・問いの人の外の名が写る／選択肢にこの答えで変わる事（small.chg）が無い
 //   根拠と読み: 根拠（.evidence の li[data-doc][data-where]）が無い・場所が空・一覧に無い資料／実物（切り抜きか原文の引用 .quote）が
-//     1 つも無い／AI の読み（.reading）が無い・4 行以上／選択肢に印（おすすめ・recommended）／AI の今の見込み（.estimate）の
+//     1 つも無い／AI の読み（.reading）が無い・4 行以上／推奨の印（small.rec・recommended）がオーナー宛て（copy・artifact）の
+//     作り方の分かれ道の問い（judge）の外・1 つ目の選択肢の外・1 問に 2 つ・「分からない」に在る・理由が無い／AI の今の見込み（.estimate）の
 //     根拠（data-basis）が空・選択肢より前／見込みの言葉を見込みの枠の外で使う／「前の問い」など、ほかの問いに頼る言い方
 //   問い: 問いの形（data-kind）が 5 つ以外／並び（data-group）が 会社の決まり→人ごとの事実→今回だけの事→先に決めておきたい事 でない／
 //     先に決めておきたい事（later）の 1 行が決まった文でない／
@@ -30,14 +32,19 @@
 //   前の答えを照らす（作り方 0）: 値の表の docs-kit.qa-html.prior_check_cmd を --run-prior で走らせ、引いた結果をページの隣の
 //   <名>.prior.json（--prior で替える）に書いてから検査する。--prior-input は命令へ渡す JSON を出すだけ。
 //   別の検査（配る口の検査など）からは import { checkQa, checkQaJson, checkFile } で呼ぶ。
+// 使う側（別の repo の作る道具・配る口）は型・検査・答えの形を写さず、この dir の物を直に読む（SKILL.md §配り方）:
+//   node check.mjs --template            … 型（references/template.html）をそのまま標準出力へ（作る道具が雛形として読む）
+//   node check.mjs --answer <file|-> [--extra 鍵,鍵] … 答えの形（qa-html/2）の JSON を照らす（配る口・貼り戻しの道具が作った・受けた答え。
+//                                           配る口が足す自分の印の鍵は --extra で名指しした物だけ許す）。
+//                                           知らない形・知らない鍵・欠けた鍵・形の違う値は赤＝写した古い形のままなら止まる
 import { spawnSync } from "node:child_process";
-import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
-import { basename, dirname, join, resolve } from "node:path";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 // ── 問いの決まりの表（1 か所）。会社ごとに足す語は config/skill-values.json の docs-kit.qa-html.internal_words
 //    （文字列か {語, 正規表現, 言い換え}）、上限は docs-kit.qa-html.limits で上書きする。
-// 外した欄（2026-11-14 オーナー決定: 差出人・連絡先の欄は要らない）。HTML の class と JSON の鍵が同じ名。
+// 外した欄（差出人・連絡先の欄は要らない）。HTML の class と JSON の鍵が同じ名。
 const DROPPED = [["from", "差出人"], ["contact", "連絡先"]];
 const ROOT_CAUSE = "  直し: 赤の行を 1 つずつ潰さず、細目 §3「まず構造を疑う」で原因（問いの元の表・前提の写し方）から直す";
 
@@ -61,7 +68,8 @@ export const RULES = {
     "reading_lines": 3,
     "reading_line_chars": 80,
     "estimate_chars": 40,
-    "basis_chars": 60
+    "basis_chars": 60,
+    "rec_chars": 40
   },
   // なぜ聞くか（決まった 5 文）。会社の表の docs-kit.qa-html.why で文だけ替えられる（例 once を「この月だけの事を確かめます」）
   "why": {
@@ -90,7 +98,11 @@ export const RULES = {
   },
   // 先に決めておきたい事（later）の最初の問いのまとまりの 1 行（決まった文・会社の表の docs-kit.qa-html.later_lead で替えられる）
   "later_lead": "今月の計算には関係しません。起きた時の決め方を先に伺います。",
-  // AI の今の見込みは .estimate の枠だけ（選択肢に印を付けない・前提として見せない）。枠の外のこの言葉は赤
+  // 推奨の印（選択肢の画面の印と同じ決め方＝細目 §4）: オーナー宛て（dests）の作り方の分かれ道の問い（kinds）だけ・
+  //   1 問に 1 つ・1 つ目の選択肢だけ・「分からない」に付けない・理由はその選択肢に 1 行（HTML は <small class="rec">理由</small>＝
+  //   「推奨」の字は型の CSS が出す・JSON は "recommended": "理由"）。お客さん宛て（send）と事実を聞く問いは印なし＝見込みは .estimate の枠だけ
+  "rec": { "dests": ["copy", "artifact"], "kinds": ["judge"] },
+  // 印の字は型が出す＝ページの文に書いたこの言葉は赤（印は small.rec・"recommended" で付ける）
   "recommend": "おすすめ|お勧め|お薦め|オススメ|推奨",
   "estimate_word": "見込み|予測",
   // 1 画面 1 問＝ほかの問いの答えに頼らない（「前の問いの答えで決まります」の類は赤）
@@ -187,47 +199,44 @@ const UNKNOWN = RULES.unknown.value;
 const WHYS = Object.keys(RULES.why);
 const TEMPLATE = fileURLToPath(new URL("./references/template.html", import.meta.url));
 
-// 会社の表（config/skill-values.json）を、渡した path か、ファイルの dir と今の dir から上へ探す。
-export function findValues(...starts) {
-  for (const s of starts.filter(Boolean)) {
-    let d = resolve(s);
-    for (;;) {
-      const p = join(d, "config", "skill-values.json");
-      if (existsSync(p)) return p;
-      const up = dirname(d);
-      if (up === d) break;
-      d = up;
+// 会社の表（config/skill-values.json）の docs-kit.qa-html の欄。探し方と鍵の一覧は土台の 1 本の口（plugin の lib/skill_values.py
+// ＝正本 skill-values/ への symlink）が持つ＝ここに写さない。知らない鍵・畳んだ鍵・型の違う値は { error } で名指しする（黙って捨てない）。
+const VALUES_PY = fileURLToPath(new URL("../../lib/skill_values.py", import.meta.url));
+export function loadValues({ explicit = null, starts = [] } = {}) {
+  const argv = [VALUES_PY, "section", "docs-kit", "qa-html"];
+  if (explicit) argv.push("--values", explicit);
+  for (const s of starts.filter(Boolean)) argv.push("--start", s);
+  const r = spawnSync("python3", argv, { encoding: "utf8" });
+  if (r.error) return { path: explicit, company: {}, error: `値の表を読む口（python3 ${VALUES_PY}）が走らない: ${r.error.message}` };
+  if (r.status !== 0) return { path: explicit, company: strictCompany({}), error: String(r.stderr ?? "").trim() || `値の表を読む口が ${r.status} で終わった` };
+  const got = JSON.parse(r.stdout);
+  const company = got.values ?? {};
+  // limits・why の中の鍵は、この検査の表（RULES）が正本＝ここで照らす
+  const bad = [];
+  for (const k of ["limits", "why"]) {
+    for (const [kk, v] of Object.entries(company[k] ?? {})) {
+      if (kk.startsWith("_")) continue;
+      if (!(kk in RULES[k])) bad.push(`docs-kit.qa-html.${k}.${kk} は知らない鍵（効かない）。この欄の鍵: ${Object.keys(RULES[k]).join("・")}`);
+      else if (typeof v !== typeof RULES[k][kk]) bad.push(`docs-kit.qa-html.${k}.${kk} の型が違う（${typeof RULES[k][kk]} で書く）`);
     }
   }
-  return null;
+  if (bad.length) return { path: got.path, company: strictCompany({}), error: `値の表 ${got.path} に直す所がある:\n${bad.map((b) => `  - ${b}`).join("\n")}` };
+  return { path: got.path, company: strictCompany(company) };
 }
 
-// 値の表の読み口（土台の plugin guard の scripts/values_keys.py）を直に呼び、この枠で読んでよい鍵を取る（写さない）。
-// 在り処: repo の形 plugins/guard・入れた plugin の形 cache/<市場>/guard/<版>（同じ版を先に、無ければ新しい物）。
-// 見つからない・読めない時は止める（読み口を通さずに値の表を読まない）。
+// 値の表の読み口: この枠（docs-kit.qa-html）で読んでよい鍵を、値の表の 1 本の口（plugin の lib/skill_values.py keys）から取る（写さない）。
+// 読めない時は止める（読み口を通さずに値の表を読まない）。
 let FRAME_KEYS = null;
 function frameKeys() {
   if (FRAME_KEYS) return FRAME_KEYS;
-  const plugin = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
-  const rel = join("scripts", "values_keys.py");
-  const market = dirname(dirname(plugin));
-  const cands = [join(dirname(plugin), "guard", rel), join(market, "guard", basename(plugin), rel)];
-  try {
-    const vers = readdirSync(join(market, "guard")).map((v) => join(market, "guard", v, rel)).filter((f) => existsSync(f));
-    cands.push(...vers.sort((a, b) => statSync(b).mtimeMs - statSync(a).mtimeMs));
-  } catch {
-    /* 入れた plugin の形でない */
-  }
-  const vk = cands.find((f) => existsSync(f));
-  if (!vk) throw new Error("値の表の読み口（土台の plugin guard の scripts/values_keys.py）が見つからない。土台の plugin guard を入れる");
-  const r = spawnSync(process.env.PYTHON || "python3", [vk, "--keys", "docs-kit", "qa-html"], { encoding: "utf8" });
-  if (r.status !== 0) throw new Error(`値の表の読み口が鍵を返さない: ${r.stderr || r.error}`);
+  const r = spawnSync(process.env.PYTHON || "python3", [VALUES_PY, "keys", "docs-kit", "qa-html"], { encoding: "utf8" });
+  if (r.status !== 0) throw new Error(`値の表の読み口（${VALUES_PY} keys）が鍵を返さない: ${r.stderr || r.error}`);
   const got = JSON.parse(r.stdout);
   FRAME_KEYS = { keys: new Set(got.keys), any: got.any };
   return FRAME_KEYS;
 }
 
-// 値の表の docs-kit.qa-html を、SKILL.md の「repo ごとの値」の表に載った鍵だけを読ませる形にする。
+// 値の表の docs-kit.qa-html を、鍵の一覧（土台の skill-values/schema.json）に載った鍵だけを読ませる形にする。
 // 表に無い鍵を読むと実行の時に止まる（書き方の字の形で照らさない）。Symbol と Object の元の名（toString 等）は通す。
 // 写す口（展開・Object.assign・Object.keys・JSON）も止まる。
 export function strictCompany(data) {
@@ -235,7 +244,7 @@ export function strictCompany(data) {
   return new Proxy(data && typeof data === "object" && !Array.isArray(data) ? data : {}, {
     get(t, k, r) {
       if (typeof k === "string" && !any && !keys.has(k) && !(k in Object.prototype)) {
-        throw new Error(`値の表の docs-kit.qa-html に無い鍵 ${k} を読んだ（読む鍵は SKILL.md の「repo ごとの値」の表に行を足してから読む）`);
+        throw new Error(`値の表の docs-kit.qa-html に無い鍵 ${k} を読んだ（読む鍵は土台の skill-values/schema.json と SKILL.md の「repo ごとの値」の表に行を足してから読む）`);
       }
       return Reflect.get(t, k, r);
     },
@@ -253,18 +262,6 @@ export function strictCompany(data) {
       return Reflect.getOwnPropertyDescriptor(t, k);
     },
   });
-}
-
-function loadCompany(valuesPath) {
-  let data = {};
-  if (valuesPath) {
-    try {
-      data = JSON.parse(readFileSync(valuesPath, "utf8"))?.["docs-kit"]?.["qa-html"] ?? {};
-    } catch {
-      data = {};
-    }
-  }
-  return strictCompany(data);
 }
 
 const mask = (s) => s.replace(/<!--[\s\S]*?(-->|$)/g, (m) => " ".repeat(m.length));
@@ -336,6 +333,28 @@ const templateRegions = () =>
     return Object.fromEntries(FIXED.map((n) => [n, region(t, n)]));
   })());
 
+// 型の外で使える class＝型が型の外（qa:css・qa:js・qa:foot と注の外）で使っている class と、推奨の印の rec だけ（正本は型 1 つ）。
+//   型の CSS・JS が知っているのに型の外で使わない class（step・err・bar・pg・big など＝見せ方を切り替える物）を付けて選択肢を隠させない
+//   （CSS・JS の知らない class は見せ方を変えないので通す）
+let outsideClassCache = null;
+const templateOutsideClasses = () =>
+  (outsideClassCache ??= (() => {
+    let t = readFileSync(TEMPLATE, "utf8");
+    t = t.slice(t.indexOf("-->") + 3);
+    for (const n of FIXED) t = t.replace(new RegExp(`<!--${n}-->[\\s\\S]*?<!--/${n}-->`), " ");
+    t = t.replace(/<!--[\s\S]*?-->/g, " ");
+    const set = new Set(["rec", "next"]);   // next＝qa:foot の「この後のこと」（差してよい所・別の赤が中身を見る）
+    for (const m of t.matchAll(/\bclass="([^"]*)"/g)) for (const c of m[1].split(/[ \t\n\f\r]+/)) if (c) set.add(c);
+    // 型の CSS・JS が知っている語（見せ方を切り替えうる class の候補）
+    const full = readFileSync(TEMPLATE, "utf8");
+    const known = new Set();
+    for (const n of FIXED) {
+      const r = new RegExp(`<!--${n}-->([\\s\\S]*?)<!--/${n}-->`).exec(full)?.[1] ?? "";
+      for (const w of r.matchAll(/[A-Za-z_][A-Za-z0-9_-]*/g)) known.add(w[0]);
+    }
+    return { allowed: set, known };
+  })());
+
 // 白地に対する色の濃さ（WCAG の比）
 function contrastOnWhite(hex) {
   const n = parseInt(hex.slice(1), 16);
@@ -370,10 +389,133 @@ export const ALLOW = {
   href: "^(?:https://|mailto:|tel:|#)[^\\s<>\"'&]*$",
   img_src: "^data:image/(?:png|jpeg|gif|webp);base64,[A-Za-z0-9+/=]+$",
 };
-function allowlistReds(outside) {
+// HTML の空白（ブラウザが区切りに使う字だけ・NBSP などは含まない）
+const WS = "[ \\t\\n\\f\\r]";
+// 型の外の字の並びを、検査が読み切れる書き方だけにする（読みの道筋を 1 つ: 検査はページを正規表現で読むので、
+//   ブラウザと読みが分かれる書き方を入口で止める）。通すのは: 先頭の <!doctype html>・ふつうのコメント <!-- … -->・
+//   決まった形の開きタグ（属性は空白で区切り値は引用符で囲む）・閉じタグ </名>（中に空白を入れない＝読む側は </名> だけを受ける）。textarea・title の中に < を書かない。
+// class に rec を持つか（区切りは HTML の空白だけ＝ブラウザと同じ・印の読みはこの 1 つ）
+const hasRec = (tag) => /(?:^|[ \t\n\f\r])rec(?:[ \t\n\f\r]|$)/.test(attr(tag, "class") ?? "");
+// ブラウザが要素の木を組み直す書き方（閉じ忘れ・入れ子の崩れ・表や select の中の移し替え・<p> の自動の閉じ・<a> の中の <a>）は赤
+//   ＝タグの並びがそのまま木になる形だけを通し、検査の読み（正規表現で切る）とブラウザの木を同じにする
+const VOID = new Set(["br", "img", "input", "meta"]);
+// 開くと、表の区切り（table・td・th）の内で開いている <p> をブラウザが閉じる要素（HTML の決まりの「button scope の p を閉じる」物）
+const BLOCK = new Set(["div", "section", "header", "p", "h1", "h2", "h3", "ul", "ol", "dl", "table", "figure", "figcaption", "details", "summary", "form", "fieldset", "li", "dd", "dt"]);
+// 開くと、同じ種類（か対の相手）の開いている物をブラウザが閉じる要素
+const SELF_CLOSE = { li: ["li"], dt: ["dt", "dd"], dd: ["dt", "dd"], td: ["td", "th"], th: ["td", "th"], tr: ["tr"], thead: ["thead", "tbody"], tbody: ["thead", "tbody"], option: ["option"], form: ["form"], p: ["p"] };
+const HEAD = new Set(["h1", "h2", "h3"]);
+const SCOPE = new Set(["table", "td", "th"]);
+const ONLY = { table: ["thead", "tbody", "tr"], thead: ["tr"], tbody: ["tr"], tr: ["th", "td"], select: ["option"], ul: ["li"], ol: ["li"], dl: ["dt", "dd"] };
+function treeReds(rest) {
   const red = [];
+  const stack = [];
+  const tags = [];   // stack と同じ並びで開きタグの字（選択肢の枠の読みに使う）
+  let optControls = 0;
+  const isOpt = (t) => /^<label\b/i.test(t) && /(?:^|[ \t\n\f\r])opt(?:[ \t\n\f\r]|$)/.test(attr(t, "class") ?? "");
+  // 型の外の区画（qa:css・qa:js・qa:foot）は空白で伏せてあり、その前後で木が切れる＝head と body の外枠は数えない
+  for (const m of rest.matchAll(/<(\/?)([A-Za-z][A-Za-z0-9-]*)[^>]*>|([^<]+)/g)) {
+    if (m[3] != null) {
+      const top = stack[stack.length - 1];
+      if (top && ONLY[top] && m[3].trim()) { red.push(`<${top}> の中に字をじかに書かない（ブラウザが表や一覧の外へ移す）: ${m[3].trim().slice(0, 20)}`); break; }
+      continue;
+    }
+    const tag = m[2].toLowerCase();
+    if (["html", "head", "body"].includes(tag) || !ALLOW.elements.includes(tag)) continue;   // 許さない要素は別の赤
+    if (!m[1]) {
+      const top = stack[stack.length - 1];
+      if (top && ONLY[top] && !ONLY[top].includes(tag)) { red.push(`<${top}> の中にじかに <${tag}> を置かない（ブラウザが外へ移す）`); break; }
+      // 選択肢の枠（label.opt）＝押すとその中の radio・checkbox 1 つが選ばれ、見えて、選べる物。ブラウザと同じ読みになる形だけ通す
+      if (["input", "select", "textarea"].includes(tag)) {
+        const lab = tags.findLast((t) => /^<label\b/i.test(t));
+        if (lab && hasAttr(lab, "for")) { red.push(`for の付いた <label> の中に答えの欄を置かない（押した先が for の欄になる）: ${m[0].slice(0, 50)}`); break; }
+        if (lab && isOpt(lab) && (tag !== "input" || !/^(?:radio|checkbox)$/i.test(attr(m[0], "type") ?? "") || ++optControls > 1)) {
+          red.push(`選択肢の枠（label.opt）の中の欄は radio か checkbox 1 つだけ（ほかの欄があると押した先が替わる）: ${m[0].slice(0, 50)}`); break;
+        }
+        if (lab && isOpt(lab)) {
+          // 選択の name は包む問いの箱の鍵と同じ（別の問いの答えを書き換えさせない・印の選択肢を答えに選べなくさせない）
+          const box = tags.findLast((t) => /^<fieldset\b/i.test(t)) ?? "";
+          if (attr(m[0], "name") !== attr(box, "data-qkey")) { red.push(`選択肢の欄の name は包む問いの箱の鍵（data-qkey="${attr(box, "data-qkey") ?? ""}"）と同じにする: ${m[0].slice(0, 50)}`); break; }
+        }
+      }
+      // 問いの箱＝型の JS が画面と答えとして集める物（form の中の fieldset.q[data-qkey]）と同じ物だけを、検査も問いと読む
+      if (hasAttr(m[0], "data-qkey") && !(tag === "fieldset" && /(?:^|[ \t\n\f\r])q(?:[ \t\n\f\r]|$)/.test(attr(m[0], "class") ?? "") && stack.includes("form")))
+        { red.push(`data-qkey は form の中の fieldset.q にだけ付ける（型の JS が問いとして集めず、検査の読みとずれる）: ${m[0].slice(0, 50)}`); break; }
+      // 型の JS は fieldset.q[data-qkey] を入れ子も問わず別の画面として集める＝fieldset は入れ子にしない
+      if (tag === "fieldset" && stack.includes("fieldset")) { red.push("<fieldset> の中に <fieldset> を置かない（型の JS が別の画面として集め、中の選択肢が隠れる）"); break; }
+      // 選択肢の枠の中身も型と同じ形だけ: label.opt ＞ input（radio・checkbox）と span ／ span ＞ b・small・br ／ b・small ＞ 字と br
+      {
+        const p1 = tags[tags.length - 1] ?? "", p2 = tags[tags.length - 2] ?? "", p3 = tags[tags.length - 3] ?? "";
+        const inOpt = isOpt(p1) ? ["input", "span"] : /^<span\b/i.test(p1) && isOpt(p2) ? ["b", "small", "br"] : /^<(?:b|small)\b/i.test(p1) && /^<span\b/i.test(p2) && isOpt(p3) ? ["br"] : null;
+        if (inOpt && !inOpt.includes(tag)) { red.push(`選択肢の枠の中身は型と同じ形だけ（label.opt ＞ input と span ／ span ＞ b・small ／ b・small ＞ 字）: <${tag}>`); break; }
+      }
+      if (VOID.has(tag)) continue;
+      // 型の JS が中身を書き換える目印（.supp）は、問いの箱のじかの子の div だけ（中に選択肢を入れて消させない）
+      if (/(?:^|[ \t\n\f\r])supp(?:[ \t\n\f\r]|$)/.test(attr(m[0], "class") ?? "") && !(tag === "div" && attr(m[0], "class") === "supp" && /^<fieldset\b/i.test(tags[tags.length - 1] ?? "")))
+        { red.push(`class の supp は問いの箱（fieldset.q）のじかの子の <div class="supp"> だけ（型の JS が中の見出しを書き換える）: ${m[0].slice(0, 50)}`); break; }
+      if (isOpt(m[0])) {
+        optControls = 0;
+        // 選択肢の枠の置き場は型と同じ形だけ: fieldset.q（class は q だけ）＞ div.opts（class は opts だけ）＞ label.opt（class は opt だけ）
+        const [gp, p1] = [tags[tags.length - 2] ?? "", tags[tags.length - 1] ?? ""];
+        //   （包む要素で隠す・押した先を替える・別の画面にする形〔details・a・summary・figure・hidden の箱・.supp・鍵の無い箱〕はこれで全部閉じる）
+        if (attr(m[0], "class") !== "opt" || !/^<div\b/i.test(p1) || attr(p1, "class") !== "opts" || !/^<fieldset\b/i.test(gp) || attr(gp, "class") !== "q"
+            || !/^[A-Za-z0-9_]+$/.test(attr(gp, "data-qkey") ?? ""))
+          { red.push(`選択肢の枠は型と同じ置き場だけ（<fieldset class="q"> のじかの子の <div class="opts"> のじかの子の <label class="opt">・箱は鍵 data-qkey を持つ・class は足さない）: ${m[0].slice(0, 50)}`); break; }
+        if (hasAttr(m[0], "for")) { red.push(`選択肢の枠（label.opt）に for を付けない（押した先が for の欄になる）: ${m[0].slice(0, 50)}`); break; }
+      }
+      // 表の区切りより内側（一番近い table・td・th より上）に開いている物だけが、ブラウザの閉じの的になる
+      let from = 0;
+      for (let i = stack.length - 1; i >= 0; i--) if (SCOPE.has(stack[i])) { from = i + 1; break; }
+      const inScope = stack.slice(from);
+      if (BLOCK.has(tag) && inScope.includes("p")) { red.push(`<p> の中に <${tag}> を置かない（ブラウザが <p> をそこで閉じる）`); break; }
+      const same = (SELF_CLOSE[tag] ?? []).find((t) => (["td", "th", "tr", "thead", "tbody"].includes(tag) ? stack.slice(stack.lastIndexOf("table") + 1) : inScope).includes(t));
+      if (same && tag !== "p") { red.push(`<${same}> の中に <${tag}> を開かない（ブラウザが前の <${same}> をそこで閉じる）`); break; }
+      if (HEAD.has(tag) && HEAD.has(top)) { red.push(`<${top}> の中に <${tag}> を置かない（ブラウザが見出しを閉じる）`); break; }
+      if (tag === "a" && stack.includes("a")) { red.push("<a> の中に <a> を置かない（ブラウザが組み直す）"); break; }
+      if (["textarea", "title", "option"].includes(top)) { red.push(`<${top}> の中にタグを書かない`); break; }
+      stack.push(tag);
+      tags.push(m[0]);
+    } else {
+      if (stack[stack.length - 1] !== tag) { red.push(`閉じタグ </${tag}> が開いた順と合わない（開いているのは ${stack[stack.length - 1] ? `<${stack[stack.length - 1]}>` : "無し"}・ブラウザが木を組み直す）`); break; }
+      stack.pop();
+      tags.pop();
+    }
+  }
+  return red;
+}
+
+function tokenReds(outside) {
+  const red = [];
+  if (!/^\uFEFF?[ \t\n\f\r]*<!doctype html>/i.test(outside)) red.push("先頭に <!doctype html> が要る（無いとブラウザが古い読み方になり、class の大小を区別しない）");
+  for (const m of outside.matchAll(/<(textarea|title)\b[^>]*>([\s\S]*?)<\/\1/gi))
+    if (m[2].includes("<")) red.push(`<${m[1].toLowerCase()}> の中に < を書かない（ブラウザは字として読む）: ${m[2].slice(0, 40)}`);
+  const open = new RegExp(`^<[A-Za-z][A-Za-z0-9-]*(?:${WS}+[^ \\t\\n\\f\\r"'=<>/]+(?:${WS}*=${WS}*(?:"[^"]*"|'[^']*'))?)*${WS}*/?>`);
+  const rest = outside.replace(/^\uFEFF?[ \t\n\f\r]*<!doctype html>/i, "").replace(/<!--(?!>|->)[\s\S]*?-->/g, (c) => " ".repeat(c.length));
+  for (const m of rest.matchAll(/</g)) {
+    const at = rest.slice(m.index);
+    // 開きタグ（崩れた区切りは下の allowlistReds の strict が見る）・閉じタグ・崩れたコメント（別の赤が見る）は通す
+    if (open.test(at) || /^<[A-Za-z][A-Za-z0-9-]*(?:"[^"]*"|'[^']*'|[^'">])*>/.test(at) || /^<\/[A-Za-z][A-Za-z0-9-]*>/.test(at) || /^<!--(?:>|->)/.test(at)) continue;
+    red.push(`検査が読めない < の書き方（<? <! </ の崩れ・閉じないコメント・崩れたタグ）: ${at.slice(0, 40)}`);
+  }
+  red.push(...treeReds(rest));
+  // 検査が中身を切る要素（選択肢の label・印や変わる事の small）は入れ子にしない＝検査は最初の閉じタグで切るので、
+  //   入れ子にすると検査とブラウザで「どの選択肢・どの欄の中か」が分かれる
+  for (const t of ["label", "small"]) {
+    let depth = 0;
+    for (const m of rest.matchAll(new RegExp(`<(/?)${t}(?=[ \\t\\n\\f\\r/>])`, "gi"))) {
+      depth += m[1] ? -1 : 1;
+      if (depth > 1) { red.push(`<${t}> の中に <${t}> を入れない（検査とブラウザで中身の切り方が分かれる）`); break; }
+      if (depth < 0) depth = 0;
+    }
+  }
+  return red;
+}
+
+function allowlistReds(outside) {
+  const red = tokenReds(outside);
   const els = new Set(ALLOW.elements);
   const ats = new Set(ALLOW.attributes);
+  const ids = new Map();
+  const fors = [];
   for (const m of outside.matchAll(/<([A-Za-z][A-Za-z0-9-]*)((?:"[^"]*"|'[^']*'|[^'">])*)>/g)) {
     const tag = m[1].toLowerCase();
     const show = m[0].slice(0, 50);
@@ -382,20 +524,53 @@ function allowlistReds(outside) {
       continue;
     }
     const before = red.length;
+    const strict = new RegExp(`^<[A-Za-z][A-Za-z0-9-]*(?:${WS}+[^ \\t\\n\\f\\r"'=<>/]+(?:${WS}*=${WS}*(?:"[^"]*"|'[^']*'))?)*${WS}*/?>$`).test(m[0]);
+    // 検査の読み（attr・class）とブラウザの読みを 1 つにそろえる形だけを通す: 属性は空白で区切り、値は引用符で囲む
+    //   （<small/class="rec">・class=rec のような書き方は、ブラウザは読むが検査は読めない＝すり抜けるので赤）
     const attrs = {};
     for (const a of m[2].matchAll(/([^\s"'=/>]+)(?:\s*=\s*("[^"]*"|'[^']*'|[^\s>]+))?/g)) {
       const name = a[1].toLowerCase();
       const val = a[2] == null ? "" : a[2].replace(/^["']|["']$/g, "");
+      // 値の中に別の属性に見える字（title=" class='x'" の類）や、検査が戻せない文字参照（&#114; &Tab; の類）は赤
+      //   ＝検査の読み（attr・class）がブラウザと同じ値を読むように、読みが分かれる書き方を入口で止める
+      if (a[2] != null && /^["']/.test(a[2])) {
+        if (/\s[A-Za-z_:][-A-Za-z0-9_:.]*\s*=/.test(val)) red.push(`属性「${name}」の値の中に「名=」の形を書かない（検査とブラウザで読む属性が分かれる）: ${show}`);
+        if (/[<>]/.test(val)) red.push(`属性「${name}」の値に < > を書かない（検査がタグとして読み、ブラウザと中身の切り方が分かれる）: ${show}`);
+        if (name === "class" && !/^[A-Za-z0-9_ -]*$/.test(val)) red.push(`class の値は半角英数字・_・- と空白だけ（区切りの読みを検査とブラウザでそろえる）: ${show}`);
+        if (/&(?!(?:nbsp|lt|gt|quot|amp|#39);)(?:#|[A-Za-z][A-Za-z0-9]*;)/.test(val)) red.push(`属性「${name}」の値に文字参照（&#…; など）を書かない（字のまま書く）: ${show}`);
+      }
       if (name in attrs) red.push(`同じ属性「${name}」が 2 回ある（ブラウザは前の値を使う）: ${show}`);
       else attrs[name] = val;
       if (!ats.has(name) && !ALLOW.attribute_prefixes.some((p) => name.startsWith(p))) red.push(`型の外に許していない属性「${name}」: ${show}`);
     }
+    // label の for は、ひとことの欄（textarea#supp_鍵）を指す形だけ＝選択肢と答えの欄の結び付きを「label.opt の中の欄」1 つにする
+    if ("for" in attrs) {
+      if (tag !== "label" || !/^supp_[A-Za-z0-9_]+$/.test(attrs.for)) red.push(`for はひとことの欄を指す label だけ（for="supp_問いの鍵"）＝選択肢の label に付けると押した時に選ばれる欄がずれる: ${show}`);
+      else fors.push([attrs.for, show]);
+    }
+    if ("class" in attrs) {
+      const { allowed, known } = templateOutsideClasses();
+      for (const c of attrs.class.split(/[ \t\n\f\r]+/).filter(Boolean))
+        if (known.has(c) && !allowed.has(c)) { red.push(`型の外に class「${c}」を付けない（型の CSS・JS が見せ方を切り替える class で選択肢を隠させない）: ${show}`); break; }
+    }
+    // id はひとことの欄（textarea#supp_鍵）だけ（型の CSS・JS が使う id〔qa-print など〕で隠させない）
+    if ("id" in attrs && !/^supp_[A-Za-z0-9_]+$/.test(attrs.id) && !(tag === "input" && /^(?:radio|checkbox)$/i.test(attrs.type ?? ""))) red.push(`型の外の id はひとことの欄の supp_問いの鍵 だけ（今 ${attrs.id}）: ${show}`);
+    if ("id" in attrs) {
+      if (ids.has(attrs.id)) red.push(`id「${attrs.id}」が 2 つある: ${show}`);
+      ids.set(attrs.id, tag);
+      if (tag === "input" && /^(?:radio|checkbox)$/i.test(attrs.type ?? "")) red.push(`選択（radio・checkbox）に id を付けない（label の for で別の選択肢から選ばせない）: ${show}`);
+    }
+    // 型は hidden・disabled の属性を使わない＝型の外に置けば赤（包む要素に付けて選択肢を隠す・押せなくする形を通さない）
+    for (const a of ["hidden", "disabled"]) if (a in attrs) red.push(`${a} の属性を付けない（選択肢が見えない・押せない形にしない）: ${show}`);
+    if ("name" in attrs && !["input", "select", "textarea", "meta"].includes(tag)) red.push(`<${tag}> に name を付けない（name は答えの欄 input・select・textarea だけ＝型の JS は name を持つ要素を答えとして読む）: ${show}`);
     if ("style" in attrs && tag !== "body") red.push(`<${tag}> に style がある（色や形は変えない・会社の色は body の --brand だけ）`);
     if (tag === "meta" && red.length === before && !("charset" in attrs) && !ALLOW.meta.names.includes((attrs.name ?? "").toLowerCase())) red.push(`許していない meta: ${show}`);
     if (tag === "input" && !ALLOW.input_types.includes((attrs.type ?? "text").toLowerCase())) red.push(`許していない入力の欄 type="${attrs.type}": ${show}`);
     if ("href" in attrs && !new RegExp(ALLOW.href, "i").test(attrs.href)) red.push(`許していない URL（https・mailto・tel・# だけ）: ${show}`);
     if ("src" in attrs && (tag !== "img" || !new RegExp(ALLOW.img_src).test(attrs.src))) red.push(`外のリソース・許していない src（写真は img の data:image/ だけ）: ${show}`);
+    if (!strict && red.length === before) red.push(`属性は空白で区切り、値は引用符（"…"）で囲む（検査が読めない書き方）: ${show}`);
   }
+  for (const [f, show] of fors) if (ids.get(f) !== "textarea") red.push(`for="${f}" の指す ひとことの欄（textarea id="${f}"）が無い: ${show}`);
   return red;
 }
 
@@ -474,8 +649,8 @@ export function readHtml(raw) {
   else if (!next || !text(next.inner)) shape.push("受付の「この後のこと」（.next）が無い");
   else if (/<(?!br\s*\/?>)[a-z!/]/i.test(mask(next.inner))) shape.push("「この後のこと」（.next）に書けるのは字と <br> だけ");
 
-  // 選択肢の印（おすすめ）は外した＝見込みは .estimate の枠だけ
-  if (/\btag-rec\b/.test(html)) shape.push("選択肢に印（おすすめ・tag-rec）を付けない（AI の今の見込みは選択肢の後の .estimate の枠へ・根拠つき）");
+  // 古い印の形（tag-rec＝字を書く印）は畳んだ＝推奨の印は small.rec に理由と一緒に置く（字は型の CSS が出す）
+  if (/\btag-rec\b/.test(html)) shape.push('推奨の印の古い形（tag-rec）は使わない（オーナー宛ての作り方の分かれ道の問いだけ、1 つ目の選択肢に <small class="rec">理由</small>）');
   // 見込みの枠（.estimate）の字は別に持つ（枠の外に見込みの言葉があれば赤にするため）
   const estEls = byClass(html, "estimate");
   const estTexts = estEls.flatMap((e) => [...textLines(e.inner), attr(e.tag, "data-basis") ?? ""]).filter(Boolean);
@@ -493,19 +668,28 @@ export function readHtml(raw) {
     const knownTables = known ? [...known.inner.matchAll(/<table\b[\s\S]*?<\/table\s*>/gi)] : [];
     const inputs = [...q.inner.matchAll(/<input\b[^>]*\btype\s*=\s*["']?(radio|checkbox)\b[^>]*>/gi)].map((i) => i[0]);
     const sel = [...q.inner.matchAll(/<option\b[^>]*>([\s\S]*?)<\/option>/gi)].filter((o) => attr(o[0], "value") !== "" && text(o[1]));
-    const opts = [...q.inner.matchAll(/<label\b[^>]*\bclass\s*=\s*["'][^"']*\bopt\b[^"']*["'][^>]*>([\s\S]*?)<\/label>/gi)].map((o) => {
+    // 選択肢＝class の区切り（HTML の空白）で opt を持つ label（x-opt・opt-x は選択肢でない＝ブラウザの label.opt と同じ読み）
+    const opts = [...q.inner.matchAll(/<label\b[^>]*>([\s\S]*?)<\/label>/gi)].filter((o) => /(?:^|[ \t\n\f\r])opt(?:[ \t\n\f\r]|$)/.test(attr(/<label\b[^>]*>/i.exec(o[0])[0], "class") ?? "")).map((o) => {
       const inp = /<input\b[^>]*>/i.exec(o[1])?.[0] ?? "";
       const b = /<b\b[^>]*>([\s\S]*?)<\/b>/i.exec(o[1]);
       const smalls = [...o[1].matchAll(/<small\b[^>]*>([\s\S]*?)<\/small>/gi)];
       const chg = smalls.find((x) => /\bclass\s*=\s*["'][^"']*\bchg\b/i.test(x[0]));
-      const small = smalls.find((x) => x !== chg);
+      const recs = smalls.filter((x) => hasRec(x[0]));
+      const small = smalls.find((x) => x !== chg && !recs.includes(x));
       return {
         value: attr(inp, "value"),
         all: text(o[1]),
         head: text(b ? b[1] : o[1]),
         detail: small ? text(small[1]) : "",
         change: chg ? text(chg[1]) : "",
-        rec: /tag-rec/.test(o[1]),
+        rec: recs.length ? text(recs[0][1]) : null,   // null＝印なし・字＝理由
+        hasInput: /^(?:radio|checkbox)$/i.test(attr(inp, "type") ?? "") && (o[1].match(/<input\b/gi) ?? []).length === 1,
+        inputName: attr(inp, "name"),
+        inputType: (attr(inp, "type") ?? "").toLowerCase(),
+        hasB: !!b && text(b[1]).length > 0,
+        // 初めから選ばれている・選べない・見えない選択肢（印の付いた問いでは赤）
+        locked: hasAttr(inp, "checked") || hasAttr(inp, "disabled") || hasAttr(inp, "hidden") || hasAttr(/<label\b[^>]*>/i.exec(o[0])[0], "hidden"),
+        recCount: recs.length,
         needSupp: attr(inp, "data-supp") === "need",
         suppBad: attr(inp, "data-supp") != null && attr(inp, "data-supp") !== "need" ? String(attr(inp, "data-supp")) : null,
       };
@@ -562,6 +746,10 @@ export function readHtml(raw) {
       choices: inputs.length || sel.length,
       oneChoice: (inputs.length > 0 && inputs.length < 2) || (!inputs.length && sel.length === 1),
       freeInput: freeInputs.length > 0,
+      // 問いの鍵を name に持つ欄（ページのどこでも・select・字の欄・hidden も）が、どれも label.opt の中の選択か（印の 1 つ目を検査とブラウザで同じにする）
+      //   型の JS は name を持つ要素ならどれも答えの欄として読む＝要素の種類を問わず数える
+      keyFieldsInOpts: [...html.matchAll(/<[A-Za-z][A-Za-z0-9-]*\b[^>]*>/g)].filter((t) => attr(t[0], "name") === m[1]).length
+        === opts.filter((o) => o.hasInput && o.inputName === m[1]).length,
       numberInput: freeInputs.some((t) => /\btype\s*=\s*["']?number\b/i.test(t)),
       // radio と入力の欄は required で送れなくする。checkbox は required にすると「その 1 つを必ず選ぶ」になる＝型の JS が見る
       required: inputs.every((t) => /type\s*=\s*["']?checkbox/i.test(t)) && !freeInputs.length ? inputs.length > 0 : [...inputs, ...freeInputs].some((t) => hasAttr(t, "required")),
@@ -574,6 +762,14 @@ export function readHtml(raw) {
   const gleadAll = byClass(html, "glead").length;
   const gleadIn = questions.reduce((n, q) => n + q.gleads.length, 0);
   if (gleadAll !== gleadIn) shape.push(`まとまりの 1 行（.glead）が問いの箱の外に ${gleadAll - gleadIn} つある（説明を問いの間に挟まない）`);
+  // 選択（radio・checkbox）はどれも問いの label.opt の中に置く（選択肢の定義を 1 つにする＝label.opt の外の選択で 1 つ目をずらさせない）
+  const picksAll = [...html.matchAll(/<input\b[^>]*>/gi)].filter((t) => /^(?:radio|checkbox)$/i.test(attr(t[0], "type") ?? "")).length;
+  const picksRead = questions.reduce((n, q) => n + q.options.filter((o) => o.hasInput).length, 0);
+  if (picksAll !== picksRead) shape.push(`選択（radio・checkbox）が問いの選択肢（label.opt）の外に在る（ページに ${picksAll}・選択肢の中に ${picksRead}）`);
+  // 推奨の印はページ全体で数え、問いの選択肢の決まった所で読めた数と合わなければ赤（問いの外・選択肢の外に置いて判定を逃れさせない）
+  const recAll = [...html.matchAll(/<[A-Za-z][A-Za-z0-9-]*\b[^>]*>/g)].filter((t) => hasRec(t[0])).length;
+  const recRead = questions.reduce((n, q) => n + q.options.reduce((k, o) => k + (o.recCount ?? 0), 0), 0);
+  if (recAll !== recRead) shape.push(`推奨の印（class="rec"）が問いの選択肢（label.opt の中の small）の外に在る（ページに ${recAll}・選択肢の中に ${recRead}）`);
   return { format: "html", version, dest, holes, shape, brand, docs, hold, texts: [...visible, ...attrTexts], estTexts, questions };
 }
 
@@ -595,13 +791,15 @@ export function readJson(data) {
     .map((q) => {
       const raw = Array.isArray(q.options) ? q.options : [];
       if (raw.some((o) => typeof o === "string")) shape.push(`問い ${q.key}: 選択肢は {"value","label"} の形で書く（文字だけでは機械で戻せない）`);
+      if (raw.some((o) => o && typeof o === "object" && o.value === UNKNOWN && Object.hasOwn(o, "recommended")))
+        shape.push(`問い ${q.key}: 「分からない」に推奨の印（"recommended"）を付けない`);
       const options = raw
         .filter((o) => o && typeof o === "object" ? o.value !== UNKNOWN : true)
         .map((o) =>
           typeof o === "string"
             ? { value: null, head: o, all: o, detail: "" }
             : { value: o?.value ?? null, head: String(o?.label ?? ""), detail: String(o?.detail ?? ""), change: String(o?.change ?? "").trim(),
-                all: [o?.label, o?.detail, o?.change].filter(Boolean).join(" "), rec: Object.hasOwn(o ?? {}, "recommended"), needSupp: o?.supp === "need",
+                all: [o?.label, o?.detail, o?.change].filter(Boolean).join(" "), rec: !Object.hasOwn(o ?? {}, "recommended") ? null : typeof o.recommended === "string" ? o.recommended.trim() : false, recCount: Object.hasOwn(o ?? {}, "recommended") ? 1 : 0, needSupp: o?.supp === "need",
                 suppBad: o?.supp != null && o?.supp !== "need" ? JSON.stringify(o.supp) : null },
         );
       const table = Array.isArray(q.table) ? q.table : [];
@@ -647,20 +845,51 @@ export function readJson(data) {
     ...lines(q?.reading), ...(Array.isArray(q?.evidence) ? q.evidence.flatMap((e) => [e?.where, e?.quote]) : []),
     ...(Array.isArray(q?.clips) ? q.clips.flatMap((c) => [c?.alt, c?.caption]) : []),
     ...(Array.isArray(q?.table) ? q.table.flat().map(String) : []),
-    ...(Array.isArray(q?.options) ? q.options.flatMap((o) => (typeof o === "string" ? [o] : [o?.label, o?.detail, o?.change])) : [])])]
+    ...(Array.isArray(q?.options) ? q.options.flatMap((o) => (typeof o === "string" ? [o] : [o?.label, o?.detail, o?.change, typeof o?.recommended === "string" ? o.recommended : null])) : [])])]
     .flatMap((x) => lines(x));
   const estTexts = qsIn.flatMap((q) => (q?.estimate ? [q.estimate.value, q.estimate.basis] : [])).flatMap((x) => lines(x));
   const holes = [...new Set(JSON.stringify(data ?? {}).match(/\{\{[^}]*\}\}/g) ?? [])];
   return { format: "json", version: version == null ? null : String(version), dest: data?.dest ?? null, holes, shape, brand: data?.brand ?? null, docs, hold: String(data?.hold ?? "").trim(), texts, estTexts, questions };
 }
 
+// ── 推奨の印（RULES.rec）: オーナー宛ての作り方の分かれ道の問いだけ・1 問に 1 つ・1 つ目・「分からない」に付けない・理由つき
+function checkRec(q, id, dest, format, limits, red) {
+  const marked = q.options.map((o, i) => ({ o, i })).filter(({ o }) => o.rec != null);
+  if (!marked.length) return;
+  const mark = format === "html" ? "small.rec" : '"recommended"';
+  if (new Set(q.options.filter((o) => o.inputType).map((o) => o.inputType)).size > 1)
+    red.push(`${id}: 推奨の印の付いた問いの選択は radio か checkbox のどちらか 1 つにそろえる（印の選択肢と別の選択肢を両方選べる形にしない）`);
+  if (q.options.some((o) => o.locked))
+    red.push(`${id}: 推奨の印の付いた問いの選択肢に checked・disabled・hidden を付けない（印の選択肢が初めから選ばれている・選べない・見えない形にしない）`);
+  if (q.keyFieldsInOpts === false)
+    red.push(`${id}: 推奨の印の付いた問いは、答えの欄（name="${q.key}"）をどれも選択肢（label.opt）の中の radio・checkbox にする（select・字の欄・hidden・label.opt の外の欄があると、ブラウザでは 1 つ目がずれる）`);
+  const est = format === "html" ? ".estimate" : '"estimate"';
+  if (!RULES.rec.dests.includes(dest))
+    red.push(`${id}: 推奨の印（${mark}）はオーナー宛て（copy・artifact）のページだけ。お客さん宛て（${dest ?? "宛先なし"}）は印を付けず、AI の今の見込みは根拠つきで ${est} へ`);
+  else if (!RULES.rec.kinds.includes(q.kind))
+    red.push(`${id}: 推奨の印（${mark}）は作り方の分かれ道の問い（judge）だけ。事実を聞く問い（${q.kind ?? "形なし"}）は印を付けず、AI の今の見込みは根拠つきで ${est} へ`);
+  const n = marked.reduce((s, { o }) => s + (o.recCount ?? 1), 0);
+  if (n > 1) red.push(`${id}: 推奨の印は 1 問に 1 つ（今 ${n}）。推せる案が 2 つあるなら問いを分けるか印を外す`);
+  for (const { o, i } of marked) {
+    const name = `${id}: 選択肢「${o.head.slice(0, 20)}」の推奨の印`;
+    if (o.value === UNKNOWN) { red.push(`${name}: 「分からない」には付けない`); continue; }
+    if (format === "html" && !o.hasB) red.push(`${name}: 見出し（<b>）が要る（「（推奨）」の字は見出しの後に出る）`);
+    if (i !== 0 && n === 1) red.push(`${name}: 印は 1 つ目の選択肢だけ（推す案を 1 つ目に置く）`);
+    if (o.rec === false) red.push(`${name}: "recommended" は理由の文字（推す理由 1 行）で書く`);
+    else if (!o.rec) red.push(`${name}に理由が無い（推す理由を 1 行・${mark}）`);
+    else if (len(o.rec) > limits.rec_chars) red.push(`${name}の理由が ${len(o.rec)} 字（${limits.rec_chars} 字まで）: ${o.rec.slice(0, 30)}…`);
+  }
+}
+
 // ── 決まり: 問いの形（HTML でも JSON でも同じ物）を 1 か所で見る
-export function checkPage(page, { valuesPath = null, prior = null } = {}) {
-  const company = loadCompany(valuesPath);
+export function checkPage(page, { valuesPath = null, valuesStarts = [], values = null, prior = null } = {}) {
+  const loaded = values ?? loadValues({ explicit: valuesPath, starts: valuesStarts });
+  const company = loaded.company;
   const limits = { ...RULES.limits, ...(company.limits ?? {}) };
   const words = compileWords(company);
   const rx = (k) => new RegExp(RULES[k], "u");
   const red = [...page.shape];
+  if (loaded.error) red.push(loaded.error);
   const warn = [];
   const { dest, holes, questions: qs } = page;
 
@@ -814,8 +1043,7 @@ export function checkPage(page, { valuesPath = null, prior = null } = {}) {
     if (!q.required) red.push(`${id}: 答えずに送れる（最初の選択肢か入力の欄に required を付ける）`);
     if (q.checkboxRequired) red.push(`${id}: checkbox に required を付けない（その 1 つを選ばないと送れなくなる）`);
     const real = q.options.filter((o) => o.value !== UNKNOWN);
-    for (const o of real.filter((o) => o.rec))
-      red.push(`${id}: 選択肢「${o.head.slice(0, 20)}」に印（${page.format === "html" ? "おすすめ" : '"recommended"'}）を付けない（AI の今の見込みは根拠つきで ${page.format === "html" ? ".estimate" : '"estimate"'} へ）`);
+    checkRec(q, id, dest, page.format, limits, red);
     const vals = [];
     for (const o of real) {
       if (len(o.head) > limits.option_chars) red.push(`${id}: 選択肢の見出しが ${len(o.head)} 字（${limits.option_chars} 字まで・中身は結果の 1 行へ）: ${o.head.slice(0, 30)}…`);
@@ -856,6 +1084,51 @@ export function checkPage(page, { valuesPath = null, prior = null } = {}) {
 //   {"answered": {"問いの鍵": "前の答えの ID か URL"}, "checked": {"問いの鍵": "引いた結果（ID・URL・引いた言葉）"}} を返す。
 //   answered に在る鍵が問いに残っていれば赤。値の表に命令が在る時だけ、引いた結果（answered か checked）の無い問いも赤。
 //   値の表に命令が無く --prior も無ければ何も見ない（今までどおり）。
+// ── 答えの形（qa-html/2）。型の JS（references/template.html の payload）が作る形の正本。配る口・貼り戻しの道具はこれで照らす。
+export const ANSWER_FORM = "qa-html/2";
+const ANSWER_ROOT_CAUSE = "  直し: 赤の行を 1 つずつ潰さず、細目 §3「まず構造を疑う」で原因（答えを作る・受ける道具が形を写していないか）から直す";
+export const ANSWER_KEYS = ["form", "title", "version", "receipt", "answered_at", "answers", "labels", "supp", "free"];
+const ANSWER_KEY_RE = /^[A-Za-z0-9_]+$/;
+const isObj = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
+const strList = (v) => Array.isArray(v) && v.every((x) => typeof x === "string");
+// extra: 配る口が答えに足す自分の印（例 答えた方の名）の鍵。名指しした鍵だけ許す（名指しの無い鍵は知らない鍵＝赤）。
+export function checkAnswer(ans, { extra = [] } = {}) {
+  const red = [];
+  if (!isObj(ans)) return { ok: false, red: ["答えが JSON の物（{…}）でない"] };
+  for (const k of extra) if (ANSWER_KEYS.includes(k)) red.push(`足す鍵 ${k} は答えの形 ${ANSWER_FORM} の鍵と重なる`);
+  if (ans.form !== ANSWER_FORM) red.push(`答えの形が ${ANSWER_FORM} でない（今 ${JSON.stringify(ans.form)}）＝写した古い形か知らない形`);
+  for (const k of Object.keys(ans)) if (!ANSWER_KEYS.includes(k) && !extra.includes(k)) red.push(`答えに知らない鍵 ${k}（形 ${ANSWER_FORM} の鍵は ${ANSWER_KEYS.join("・")}）`);
+  for (const k of ANSWER_KEYS) if (!(k in ans)) red.push(`答えに鍵 ${k} が無い`);
+  for (const k of ["title", "free"]) if (k in ans && typeof ans[k] !== "string") red.push(`${k} が文字でない`);
+  if ("version" in ans && !(typeof ans.version === "string" && /^[0-9A-Za-z._-]+$/.test(ans.version))) red.push(`版（version）は半角英数字と . _ - だけ（今 ${JSON.stringify(ans.version)}）`);
+  if ("receipt" in ans && !(typeof ans.receipt === "string" && /^R[0-9]{6}-[A-Z0-9]{4}$/.test(ans.receipt))) red.push(`受付番号（receipt）が R<YYMMDD>-<英数 4 字> でない（今 ${JSON.stringify(ans.receipt)}）`);
+  if ("answered_at" in ans && !(typeof ans.answered_at === "string" && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(Z|[+-]\d{2}:\d{2})$/.test(ans.answered_at))) red.push(`答えた時（answered_at）がタイムゾーン付きの時刻でない（今 ${JSON.stringify(ans.answered_at)}）`);
+  const answers = isObj(ans.answers) ? ans.answers : null;
+  if ("answers" in ans && !answers) red.push("answers が {問いの鍵: [選択肢の鍵…]} でない");
+  for (const [k, v] of Object.entries(answers ?? {})) {
+    if (!ANSWER_KEY_RE.test(k)) red.push(`answers の問いの鍵 ${k} が半角英数字と _ でない`);
+    if (!strList(v)) red.push(`answers.${k} が文字の並びでない`);
+  }
+  if ("labels" in ans) {
+    if (!isObj(ans.labels)) red.push("labels が {問いの鍵: [選んだ見出し…]} でない");
+    else {
+      for (const [k, v] of Object.entries(ans.labels)) {
+        if (answers && !(k in answers)) red.push(`labels に answers に無い問いの鍵 ${k}`);
+        else if (!strList(v) || (answers && strList(answers[k]) && v.length !== answers[k].length)) red.push(`labels.${k} が answers.${k} と同じ数の文字の並びでない`);
+      }
+      for (const k of Object.keys(answers ?? {})) if (!(k in ans.labels)) red.push(`labels に問いの鍵 ${k} が無い`);
+    }
+  }
+  if ("supp" in ans) {
+    if (!isObj(ans.supp)) red.push("supp が {問いの鍵: 文} でない");
+    else for (const [k, v] of Object.entries(ans.supp)) {
+      if (answers && !(k in answers)) red.push(`supp に answers に無い問いの鍵 ${k}`);
+      if (typeof v !== "string") red.push(`supp.${k} が文字でない`);
+    }
+  }
+  return { ok: red.length === 0, red };
+}
+
 export const PRIOR_FORMAT = "qa-prior/1";
 export function priorInput(page) {
   return {
@@ -950,6 +1223,44 @@ export function checkFile(path, { priorPath, priorExplicit = false, ...opts } = 
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const args = process.argv.slice(2);
+  // 使う側が写さずに直に読む口（型・答えの形）。ページの検査とは別の入口
+  if (args[0] === "--template") {
+    if (args.length > 1) {
+      console.error(`--template は引数を取らない（知らない引数: ${args.slice(1).join(" ")}）`);
+      process.exit(2);
+    }
+    process.stdout.write(readFileSync(TEMPLATE, "utf8"));
+    process.exit(0);
+  }
+  if (args[0] === "--answer") {
+    // 知らない引数は黙って捨てず止める（--json・--extra 鍵,鍵・file か - の 1 つだけ）
+    const rest = args.slice(1);
+    const extraAt = rest.indexOf("--extra");
+    const known = rest.filter((x, i) => !(x === "--json" || x === "--extra" || (extraAt >= 0 && i === extraAt + 1)));
+    if (known.length > 1 || known.some((x) => x.startsWith("--") && x !== "-") || (extraAt >= 0 && (rest[extraAt + 1] == null || rest[extraAt + 1].startsWith("--")))) {
+      console.error(`使い方: check.mjs --answer <file|-> [--extra 鍵,鍵] [--json]（知らない引数: ${rest.join(" ")}）`);
+      process.exit(2);
+    }
+    if (!known.length && process.stdin.isTTY) {
+      console.error("--answer: 答えの file か - を渡す（標準入力が端末のまま待たない）");
+      process.exit(2);
+    }
+    let res;
+    try {
+      const src = !known.length || known[0] === "-" ? readFileSync(0, "utf8") : readFileSync(known[0], "utf8");
+      const ex = args.indexOf("--extra") >= 0 ? String(args[args.indexOf("--extra") + 1] ?? "").split(",").map((x) => x.trim()).filter(Boolean) : [];
+      res = checkAnswer(JSON.parse(src), { extra: ex });
+    } catch (e) {
+      res = { ok: false, red: [`答えの JSON が読めない: ${e.message}`] };
+    }
+    if (args.includes("--json")) console.log(JSON.stringify({ form: ANSWER_FORM, ...res }, null, 2));
+    else {
+      console.log(`${res.ok ? "🟢 緑" : "🔴 赤"}  答えの形 ${ANSWER_FORM}`);
+      for (const r of res.red) console.log(`  ✗ ${r}`);
+      if (!res.ok) console.log(ANSWER_ROOT_CAUSE);
+    }
+    process.exit(res.ok ? 0 : 1);
+  }
   const takesValue = new Set(["--values", "--prior"]);
   const KNOWN = new Set([...takesValue, "--json", "--run-prior", "--prior-input"]);
   // 知らない印・同じ印の 2 度書きは既定で止める（打ち間違えた印を黙って無視して、頼んだ検査をせずに緑にしない。
@@ -968,7 +1279,7 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
   // file は全部照らす（1 つ目だけ照らして残りを黙って通さない）
   const files = args.filter((a, i) => !a.startsWith("--") && !takesValue.has(args[i - 1]));
   if (!files.length) {
-    console.error("使い方: check.mjs <file.html|file.json> [<file> …] [--json] [--values <skill-values.json>] [--prior <引いた結果.json>] [--run-prior] [--prior-input]");
+    console.error("使い方: check.mjs <file.html|file.json> [<file> …] [--json] [--values <skill-values.json>] [--prior <引いた結果.json>] [--run-prior] [--prior-input]／check.mjs --template／check.mjs --answer <file|-> [--extra 鍵,鍵] [--json]");
     process.exit(2);
   }
   const perPage = ["--prior", "--run-prior", "--prior-input"].filter((f) => args.includes(f));
@@ -985,9 +1296,9 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
     }
   }
   // guard の qa_page は cwd をページの dir にして呼ぶ＝ページが repo の外（窓の scratchpad）でも値の表を見つけるため、窓の repo も起点に足す
-  const valuesPath = at("--values") ?? findValues(dirname(resolve(file)), process.cwd(), process.env.CLAUDE_PROJECT_DIR);
+  const values = loadValues({ explicit: at("--values"), starts: [dirname(resolve(file))] });
   const priorPath = at("--prior") ?? priorPathFor(file);
-  let opts = { valuesPath, priorPath, priorExplicit: args.includes("--prior") };
+  let opts = { values, priorPath, priorExplicit: args.includes("--prior") };
   if (args.includes("--prior-input") || args.includes("--run-prior")) {
     const page = readPage(file);
     if (page.error) {
@@ -998,19 +1309,23 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
       console.log(JSON.stringify(priorInput(page), null, 2));
       process.exit(0);
     }
-    const cmd = String(loadCompany(valuesPath).prior_check_cmd ?? "").trim();
+    if (values.error) {
+      console.error(values.error);
+      process.exit(2);
+    }
+    const cmd = String(values.company.prior_check_cmd ?? "").trim();
     if (!cmd) {
       console.error("--run-prior: 値の表（config/skill-values.json）に docs-kit.qa-html.prior_check_cmd が無い");
       process.exit(2);
     }
-    const got = runPrior(page, cmd, { cwd: valuesPath ? dirname(dirname(resolve(valuesPath))) : process.cwd() });
+    const got = runPrior(page, cmd, { cwd: values.path ? dirname(dirname(resolve(values.path))) : process.cwd() });
     // 落ちた時も書き換える（前の回の結果を残すと、後でページの path だけで呼ぶ guard が古い結果で緑にする）
     writeFileSync(priorPath, JSON.stringify(got.raw ? { ...got.raw, page_version: page.version } : { error: got.error }, null, 2) + "\n");
-    opts = { valuesPath, prior: { ...got, from: `prior_check_cmd → ${priorPath}` } };
+    opts = { values, prior: { ...got, from: `prior_check_cmd → ${priorPath}` } };
   }
   const results = files.map((f) => {
-    const v = at("--values") ?? findValues(dirname(resolve(f)), process.cwd(), process.env.CLAUDE_PROJECT_DIR);
-    const o = f === file ? opts : { valuesPath: v, priorPath: priorPathFor(f), priorExplicit: false };
+    const o = f === file ? opts
+      : { values: loadValues({ explicit: at("--values"), starts: [dirname(resolve(f))] }), priorPath: priorPathFor(f), priorExplicit: false };
     return { file: resolve(f), ...checkFile(f, o) };
   });
   if (args.includes("--json")) console.log(JSON.stringify(results.length === 1 ? results[0] : results, null, 2));
