@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// qa-html の確認ページの検査（外部依存ゼロ・node と python3 で動く）。決まりの表はこのファイルの頭の RULES の 1 か所。
+// qa-html の確認ページの検査（外部依存ゼロ・node と python3 で動く）。決まりの表はこのファイルの頭の RULES の 1 か所（なぜ聞くかの 5 文だけは SKILL.md の表を直に読む）。
 //   repo ごとに足す語・上限は repo の根の config/skill-values.json の docs-kit.qa-html.internal_words・limits
 //   （表の探し方と鍵の一覧は土台の 1 本の口 ../../lib/skill_values.py が持つ）。
 // 赤にする物（形の約束は SKILL.md §型の約束）:
@@ -46,6 +46,23 @@ import { fileURLToPath } from "node:url";
 //    （文字列か {語, 正規表現, 言い換え}）、上限は docs-kit.qa-html.limits で上書きする。
 // 外した欄（差出人・連絡先の欄は要らない）。HTML の class と JSON の鍵が同じ名。
 const DROPPED = [["from", "差出人"], ["contact", "連絡先"]];
+// なぜ聞くかの決まった 5 文の正本は SKILL.md の表（「なぜ聞くかの決まった 5 文」の下の `| \`鍵\` | 文 |` の行）。ここに写さず直に読む。
+// 読めない時は止まる（決まった文を知らずに照らさない）。
+const SKILL_MD = fileURLToPath(new URL("./SKILL.md", import.meta.url));
+export function loadWhy(text = readFileSync(SKILL_MD, "utf8")) {
+  const lines = text.split("\n");
+  const at = lines.findIndex((l) => l.startsWith("なぜ聞くかの決まった 5 文"));
+  const why = {};
+  if (at >= 0) {
+    for (const l of lines.slice(at + 1)) {
+      if (why && Object.keys(why).length && !l.startsWith("|")) break;
+      const m = /^\| `(\w+)` \| ([^|]+?) \|/.exec(l);
+      if (m) why[m[1]] = m[2];
+    }
+  }
+  if (!Object.keys(why).length) throw new Error(`なぜ聞くかの決まった文の表が読めない: ${SKILL_MD}`);
+  return why;
+}
 const ROOT_CAUSE = "  直し: 赤の行を 1 つずつ潰さず、細目 §3「まず構造を疑う」で原因（問いの元の表・前提の写し方）から直す";
 
 export const RULES = {
@@ -71,14 +88,8 @@ export const RULES = {
     "basis_chars": 60,
     "rec_chars": 40
   },
-  // なぜ聞くか（決まった 5 文）。会社の表の docs-kit.qa-html.why で文だけ替えられる（例 once を「この月だけの事を確かめます」）
-  "why": {
-    "mismatch": "資料どうしで食い違っています",
-    "missing": "資料に書いてありません",
-    "law": "今の決まりが法律の決まりと合っていません",
-    "once": "今回だけの事を確かめます",
-    "ambiguous": "資料の書き方が 2 通りに読めます"
-  },
+  // なぜ聞くか（決まった 5 文）。正本は SKILL.md の表（loadWhy が直に読む）。会社の表の docs-kit.qa-html.why で文だけ替えられる
+  "why": loadWhy(),
   // この答えで変わる事を書かなくてよい選択肢＝ひとことに書かせる逃げ道だけ（鍵と見出しの両方が合う時）
   "free_options": { "other": ["ほかの答え", "別の決め方"], "none": ["当てはまらない"] },
   // ひとことに書かせる選択肢＝鍵が free_options.other（ほかの答え・別の決め方）か、字（見出し・添え書き・変わる事）がこれに当たる物。data-supp="need"（JSON は "supp": "need"）が要る
@@ -103,7 +114,8 @@ export const RULES = {
   //   「推奨」の字は型の CSS が出す・JSON は "recommended": "理由"）。お客さん宛て（send）と事実を聞く問いは印なし＝見込みは .estimate の枠だけ
   "rec": { "dests": ["copy", "artifact"], "kinds": ["judge"] },
   // 印の字は型が出す＝ページの文に書いたこの言葉は赤（印は small.rec・"recommended" で付ける）
-  "recommend": "おすすめ|お勧め|お薦め|オススメ|推奨",
+  // 語の並びは選択肢の画面の見張り（plugin guard の ask_shape の _REC_WORD・大小を問わない）と同じ（tests/test_doc_tool_values.py が照らす）
+  "recommend": "推奨|おすすめ|お勧め|お薦め|オススメ|おススメ|イチオシ|recommend|suggested",
   "estimate_word": "見込み|予測",
   // 1 画面 1 問＝ほかの問いの答えに頼らない（「前の問いの答えで決まります」の類は赤）
   "prior_ref": "(?:前|上|ひとつ前|1\\s*つ前|さっき)の(?:問(?!い合)|質問|設問|答え|回答)|前問",
@@ -887,7 +899,7 @@ export function checkPage(page, { valuesPath = null, valuesStarts = [], values =
   const company = loaded.company;
   const limits = { ...RULES.limits, ...(company.limits ?? {}) };
   const words = compileWords(company);
-  const rx = (k) => new RegExp(RULES[k], "u");
+  const rx = (k) => new RegExp(RULES[k], k === "recommend" ? "iu" : "u");
   const red = [...page.shape];
   if (loaded.error) red.push(loaded.error);
   const warn = [];
