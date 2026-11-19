@@ -82,7 +82,9 @@ GUARD_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 def sibling_plugin_file(plugin, rel, guard_root=None):
     """隣の plugin の file の path か ""。正本を写さず直に読むための在り処探し。
     repo の形: plugins/guard と plugins/<plugin> が隣。
-    入れた plugin の形: cache/<市場>/guard/<版> と cache/<市場>/<plugin>/<版>。同じ版を先に、無ければ新しい物。"""
+    入れた plugin の形: cache/<市場>/guard/<版> と cache/<市場>/<plugin>/<同じ版>。
+    同じ版だけを見る（別の版へ降りない＝正本と guard の版が食い違ったまま照らさない。見つからなければ "" で、
+    呼ぶ側が止めて「同じ版で入れ直す」と名指しする）。"""
     here = guard_root or GUARD_ROOT
     cand = os.path.join(os.path.dirname(here), plugin, rel)
     if os.path.isfile(cand):
@@ -90,11 +92,7 @@ def sibling_plugin_file(plugin, rel, guard_root=None):
     ver = os.path.basename(here)
     market = os.path.dirname(os.path.dirname(here))
     same = os.path.join(market, plugin, ver, rel)
-    if os.path.isfile(same):
-        return same
-    import glob
-    found = sorted(glob.glob(os.path.join(market, plugin, "*", rel)), key=os.path.getmtime, reverse=True)
-    return found[0] if found else ""
+    return same if os.path.isfile(same) else ""
 
 
 def foundation_file(rel, guard_root=None):
