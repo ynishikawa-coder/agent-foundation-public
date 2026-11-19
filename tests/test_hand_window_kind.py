@@ -27,7 +27,7 @@ HAND_REPLY = ("⏳ 待ち\n目的: 作り物の設定を入れる\n手順: 作�
               "あなたがやること: 上の手順。これが済むまで 作り物の続き に進めません")
 
 
-def hand_log(tmp_path, first, title):
+def hand_log(tmp_path, first, title, reply=HAND_REPLY):
     rows = [
         {"type": "user", "message": {"role": "user", "content": first}},
         {"type": "assistant", "message": {"role": "assistant", "content": [
@@ -35,17 +35,32 @@ def hand_log(tmp_path, first, title):
              "input": {"session_id": "session_HAND01", "title": title}}]}},
         {"type": "user", "message": {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "t1",
                                                                   "content": "ok"}]}, "toolUseResult": {"ok": True}},
-        {"type": "assistant", "message": {"role": "assistant", "content": [{"type": "text", "text": HAND_REPLY}]}},
+        {"type": "assistant", "message": {"role": "assistant", "content": [{"type": "text", "text": reply}]}},
     ]
     p = tmp_path / "hand.jsonl"
     p.write_text("\n".join(json.dumps(r, ensure_ascii=False) for r in rows), encoding="utf-8")
     return p
 
 
-def stop_reason(tmp_path, first, title):
+def stop_reason(tmp_path, first, title, reply=HAND_REPLY):
     env = {"CLAUDE_CODE_REMOTE": "true", "AF_SESSION_WATCH_TMP": str(tmp_path / "tmp")}
-    return sw.stop({"transcript_path": str(hand_log(tmp_path, first, title)), "session_id": "session_HAND01",
-                    "last_assistant_message": HAND_REPLY}, env)
+    return sw.stop({"transcript_path": str(hand_log(tmp_path, first, title, reply)), "session_id": "session_HAND01",
+                    "last_assistant_message": reply}, env)
+
+
+INNER_REPLY = HAND_REPLY.replace("作り物の値を入れる", "直し_0020 の値を入れる")
+
+
+def test_親窓の子と書いた手の窓は_中の言葉を_Stop_が差し戻す(tmp_path):
+    """手の窓の相手はオーナー＝中の言葉の照らしを飛ばさない（ai_window が window_kind を読む）。"""
+    why = stop_reason(tmp_path, CHILD, "🙋⏳ 手: 作り物の設定", INNER_REPLY)
+    assert why and "- inner:" in why
+
+
+def test_手の窓でない子の窓は_中の言葉を照らさない(tmp_path):
+    """返し先が別の窓の窓（🤖）は人への文でないので中の言葉を見ない（今までどおり）。"""
+    why = stop_reason(tmp_path, CHILD, "🤖⏳ 作り物の作業", INNER_REPLY)
+    assert not why or "- inner:" not in why
 
 
 def test_親窓の子と書いた手の窓が_人の印_なら_Stop_は通す(tmp_path):
