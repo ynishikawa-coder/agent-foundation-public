@@ -1,6 +1,7 @@
 ---
 name: make-deck
 description: NotebookLM で顧客向け資料（提案スライド/プレゼン）を作る2工程 skill。Claude が事実確定 Brief→NotebookLM が体裁/図/圧縮→表紙と透かし除去だけ finish_deck.py で固定。「NotebookLMで資料」「提案/プレゼン資料作って」「デッキ作って」「顧客向けスライド」で起動。全 agent 共通。合言葉:「提案資料作って」「顧客向けスライド作って」「NotebookLMでプレゼン」。
+send-gate: notebooklm\W{0,2}\s+source\s+add\b
 ---
 
 # make-deck — NotebookLM 2工程 資料作成
@@ -98,7 +99,7 @@ Brief は**プレゼンでなく完全な情報パッケージ**。評価軸は�
 - PDF 化: この skill の `scripts/` に依存なし。任意の HTML→PDF（ブラウザ印刷 / `wkhtmltopdf` 等）で可。文字が読めれば OK。
 
 ## 工程4 — NotebookLM 投入 + プロンプト（既定＝notebooklm-py CLI 自動・Chrome/手貼り不要）
-**送信可否ゲート（必須）**: NotebookLM は外部サービス（Google）。**顧客の機微（個人名・個人の金額・未公開の内部情報）を含む素材は投入前に送信可否を確認**（秘密・社外への送信の正本は核 §1・§4）。機微は Brief 段階で落とすのが原則。
+**送信可否ゲート（必須）**: NotebookLM は外部サービス（Google）。**顧客の機微（個人名・個人の金額・未公開の内部情報）を含む素材は投入前に送信可否を確認**（秘密・社外への送信の正本は核 §1・§4）。機微は Brief 段階で落とすのが原則。投入の命令（`notebooklm source add`）は頭の `send-gate` の宣言で guard の `send_go` が照らし、素材を見せた後のオーナーの go が無ければ止める。
 
 **標準プロンプトは正本 1 本＝`prompts/base.txt`**（規律を焼き込む唯一の場所）。**プロンプトを手書きしない／正本に案件値を直書きしない**（次案件へ混入する）。案件ごとに変わる値だけを JSON に書き、`render_prompt.py` が一時プロンプトへ差し込む（**未指定スロットが1つでも残れば非0で止まる**＝未置換の `<<対象>>` が顧客資料に出る事故を関所で塞ぐ）:
 ```bash

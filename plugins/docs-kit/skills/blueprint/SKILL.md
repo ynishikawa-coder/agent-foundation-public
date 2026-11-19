@@ -1,6 +1,7 @@
 ---
 name: blueprint
 description: データの行き先(何を/いつ/どう加工し/どこへ)を機能別に洗い出すBlueprint HTML。現状版=本番コード/設計版=理論モック/要件から、根拠無き書き先は赤。「Blueprint作って」「データの行き先を洗い出して」。全agent共通 合言葉:「どこに保存されるか洗い出して」。
+page-check: scripts/check_blueprint.py
 ---
 
 # /blueprint — データの行き先を洗い出す System Blueprint
@@ -56,7 +57,7 @@ repo ごとに違う値は、repo の根（`git rev-parse --show-toplevel`）の
 4. **名前は画面の言葉に合わせる**。段の `name` は理論モック・本番画面で使っている言葉にする（`compare` の突き合わせの鍵＝現状版と設計版で同じ物は同じ `name`）。段 id とタブ id は作り直しでも変えない。
 5. **表の中の値は形を見せる作り値**（人名・金額は架空）。列名・置き場所・書く順番は実物どおり。
 6. **保存**＝`Blueprint_<件名>_<現状版｜設計版>_<YYYYMMDD>.html`。置き場は表の `common.save_dir`（無ければ窓の scratchpad＝git の外・PR に載せない）。`common.save_dir_avoid` には置かない。
-7. **検査してから渡す**＝`python3 <この skill>/scripts/check_blueprint.py <保存した html>` で `SELFTEST OK <n> tabs <m> steps`（exit 0）を取る。NG 行（`<タブid>/<段id>: <理由>`）が出たら細目 §3「まず構造を疑う」で原因（材料の読み方・段の組み方）から直してから渡す。NG になるのは、例外・console.error、飛び先の無い `data-go`／`data-tab-go`、`HOLES` に無い穴番号、現状版で根拠が空か `path:行` の形でない段、段 id の重複。exit 2 は Chrome が無い・起動できない＝検査できていない（OK と言わない）。
+7. **検査してから渡す**＝`python3 <この skill>/scripts/check_blueprint.py <保存した html>` で `SELFTEST OK <n> tabs <m> steps`（exit 0）を取る。NG 行（`<タブid>/<段id>: <理由>`）が出たら細目 §3「まず構造を疑う」で原因（材料の読み方・段の組み方）から直してから渡す。NG になるのは、例外・console.error、飛び先の無い `data-go`／`data-tab-go`、`HOLES` に無い穴番号、現状版で根拠が空か `path:行` の形でない段、段 id の重複。exit 2 は Chrome が無い・起動できない＝検査できていない（OK と言わない）。 Artifact で出す時は guard の `page_check` が publish の前に同じ検査を回し、赤・回せない時は止める（型の印 `<meta name="af-page">` を消さない＝消すと止まる）。
 8. **渡す**＝検査を通した html を表の `common.delivery` で渡す（無ければ Artifact で publish し非公開のまま・共有しない／`file:///…` の絶対パスでもよい）。チャットには URL 1 行と「見どころ」数行（大きい穴・未定の数）だけ。HTML の中身をチャットに再展開しない。
 
 ## 比較（設計版を作ったら、現状版と並べる）

@@ -1,0 +1,4 @@
+- 足した: guard の page_check — Blueprint・理論モックのページを Artifact で出す前に、型の印（template.html の <meta name="af-page">）が名指す skill の page-check（型の検査）を回し、赤・回せない・印を外したページを止める。
+- 足した: guard の ledger_row — 原因の台帳へ書く行（「行き先」の鍵を持つ Notion への書き込み）で、行き先に要る欄（直す窓の URL・直し・直さない理由と決定）が無ければ止める。
+- 足した: 試験 — 宣言した guard の見張りが全部 import でき関数が在る事（入口は実行の時に壊れを飲むので、壊れた見張りは試験で拒む）。
+- 足した: guard の send_go — skill の SKILL.md の頭の send-gate が宣言する外へ送る命令（compose-message の送る命令・make-deck の NotebookLM への素材の投入）を、送る物を見せた後の人の go が会話ログに無いまま打つと止める。

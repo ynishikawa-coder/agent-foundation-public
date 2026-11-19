@@ -1,6 +1,7 @@
 ---
 name: compose-message
 description: 相手と用件を渡すと、コピペでそのまま送れる連絡文面（LINE / メール / Chatwork / Slack 等）を作る skill。「○○さんに△△の件で連絡」「○○へのメッセージ作って」「文面作って」「返信の文案」で起動。出力は必ずコードブロック（blockquote 禁止）。相手ごとの言い回しの決まり（repo ごとの値の表に置く）を自動で当てる。送る口（bot 投稿など）が表にある時だけ、確認を取ってから送る。合言葉:「○○さんに連絡」「文案ちょうだい」「グループに投稿して」「これオーナーに投げて」。
+send-gate: '{value:docs-kit.compose-message.send.send_cmd}(?!.*--dry-run)'
 ---
 
 # /compose-message — 送る文面づくり
@@ -87,7 +88,7 @@ repo の根（`git rev-parse --show-toplevel`）の `config/skill-values.json` �
 ```
 
 1. 通常どおり文面を出す（1 行目は `（媒体）<send.media>・想定の相手: <相手>（bot 投稿）`）
-2. **送る前に go を取る**（「確認してから送る」＝ここだけは確認装置禁止の例外。go 無しで投稿しない）
+2. **送る前に go を取る**（「確認してから送る」＝ここだけは確認装置禁止の例外。go 無しで投稿しない。文面を見せてターンを締め、人の答えを待つ。送る命令は頭の `send-gate` の宣言で guard の `send_go` が照らし、go の跡が無ければ止める）
 3. go が出たら本文を一時ファイルへ書いてから送る（改行が多い文面は引数の直渡しで崩れやすい）:
    ```bash
    <send.send_cmd> --text-file <path>
