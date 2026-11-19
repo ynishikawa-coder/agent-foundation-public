@@ -39,11 +39,13 @@ elif a[:2] in (["plugin", "install"], ["plugin", "update"]):
         sys.exit(0 if a[1] == "install" else 1)
     if a[1] == "update" and name in os.environ.get("FAKE_UPDATE_STUCK", "").split():
         sys.exit(0)
-    table["plugins"][a[2]] = [{"scope": "user", "gitCommitSha": head()}]
+    where = str(Path(os.environ["HOME"]) / ".claude" / "plugins" / "cache" / a[2].split("@")[1] / name / head()[:12])
+    table["plugins"][a[2]] = [{"scope": "user", "installPath": where, "gitCommitSha": head()}]
     table_path.parent.mkdir(parents=True, exist_ok=True)
     table_path.write_text(json.dumps(table))
 elif a[:2] == ["plugin", "list"]:
-    print(json.dumps([{"id": k, "scope": "user", "enabled": True} for k in table["plugins"]]))
+    print(json.dumps([{"id": k, "scope": "user", "enabled": True, "installPath": v[0].get("installPath")}
+                      for k, v in table["plugins"].items()]))
 '''
 
 
