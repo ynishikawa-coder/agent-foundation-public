@@ -6,4 +6,4 @@
 - 直した: qa-html の検査で、推奨の印の付いた問いの答えの欄（name が問いの鍵の物・ページのどこでも）が、どれも `label.opt` の中の radio・checkbox でなければ赤（select・字の欄・hidden で、ブラウザでの 1 つ目をずらさせない）。
 - 直した: qa-html の検査で、型の外の `name` は答えの欄（input・select・textarea）と meta だけ（型の JS は name を持つ要素ならどれも答えとして読む）。推奨の印の付いた問いの答えの欄は、要素の種類を問わず name で数える。
 - 直した: qa-html の検査で、型の外の `for` はひとことの欄を指す label（`for="supp_鍵"` で textarea が在る）だけ・選択（radio・checkbox）に id を付ければ赤・id の重なりは赤（選択肢の label から別の欄を選ばせない）。推奨の印の付いた問いの選択肢に checked・disabled・hidden が在れば赤。
-- 直した: qa-html の検査で、選択肢の枠（label.opt）を「押すとその中の radio・checkbox 1 つが選ばれ、見えて、選べる物」としてブラウザと同じに読む: label.opt に for を付けない・for の付いた label の中に答えの欄を置かない・label.opt の中の欄は radio か checkbox 1 つだけ・label.opt を閉じた details の中に置かない・型の外に hidden・disabled の属性を付けない。
+- 直した: qa-html の検査で、選択肢の枠（label.opt）を「押すとその中の radio・checkbox 1 つが選ばれ、見えて、選べる物」としてブラウザと同じに読む: label.opt に for を付けない・for の付いた label の中に答えの欄を置かない・label.opt の中の欄は radio か checkbox 1 つだけ・label.opt を閉じた details・a・summary の中に置かず中に a・summary を置かない・型の外に hidden・disabled の属性を付けない。

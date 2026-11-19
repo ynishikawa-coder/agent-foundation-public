@@ -138,6 +138,8 @@ REC_HIDE = [
     ("印の選択肢を閉じた details で包む", lambda r: _mark(0)(r).replace('<label class="opt">', '<details><label class="opt">', 1).replace("</label>", "</label></details>", 1), "選択肢の枠（label.opt）を閉じた <details> の中に置かない"),
     ("印の選択肢を fieldset disabled で包む", lambda r: _mark(0)(r).replace('<label class="opt">', '<fieldset disabled><label class="opt">', 1).replace("</label>", "</label></fieldset>", 1), "disabled の属性を付けない"),
     ("問いの fieldset に disabled", lambda r: _mark(0)(r).replace('data-kind="judge"', 'data-kind="judge" disabled', 1), "disabled の属性を付けない"),
+    ("印の選択肢をリンクで包む", lambda r: _mark(0)(r).replace('<label class="opt">', '<a href="#x"><label class="opt">', 1).replace("</label>", "</label></a>", 1), "選択肢の枠（label.opt）を <a>・<summary> の中に置かない"),
+    ("印の選択肢の中のリンク", lambda r: _mark(0)(r).replace(REC, '<a href="#x">x</a>' + REC, 1), "選択肢の枠（label.opt）の中に <a> を置かない"),
     ("閉じタグの中の空白で選択肢の切り方をずらす", lambda r: _mark(1)(r).replace("</label>", "</label >", 1), "検査が読めない < の書き方"),
     ("</ と空白の崩れたタグ", lambda r: _mark(0)(r).replace(REC, '</ x <!-- >' + REC + '<!-- -->', 1), "検査が読めない < の書き方"),
 ]

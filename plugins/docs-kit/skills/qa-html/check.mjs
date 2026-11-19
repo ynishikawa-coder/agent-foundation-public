@@ -363,11 +363,13 @@ function treeReds(rest) {
           red.push(`選択肢の枠（label.opt）の中の欄は radio か checkbox 1 つだけ（ほかの欄があると押した先が替わる）: ${m[0].slice(0, 50)}`); break;
         }
       }
+      if ((tag === "a" || tag === "summary") && tags.some(isOpt)) { red.push(`選択肢の枠（label.opt）の中に <${tag}> を置かない（押した先がリンク・開け閉めになる）`); break; }
       if (VOID.has(tag)) continue;
       if (isOpt(m[0])) {
         optControls = 0;
         if (hasAttr(m[0], "for")) { red.push(`選択肢の枠（label.opt）に for を付けない（押した先が for の欄になる）: ${m[0].slice(0, 50)}`); break; }
         if (tags.some((t) => /^<details\b/i.test(t) && !hasAttr(t, "open"))) { red.push("選択肢の枠（label.opt）を閉じた <details> の中に置かない（見えない）"); break; }
+        if (tags.some((t) => /^<(?:a|summary)\b/i.test(t))) { red.push("選択肢の枠（label.opt）を <a>・<summary> の中に置かない（押した先がリンク・開け閉めになる）"); break; }
       }
       // 表の区切りより内側（一番近い table・td・th より上）に開いている物だけが、ブラウザの閉じの的になる
       let from = 0;
