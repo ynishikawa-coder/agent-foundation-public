@@ -52,20 +52,22 @@ def gh(tool, owner="fake-owner", repo="fake-private", **ti):
 FAKE_HEAD = "0123456789ab" + "c" * 28
 
 
-def _fake_gh(env, head=FAKE_HEAD, writer=WRITER, fail=False, commits=None):
+def _fake_gh(env, head=FAKE_HEAD, writer=WRITER, fail=False, commits=None, total=None):
     """作り物の gh を PATH の頭に置く。実の GitHub へは出ない。
     PR を引く呼び出しには先端と本文の `書いた窓:`（写し）を、commit を引く呼び出しには各 commit の説明（`Claude-Session:` の
-    記録。既定は書いた窓の 1 本）を返す。commits の None の要素は記録の無い commit。"""
+    記録。既定は書いた窓の 1 本・1 本ごとに JSON の 1 行）を返す。commits の None の要素は記録の無い commit。
+    total は PR の commit の数（既定は返す commit の数。GitHub が commit の一覧を 250 本で切る時の作り物に、返す数より大きくする）。"""
     bindir = Path(env["CLAUDE_PROJECT_DIR"]).parent / "fakebin"
     bindir.mkdir(exist_ok=True)
     gh_path = bindir / "gh"
     body = "書いた窓: %s\\n" % writer if writer else "作り物の本文\\n"
     commits = [WRITER] if commits is None else commits
-    msgs = "".join("作り物の commit\\n\\n" + ("Claude-Session: https://claude.ai/code/%s\\n" % c if c else "")
-                   for c in commits)
+    msgs = "".join(json.dumps("作り物の commit\n\n" + ("Claude-Session: https://claude.ai/code/%s\n" % c if c else ""),
+                              ensure_ascii=False).replace("\\", "\\\\") + "\\n" for c in commits)
+    total = len(commits) if total is None else total
     gh_path.write_text("#!/bin/sh\n" + ("echo 'not found' >&2; exit 1\n" if fail else
-                       'case "$*" in *"/commits"*) printf \'%s\' ;; *) printf \'%%s\\n%%s\' \'%s\' \'%s\' ;; esac\n'
-                       % (msgs, head, body)), encoding="utf-8")
+                       'case "$*" in *"/commits"*) printf \'%s\' ;; *) printf \'%%s\\n%%s\\n%%s\' \'%s\' \'%s\' \'%s\' ;; esac\n'
+                       % (msgs, head, total, body)), encoding="utf-8")
     gh_path.chmod(0o755)
     env["PATH"] = str(bindir) + os.pathsep + env.get("PATH", "")
     return env
@@ -90,10 +92,10 @@ def verdict_comment(judged="green", head="0123456789ab", fail=None, stop=False, 
 
 
 def cleanup_body(extra=""):
-    return ("親窓: %s\n書いた窓: %s\njob: 20261119-fake\n触る path: a.py\n検査: check_all: 緑 (1 本)\n\n"
+    return ("書いた窓: %s\njob: 20261119-fake\n触る path: a.py\n検査: check_all: 緑 (1 本)\n\n"
             "## 何をどう変えたか\n作り物の直し。\n\n## 整地（根治の 4 段）\n\n## 1. 問題\n作り物の問題。\n\n"
             "## 2. 原因と同じ原因の他の問題\n**原因**: 作り物。\n\n## 3. 解決（足す物・畳む物・注入の試験と残る穴）\n**足す物**: 作り物。\n\n"
-            "## 4. 未来\n作り物の未来。\n%s" % (STRANGER, WRITER, extra))
+            "## 4. 未来\n作り物の未来。\n%s" % (WRITER, extra))
 
 
 PR_BAD = [
@@ -113,7 +115,7 @@ PR_BAD = [
     ("### Verdict の見出し", gh("add_issue_comment", issue_number=1,
                                 body="再レビューです。\n\n### Verdict\ngreen\n"), "[verdict]", "1 行目"),
     ("整地の欄が無い", gh("create_pull_request", title="作り物", head="b", base="main",
-                         body="親窓: x\n\n## 何をどう変えたか\n作り物。\n"), "[cleanup]", "1. 問題"),
+                         body="job: x\n\n## 何をどう変えたか\n作り物。\n"), "[cleanup]", "1. 問題"),
     ("整地の見出しが古い名", gh("create_pull_request", title="作り物", head="b", base="main",
                               body=cleanup_body().replace("## 2. 原因と同じ原因の他の問題", "## 2. 同じ原因から起きている他の問題")),
      "[cleanup]", "2. 原因と同じ原因の他の問題"),
