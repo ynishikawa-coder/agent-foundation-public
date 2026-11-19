@@ -385,12 +385,16 @@ function treeReds(rest) {
           red.push(`選択肢の枠（label.opt）の中の欄は radio か checkbox 1 つだけ（ほかの欄があると押した先が替わる）: ${m[0].slice(0, 50)}`); break;
         }
       }
+      // 型の JS は fieldset.q[data-qkey] を入れ子も問わず別の画面として集める＝fieldset は入れ子にしない
+      if (tag === "fieldset" && stack.includes("fieldset")) { red.push("<fieldset> の中に <fieldset> を置かない（型の JS が別の画面として集め、中の選択肢が隠れる）"); break; }
       if ((tag === "a" || tag === "summary") && tags.some(isOpt)) { red.push(`選択肢の枠（label.opt）の中に <${tag}> を置かない（押した先がリンク・開け閉めになる）`); break; }
       if (VOID.has(tag)) continue;
       if (isOpt(m[0])) {
         optControls = 0;
         if (hasAttr(m[0], "for")) { red.push(`選択肢の枠（label.opt）に for を付けない（押した先が for の欄になる）: ${m[0].slice(0, 50)}`); break; }
-        if (tags.some((t) => /^<details\b/i.test(t) && !hasAttr(t, "open"))) { red.push("選択肢の枠（label.opt）を閉じた <details> の中に置かない（見えない）"); break; }
+        if (tags.some((t) => /^<details\b/i.test(t))) { red.push("選択肢の枠（label.opt）を <details> の中に置かない（閉じると見えない）"); break; }
+        const box = tags.findLast((t) => /^<fieldset\b/i.test(t));
+        if (!box || !/^[A-Za-z0-9_]+$/.test(attr(box, "data-qkey") ?? "")) { red.push("選択肢の枠（label.opt）は、鍵（data-qkey＝半角英数字と _）を持つ問いの箱（fieldset.q）の中にだけ置く"); break; }
         if (tags.some((t) => /^<(?:a|summary)\b/i.test(t))) { red.push("選択肢の枠（label.opt）を <a>・<summary> の中に置かない（押した先がリンク・開け閉めになる）"); break; }
       }
       // 表の区切りより内側（一番近い table・td・th より上）に開いている物だけが、ブラウザの閉じの的になる
