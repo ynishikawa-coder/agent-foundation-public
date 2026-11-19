@@ -86,6 +86,19 @@ def _matches(patterns, text):
     return any(isinstance(p, str) and p and re.search(p, text) for p in patterns or [])
 
 
+def _find_sibling(plugin, rel, env_name, data):
+    """隣の plugin の正本の在り処。探す順: 環境変数 → 窓の repo の作業の木（見る点を変える PR の枝でもその枝の表で照らす）
+    → 土台の共通の在り処探し（guard_common.sibling_plugin_file・qa_page と同じ口）。"""
+    env = os.environ.get(env_name) or ""
+    if env:
+        return env if os.path.isfile(env) else ""
+    root = G.project_dir(data)
+    cand = os.path.join(root, "plugins", plugin, rel) if root else ""
+    if cand and os.path.isfile(cand):
+        return cand
+    return G.sibling_plugin_file(plugin, rel)
+
+
 def _tmp_file(text, name):
     d = G.tmp_dir("pr_text")
     os.makedirs(d, exist_ok=True)
@@ -149,7 +162,7 @@ def pr_facts(repo, ti):
 def check_verdict(body, data):
     if not looks_verdict(body):
         return []
-    tool = G.find_plugin_file(*VERDICT_FORM[:2], env_name=VERDICT_FORM[2], payload=data)
+    tool = _find_sibling(*VERDICT_FORM, data)
     if not tool:
         return ["判定の形の道具（checker の verdict_form.py）が見つからず、形を確かめられない。plugin checker を入れる"
                 "（または AF_VERDICT_FORM に path）"]
@@ -188,7 +201,7 @@ def check_cleanup(body, repo, data, vals):
     body = FENCE.sub(" ", COMMENT.sub(" ", body))      # 注記（雛形の説明）とコードの囲みの中は数えない
     if NOT_NEEDED.search(body):
         return []
-    tpl = G.find_plugin_file(*CLEANUP_TEMPLATE[:2], env_name=CLEANUP_TEMPLATE[2], payload=data)
+    tpl = _find_sibling(*CLEANUP_TEMPLATE, data)
     if not tpl:
         return ["整地の雛形（dev-flow の preimpl-cleanup の 整地受領証.template.md）が見つからず、欄を確かめられない。"
                 "plugin dev-flow を入れる（または AF_CLEANUP_TEMPLATE に path）"]
@@ -266,22 +279,16 @@ def public_target(repo, data, vals):
     return False, top, ""
 
 
-def find_public_guard(top="", guard_root=None):
-    """public-guard/guard.py の path か ""（土台の repo の根に在る・plugin の外）。"""
+def find_public_guard(top=""):
+    """public-guard/guard.py の path か ""（土台の repo の根に在る・plugin の外）。探す順: 環境変数 → 出す先の repo の取り出し
+    （土台そのものへ出す時）→ 土台の共通の在り処探し（guard_common.foundation_file）。"""
     env = os.environ.get("AF_PUBLIC_GUARD") or ""
     if env:
         return env if os.path.isfile(env) else ""
-    here = guard_root or G.GUARD_ROOT
     rel = os.path.join("public-guard", "guard.py")
-    cands = [os.path.join(top, rel)] if top else []
-    cands.append(os.path.join(os.path.dirname(os.path.dirname(here)), rel))          # repo の形: plugins/guard の 2 つ上
-    market = os.path.dirname(os.path.dirname(here))                                    # 入れた形: cache/<市場>/guard/<版>
-    cands.append(os.path.join(os.path.dirname(os.path.dirname(market)), "marketplaces", os.path.basename(market), rel))
-    for c in cands:
-        if os.path.isfile(c):
-            return c
-    return ""
-
+    if top and os.path.isfile(os.path.join(top, rel)):
+        return os.path.join(top, rel)
+    return G.foundation_file(rel)
 
 def check_public(texts, repo, data, vals):
     is_public, top, words = public_target(repo, data, vals)
