@@ -31,6 +31,25 @@
       "example": "claude plugin install core@agent-foundation --scope user || true"
     },
     {
+      "id": "no-marketplace-update",
+      "what": "土台の目録を足して入口 scripts/setup_plugins.py を呼ぶが、目録を取り直さない setup（前の setup の clone が残る箱では、古い名簿と古い入口のまま入る）",
+      "files": [
+        "*.sh",
+        "*.md",
+        "*.yml",
+        "*.yaml",
+        "*.py",
+        ":(exclude)tests/**",
+        ":(exclude)**/tests/**",
+        ":(exclude)**/test_*.py",
+        ":(exclude)CHANGELOG.md",
+        ":(exclude)**/CHANGELOG.md"
+      ],
+      "pattern": "(?s)\\A(?=.*setup_plugins\\.py)(?=.*?marketplace\\s+add\\b[^\\n]*agent-foundation)(?!.*marketplace\\s+update\\b)",
+      "fix": "土台の docs/核の届け方.md の setup script の 1 行目（marketplace add の後に claude plugin marketplace update agent-foundation）に替える",
+      "example": "claude plugin marketplace add o/agent-foundation-public --scope user || true; python3 \"$af/scripts/setup_plugins.py\" || true"
+    },
+    {
       "id": "atonobin-tag",
       "what": "行き先の無い受け皿の札「後の便」（止めない気づきの札 [後の便｜…]・〔後の便に回した事〕など。土台は台帳へに替えた）",
       "files": [

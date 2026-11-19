@@ -1,0 +1,2 @@
+- 壊れる（1 段目）: 使う側に貼る setup script の 1 行目に `claude plugin marketplace update agent-foundation || true` を足した（docs/核の届け方.md）。前の setup の目録の clone が残る箱では `marketplace add` が何もせず、古い名簿と古い入口のまま入っていた。古い塊も通り続ける（入口が自分で取り直す）が、入口の直しより古い clone が残る箱では塊の側でしか取り直せないので、使う側は貼り替える。残った古い塊は古い形 no-marketplace-update として起動の hook が名指す。
+- 直した: 土台の入口 scripts/setup_plugins.py が、入れる前に目録を出所の先端へ取り直し（入口が変わっていれば新しい入口へ移る）、入った台帳の commit が名簿の版（clone の HEAD）と同じかを照らす。取り直せない・揃わない plugin は ~/.claude/CLAUDE.md に名指して exit 1。

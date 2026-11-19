@@ -129,6 +129,10 @@ def setup_text() -> str | None:
     if lack:
         parts.append(f"- 土台の plugin が入っていない: {' '.join(map(str, lack))}。その plugin の決まりと守りの hook がこの窓で効いていない。"
                      "最初にオーナーへ知らせ、setup script を土台の docs/核の届け方.md の形に直す。\n")
+    state = _read_json(_home() / "af-foundation" / "setup.json") or {}
+    if state.get("refreshed") is False or state.get("stale"):
+        parts.append(f"- 土台の目録を先端へ取り直せず、または名簿の版に揃わずに入った（揃わない plugin: {' '.join(map(str, state.get('stale') or [])) or 'なし'}）。"
+                     "古い決まりと守りの hook で動いている。最初にオーナーへ知らせ、setup script を土台の docs/核の届け方.md の形に直す。\n")
     return ("## 土台の入れ方が古い・欠けている\n" + "".join(parts)) if parts else None
 
 
@@ -242,7 +246,7 @@ def _short(f: dict) -> str:
 
 def stale_at_start_text(f: dict) -> str:
     return ("## 土台が古いまま立った窓 — setup script を直してから引き継いで閉じる\n"
-            f"この窓は main の先端より古い土台で立った（{_short(f)}）。setup script が版（tag）を指している・入れ損ねている"
+            f"この窓は main の先端より古い土台で立った（{_short(f)}）。setup script が版（tag）を指している・目録を取り直さない古い形（1 行目に marketplace update が無い）・入れ損ねている"
             "ので、直さずに立て直しても同じ物が入る。この返事では頼みに手を付けず次をする（人の作業は新しい窓で止まらず続く・🙋 の窓も同じ）:\n"
             "1. 環境の setup script を土台の docs/核の届け方.md の形（main の先端を入れる）に直す: "
             "claude-code-remote の get_environment → update_environment（直せる環境の時）。\n"
