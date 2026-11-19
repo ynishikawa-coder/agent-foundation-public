@@ -9,6 +9,7 @@
     python3 big_picture.py compare <合意した絵.json> <実物の絵.json>
     python3 big_picture.py explain <絵.json> <起きた問題の id>
     python3 big_picture.py pick    <repo の根> <PR が触った file>...
+    python3 big_picture.py kin     <絵.json> <兄弟の合意した絵.json>...
 
 check:   形の誤り（欄の欠け・知らない値・重なった id・行き先の無い矢印・無い箱を指す問題）は exit 1。
          合意の絵で意図が空の箱は「赤い点」として 1 行ずつ警告する（exit 0・止めない）。
@@ -20,6 +21,10 @@ pick:    PR が触った file から、照らす合意した絵を選ぶ。値�
          文字列（repo 全体で 1 枚）か、[{name, path, covers: [path の頭…]}] の並び（1 repo に製品が複数）。
          無ければ docs/全体の絵.json 1 枚。選んだ絵を 1 行ずつ「絵 <名> <在り処>」と出す（exit 0）。
          どの絵も覆わない file が 1 つでもある・値の形が誤り・絵が無い 時は exit 2（照らせない＝黙って通さない）。
+kin:     意図を問う前に、ほかの製品の合意した絵（兄弟）で答え済みの意図を引く。意図が空の箱ごとに、兄弟の絵で id・名（t）・
+         記録にある理由（why）のどれかが同じで意図のある箱を候補に出し、兄弟にも無い赤い点だけを「聞く」と数える（exit 0）。
+         同じ理由かは窓が読んで決め、同じなら intent を「［<兄弟の題>と同じ答え］<兄弟の意図>」で埋める（問わない）。
+         兄弟が合意の絵でない（kind 合意・agreed が無い）・形の誤り・兄弟を 1 つも渡さない 時は exit 2（合意していない意図を引かない）。
 
 標準ライブラリだけ。
 """
@@ -335,7 +340,67 @@ def pick(root, files):
     return ([] if errs else chosen), errs
 
 
+def _norm(v):
+    return re.sub(r"\s+", "", v) if _text(v) else ""
+
+
+def kin(pic, siblings):
+    """(候補 [(箱, [(兄弟の題, 兄弟の箱, 何が同じか)])], 兄弟にも無い赤い点の箱 [箱], 誤り [文])。"""
+    errs = []
+    if not siblings:
+        return [], [], ["兄弟の合意した絵が 1 つも渡されていない（全製品の合意の版を決定の記録から引いて渡す）"]
+    e, _ = check(pic)
+    errs += ["絵の形の誤り: " + x for x in e]
+    sibs = []
+    for i, sp in enumerate(siblings):
+        e, _ = check(sp)
+        meta = sp.get("meta") if isinstance(sp, dict) else None
+        title = (meta or {}).get("title") or "兄弟 %d" % (i + 1)
+        if e:
+            errs += ["兄弟「%s」の形の誤り: %s" % (title, x) for x in e]
+        elif meta.get("kind") != "合意" or not isinstance(meta.get("agreed"), dict):
+            errs.append("兄弟「%s」は合意の絵でない（合意していない意図は引かない）" % title)
+        else:
+            sibs.append((title, sp))
+    if errs:
+        return [], [], errs
+    found, left = [], []
+    for b in pic.get("boxes", []):
+        if _text(b.get("intent")):
+            continue
+        cands = []
+        for title, sp in sibs:
+            for sb in sp.get("boxes", []):
+                if not _text(sb.get("intent")):
+                    continue
+                same = [n for n, k in (("id", "id"), ("名", "t"), ("理由", "why"))
+                        if _norm(b.get(k)) and _norm(b.get(k)) == _norm(sb.get(k))]
+                if same:
+                    cands.append((title, sb, same))
+        (found.append((b, cands)) if cands else left.append(b))
+    return found, left, []
+
+
 def main(argv):
+    if len(argv) >= 3 and argv[1] == "kin":
+        try:
+            found, left, errs = kin(load(argv[2]), [load(a) for a in argv[3:]])
+        except (ValueError, OSError, json.JSONDecodeError) as e:
+            found, left, errs = [], [], ["絵が読めない: %s" % e]
+        for e in errs:
+            print("照らせない: " + e)
+        if errs:
+            return 2
+        for b, cands in found:
+            print("箱 %s（%s）: 兄弟で答え済み" % (b.get("id"), b.get("t")))
+            for title, sb, same in cands:
+                print("  - 「%s」の箱 %s（%s・%s が同じ）の意図: %s" % (title, sb.get("id"), sb.get("t"), "・".join(same),
+                                                                 sb.get("intent")))
+        for b in left:
+            print("箱 %s（%s）: 兄弟にも無い＝聞く" % (b.get("id"), b.get("t")))
+        print("KIN 兄弟で答え済みの候補 %d・聞く赤い点 %d（同じ理由の箱は［<兄弟の題>と同じ答え］で埋め、問わない）"
+              % (len(found), len(left)))
+        return 0
     if len(argv) >= 3 and argv[1] == "pick":
         try:
             chosen, errs = pick(argv[2], argv[3:])
