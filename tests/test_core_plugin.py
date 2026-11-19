@@ -125,12 +125,30 @@ def test_入口を呼ぶ_setup_は古い形に当たらない():
 
 
 def test_古い形の見張りは時間の上限で打ち切り_黙って一部だけにしない(tmp_path):
-    """注入: 見張りの時間を使い切った形 → 当たった所までを黙って返さず TimeoutError（起動では「見張りが動かなかった」と名指し）。"""
+    """注入: 1 つの file の照らしだけで上限を越える形（正規表現の後戻りが爆ぜる行と file）→ file の合間を待たず、
+    上限の秒で打ち切って TimeoutError（起動では「見張りが動かなかった」と名指し）。上限の内なら当たりを返す。"""
     import time
-    _olds_repo(tmp_path / "p", {"CLAUDE.md": "<!-- AF-CORE:BEGIN -->\n"})
+    _olds_repo(tmp_path / "p", {"CLAUDE.md": "<!-- AF-CORE:BEGIN -->\n", "slow.md": "a" * 64 + "b\n"})
+    table = tmp_path / "古い形.json"
+    row = {"id": "slow", "what": "遅い形", "files": ["slow.md"], "pattern": "(a+)+$", "fix": "-", "example": "a"}
+    table.write_text(json.dumps({"olds": [row]}), encoding="utf-8")
+    t0 = time.monotonic()
     with pytest.raises(TimeoutError):
-        kaku.find_olds(tmp_path / "p", deadline=time.monotonic() - 1)
-    assert kaku.find_olds(tmp_path / "p", deadline=time.monotonic() + 60)
+        kaku.find_olds_bounded(tmp_path / "p", budget=1, table=table)
+    assert time.monotonic() - t0 < 10
+    found = kaku.find_olds_bounded(tmp_path / "p", budget=60)
+    assert [(r["id"], f) for r, f in found] == [("af-core-frame", "CLAUDE.md")]
+
+
+def test_入口を呼ぶ_file_に名で入れる行が残れば古い形に当たる():
+    """注入: docs の新しい形（入口を呼ぶ）に、土台の plugin を名で入れる行・目録の名の変数を足す → 入口の名が在っても当たる。"""
+    row = next(r for r in kaku.olds_table() if r["id"] == "plugin-name-copy")
+    doc = (ROOT / "docs" / "核の届け方.md").read_text(encoding="utf-8")
+    block = re.search(r"<!-- setup-script.*?-->\s*```bash\n(.*?)\n\s*```", doc, re.S).group(1)
+    for extra in ("claude plugin install guard@agent-foundation --scope user || true",
+                  'for p in core guard; do claude plugin install "$p@agent-foundation"; done',
+                  'M=agent-foundation\nclaude plugin install "core@$M"'):
+        assert row["re"].search(block + "\n" + extra), extra
 
 
 def test_古い形の一覧の欄が欠けると読めない(tmp_path):

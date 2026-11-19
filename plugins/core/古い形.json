@@ -13,7 +13,7 @@
     },
     {
       "id": "plugin-name-copy",
-      "what": "土台の目録を足して plugin を入れるのに、土台の入口 scripts/setup_plugins.py を呼ばない setup（plugin の名を写して入れる・土台が plugin を足しても入らない・入れ損ねの見張りにも入らない）",
+      "what": "土台の目録を足して plugin を入れるのに、土台の入口 scripts/setup_plugins.py を呼ばない setup（plugin の名を写して入れる・土台が plugin を足しても入らない・入れ損ねの見張りにも入らない。入口を呼んでいても、土台の plugin を名で入れる行・目録の名を置く変数が残れば古い形）",
       "files": [
         "*.sh",
         "*.md",
@@ -26,7 +26,7 @@
         ":(exclude)CHANGELOG.md",
         ":(exclude)**/CHANGELOG.md"
       ],
-      "pattern": "(?sm)\\A(?!.*setup_plugins\\.py)(?:.*?marketplace\\s+add\\b[^\\n]*agent-foundation|.*?plugins?\\s+(?:install|i)\\b(?:[^\\n]|\\\\\\n)*?@[^\\n]*agent-foundation|.*?^[ \\t]*(?:export[ \\t]+)?\\w+=[\"']?agent-foundation[\"']?[ \\t]*$)",
+      "pattern": "(?sm)plugins?\\s+(?:install|i)\\b(?:[^\\n]|\\\\\\n)*?@[^\\n]*agent-foundation|^[ \\t]*(?:export[ \\t]+)?\\w+=[\"']?agent-foundation[\"']?[ \\t]*$|\\A(?!.*setup_plugins\\.py).*?marketplace\\s+add\\b[^\\n]*agent-foundation",
       "fix": "土台の docs/核の届け方.md の setup script の形（目録を足して scripts/setup_plugins.py を呼ぶ）に替える",
       "example": "claude plugin install core@agent-foundation --scope user || true"
     },
