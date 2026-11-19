@@ -84,11 +84,20 @@ def test_写しを戻すと照らしが赤になる(tmp_path):
     assert copy.name == "skill_values.py" and LITERAL.search(copy.read_text(encoding="utf-8"))
 
 
+def _types():
+    """型の一覧の正本は skill_values.TYPES（試験に写さない）。"""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("sv_types", SV)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod.TYPES
+
+
 def test_鍵の一覧の型は決まった物だけ():
     def walk(where, keys):
         for k, raw in keys.items():
             spec = {"type": raw} if isinstance(raw, str) else raw
-            assert spec["type"] in ("str", "int", "bool", "list", "dict", "text", "any"), f"{where}.{k}"
+            assert spec["type"] in _types(), f"{where}.{k}"
             if "keys" in spec:
                 walk(f"{where}.{k}", spec["keys"])
     for plugin, sec in SCHEMA["sections"].items():
@@ -297,3 +306,23 @@ def test_guard_は問題の鍵だけ既定で動き守りを止めない(tmp_pat
     assert v["context_limit"] == SCHEMA["sections"]["guard"]["keys"]["context_limit"]["default"]
     assert v["ask_question_max_chars"] == 30
     assert "nazo" not in v
+
+
+def test_正規表現の鍵に読めない形を入れるとその鍵は既定に倒れ名指しされる(tmp_path):
+    """注入: 値の表の正規表現の並びに壊れた形を入れる→見張りが re.error で黙って通さず、その鍵だけ既定で動き、問題に名が出る。"""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("sv_inj", SV)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    cfg = tmp_path / "config"
+    cfg.mkdir()
+    (tmp_path / ".git").mkdir()
+    (cfg / "skill-values.json").write_text(json.dumps({"guard": {"qa_page_exempt": ["docs/(", "ok/"],
+        "irreversible_bash_extra": [["[", "x"]], "number_request_exempt": ["^見本"]},
+        "session-watch": {"watch-log": {"reply_exempt": ["("]}}}), encoding="utf-8")
+    got, problems = mod.section("guard", strict=False, starts=[str(tmp_path)], env={})
+    assert "qa_page_exempt" not in got and "irreversible_bash_extra" not in got
+    assert got["number_request_exempt"] == ["^見本"]
+    assert any("qa_page_exempt" in p for p in problems) and any("irreversible_bash_extra" in p for p in problems)
+    got2, problems2 = mod.section("session-watch", "watch-log", strict=False, starts=[str(tmp_path)], env={})
+    assert "reply_exempt" not in got2 and any("reply_exempt" in p for p in problems2)
