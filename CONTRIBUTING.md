@@ -68,7 +68,7 @@
 - **新しい試験は守る約束の名の新しい file に置く**（元から在る `tests/test_*.py` の試験を増やさない）。並ぶ PR が同じ file の末尾へ足すと 1 本入るたびに残りが全部衝突するので、足す所を PR ごとに分ける。直す・消す・parametrize の行を足すのはよい。AI の窓の枝（`claude/`）の PR の差分で `scripts/pr_shape.py` が照らす（CI の `check`・人の枝は止めない）。
 - まだ無い物（他の窓が先に置く物）に頼る試験は、無い間は `pytest.skip` で飛ばし、理由を書く。消さない・赤のまま置かない。
 - 赤は試験を飛ばす・消すで消さず、細目 §3「まず構造を疑う」で原因から直す。
-- 手元で走らせる: `python3 -m pytest -q tests/`
+- 手元で走らせる: `bash scripts/pytest.sh -q tests/`（pytest の設定の file と PYTEST_ADDOPTS を読まない入口。直に `python3 -m pytest` を呼ばない）
 
 ## 6. 検査の入口（CI）
 

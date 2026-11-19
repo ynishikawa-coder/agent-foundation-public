@@ -3,6 +3,9 @@
 前の形: `a[2] not in json.dumps(s)`＝目録の出所を JSON の文字列にして、土台の名が中に在るかで見ていた。
 fork（`<名>-fork`）や、名を道に含む別の出所も「今の目録」と見なして外さず、古い目録から入った。
 今の形: 目録の `repo`（GitHub の短い名）か `url` が、`marketplace add` に渡す名と同じ時だけ今の目録と見なす。
+字の照らし（json.dumps の形が戻っていないか）と動きの照らし（外すか）は別の試験に分ける。字の照らしを取り出す所で
+先に止めると、文書を丸ごと戻した時に動きの試験がどれも同じ所で止まり、動きの歯が効いているかが結果から読めない
+（tests/test_setup_stale_catalog_source_teeth.py が片方ずつ壊して照らす）。
 本物の claude は要らない（外す命令は印を打つ殻に替え、外すかの決め方だけを回す）。
 """
 import json
@@ -17,14 +20,17 @@ DOC = ROOT / "docs" / "核の届け方.md"
 NAME = "ynishikawa-coder/agent-foundation-public"
 
 
-def decide_part():
-    """塊の頭から外す行までを取り、外す命令を印を打つ echo に替える。"""
+def decide_text():
+    """塊の頭から外す行まで（docs/核の届け方.md の字のまま）。"""
     b = re.search(r"<!-- setup-script.*?-->\s*```bash\n(.*?)\n\s*```", DOC.read_text(encoding="utf-8"), re.S).group(1)
     lines = [s.strip() for s in b.splitlines()]
     end = next(i for i, s in enumerate(lines) if "marketplace remove agent-foundation" in s)
-    part = "\n".join(lines[: end + 1])
-    assert "json.dumps" not in part, "出所を文字列の包含で見る形が戻った"
-    return part.replace("claude plugin marketplace remove agent-foundation", "echo REMOVED")
+    return "\n".join(lines[: end + 1])
+
+
+def decide_part():
+    """外すかを決める所の、外す命令を印を打つ echo に替えた形（動きの試験が回す）。"""
+    return decide_text().replace("claude plugin marketplace remove agent-foundation", "echo REMOVED")
 
 
 def removes(tmp_path, source, entry=True):
@@ -42,6 +48,10 @@ def removes(tmp_path, source, entry=True):
     r = subprocess.run(["bash", "-c", part], capture_output=True, text=True, env={"HOME": str(home), "PATH": "/usr/bin:/bin"})
     assert "Traceback" not in r.stderr, r.stderr
     return "REMOVED" in r.stdout
+
+
+def test_字_出所を文字列の包含で見る形が戻っていない():
+    assert "json.dumps" not in decide_text(), "出所を文字列の包含で見る形が戻った"
 
 
 def test_合格_今の目録は外さない(tmp_path):

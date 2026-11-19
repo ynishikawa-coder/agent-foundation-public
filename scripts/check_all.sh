@@ -15,7 +15,7 @@ at="@$(git rev-parse --short=12 HEAD 2>/dev/null || echo 不明)"
 
 echo "== pytest tests/"
 ran=$((ran + 1))
-if ! python3 -m pytest -q tests/; then
+if ! bash scripts/pytest.sh -q tests/; then
   failed+=("pytest")
 fi
 
