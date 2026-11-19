@@ -14,6 +14,7 @@ import pytest
 
 ROOT = Path(__file__).resolve().parent.parent
 ENTRY = ROOT / "scripts" / "setup_plugins.py"
+KAKU = ROOT / "plugins" / "core" / "scripts" / "kaku.py"
 DOC = ROOT / "docs" / "核の届け方.md"
 
 FAKE = r'''#!/usr/bin/env python3
@@ -60,6 +61,8 @@ def foundation(tmp_path, names):
     (up / "scripts").mkdir(parents=True)
     (up / ".claude-plugin").mkdir()
     shutil.copy2(ENTRY, up / "scripts" / "setup_plugins.py")
+    (up / "plugins" / "core" / "scripts").mkdir(parents=True)
+    shutil.copy2(KAKU, up / "plugins" / "core" / "scripts" / "kaku.py")  # 入口が読む比べ方の正本（本物の clone は repo 全体）
     write_manifest(up, names)
     git(tmp_path, "init", "-q", "-b", "main", str(up))
     git(up, "add", "-A")
@@ -79,7 +82,11 @@ def run(tmp_path, root, broken="", **extra):
     fake.write_text(FAKE, encoding="utf-8")
     fake.chmod(0o755)
     home = tmp_path / "home"
-    home.mkdir(exist_ok=True)
+    known = home / ".claude" / "plugins" / "known_marketplaces.json"
+    if not known.exists():  # setup script の marketplace add が書く登録（目録の clone＝入口の在り処）
+        known.parent.mkdir(parents=True, exist_ok=True)
+        known.write_text(json.dumps({"agent-foundation": {"source": {"source": "github", "repo": "o/r"},
+                                                          "installLocation": str(root)}}), encoding="utf-8")
     env = dict(os.environ, HOME=str(home), CLAUDE_BIN=str(fake), FAKE_LOG=str(tmp_path / "log"), FAKE_BROKEN=broken,
                FAKE_ROOT=str(root), **extra)
     r = subprocess.run([sys.executable, str(root / "scripts" / "setup_plugins.py")], capture_output=True, text=True,

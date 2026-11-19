@@ -496,7 +496,19 @@ def without_check(env, tmp_path, ver="v1", docs_kit_ver=None):
     pg = tmp_path / "marketplaces" / "market" / "public-guard"
     if not pg.exists():
         shutil.copytree(ROOT / "public-guard", pg)
+    clone_at(pg.parent, ver)  # 市場の取り出しは git で、入った版（cache の dir の名）が歴史に在る
     return dict(env, _AF_TEST_GUARD=str(root / "scripts" / "guard.py"))
+
+
+def clone_at(clone, ver):
+    """作り物の市場の取り出しを git にし、今の中身を版 ver（tag）として持たせる（guard は入った版の中身だけを読む）。"""
+    g = lambda *a: subprocess.run(["git", "-C", str(clone), "-c", "user.name=t", "-c", "user.email=t@example.invalid", *a],
+                                  capture_output=True, text=True)
+    if not (clone / ".git").exists():
+        g("init", "-q")
+        g("add", "-A")
+        g("commit", "-qm", "版")
+    g("tag", "-f", ver)
 
 
 def publish(path, cwd="", **extra):

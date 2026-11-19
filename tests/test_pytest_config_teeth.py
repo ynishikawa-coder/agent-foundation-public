@@ -14,6 +14,7 @@ import subprocess
 from pathlib import Path
 
 import pytest
+from entry_box import copy_entry
 
 ROOT = Path(__file__).resolve().parent.parent
 ENTRY = "scripts/pytest.sh"
@@ -29,9 +30,7 @@ CONFIGS = {
 
 
 def box(tmp_path, config=None):
-    for rel in ["scripts/check_all.sh", ENTRY]:
-        (tmp_path / rel).parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(ROOT / rel, tmp_path / rel)
+    copy_entry(tmp_path)
     (tmp_path / "tests").mkdir()
     (tmp_path / "tests" / "test_box.py").write_text(
         "def test_回れば落ちる():\n    assert False\n\ndef test_回れば通る():\n    pass\n", encoding="utf-8")
@@ -88,15 +87,21 @@ def test_注入_設定の_file_の_addopts_で減らす形も効かない(tmp_pa
     assert code != 0 and "deselected" not in out, out
 
 
-DIRECT = re.compile(r"-m pytest\b|[\"']-m[\"'],\s*[\"']pytest[\"']|pytest\.main\(|(^\s*(run:\s*)?|`)pytest\s", re.M)
+DIRECT = re.compile(r"-m\s+pytest\b|[\"']-m[\"'],\s*[\"']pytest[\"']|pytest\.main\(|(^\s*(run:\s*)?|`)pytest\s", re.M)
+SELF = "tests/test_pytest_config_teeth.py"  # 拾う形を注入の文として持つ（ここだけ外す）
 
 
 def direct_callers():
-    """入口を通らず pytest を直に呼ぶ検査・CI の定義と、その呼び方を人に教える文書（試験の中の小箱の回し方は除く）。"""
+    """入口を通らず pytest を直に呼ぶ所（検査・CI の定義・道具・試験の中の小箱の回し方）と、その呼び方を人に教える文書。
+
+    前の形は試験の中の小箱の回し方を外したので、小箱で `python -m pytest` を直に呼ぶ試験が外の設定や
+    PYTEST_PLUGINS を受けたまま回り、その結果を頼る照らし（conftest_teeth など）が外から変えられた。
+    """
     files = [*ROOT.glob("scripts/**/*.sh"), *ROOT.glob("scripts/**/*.py"), *ROOT.glob(".github/workflows/*.yml"),
+             *ROOT.glob("tests/**/*.py"), *ROOT.glob("plugins/**/*.py"), *ROOT.glob("plugins/**/*.sh"),
              ROOT / "CONTRIBUTING.md"]
     return sorted(str(p.relative_to(ROOT)) for p in files
-                  if p.relative_to(ROOT).as_posix() != ENTRY and DIRECT.search(p.read_text(encoding="utf-8")))
+                  if p.relative_to(ROOT).as_posix() not in (ENTRY, SELF) and DIRECT.search(p.read_text(encoding="utf-8")))
 
 
 def test_検査と_CI_は入口を通して試験を回す():
@@ -106,5 +111,7 @@ def test_検査と_CI_は入口を通して試験を回す():
 def test_注入_直に呼ぶ行を拾う():
     for text in ["out=$(python3 -m pytest -q tests/)\n", "        run: pytest -q tests/\n",
                  "subprocess.run([sys.executable, '-m', 'pytest', 'tests'])\n", '"$PY" -m pytest -q tests/\n',
-                 "pytest.main(['tests'])\n", "本物の試験を `pytest -m real_claude tests/` で全部\n"]:
+                 "pytest.main(['tests'])\n", "本物の試験を `pytest -m real_claude tests/` で全部\n",
+                 "python3 -I -m pytest -q tests/\n", "python3 -m  pytest tests/\n",
+                 "r = subprocess.run([sys.executable, \"-m\", \"pytest\", \"-q\", str(tmp_path)])\n"]:
         assert DIRECT.search(text), text

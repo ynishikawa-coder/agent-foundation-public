@@ -19,7 +19,7 @@ description: チェック役として、書いた窓と別の窓（レビュー�
 1. **差分を取る**: `git fetch origin main <枝> && git diff <積んだ基点 か origin/main>...origin/<枝>`（PR 本文に `積んだ基点:` があればそこから）。
 2. **点で見る**（下の表）。依頼の「やる物」・完了の条件の各行を 1 行ずつ照らし、1 行ごとに所見を書く（問題なしも 1 行）。
 3. **物差しを自分で回す**: 依頼の物差し（この repo なら `bash scripts/check_all.sh`）を PR の先端で回す。赤なら点 4 の fail（blocked ではない）。
-4. **判定を PR のコメントに残す**（下の形）。出す前に `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/verdict_form.py" <下書き> --writer <書いた窓の組> --head <PR の先端>` で形を見る（書いた窓の組は `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/pr_writer.py" --writers --head <先端> --base origin/main`（PR の repo の取り出しの中で回す） が `,` で並べて出す）（exit 0 で出す）。出す道具（GitHub のコメント）の前でも、守りの hook（guard の `pr_text`）が同じ道具を直に呼び、崩れていれば止める。
+4. **判定を PR のコメントに残す**（下の形）。出す前に `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/verdict_form.py" <下書き> --writer <書いた窓の組> --head <PR の先端>` で形を見る（書いた窓の組は `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/pr_writer.py" --writers --head <先端>`（PR の repo の取り出しの中で回す。比べる元は道具が出所の今の main を聞いて決める＝手元の origin/main を渡さない） が `,` で並べて出す）（exit 0 で出す）。出す道具（GitHub のコメント）の前でも、守りの hook（guard の `pr_text`）が同じ道具を直に呼び、崩れていれば止める。
 5. **返す**: green は依頼した窓へ、red は書いた窓へ直に 1 行。行は手で組まず、出した判定から `verdict_form.py <判定> --writer <書いた窓の組> --head <先端> --return-line --pr <番号> --branch <枝> --ruler <物差しの最後の行>` が組んだ物をそのまま送る（形は `verdict_form.py` の `RETURN_LINE`）。red の所見は直す行の一覧でなく根治の入口: 書いた窓は細目 §3「まず構造を疑う」で原因から直す。
 
 ## 見る点
