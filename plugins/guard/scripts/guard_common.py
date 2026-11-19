@@ -123,24 +123,27 @@ def project_dir(payload=None):
 def values(payload=None):
     """値の表の "guard" を既定に重ねて返す。読めない・型が違う値は既定のまま。"""
     out = dict(DEFAULTS)
+    for k, v in table("guard", payload).items():
+        if k in DEFAULTS and isinstance(v, type(DEFAULTS[k])) and not (isinstance(v, bool)):
+            out[k] = v
+    return out
+
+
+def table(section, payload=None):
+    """値の表の 1 つの節を dict で返す（無い・読めない時は {}）。読む順は values() と同じ。他の plugin の口も使う。"""
     path = os.environ.get("SKILL_VALUES") or ""
     if not path:
         root = project_dir(payload)
         path = os.path.join(root, VALUES_REL) if root else ""
     if not path or not os.path.isfile(path):
-        return out
+        return {}
     try:
         with open(path, encoding="utf-8") as f:
-            table = json.load(f)
-        got = table.get("guard") if isinstance(table, dict) else None
+            got = json.load(f)
+        got = got.get(section) if isinstance(got, dict) else None
     except Exception:
-        return out
-    if not isinstance(got, dict):
-        return out
-    for k, v in got.items():
-        if k in DEFAULTS and isinstance(v, type(DEFAULTS[k])) and not (isinstance(v, bool)):
-            out[k] = v
-    return out
+        return {}
+    return got if isinstance(got, dict) else {}
 
 
 def truthy(v):
