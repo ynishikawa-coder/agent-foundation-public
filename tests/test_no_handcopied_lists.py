@@ -16,7 +16,7 @@ COUNT = re.compile(r"hook\s*\d+\s*つ|の\s*\d+\s*つ）")
 def test_PR_の型は触った_path_と残りの行き先を手で写させない():
     t = (ROOT / ".github" / "pull_request_template.md").read_text(encoding="utf-8")
     assert "触る path" not in t
-    assert "行き先: 直す窓" not in t and "`- <台帳の行の URL>` だけ" in t
+    assert "行き先: 直す窓" not in t and "`- 台帳の行 <行の id の末尾 12 字>` だけ" in t
     c = (ROOT / "CONTRIBUTING.md").read_text(encoding="utf-8")
     assert "冒頭 4 行: 親窓・書いた窓・job・検査" in c
 
