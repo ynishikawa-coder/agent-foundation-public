@@ -412,7 +412,10 @@ HEDGE = re.compile(r"ほぼ|大体|だいたい|たぶん|多分|おそらく|�
 FINISH = re.compile(r"終わ|済ん|済み|完了|直っ|直り|直せ|直した|でき|出来|通っ|通る|通り|緑|動い|動く|効い|効く|揃っ|片付")
 AHEAD = re.compile(r"次の|次回|来週|来月|明日|今後|あとで|後で|予定|見込み")   # 先の事の見込みは完了の言い切りでない
 PAST = re.compile(r"た\s*$|た[）)」]|ました|でした|済み|完了")   # 過去の言い切り（見込みの語が在っても数える）
-#   照らしは句（、で切る）ごと: 「書き直した、次の版はたぶん来週できる。」の「た、」は前の句の言い切りで、見込みの句に掛けない。
+SENTENCE = re.compile(r"[^。！？!?\n]+")
+#   照らす単位は 2 段: 見込みかどうか（AHEAD・PAST）は句（、で切る）ごとに見て見込みの句だけを外し、
+#   言い切らない語と終わりの語の重なりは残りの文で見る。「書き直した、次の版はたぶん来週できる。」の「た、」は
+#   見込みの句に掛からず、「直った、と思います。」のように 2 つの語が「、」をまたぐ言い切りは拾う。
 
 
 def reply_exempt(data=None):
@@ -467,11 +470,11 @@ def time_hits(body):
 
 
 def hedge_hits(body):
-    """終わりの語と同じ文にある言い切らない語の並び（「」の中の言葉＝引いた言葉は数えない）。"""
+    """見込みの句を外した文に、終わりの語と並んで在る言い切らない語の並び（「」の中の言葉＝引いた言葉は数えない）。"""
     out = []
-    for sent in CLAUSE.findall(QUOTED.sub(" ", body)):
-        h = HEDGE.search(sent)
-        if h and FINISH.search(sent) and not (AHEAD.search(sent) and not PAST.search(sent)):
+    for sent in SENTENCE.findall(QUOTED.sub(" ", body)):
+        kept = "、".join(c for c in CLAUSE.findall(sent) if not (AHEAD.search(c) and not PAST.search(c)))
+        if HEDGE.search(kept) and FINISH.search(kept):
             out.append(sent.strip()[:40])
     return out
 
