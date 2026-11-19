@@ -193,12 +193,12 @@ def test_挙げた原因は全部台帳に行き先つきで持ち_全部済む�
 
 
 # 残りの受け皿: 各所が自分の名の受け皿（後の便・🎯箱・他の窓へ回す・残りに書く…）を持たず、原因の台帳 1 つへ向ける。
-# (path, その所を見分ける語) — 語を含む行に「原因の台帳」が無ければ赤。
+# (path, その所を見分ける語) — 語はちょうど 1 行に当たり、その行に「原因の台帳」が無ければ赤。
 残りの所 = [
     ("plugins/core/細目.md", "**一時しのぎ**"),
     ("plugins/core/細目.md", "③道具・仕組みの都合"),
     ("plugins/core/細目.md", "どの窓にも分けなかった論点"),
-    ("plugins/core/細目.md", "1 窓 1 枝 1 PR に入らなかった仕事"),
+    ("plugins/core/細目.md", "- **並走**"),
     ("plugins/core/細目.md", "| 一部 |"),
     ("plugins/dev-flow/skills/design-mode/SKILL.md", "どちらで出る時も"),
     (".github/pull_request_template.md", "## 残り"),
@@ -236,7 +236,7 @@ def test_残りの受け皿は原因の台帳_1_つで_名だけの受け皿を�
     missing = []
     for rel, key in 残りの所:
         lines = [ln for ln in (ROOT / rel).read_text(encoding="utf-8").splitlines() if key in ln]
-        if not lines or not all("原因の台帳" in ln for ln in lines):
+        if len(lines) != 1 or "原因の台帳" not in lines[0]:   # 2 行に当たる語は、片方を古い形に戻しても緑になる
             missing.append(f"{rel}: {key}")
     assert not missing, missing
     olds = ["他の窓へ回す", "後の便", "🎯箱 か PR 本文", "残りに書", "直す側へ回す", "必要になった段で足す",
