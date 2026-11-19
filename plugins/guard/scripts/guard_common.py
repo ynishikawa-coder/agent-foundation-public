@@ -24,6 +24,15 @@ import skill_values as SV  # noqa: E402  値の表の 1 本の口（土台の sk
 
 DEFAULTS = SV.defaults("guard")
 
+# 値の表の鍵のうち、正規表現の並び（壊れた形を values_problems が名指す）と、跡の形の並び
+REGEX_LIST_KEYS = ("qa_page_exempt", "ask_pick_one_exempt", "ask_inner_terms_extra", "ask_term_allow", "ask_shape_exempt",
+                   "ask_rec_notice_exempt", "ask_prior_exempt", "outbound_secret_allow", "number_request_exempt",
+                   "pr_cleanup_exempt_repos", "pr_words_exempt_repos", "public_repos_extra")
+# 見張りが自分で読めない形を名指す鍵＝values() で落とさない（ask_shape は分けて知らせ、outbound は鍵を外さず止める）
+SELF_NAMED_KEYS = ("ask_term_allow", "ask_inner_terms_extra", "ask_rec_notice_exempt", "outbound_secret_allow")
+MATCHER_KEYS = ("ask_prior_lookup", "context_handoff")
+PATTERN_DICT_KEYS = ("irreversible_bash_extra", "irreversible_tools_extra")     # [{"pattern": 正規表現, "why": 理由}]
+
 # 窓の種類の決まり（session-watch の title-mark と同じ線）: 最初の頼みの文の返し先が別の窓なら子の窓（文脈の知らせだけが読む）。
 RETURN_TO_WINDOW = re.compile(r"返し先\s*[=＝:：]\s*session_[A-Za-z0-9]+")
 CHILD_OF = re.compile(r"（親窓\s*session_[A-Za-z0-9]+\s*の子）")
@@ -93,6 +102,8 @@ def values(payload=None):
     for k, v in got.items():
         if k in DEFAULTS and v is not None:
             out[k] = v
+    for k in set(REGEX_LIST_KEYS) - set(SELF_NAMED_KEYS):
+        out[k] = [p for p in out[k] if _regex_ok(p)]   # 読めない正規表現は渡さない（1 本で見張りごと落ちて黙って通らない・values_problems が名指す）
     return out
 
 
@@ -600,10 +611,87 @@ def table(section, payload=None):
 
 
 def values_problems(payload=None):
-    """(表の path, 表全体の問題の並び)。表が無ければ (None, [])。"""
+    """(表の path, 表全体の問題の並び)。表が無ければ (None, [])。名指しの 1 か所: 鍵と型（SV.check）に、guard の値の
+    中身（読めない正規表現・読めない跡の形・古い形の跡）を足す。"""
     path = SV.find(starts=_starts(payload))
     table, problems = SV.load(path)
-    return path, problems + SV.check(table)
+    problems = problems + SV.check(table)
+    got = table.get("guard") if isinstance(table, dict) else None
+    return path, problems + (_guard_value_problems(got) if isinstance(got, dict) else [])
+
+
+def _regex_ok(p):
+    if not isinstance(p, str) or not p:
+        return False
+    try:
+        re.compile(p)
+    except re.error:
+        return False
+    return True
+
+
+def _guard_value_problems(got):
+    """guard の欄の、型は合うが中身が読めずに黙って効かない値の名指し（型の違いは SV.check が名指す）。"""
+    out = []
+    for k, v in got.items():
+        if k not in DEFAULTS or not isinstance(v, list):
+            continue
+        if k in REGEX_LIST_KEYS:
+            out += ["guard.%s: 正規表現として読めない %s" % (k, json.dumps(p, ensure_ascii=False)[:160])
+                    for p in v if not _regex_ok(p)]
+        elif k in MATCHER_KEYS:
+            out += ["guard.%s: %s" % (k, b) for b in trace_matchers({k: v}, k)[1]]
+            olds = [spec for spec in v if isinstance(spec, str) and spec]
+            if olds:
+                out.append("guard.%s: 古い形の跡（文字列＝「道具の名 + 入力の JSON」の字に当てる・入力にその字を含むだけの呼び出し"
+                           "も跡に数える）%s。今は読むが、新しい形 {\"tool\": 名の正規表現, \"input\": {欄: 正規表現}} へ移す"
+                           "（2 段目で読まなくなる・CONTRIBUTING.md §8・形は skill `guard:guard-rules`）"
+                           % (k, json.dumps(olds, ensure_ascii=False)[:200]))
+        elif k in PATTERN_DICT_KEYS:
+            out += ["guard.%s: pattern が正規表現として読めない %s" % (k, json.dumps(e, ensure_ascii=False)[:160])
+                    for e in v if not _regex_ok(e.get("pattern") if isinstance(e, dict) else None)]
+    return out
+
+
+# ── 値の表の跡の形を読む口（ask_prior_lookup・context_handoff。上の compile_matcher・matches_tool の上に積む）──
+# 形（MATCHER_KEYS の値の 1 つ）:
+#   {"tool": "<正規表現>"}                                … 道具の名の全体に当てる
+#   {"tool": "<正規表現>", "input": {"<欄>": "<正規表現>"}} … 名の全体に当て、挙げた入力の欄（a.b で下の欄）の全部にも当たる時
+#   "<正規表現>"（古い形・壊れる 1 段目で読み続ける）       … 「道具の名 + 入力の JSON」の字に search で当てる（入力にその字を
+#                                                           含むだけの呼び出しも跡に数える）。起動の時に古い形と名指す
+# 読めない形は跡に数えず（数える側に倒さない）、名指す。input を書くなら欄を 1 つ以上の {…}（[]・null・""・{} は読めない形
+# ＝黙って名だけの形に広げない）。新しい形の読みは compile_matcher（1 本の読み口）に任せ、ここは古い形と input の厳しさだけを足す。
+def _sig(block):
+    try:
+        body = json.dumps(block.get("input") or {}, ensure_ascii=False, sort_keys=True)
+    except (TypeError, ValueError):
+        body = str(block.get("input") or "")
+    return "%s %s" % (block.get("name") or "", body)
+
+
+def trace_matcher(spec):
+    """跡の形 1 つを「道具の呼び出し 1 つ（tool_use の塊）→ 当たるか」の関数に。読めない形は ValueError か re.error。"""
+    if isinstance(spec, str):
+        if not spec:
+            raise ValueError("空の字")
+        old = re.compile(spec)
+        return lambda block: bool(old.search(_sig(block)))
+    if isinstance(spec, dict) and "input" in spec and not (isinstance(spec["input"], dict) and spec["input"]):
+        raise ValueError("input は欄を 1 つ以上の {欄の名: 正規表現}（%s は読まない＝名だけの形に広げない）"
+                         % json.dumps(spec["input"], ensure_ascii=False))
+    compiled = compile_matcher(spec)
+    return lambda block: matches_tool(block, [compiled])
+
+
+def trace_matchers(vals, key):
+    """値の表の跡の形の並びを (読める形の関数の並び, 壊れた形の名指しの並び) に。壊れた形は跡に数えない。"""
+    ok, bad = [], []
+    for spec in vals.get(key) or []:
+        try:
+            ok.append(trace_matcher(spec))
+        except (ValueError, TypeError, re.error) as e:
+            bad.append("跡の形として読めない %s（%s）" % (json.dumps(spec, ensure_ascii=False)[:160], e))
+    return ok, bad
 
 
 def truthy(v):
@@ -700,10 +788,28 @@ def text_of(row):
     return ""
 
 
+# hook の差し戻しを会話ログに user の行で残す時の頭（Claude Code が書く決まった字）。版によって isMeta が付かない。
+HOOK_FEEDBACK = ("Stop hook feedback:",)
+
+
+def is_hook_feedback(row):
+    """hook の差し戻しが user の行で残った物か（isMeta の有る無しに頼らない）。"""
+    return (row.get("type") == "user" and "toolUseResult" not in row
+            and text_of(row).lstrip().startswith(HOOK_FEEDBACK))
+
+
 def is_owner_row(row):
-    """人がタイプした行か（道具の返り・差し戻し〔isMeta〕を除く）。"""
+    """人がタイプした行か（道具の返り・差し戻し〔isMeta か hook の差し戻しの頭〕を除く）。"""
     return (row.get("type") == "user" and not row.get("isMeta") and "toolUseResult" not in row
-            and bool(text_of(row).strip()))
+            and bool(text_of(row).strip()) and not is_hook_feedback(row))
+
+
+def new_request(row, current_prompt_id):
+    """頼みの境か: 人の行で、頼みの印（promptId）が今の頼みと違う物。同じ印の行は同じ頼みの続き（差し戻し等）。"""
+    if not is_owner_row(row):
+        return False
+    pid = row.get("promptId")
+    return not (pid and pid == current_prompt_id)
 
 
 def first_owner_text(path):

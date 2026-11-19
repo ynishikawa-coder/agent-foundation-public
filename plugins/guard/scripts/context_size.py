@@ -10,8 +10,9 @@
 
 止めた文の最後には入口（guard.py）が、出し直すだけで済ませず原因を細目 §3「まず構造を疑う」で探す行を付ける。
 Stop（締めの差し戻し・オーナー同意 2026-11-19: 文で知らせるだけの所は AI だけ止めて書き直させる形にしてよい）:
-  目安を越えた後、越えた行より後に引き継ぎの跡（値の表の context_handoff の正規表現に「道具の名 + 入力の JSON」が当たる
-  道具の呼び出し。既定は後継の窓を立てる・親の窓へ送る・引き継ぎの file を書く）が無いまま AI が締めようとしたら、
+  目安を越えた後、越えた行より後に引き継ぎの跡（値の表の context_handoff の跡の形に道具の名と入力の欄が当たる
+  道具の呼び出し〔形は guard_common の trace_matchers〕。既定は後継の窓を立てる・親の窓へ送る・引き継ぎの file を書く）が
+  無いまま AI が締めようとしたら、
   decision=block で AI だけを差し戻し、引き継がせる。人の入力・操作は止めない（返事が届くのが引き継ぎの後になるだけ）。
   上限: 同じターンで context_stop_max 回（既定 2）まで。越えたら通して届ける（窓が回り続けない）。0 で差し戻さない。
   引き継ぎの跡が一度あれば、その窓では二度と差し戻さない。今の文脈が目安の手前（まとめ直して縮んだ後）も差し戻さない。
@@ -20,7 +21,6 @@ from __future__ import annotations
 
 import json
 import os
-import re
 
 import guard_common as G
 
@@ -94,26 +94,18 @@ def check(data, vals):
 
 
 # ── Stop: 目安を越えた後も引き継がずに締める AI を差し戻す ──
-def _tool_sigs(row):
-    msg = row.get("message")
-    c = msg.get("content") if isinstance(msg, dict) else None
-    for b in c if isinstance(c, list) else []:
-        if isinstance(b, dict) and b.get("type") == "tool_use":
-            try:
-                body = json.dumps(b.get("input") or {}, ensure_ascii=False, sort_keys=True)
-            except (TypeError, ValueError):
-                body = str(b.get("input") or "")
-            yield "%s %s" % (b.get("name") or "", body)
+def _handed(row, matchers):
+    return any(m(b) for m in matchers for b in G.tool_uses(row))
 
 
-def handoff_state(tpath, limit, patterns):
-    """(目安を越えたか, 越えた後に引き継ぎの跡が在るか)。"""
+def handoff_state(tpath, limit, matchers):
+    """(目安を越えたか, 越えた後に引き継ぎの跡が在るか)。跡は道具の名と入力の欄で見る（guard_common の trace_matchers）。"""
     over, handed = False, False
     for row in G.iter_rows(tpath):
         if row.get("type") != "assistant":
             continue
         if over:
-            if any(re.search(p, sig) for sig in _tool_sigs(row) for p in patterns):
+            if _handed(row, matchers):
                 handed = True
                 break
             continue
@@ -123,7 +115,7 @@ def handoff_state(tpath, limit, patterns):
             if tot >= limit:
                 over = True
                 # 越えた行そのものの道具の呼び出しも越えた後に数える
-                if any(re.search(p, sig) for sig in _tool_sigs(row) for p in patterns):
+                if _handed(row, matchers):
                     handed = True
                     break
     return over, handed
@@ -157,11 +149,11 @@ def stop(data, vals):
     if cap <= 0:
         return ""
     limit = vals.get("context_limit") or G.DEFAULTS["context_limit"]
-    patterns = [p for p in (vals.get("context_handoff") or []) if isinstance(p, str) and p]
+    matchers, bad = G.trace_matchers(vals, "context_handoff")     # 壊れた形は跡に数えない（黙って通さない）
     try:
         if measure(tpath) < limit:     # 目安の手前（まとめ直して縮んだ後も）＝差し戻さない
             return ""
-        over, handed = handoff_state(tpath, limit, patterns)
+        over, handed = handoff_state(tpath, limit, matchers)
     except Exception:          # noqa: BLE001  会話ログが読めない＝見張りの故障。窓を止めない
         return ""
     if not over or handed:
@@ -175,13 +167,20 @@ def stop(data, vals):
     else:
         how = ("区切りの良い所で引き継ぎ（済んだ事・残り・次の一手・返し先）を書き、後継の窓を立ててそれを渡す（後継は"
                "返し先を継ぐ）。この返事では、後継の窓へ替えた事と、続きをどの窓で見ればよいかをオーナーに書く。")
-    return "\n".join([
+    lines = [
         "[guard] この窓の文脈が目安（%s token）を越えた後、まだ引き継いでいないので、締めを差し戻した（オーナー同意 "
         "2026-11-19・止めたのは AI の締めだけ・人の操作は止めていない）。" % format(limit, ","),
         "直し方: " + how,
-        "引き継ぎの跡と数える物: 目安を越えた後の道具の呼び出しのうち、値の表 guard.context_handoff に当たる物"
-        "（今の値: %s）。一度あれば、この窓ではもう差し戻さない。" % ("・".join(patterns[:6]) or "無し"),
+        "引き継ぎの跡と数える物: 目安を越えた後の道具の呼び出しのうち、値の表 guard.context_handoff の跡の形に道具の名と"
+        "入力の欄が当たる物（今の値: %s）。一度あれば、この窓ではもう差し戻さない。"
+        % json.dumps(vals.get("context_handoff") or [], ensure_ascii=False)[:300],
+    ]
+    if bad:
+        lines.append("値の表の壊れた形（跡に数えていない）: " + "／".join(bad) + "。直す PR を出す。")
+    lines += [
         "上限: 同じターンで %d 回まで差し戻し、越えたら通して届ける。" % cap,
-        "誤って差し戻された時（別の道で引き継いだ等）: その道の呼び出しに当たる形を値の表の guard.context_handoff に足す。"
+        "誤って差し戻された時（別の道で引き継いだ等）: その道の呼び出しの跡の形（{\"tool\": 名の正規表現} か "
+        '{"tool": 名, "input": {欄: 正規表現}}）を値の表の guard.context_handoff に足す。'
         "差し戻しそのものを外すのは guard.context_stop_max を 0 に（どちらも PR とレビューを通す）。細目は skill `guard:guard-rules`。",
-    ])
+    ]
+    return "\n".join(lines)

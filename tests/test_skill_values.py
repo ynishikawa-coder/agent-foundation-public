@@ -279,7 +279,8 @@ def test_guard_は起動の時に表全体を名指しで知らせる(tmp_path):
 
 
 def test_guard_は正しい表なら黙る(tmp_path):
-    r = make_repo(tmp_path, {"guard": {"context_limit": 1000}})
+    # 聞く前に引く先（ask_prior_lookup）が無い表は、照らしていない事を起動の時に知らせる（prior_ask）ので、引く先を持つ表で見る
+    r = make_repo(tmp_path, {"guard": {"context_limit": 1000, "ask_prior_lookup": [{"tool": "mcp__x__search"}]}})
     assert guard_start(r, tmp_path) == ""
 
 

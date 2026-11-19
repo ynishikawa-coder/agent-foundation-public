@@ -13,7 +13,8 @@ SKILL.md の「repo ごとの値」の表と鍵の一覧のずれは土台の試
 hook（guard.py から）:
   check(data, vals)     … PreToolUse: Write・Edit・MultiEdit で値の表を書いた後に問題の鍵が残り、
                           書く前より減っていなければ止める（AI の書き込みだけを止める・人の手は止めない）
-  resurface(data, vals) … SessionStart: 値の表に問題の鍵が在れば知らせる（止めない）
+  resurface(data, vals) … SessionStart: 値の表の問題（guard_common.values_problems＝問題の鍵と、guard の値の読めない中身・
+                          古い形の跡）が在れば知らせる（止めない）
 """
 from __future__ import annotations
 
@@ -110,7 +111,13 @@ def resurface(data, vals):
     if problems:
         return "値の表 %s が読めない（%s）。土台の道具は止まり、守りは既定で動いている。この repo の PR で直す。" % (path, "・".join(problems))
     keys = unknown(table)
-    return _say(keys, path) if keys else ""
+    out = [_say(keys, path)] if keys else []
+    faults = [f for f in G.values_problems(data)[1] if f not in keys]     # 名指しの 1 か所（guard_common.values_problems）
+    if faults:
+        out.append("値の表 %s の guard に、読めずに黙って効かない値か古い形の値が在る（見張りは読めない値を数えずに動いている）:\n%s\n"
+                   "直し方: 形を直す PR を出す（形は skill `guard:guard-rules` の値の表）。壊れた値・古い形が残った訳は細目 §3"
+                   "「まず構造を疑う」で原因から直す。" % (path, "\n".join("  - " + f for f in faults)))
+    return "\n\n".join(out)
 
 
 def main(argv):

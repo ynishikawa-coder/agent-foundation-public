@@ -6,7 +6,7 @@ import pytest
 from test_guard import ask_pre, deny_reason, env, q, write_log  # noqa: F401  （env は fixture）
 
 # ── prior_ask（選択肢の画面の前に決定の記録と問いの表を引いた跡）──
-LOOKUP = ["作り物の記録を引く道具", "\\bGrep\\b.*問いの表"]
+LOOKUP = ["作り物の記録を引く道具", {"tool": "Grep", "input": {"path": "問いの表"}}]
 
 
 
@@ -18,8 +18,20 @@ def owner(text, uuid):
     return {"type": "user", "uuid": uuid, "message": {"content": text}}
 
 
+def answered(rows):
+    """道具の呼び出しの後に、同じ tool_use_id の誤りでない返りを足す（走った証の在る呼び出しの作り物）。"""
+    out = []
+    for i, row in enumerate(rows):
+        out.append(row)
+        for b in row["message"]["content"] if row.get("type") == "assistant" else []:
+            b.setdefault("id", "toolu_p%d" % i)
+            out.append({"type": "user", "toolUseResult": {}, "message": {"content": [
+                {"type": "tool_result", "tool_use_id": b["id"], "content": "作り物の結果", "is_error": False}]}})
+    return out
+
+
 def prior_log(tmp_path, *rows, name="p.jsonl"):
-    return write_log(tmp_path / name, [owner("作り物の頼み", "u1"), *rows])
+    return write_log(tmp_path / name, [owner("作り物の頼み", "u1"), *answered(rows)])
 
 
 def ask_with(tpath, *qs, sid="s1"):
@@ -70,14 +82,6 @@ def test_prior_ask_同じ頼みの中で止めるのは上限までで新しい�
     assert deny_reason(env, ask_with(tpath)) == ""          # 3 回目は通す（引く道具が無い窓が回り続けない）
     tpath = write_log(tmp_path / "p.jsonl", [owner("作り物の頼み", "u1"), owner("次の作り物の頼み", "u2")])
     assert deny_reason(env, ask_with(tpath))                 # 新しい頼みでは数え直す
-
-
-def test_prior_ask_値の表に引く先が無い窓は1回だけ止め値を足す道を返す(env, tmp_path):
-    tpath = prior_log(tmp_path)
-    why = deny_reason(env, ask_with(tpath))
-    assert "guard.ask_prior_lookup" in why and "1 回だけ止める" in why, why
-    assert deny_reason(env, ask_with(tpath)) == ""
-    assert deny_reason(env, ask_with(tpath, sid="s2"))       # 別の窓では止める
 
 
 def test_prior_ask_引く要の無い問いは値の表で外せ選択肢の画面の外と助手の中は見ない(env, tmp_path):
