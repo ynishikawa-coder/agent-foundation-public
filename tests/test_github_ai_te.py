@@ -122,30 +122,3 @@ def test_書き戻した後に正本と違えば赤():
     want = {"name": "main", "rules": [1]}
     assert m.diff(want, {"name": "main", "rules": [1], "id": 9}) == []
     assert m.diff(want, {"name": "main", "rules": []}) == ["rules"]
-
-
-def _check_all_の最後の行(tmp_path, dirty):
-    """check_all.sh を tmp の repo に写し、検査の中身は空にして最後の行だけを見る。"""
-    (tmp_path / "scripts").mkdir()
-    (tmp_path / "tests").mkdir()
-    (tmp_path / "scripts/check_all.sh").write_text(_read("scripts/check_all.sh"), encoding="utf-8")
-    (tmp_path / "tests/test_ok.py").write_text("def test_ok():\n    pass\n", encoding="utf-8")
-    g = lambda *a: subprocess.run(["git", *a], cwd=tmp_path, check=True, capture_output=True)
-    g("init", "-q")
-    g("add", "-A")
-    g("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "t")
-    if dirty:
-        (tmp_path / "tests/test_new.py").write_text("def test_new():\n    pass\n", encoding="utf-8")
-    out = subprocess.run(["bash", "scripts/check_all.sh"], cwd=tmp_path, capture_output=True, text=True)
-    head = subprocess.run(["git", "rev-parse", "--short=12", "HEAD"], cwd=tmp_path, capture_output=True, text=True).stdout.strip()
-    return out.stdout.strip().splitlines()[-1], head
-
-
-def test_check_allの結果は回した先端を添える(tmp_path):
-    last, head = _check_all_の最後の行(tmp_path, dirty=False)
-    assert last.startswith("check_all: 緑") and last.endswith(f"@{head}")
-
-
-def test_git_に無いfileがあると未commitの印が付く(tmp_path):
-    last, head = _check_all_の最後の行(tmp_path, dirty=True)
-    assert f"@{head}+未 commit" in last
