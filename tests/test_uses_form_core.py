@@ -145,3 +145,30 @@ def test_読み口_workflow_は出来事と_run_だけ():
     assert yaml_on(yml) == {"push"}
     assert yaml_runs(yml) == ["python3 x.py"]
     assert "pull_request" in yaml_on("on: [push, pull_request]\n")
+
+
+# ── 古い言い回しの残りの照らし（tests/test_core_plugin.py の old_words_left） ──
+OLD = "他の窓へ" + "回す"
+
+
+@pytest.mark.parametrize("rel,text", [
+    ("x.py", "# 前の欄「## %s」は畳んだ\nX = 1\n" % OLD),
+    ("x.py", '"""前は %s と書いていた。"""\nX = 1\n' % OLD),
+    ("x.md", "前の欄「%s」は台帳に替えた\n" % OLD),
+    ("x.md", "```md\n## %s\n```\n" % OLD),
+    ("x.html", "<!-- %s は前の形 -->\n<p>今</p>\n" % OLD),
+])
+def test_古い言い回し_注釈と引用で挙げるだけは残りにしない(rel, text):
+    from test_core_plugin import used_text
+    assert OLD not in used_text(rel, text), text
+
+
+@pytest.mark.parametrize("rel,text", [
+    ("x.py", 'HEAD = "## %s"\n' % OLD),
+    ("x.md", "## %s\n" % OLD),
+    ("x.md", "本文は「## %s」の欄に書く\n" % OLD),
+    ("x.json", '{"欄": "%s"}' % OLD),
+])
+def test_古い言い回し_使う所に在れば今も残り(rel, text):
+    from test_core_plugin import used_text
+    assert OLD in used_text(rel, text), text

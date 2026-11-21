@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 from entry_box import box_env, copy_entry
-from uses import sh_code
+from uses import py_code, sh_code
 
 ROOT = Path(__file__).resolve().parent.parent
 PLUGIN = ROOT / "plugins" / "core"
@@ -21,9 +21,25 @@ spec.loader.exec_module(kaku)
 LIMITS = kaku.LIMITS
 
 
+def used_text(rel, text):
+    """古い言い回しを探す所（使う形の所）: .py は注釈と docstring を除いたコード・.mjs は注釈を除いた字・.md は
+    古い形の prose の読み方（kaku.old_view: 囲み・注記・引用の中を除く。# で始まる引用は書く行として残す）・.html は
+    注記を除いた字・.json は字のまま。注釈や引用で古い名を挙げて経緯を説明するのは残りでない。"""
+    suffix = Path(rel).suffix
+    if suffix == ".py":
+        return py_code(text)
+    if suffix == ".mjs":
+        return re.sub(r"/\*.*?\*/", " ", re.sub(r"(?<![:\"'])//[^\n]*", " ", text), flags=re.S)
+    if suffix == ".md":
+        return kaku.old_view({"reads": "prose"}, str(rel), text)
+    if suffix == ".html":
+        return re.sub(r"<!--.*?-->", " ", text, flags=re.S)
+    return text
+
+
 def old_words_left(olds):
-    """土台の文（.md .py .json .mjs .html・試験と .git を除く）に残る古い言い回しを「path: 語」で返す。
-    変更の記録は CHANGELOG.d/ の .txt（経緯として古い語を持つ）なので、拡張子で外れる＝file 名で除かない。"""
+    """土台の文（.md .py .json .mjs .html・試験と .git を除く）の使う形の所（used_text）に残る古い言い回しを
+    「path: 語」で返す。変更の記録は CHANGELOG.d/ の .txt（経緯として古い語を持つ）なので、拡張子で外れる＝file 名で除かない。"""
     hits = []
     for p in sorted(ROOT.rglob("*")):
         rel = p.relative_to(ROOT)
@@ -33,7 +49,7 @@ def old_words_left(olds):
                 rel.parts[0] == "skill-values" or "lib" in rel.parts):
             continue
         if p.is_file() and p.suffix in {".md", ".py", ".json", ".mjs", ".html"}:
-            text = p.read_text(encoding="utf-8")
+            text = used_text(rel, p.read_text(encoding="utf-8"))
             hits += [f"{rel}: {o}" for o in olds if o in text]
     return hits
 
