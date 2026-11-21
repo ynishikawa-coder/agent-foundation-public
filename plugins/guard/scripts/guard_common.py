@@ -257,8 +257,66 @@ def is_child_log(path):
 # ── Bash の命令のうち実際に動かす所（字を挙げるだけの所と分ける） ──
 # 字を書く・探す・見せるだけの道具。並び（|）の全部がこれなら、その並びの引数・heredoc の中身は動かない字。
 # 1 つでも外の命令が並びに居れば（echo … | psql・cat <<EOF | sh）、並びの字は全部動く側に数える。
-TEXT_ONLY = frozenset(("echo", "printf", "cat", "tee", "grep", "egrep", "fgrep", "rg", "git", "gh",
+TEXT_ONLY = frozenset(("echo", "printf", "cat", "tee", "grep", "egrep", "fgrep",
                        "head", "tail", "wc", "true", ":", "test", "["))
+# 中で命令を動かせる道具は、動かす口の無い形の時だけ字を挙げる側（_text_only）。
+# git: 部分命令がこの組で、-c・--config-env・--exec-path・環境変数の前置き（GIT_PAGER など）が無い時だけ。
+#   rebase --exec・-c alias.x='!…'・-c core.pager=…・bisect run・submodule foreach・difftool -x・grep -O は動く側。
+# gh: 部分命令がこの組（alias・extension・利用者の別名は中で命令を動かせる）で環境変数の前置きが無い時だけ。
+# rg: --pre（読む前に命令を通す）と環境変数の前置き（RIPGREP_CONFIG_PATH で --pre を足せる）が無い時だけ。
+_GIT_TEXT = frozenset(("commit", "add", "status", "diff", "log", "show", "tag", "fetch", "push", "pull", "checkout",
+                       "switch", "branch", "restore", "rm", "mv", "ls-files", "ls-tree", "rev-parse", "merge-base",
+                       "blame", "reset", "remote", "stash", "describe", "shortlog", "cat-file", "grep"))
+_GIT_EXEC_OPT = re.compile(r"^(?:-c|--config-env(?:=.*)?|--exec-path(?:=.*)?|-x|--exec(?:=.*)?|--extcmd(?:=.*)?"
+                           r"|-O.*|--open-files-in-pager(?:=.*)?|--ext-diff|-c.+)$", re.S)
+_GH_TEXT = frozenset(("pr", "issue", "api", "release", "search", "label", "repo", "run", "workflow", "browse",
+                      "gist", "status", "secret", "variable", "cache", "ruleset", "project"))
+_ENV = re.compile(r"[A-Za-z_]\w*=.*", re.S)
+_REDIR = re.compile(r"\d*[<>]+&?\d*-?")
+
+
+def _text_only(words):
+    """1 つの命令（環境変数の前置きと語の並び）が字を挙げるだけか。"""
+    k = 0
+    while k < len(words) and _ENV.fullmatch(words[k]):
+        k += 1
+    env = words[:k]                       # 頭の環境変数の前置きだけ（引数の a=b は前置きでない）
+    ws = [w for w in words[k:] if not _REDIR.fullmatch(w) and w != "\x00SB\x00"]
+    if not ws:
+        return True
+    prog = os.path.basename(ws[0])
+    if prog in TEXT_ONLY:
+        return True
+    args = ws[1:]
+    if prog == "rg":
+        return not env and not any(a == "--pre" or a.startswith("--pre=") or a.startswith("--pre-glob") for a in args)
+    if prog == "git":
+        if env or any(_GIT_EXEC_OPT.match(a) for a in args):
+            return False
+        sub = next((a for a in args if not a.startswith("-")), "")
+        return sub in _GIT_TEXT
+    if prog == "gh":
+        sub = next((a for a in args if not a.startswith("-")), "")
+        return not env and sub in _GH_TEXT
+    return False
+
+
+def _writes(words):
+    """字を挙げるだけの命令が書く先の file（> と >> の的・tee の引数）。"""
+    out, prev = [], ""
+    for w in words:
+        if prev in (">", ">>", ">|", "&>", "&>>") or re.fullmatch(r"\d*>>?\|?", prev or "-"):
+            out.append(w)
+        prev = w
+    k = 0
+    while k < len(words) and _ENV.fullmatch(words[k]):
+        k += 1
+    ws = words[k:]
+    if ws and os.path.basename(ws[0]) == "tee":
+        out += [w for w in ws[1:] if not w.startswith("-")]
+    return [w for w in out if w not in ("/dev/null", "/dev/stdout", "/dev/stderr", "-")]
+
+
 _HEREDOC = re.compile(r"<<(-?)[ \t]*(['\"]?)([A-Za-z_][\w.-]*)\2")
 _OPS = frozenset(("&&", "||", ";", "&", ";;", "\n"))
 
@@ -284,7 +342,7 @@ def _scan(cmd, i=0, sub=False):
             continue
         if cmd.startswith("$(", i) and not cmd.startswith("$((", i):
             s_out, s_bodies, s_inner, j = _scan(cmd, i + 2, sub=True)
-            parts = _parts(s_out, s_bodies)
+            parts = _parts(s_out, s_bodies, s_inner)
             inner.extend(s_inner + parts)
             out.append("\x00SB\x00")
             i = j
@@ -356,8 +414,8 @@ def _scan(cmd, i=0, sub=False):
     return "".join(out), bodies, inner, i
 
 
-def _parts(flat, bodies):
-    """印に置き換えた字を並び（|）ごとに分け、字を挙げるだけの並びを除いた字の並び（heredoc の中身を戻す）。"""
+def _pipelines(flat):
+    """印に置き換えた字を並び（| でつないだ命令の組）に分ける。各並びは命令ごとの語の並び。"""
     lex = shlex.shlex(flat, posix=True, punctuation_chars=";&|()<>\n")
     lex.whitespace = " \t\r"
     lex.whitespace_split = True
@@ -385,34 +443,72 @@ def _parts(flat, bodies):
                 cur = []
         else:
             words.append(t)
+    return [pl for pl in pipelines if pl]
+
+
+def _parts(flat, bodies, inner=()):
+    """並びごとに、字を挙げるだけの並びを除いた字の並び（heredoc の中身を戻す）。
+    字を挙げるだけの並びでも、書いた file を同じ命令の中の動く並び（$( ) の中を含む）が読む形
+    （printf '…' > q.sql && psql -f q.sql・cat > a.sh <<EOF … && bash a.sh）は動く側に数える。"""
+    pls = _pipelines(flat)
+    text_only = [all(_text_only(c) for c in pl) for pl in pls]
+    run_words = set()
+    for pl, t in zip(pls, text_only):
+        if not t:
+            for c in pl:
+                run_words.update(c)
+    for x in inner:
+        run_words.update(x.split())
+    run_names = run_words | {os.path.basename(w) for w in run_words}
     out = []
-    for pl in pipelines:
-        if not pl:
-            continue
-        progs = []
-        for c in pl:
-            ws = [w for w in c if not re.fullmatch(r"[A-Za-z_]\w*=.*", w, re.S)
-                  and not re.fullmatch(r"\d*[<>]+&?\d*-?", w) and w != "\x00SB\x00"]
-            progs.append(os.path.basename(ws[0]) if ws else "")
-        if all(p in TEXT_ONLY for p in progs):
-            continue
+    for pl, t in zip(pls, text_only):
+        if t:
+            targets = [w for c in pl for w in _writes(c)]
+            if not any(w in run_names or os.path.basename(w) in run_names for w in targets):
+                continue
         text = " ".join(" ".join(c) for c in pl)
         out.append(re.sub(r"\x00HD(\d+)\x00", lambda m: "\n" + bodies[int(m.group(1))] + "\n", text))
     return out
 
 
+_QUOTED = re.compile(r"'[^']*'|\"(?:\\.|[^\"\\])*\"")
+
+
+def _bare_text_only(flat):
+    """字を挙げるだけの並びの、引用と heredoc の中身を空にした字（命令そのものの語: git push --force・gh repo delete）。"""
+    bare = _QUOTED.sub("''", flat)
+    out = []
+    for pl in _pipelines(bare):
+        if all(_text_only(c) for c in pl):
+            text = " ".join(" ".join(c) for c in pl)
+            out.append(re.sub(r"\x00(?:HD\d+|SB)\x00", " ", text))
+    return out
+
+
 def executed_parts(cmd):
     """Bash の命令のうち、実際に動かす並び（| でつないだ命令の組）の字の並び。heredoc の中身はその並びに入れ、
-    $( ) の中は中で動く並びだけを足す。字を挙げるだけの並び（TEXT_ONLY の道具だけ: git commit -m の文・grep の語・
-    echo・file へ書く heredoc）と注釈は入れない。読み切れない形（` `・<( )・括弧の組・閉じない引用や heredoc）は
-    None＝呼ぶ側が命令の字全体で見る（止める側に倒す）。"""
+    $( ) の中は中で動く並びだけを足す。字を挙げるだけの並び（_text_only: git commit -m の文・grep の語・
+    echo・file へ書く heredoc）と注釈は入れない。ただし字を挙げるだけの並びが書いた file を動く並びが読むなら入れる。
+    読み切れない形（` `・<( )・括弧の組・閉じない引用や heredoc）は None＝呼ぶ側が命令の字全体で見る（止める側に倒す）。"""
     if not isinstance(cmd, str):
         return None
     try:
         flat, bodies, inner, _ = _scan(cmd)
-        return inner + _parts(flat, bodies)
+        return inner + _parts(flat, bodies, inner)
     except _Unread:
         return None
+
+
+def command_words(cmd):
+    """命令の語として当てる字: 動かす並び＋字を挙げるだけの並びの命令そのものの語（引用と heredoc の中身を除く）。
+    値の表が git・gh を狙う行（git push --force・gh repo delete）を足していても当たる。読み切れない形は命令の字全体。"""
+    if not isinstance(cmd, str):
+        return [cmd]
+    try:
+        flat, bodies, inner, _ = _scan(cmd)
+        return inner + _parts(flat, bodies, inner) + _bare_text_only(flat)
+    except _Unread:
+        return [cmd]
 
 
 def shell_and_heredocs(cmd):
@@ -431,8 +527,11 @@ _SLASH_EXT = (".js", ".mjs", ".cjs", ".jsx", ".ts", ".mts", ".cts", ".tsx", ".go
 
 
 def code_only(text, path):
-    """file の中身から注釈（# か // と /* */）と Python の docstring（行の頭から始まる三重引用の字）を除いた字。
-    引用の中の # や // は注釈でない。拡張子で注釈の形が決まらない file は字のまま返す（除かない＝止める側）。"""
+    """file の中身（全体）から注釈と Python の docstring を除いた字。引用の中の # や // は注釈でない。
+    注釈: // と /* */（C 系）・#（Python は引用の外の全部、shell・YAML などは行の頭か空白の後の # だけ＝${#a}・$#・a#b は字）。
+    docstring: 括弧の外・前の行が \\ で続かない所で、行の頭から始まる三重引用（文として置いた字＝何にも使われない）。
+    括弧の中や続きの行に置いた三重引用（関数の引数・値）はコード。拡張子で注釈の形が決まらない file は字のまま返す。
+    file の一部の断片には使わない（断片がどこから始まるか分からない＝呼ぶ側が全体を組んでから渡すか、字のまま見る）。"""
     ext = os.path.splitext(str(path or "").lower())[1]
     hash_, slash = ext in _HASH_EXT, ext in _SLASH_EXT
     if not (hash_ or slash):
@@ -440,6 +539,8 @@ def code_only(text, path):
     py = ext == ".py"
     out, i, n, q = [], 0, len(text), ""
     line_head = True                      # 行の頭からここまで空白だけか
+    depth = 0                             # 引用の外の括弧の深さ
+    cont = False                          # 前の行が \ で続く
     while i < n:
         c = text[i]
         if q:
@@ -458,14 +559,14 @@ def code_only(text, path):
         if py and (text.startswith('"""', i) or text.startswith("'''", i)):
             tq = text[i:i + 3]
             j = text.find(tq, i + 3)
-            if line_head:                 # 文として置いた三重引用＝docstring（説明の文）
+            if line_head and depth == 0 and not cont:   # 文として置いた三重引用＝docstring（説明の文）
                 i = n if j < 0 else j + 3
                 continue
             out.append(text[i:] if j < 0 else text[i:j + 3])
             i = n if j < 0 else j + 3
             line_head = False
             continue
-        if hash_ and c == "#":
+        if hash_ and c == "#" and (py or i == 0 or text[i - 1] in " \t\n"):
             j = text.find("\n", i)
             i = n if j < 0 else j
             continue
@@ -483,8 +584,13 @@ def code_only(text, path):
             line_head = False
             i += 1
             continue
+        if c in "([{":
+            depth += 1
+        elif c in ")]}" and depth:
+            depth -= 1
         out.append(c)
         if c == "\n":
+            cont = i > 0 and text[i - 1] == "\\"
             line_head = True
         elif not c.isspace():
             line_head = False

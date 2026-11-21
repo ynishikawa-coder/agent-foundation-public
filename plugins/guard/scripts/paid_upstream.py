@@ -7,10 +7,12 @@
 止める: 試験らしい path（tests/・e2e/・spec/・__tests__/・test_*.py・*.test.js …）へ書く中身に、
   有料の上流の鍵名か公式のエンドポイントが現れた時。
 逃げ道: コードに PAID_UPSTREAM_GUARD を書く（＝環境変数 1 本で本物へ切り替える共通の関所を通す。既定は録画の再生か偽物。
-  例 `os.environ.get("PAID_UPSTREAM_GUARD")`・`process.env.PAID_UPSTREAM_GUARD`）。
-見るのはコードの所だけ（guard_common.code_only: 注釈〔# か // と /* */〕と Python の docstring を除く）。注釈・docstring で鍵の名や
-  host を挙げるだけでは止めず、注釈に印を書くだけでは関所を通したことにならない（本物へつなぐ行は止まる）。拡張子で注釈の形が
-  決まらない file は字のまま見る。
+  例 `os.environ.get("PAID_UPSTREAM_GUARD")`・`process.env.PAID_UPSTREAM_GUARD`）。関所が共通の補助（上の dir の conftest.py・
+  コードが import する手元の module）に在る時は、この file に注釈で印を名指せば、その補助のコードが印を読む時に通す。
+  注釈に印を書くだけで関所がどこにも無い形は通さない（gate_read）。
+見るのはコードの所だけ（guard_common.code_only: 注釈〔# か // と /* */〕と Python の docstring を除く）。Edit・MultiEdit は
+  手元の file に置き換えを当てた全体を読み、この置き換えがコードに新しく足した印だけを数える。全体を組めない時は断片を
+  字のまま見る。注釈・docstring で鍵の名や host を挙げるだけでは止めない。拡張子で注釈の形が決まらない file は字のまま見る。
 
 見る口: Write / Edit / MultiEdit / NotebookEdit と、Bash で試験らしい path へ書く形（`>`・`>>` のリダイレクト・
   `tee`・`sed -i`／`perl -i` の的）。Bash は命令の字（shell の注釈を除く）と、heredoc の中身（書く先の試験の file の拡張子で
@@ -106,6 +108,81 @@ def bash_code(cmd, target):
     return "\n".join([flat] + [G.code_only(b, target) for b in bodies])
 
 
+_PY_IMPORT = re.compile(r"^\s*(?:from\s+(\.*[\w.]*)\s+import|import\s+([\w.]+))", re.M)
+_JS_IMPORT = re.compile(r"(?:\bfrom\s+|\brequire\s*\(\s*|\bimport\s*\(?\s*)['\"](\.{1,2}/[^'\"]+)['\"]")
+_JS_TRY = ("", ".js", ".mjs", ".cjs", ".ts", ".mts", ".tsx", ".jsx", "/index.js", "/index.ts")
+
+
+def _read(path):
+    try:
+        with open(path, encoding="utf-8") as f:
+            return f.read()
+    except (OSError, UnicodeDecodeError):
+        return None
+
+
+def _helpers(path, code):
+    """試験の file が使う共通の補助: 上の dir の conftest.py（pytest が自動で読む）と、コードが import する手元の module。"""
+    d = os.path.dirname(os.path.abspath(path))
+    out, up = [], d
+    for _ in range(8):
+        out.append(os.path.join(up, "conftest.py"))
+        if os.path.isdir(os.path.join(up, ".git")) or os.path.dirname(up) == up:
+            break
+        up = os.path.dirname(up)
+    for m in _PY_IMPORT.finditer(code):
+        name = m.group(1) or m.group(2) or ""
+        rel = name.lstrip(".").replace(".", os.sep)
+        if not rel:
+            continue
+        base = d
+        for _ in range(max(0, len(name) - len(name.lstrip(".")) - 1)):
+            base = os.path.dirname(base)
+        roots = [base] if name.startswith(".") else [os.path.dirname(c) for c in out if c.endswith("conftest.py")]
+        for r in roots:
+            out += [os.path.join(r, rel + ".py"), os.path.join(r, rel, "__init__.py")]
+    for m in _JS_IMPORT.finditer(code):
+        out += [os.path.normpath(os.path.join(d, m.group(1))) + t for t in _JS_TRY]
+    return out
+
+
+def gate_read(path, raw, code):
+    """本物へ切り替える共通の関所の印を、コードで読んでいるか: この file のコード、または注釈で印を名指した上で
+    その file が使う共通の補助（conftest.py・import する手元の module）のコード。注釈に印を書くだけで関所が無い形は通さない。"""
+    if GUARD_MARKER in code:
+        return True
+    if GUARD_MARKER not in raw:
+        return False
+    for h in _helpers(path, code):
+        t = _read(h) if os.path.isfile(h) else None
+        if t and GUARD_MARKER in G.code_only(t, h):
+            return True
+    return False
+
+
+def written_body(tool_name, tool_input, path):
+    """書いた後の file の中身（全体）。Write はその中身、Edit・MultiEdit は手元の file に置き換えを当てた中身。
+    組めない（file が無い・old_string が無い）時は None＝断片を字のまま見る。"""
+    if tool_name == "Write":
+        v = tool_input.get("content")
+        return v if isinstance(v, str) else None
+    if tool_name == "NotebookEdit":
+        v = tool_input.get("new_source")
+        return v if isinstance(v, str) else None      # 1 つの cell は丸ごと
+    edits = tool_input.get("edits") if tool_name == "MultiEdit" else [tool_input]
+    text = _read(path)
+    if text is None or not isinstance(edits, list):
+        return None
+    for e in edits:
+        if not isinstance(e, dict):
+            return None
+        old, new = e.get("old_string"), e.get("new_string")
+        if not isinstance(old, str) or not isinstance(new, str) or (old and old not in text):
+            return None
+        text = text.replace(old, new) if e.get("replace_all") else text.replace(old, new, 1)
+    return text
+
+
 def check_bash(data, vals):
     ti = data.get("tool_input")
     cmd = ti.get("command") if isinstance(ti, dict) else None
@@ -115,7 +192,9 @@ def check_bash(data, vals):
     if not tests:
         return ""
     code = bash_code(cmd, tests[0])
-    if GUARD_MARKER in code:
+    cwd = str(data.get("cwd") or "")
+    target = tests[0] if os.path.isabs(tests[0]) or not cwd else os.path.join(cwd, tests[0])
+    if gate_read(target, cmd, code):
         return ""
     hits = SV.words_in(list(PAID_MARKERS) + list(vals.get("paid_markers_extra") or []), code)
     return reason(", ".join(tests), hits) if hits else ""
@@ -123,9 +202,10 @@ def check_bash(data, vals):
 
 def check(data, vals):
     """止めるなら理由、通すなら ""。"""
-    if str(data.get("tool_name") or "") == "Bash":
+    tool_name = str(data.get("tool_name") or "")
+    if tool_name == "Bash":
         return check_bash(data, vals)
-    if str(data.get("tool_name") or "") not in WRITE_TOOLS:
+    if tool_name not in WRITE_TOOLS:
         return ""
     tool_input = data.get("tool_input")
     if not isinstance(tool_input, dict):
@@ -133,8 +213,13 @@ def check(data, vals):
     path = _path_of(tool_input)
     if not path or not TEST_PATH_RE.search(path.replace(os.sep, "/")):
         return ""
-    body = G.code_only(_payload(tool_input), path)
-    if not body or GUARD_MARKER in body:
+    full = written_body(tool_name, tool_input, path)
+    raw = full if full is not None else _payload(tool_input)
+    body = G.code_only(full, path) if full is not None else raw   # 断片は字のまま（どこから始まるか分からない）
+    if not body or gate_read(path, raw, body):
         return ""
     hits = SV.words_in(list(PAID_MARKERS) + list(vals.get("paid_markers_extra") or []), body)
+    if hits and full is not None and tool_name in ("Edit", "MultiEdit"):
+        before = G.code_only(_read(path) or "", path)       # この置き換えがコードに新しく足した印だけ（前から在る行で止めない）
+        hits = [h for h in hits if body.count(h) > before.count(h)]
     return reason(path, hits) if hits else ""

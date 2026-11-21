@@ -50,13 +50,23 @@ _TABLE = re.compile(r"^\s*\|")
 _TABLE_SEP = re.compile(r"^\s*\|[\s:\-|]+\|?\s*$")
 # 扱いの閉じた形: 語ちょうど（覆すだけ ＝墓標へ を付けてよい）＋ 理由か根拠の括弧 1 つまで。ほかの字が付けば済みでない。
 _DONE = re.compile(r"^(?:直した|覆す(?:＝墓標へ)?|関係なし)(?:[（(](?:理由|根拠)\s*[:：]\s*([^（）()]+)[）)])?$")
-# 理由がこの形なら、照合の中身が済んでいない印（「直した（理由: まだ未定）」「関係なし（理由: オーナーに聞く）」）。
-# 未定・未照合・保留・TBD・TODO は語そのものが未決。「まだ」は打ち消しで終わる文（まだ決まっていない）、「聞く」は
-# これから聞く形（聞く・聞く予定・聞いてから）だけ。経緯を説明しただけの理由（前はまだ無かった口を足した・オーナーに聞いた）は済み。
-_PENDING = re.compile(r"未定|未照合|保留|TBD|TODO"
-                      r"|まだ[^。、]*?(?:ない|ず|中|途中|これから)\s*[。]?\s*$"
-                      r"|聞いてから|これから"
-                      r"|(?:聞|決め)(?:く|る|てみる)(?:予定|つもり|まで|こと|事)?\s*[。]?\s*$", re.I)
+# 理由のどこかの文節がこの形なら、照合の中身が済んでいない印（「直した（理由: まだ未定）」「関係なし（理由: オーナーに聞く）」）。
+# 未定・未照合・保留・TBD・TODO は語そのものが未決。「まだ」は同じ文節に今の打ち消し・途中が在る時（まだ決まっていないが仮置き・
+# まだ途中だが進める）。過去の打ち消し（前はまだ無かった口を足した）は経緯の説明＝済み。「聞く」「決める」はこれから聞く・決める形
+# （後で聞くので仮に直した）で、聞いた・決めた（経緯）は済み。文節は 。、・が・けど・ので・から で切る（後に文が続いても見落とさない）。
+_PENDING = re.compile(r"未定|未照合|保留|TBD|TODO|聞いてから|これから|(?:聞|決め)(?:く|る)", re.I)
+_STILL = re.compile(r"まだ.*?(?:ない|無い|ず|途中|中)")
+_PAST_NEG = re.compile(r"(?:な|無)かった|ませんでした")
+_CLAUSE = re.compile(r"[。、,，]|が|けど|ので|から")
+
+
+def pending(reason: str) -> bool:
+    """扱いの理由が、照合の中身がまだ済んでいない形か。"""
+    if _PENDING.search(reason):
+        return True
+    return any(_STILL.search(c) and not _PAST_NEG.search(c) for c in _CLAUSE.split(reason))
+
+
 _SEP = re.compile(r"→|->|:|：")
 _PAREN = re.compile(r"（[^（）]*）|\([^()]*\)")
 _ITEM = re.compile(r"^\s*(?:[-*+]|\d+[.)])\s+\S")
@@ -150,7 +160,7 @@ def rows_of(body: list[tuple[int, str]]) -> tuple[list[tuple[int, str, str]], li
 def settled(look: str) -> bool:
     """扱いが閉じた形で、理由に未定の印が無い時だけ True。"""
     m = _DONE.match(look.strip())
-    return bool(m) and not (m.group(1) and _PENDING.search(m.group(1)))
+    return bool(m) and not (m.group(1) and pending(m.group(1)))
 
 
 def check_match(spec_dir: Path, values: dict) -> tuple[list[str], list[str]]:

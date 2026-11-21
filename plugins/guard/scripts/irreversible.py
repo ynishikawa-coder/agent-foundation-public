@@ -10,9 +10,12 @@
   判定できない時（展開 `$(`・変数・rm が区切りの先頭に無い〔`| xargs rm`・`sudo rm`〕・在らない先への cd・
   rm より前に cd 以外の命令がある〔`mv keep gone && rm -rf gone`〕）は止める側に倒す。
 
-DB の破棄と値の表の足す形は、命令のうち実際に動かす並び（guard_common.executed_parts）にだけ当てる。commit の文・grep・
-  echo・file へ書く heredoc・注釈で語を挙げるだけの所は動かない。psql -c・heredoc を psql へ流す形・echo … | psql・
-  $( ) の中で動く並びは動く側。読み切れない形（` `・<( )・括弧の組）は命令の字全体に当てる（止める側に倒す）。
+DB の破棄と値の表の足す形は、命令の語（guard_common.command_words）にだけ当てる＝実際に動かす並びと、字を挙げるだけの
+  命令（git・gh・echo など）そのものの語（引用と heredoc の中身を除く: git push --force・gh repo delete は当たる）。
+  commit の文・grep の語・echo の字・file へ書く heredoc・注釈で語を挙げるだけの所は動かない。psql -c・heredoc を psql へ
+  流す形・echo … | psql・$( ) の中で動く並び・git/gh/rg の中で命令を動かす形（rebase --exec・-c alias/pager・rg --pre）・
+  書いた file を同じ命令で流す形（printf … > q.sql && psql -f q.sql）は動く側。読み切れない形（` `・<( )・括弧の組）は
+  命令の字全体に当てる（止める側に倒す）。
 射程の天井: 判定は列挙であって証明ではない（`find … -delete`・再帰なしの `rm -f`・`git restore .` などは素通り）。
   足したい形は値の表の irreversible_bash_extra / irreversible_tools_extra へ。
 費用: 在席中は離席の印の stat 1 回で終わる。
@@ -216,7 +219,7 @@ def match(tool_name, tool_input, cwd, vals):
     cmd = str((tool_input or {}).get("command") or "") if isinstance(tool_input, dict) else ""
     if recursive_rm(cmd) and not rm_restorable(cmd, cwd):
         return RM_WHY
-    runs = "\n".join(G.executed_or_whole(cmd))    # 実際に動かす並びだけ（commit の文・grep の語・echo・注釈は動かない）
+    runs = "\n".join(G.command_words(cmd))    # 動かす並び＋字を挙げるだけの命令の語（commit の文・grep の語・echo の字・注釈は除く）
     for rx, why in _compile(_BASH):
         if rx.search(runs):
             return why

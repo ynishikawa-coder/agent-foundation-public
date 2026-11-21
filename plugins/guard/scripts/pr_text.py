@@ -283,8 +283,20 @@ def template_parts(path):
     heads = [(no, name.split("（")[0].strip()) for no, name in TEMPLATE_HEAD.findall(text)]
     if not heads:
         raise ValueError("整地の雛形に `## N. ` の見出しが無い: %s" % path)
-    holders = sorted({m.group(0)[:14] for m in PLACEHOLDER.finditer(COMMENT.sub("", text))})
+    holders = sorted({m.group(0) for m in PLACEHOLDER.finditer(COMMENT.sub("", text))})
     return heads, holders
+
+
+_HOLDER_SAID = re.compile(r"`[^`\n]*[〔〕][^`\n]*`")
+
+
+def holder_left(holder, body):
+    """雛形の置き場が本文に雛形のまま残っているか。置き場の字がそのまま在るか、`…` を同じに消した上で頭の 14 字が在るか。
+    本文で置き場の括弧ごと `…` に入れて挙げる説明は数えない。置き場の中の `…`（〔`場所` — …〕）は雛形と同じに消して比べる。"""
+    if holder in _HOLDER_SAID.sub(" ", body):          # 置き場の括弧ごと `…` に入れた所は挙げた説明
+        return True
+    norm = INLINE.sub(" ", holder)[:14]
+    return len(norm.strip("〔〕 ")) >= 4 and norm in INLINE.sub(" ", body)
 
 
 def check_cleanup(body, repo, data, vals):
@@ -306,9 +318,9 @@ def check_cleanup(body, repo, data, vals):
             if not re.search(r"^#{1,6}\s*(?:%s\.\s*)?%s" % (no, re.escape(name)), body, re.M)]
     if lack:
         out.append("整地の見出しが無い: %s（雛形の見出し %d つ）" % ("・".join(lack), len(heads)))
-    left = [h for h in holders if h in INLINE.sub(" ", body)]   # `…` の中は置き場の字を挙げた説明（残った置き場でない）
+    left = [h for h in holders if holder_left(h, body)]
     if left:
-        out.append("整地の雛形の `〔…〕` が残っている: %s" % "・".join(h + "…" for h in left[:3]))
+        out.append("整地の雛形の `〔…〕` が残っている: %s" % "・".join(h[:14] + "…" for h in left[:3]))
     return out
 
 
