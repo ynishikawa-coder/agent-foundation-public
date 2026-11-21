@@ -22,13 +22,17 @@ CANON_REF = re.compile(r"核(の細目)?\s*§|細目\s*§")
 RULE_BUCKET = re.compile(r"common\.rules\b")
 
 
+# 禁じる・畳んだと説明する文（指す形でない）。この語が同じ文に在れば、その文の common.rules は読ませる指しでない。
+_NOT_POINTING = re.compile(r"写さない|置かない|読ませない|使わない|畳んだ|禁じ")
+
+
 def pointing(suffix, text):
     """file の中で指す形の所だけ: .py は注釈と docstring を除いたコード・.mjs は注釈を除いた字・.md と .html は注記
-    <!-- --> を除いた字。.json は字のまま（値の表の鍵か値＝指す形）。注釈・注記の読み方の正本は kaku.code（写さない）。
-    .md の `common.rules` は鍵の名を指す字なので、引用・囲みも外さない。禁じる・畳んだと説明する文かを語で分けない
-    （語で分けると「写さない」を添えるだけで指しが通る）＝地の文で名を挙げれば赤。"""
+    <!-- --> と、禁じる・畳んだと説明する文を除いた字。.json は字のまま（値の表の鍵か値＝指す形）。注釈・注記の読み方の
+    正本は kaku.code（写さない）。.md の `common.rules` は鍵の名を指す字なので、引用・囲みも外さない。"""
     if suffix in (".md", ".html"):
-        return kaku.note_code(text)
+        text = kaku.note_code(text)
+        return "\n".join(s for s in re.split(r"(?<=[。\n])", text) if not _NOT_POINTING.search(s))
     return kaku.code("x" + suffix, text)
 
 

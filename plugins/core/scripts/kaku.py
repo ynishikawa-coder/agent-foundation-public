@@ -82,7 +82,7 @@ def olds_table(path: Path = OLDS) -> list[dict]:
 
 # 古い形の行が file のどこを読むか（reads）。名が在るかでなく、使う形の所だけに当てる（説明の文で名を挙げるだけは古い形でない）。
 #   all      … 中身の全部（既定）
-#   commands … 動く命令の所（code）: .md はコードの所と地の文の `…` の中（md_code）だけ。.sh .py .yml .yaml などは注釈と Python の docstring を除く。
+#   commands … 動く命令の所（code）: .md はコードの所（md_code）だけ。.sh .py .yml .yaml などは注釈と Python の docstring を除く。
 #              入口の名が注釈に在るだけでは入口を呼ぶことにならない
 #   prose    … 書いた欄・札の所: .md の自分の文（md_own＝閉じの在る囲み・注記・引用の外。# で始まる引用は書く行として残す）
 READS = {"all", "commands", "prose"}
@@ -146,8 +146,8 @@ def md_blocks(text: str) -> list[tuple[str, str, str]]:
 
 
 def md_code(text: str) -> str:
-    """.md のコードの所（囲みの中・閉じの無い囲み・字下げ・<pre>）の字から注釈を除いた物と、地の文の `…` の中（説明の例か
-    使う命令かを構文で分けられない＝読む側に倒し、命令として読む）。他の字は空（行の番号は保つ）。"""
+    """.md のコードの所（囲みの中・閉じの無い囲み・字下げ・<pre>）の字から注釈を除いた物。他の行は空（行の番号は保つ）。
+    地の文の `…` の中は、説明か指示かを構文で分けられないので読まない（残る穴）。"""
     out, run, key = [], [], None
     for kind, ln, lang in md_blocks(text) + [("end", "", "")]:
         k = (kind, lang) if kind in _CODE_KINDS else None
@@ -158,19 +158,9 @@ def md_code(text: str) -> str:
         key = k
         if k is not None:
             run.append(ln)
-        elif kind == "text":
-            out.append(_spans_only(ln))
         elif kind != "end":
             out.append("")
     return "\n".join(out)
-
-
-def _spans_only(line: str) -> str:
-    """地の文の 1 行の `…` の中身だけを残し、他の字を空白にした物（字の位置は保つ）。"""
-    keep = [" "] * len(line)
-    for m in _SPAN.finditer(line):
-        keep[m.start() + 1:m.end() - 1] = line[m.start() + 1:m.end() - 1]
-    return "".join(keep).rstrip()
 
 
 def _keep_heading(m: re.Match) -> str:

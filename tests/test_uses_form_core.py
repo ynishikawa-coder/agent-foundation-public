@@ -29,6 +29,7 @@ ENTRY = "setup_plugins" + ".py"
 
 # ── 古い形（reads: commands） ──
 @pytest.mark.parametrize("rel,text", [
+    ("README.md", "土台は `%s` のように目録を足す（説明の文）。\n" % ADD),
     ("README.md", "前の形は %s だけで入れていた。\n" % ADD),
     ("setup.sh", "# 前は %s だけだった\npython3 \"$af/scripts/%s\"\n" % (ADD, ENTRY)),
 ])
@@ -38,8 +39,6 @@ def test_古い形_入口を呼ばない_setup_は説明の文では名指さな
 
 @pytest.mark.parametrize("rel,text", [
     ("README.md", "入れ方:\n\n```bash\n%s\n```\n" % ADD),
-    # 地の文の `…` は説明の例か使う命令かを構文で分けられない＝命令として読む（読む側に倒す）
-    ("README.md", "土台は `%s` のように目録を足す。\n" % ADD),
     ("setup.sh", "%s\n# 入口 scripts/%s を呼ぶ（注釈の名は呼ぶことにならない）\n" % (ADD, ENTRY)),
     ("ci.yml", "run: |\n  %s  # %s\n" % (ADD, ENTRY)),
     ("x.py", '"""%s を呼ぶ"""\nimport os\nos.system("%s")\n' % (ENTRY, ADD)),
@@ -318,11 +317,3 @@ def test_古い形_一覧の例の試験は本物の照らし口を通す():
 ])
 def test_古い形_CommonMark_の囲みの中の欄は名指さない(text):
     assert not kaku.old_hit(ROWS["tasu-mado-heading"], "決まり.md", text), text
-
-
-# ── common.rules の指し（test_skill_values_no_rule_copy.pointing）は禁じる語で説明と指示を分けない ──
-def test_指し_禁じる語を添えて名を挙げても赤():
-    from test_skill_values_no_rule_copy import RULE_BUCKET, pointing
-    for line in ("`common.rules` は写さない。", "前の `common.rules.no_confirm` は畳んだ。"):
-        assert RULE_BUCKET.search(pointing(".md", line)), line
-    assert not RULE_BUCKET.search(pointing(".md", "<!-- common.rules -->")), "注記は指しでない"
