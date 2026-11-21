@@ -26,7 +26,7 @@
 
 値の表: config/skill-values.json の `dev-flow.codex`（在る時だけ。探し方と鍵の一覧は plugin の lib/skill_values.py
   ＝土台の skill-values/ の正本。知らない鍵・畳んだ鍵・型の違う値は名指しして中止＝黙って既定で動かない）。
-  pack_dir（パックの置き場）・self_allow（[glob]）・clients（{名: {opt_in, no_training_tier, expires, paths}}）
+  pack_dir（パックの置き場）・self_allow（[glob]・repo の根からの path の全体に当てる・* は / をまたがず dir をまたぐのは **）・clients（{名: {opt_in, no_training_tier, expires, paths}}）
   egress_log（送り出しの記録の jsonl の path。在る時だけ 1 行足す。本文・秘密は書かず、時刻・task・送り先・
   file の path・結果・件数・パックの sha256 だけ）
   entropy_allow（止めない高エントロピーの塊の並び。"sha256:<指紋 12 字以上>" は塊の sha256 の頭に当て、
@@ -52,18 +52,18 @@ sys.dont_write_bytecode = True
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "lib"))
 import skill_values  # noqa: E402  値の表の 1 本の口（plugin の lib/＝土台の skill-values/ への symlink）
 
-# 書き込み前に止める秘密の形（block）。字はここで組み立てる（この file 自身が検査に当たらないため）。
-BLOCK_PATTERNS = {
-    "GitHub のトークン": r"gh[pousr]_[A-Za-z0-9]{20,}",
-    "Anthropic の鍵": r"sk-ant-[A-Za-z0-9_\-]{20,}",
-    "OpenAI 形の鍵": r"(?<![A-Za-z0-9])sk-[A-Za-z0-9]{20,}",
-    "AWS の鍵 ID": r"AKIA[0-9A-Z]{16}",
-    "Slack のトークン": r"xox[abpors]-[A-Za-z0-9-]{10,}",
-    "Google の API 鍵": r"AIza[0-9A-Za-z_\-]{30,}",
-    "文書サービスのトークン": r"\b(?:secret_|ntn_)[A-Za-z0-9]{16,}",
+import af_place  # noqa: E402  土台の在り処探しの 1 本の口（同じ lib/ の symlink）
+
+PLUGIN_ROOT = Path(__file__).resolve().parent.parent.parent
+GUARD_REL = os.path.join("public-guard", "guard.py")
+
+# 書き込み前に止める秘密の形（block）は 2 つの和:
+#   - 鍵・トークンの形: 土台の公開の検査 public-guard/guard.py の SECRET_PATTERNS を直に読む（token_forms・写さない）
+#   - 鍵の形でない秘密（パックを外へ出す前だけ止める・公開の検査の範囲の外＝codex の足し）: EXTRA_FORMS
+# 字はここで組み立てる（この file 自身が検査に当たらないため）。
+EXTRA_FORMS = {
     "JWT": r"eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{6,}",
     "Bearer のトークン": r"\bBearer\s+[A-Za-z0-9._\-]{16,}",
-    "秘密鍵": "-----BEGIN " + r"[A-Z ]*" + "PRIVATE KEY-----",
     "合言葉のタグ": r"<password>.+?</password>",
     ".env 形の行": r"(?m)^[A-Z_]+_(?:KEY|TOKEN|SECRET|PASSWORD)=.+",
     "接続文字列の合言葉": r"[a-z][a-z0-9+.-]*://[^\s/:@]+:[^\s/@]+@[^\s/]+",
@@ -73,6 +73,31 @@ BLOCK_PATTERNS = {
     "鍵の代入": (r"(?i)(?:api[_-]?key|client[_-]?secret|access[_-]?token)\s*[:=]\s*"
                r"(?:[\"'][A-Za-z0-9/+=_\-]{16,}|[A-Za-z0-9/+=_\-]{16,}(?![A-Za-z0-9/+=_\-$.(\[]))"),
 }
+
+
+def token_forms(environ=None) -> dict:
+    """鍵・トークンの形の正本（土台の public-guard/guard.py の SECRET_PATTERNS）。見つからない・読めない・空なら Abort
+    （照らせない物は外へ出さない＝既定で止める）。探す順: 環境変数 AF_PUBLIC_GUARD → 入った dev-flow と同じ版の土台。"""
+    env = os.environ if environ is None else environ
+    path = env.get("AF_PUBLIC_GUARD") or af_place.foundation_file(GUARD_REL, str(PLUGIN_ROOT))
+    if not path or not os.path.isfile(path):
+        raise Abort("鍵の形の正本（土台の public-guard/guard.py）が見つからず照らせない＝パックを作らない。"
+                    "土台の plugin を市場から入れ直す（手元の置き場が違う時は AF_PUBLIC_GUARD に guard.py の path）")
+    try:
+        pats = getattr(af_place.load_module("af_public_guard_for_codex", path), "SECRET_PATTERNS", None)
+        forms = {str(k): re.compile(v) for k, v in pats.items()} if isinstance(pats, dict) and pats else None
+    except Exception as e:  # noqa: BLE001
+        raise Abort(f"鍵の形の正本（{path}）が読めず照らせない＝パックを作らない: {e}")
+    if not forms:
+        raise Abort(f"鍵の形の正本（{path}）に SECRET_PATTERNS が無く照らせない＝パックを作らない")
+    return forms
+
+
+def block_forms(environ=None) -> dict:
+    """止める形の全部（札→正規表現）。鍵の形は正本を読み、codex の足しを重ねる。"""
+    return {**token_forms(environ), **{k: re.compile(v) for k, v in EXTRA_FORMS.items()}}
+
+
 ADVISORY_MIN_LEN = 32
 ADVISORY_MIN_ENTROPY = 4.0
 SHORT_MIN_LEN = 16           # c. 短い塊の下限（ここより短い物は形で見分けない＝残る穴）
@@ -126,7 +151,27 @@ def rel_of(root: Path, f: str) -> str:
 
 
 def match_any(rel: str, globs) -> bool:
-    return any(fnmatch.fnmatchcase(rel, g) for g in (globs or []))
+    """path（repo の根から）が glob の並びのどれかの全体に当たるか。当て方の正本は値の表の口の glob_match
+    （* と ? は / をまたがず、dir をまたぐのは **）。"""
+    return any(skill_values.glob_match(g, rel) for g in (globs or []))
+
+
+def old_only(rels, globs) -> list[str]:
+    """前の読み方（fnmatch の * が / をまたぐ）でだけ当たる path（1 段目: 通して名指す。2 段目で畳む＝原因の台帳の行）。"""
+    return [r for r in rels if not match_any(r, globs)
+            and any(isinstance(g, str) and fnmatch.fnmatchcase(r, g) for g in (globs or []))]
+
+
+def _note_old(key: str, olds: list[str]) -> None:
+    if olds:
+        sys.stderr.write(f"[codex_pack] 値の表の {key} の glob は前の読み方（* が / をまたぐ）でだけ当たる path を通した: {olds}。"
+                         "今は通すが、下の dir まで許すなら dir/** に書き直す（* は / をまたがない読み方へ移る）\n")
+
+
+def client_hit(rel: str, globs) -> bool:
+    """顧客の物の path か。glob_match に加え、前の読み方（fnmatch の * が / をまたぐ）でも当たれば顧客の物と見る
+    （1 段目: 顧客の物を見落とす側へ狭めない。前の形の値〔dir/* で下の dir 全部のつもり〕は ** に書き直す）。"""
+    return match_any(rel, globs) or any(isinstance(g, str) and fnmatch.fnmatchcase(rel, g) for g in (globs or []))
 
 
 def client_ok(entry: dict, today: dt.date) -> str | None:
@@ -148,7 +193,7 @@ def client_ok(entry: dict, today: dt.date) -> str | None:
 
 def resolve_dest(dest: str | None, rels: list[str], values: dict, today: dt.date) -> str:
     clients = values.get("clients") or {}
-    hits_client = {n for n, e in clients.items() for r in rels if match_any(r, (e or {}).get("paths"))}
+    hits_client = {n for n, e in clients.items() for r in rels if client_hit(r, (e or {}).get("paths"))}
     if dest is None:
         if hits_client:
             raise Abort("顧客の物の path が混じる＝送り先を自動では決めない（--dest client:<名> を明示）")
@@ -159,9 +204,11 @@ def resolve_dest(dest: str | None, rels: list[str], values: dict, today: dt.date
         allow = values.get("self_allow") or []
         if not allow:
             raise Abort("値の表に self_allow が無い（既定 deny＝何も載せない）")
-        outside = [r for r in rels if not match_any(r, allow)]
+        olds = old_only(rels, allow)
+        outside = [r for r in rels if not match_any(r, allow) and r not in olds]
         if outside:
-            raise Abort(f"self_allow の外の path が混じる: {outside}")
+            raise Abort(f"self_allow の外の path が混じる: {outside}（下の dir まで許すなら self_allow の行を dir/** で書く）")
+        _note_old("self_allow", olds)
         return "self"
     if dest.startswith("client:") and dest[len("client:"):]:
         name = dest[len("client:"):]
@@ -169,9 +216,11 @@ def resolve_dest(dest: str | None, rels: list[str], values: dict, today: dt.date
         why = client_ok(entry, today)
         if why:
             raise Abort(f"顧客 {name} へは出さない: {why}")
-        outside = [r for r in rels if not match_any(r, entry.get("paths"))]
+        olds = old_only(rels, entry.get("paths"))
+        outside = [r for r in rels if not match_any(r, entry.get("paths")) and r not in olds]
         if outside:
-            raise Abort(f"顧客 {name} の paths の外が混じる: {outside}")
+            raise Abort(f"顧客 {name} の paths の外が混じる: {outside}（下の dir まで含めるなら paths の行を dir/** で書く）")
+        _note_old(f"clients.{name}.paths", olds)
         return dest
     raise Abort("--dest は self か client:<名>")
 
@@ -327,7 +376,7 @@ def sha256_full(tok: str) -> str:
 
 
 def scan(text: str, values: dict | None = None, rels=None, root: Path | None = None, environ=None):
-    blocks = [label for label, pat in BLOCK_PATTERNS.items() if re.search(pat, text)]
+    blocks = [label for label, rx in block_forms(environ).items() if rx.search(text)]
     fps, _ = allow_rules(values or {})
     for name, val in known_secrets(root, environ):
         if val in text and not any(sha256_full(val).startswith(p) for p in fps):

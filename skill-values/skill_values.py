@@ -31,13 +31,14 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sys
 
 sys.dont_write_bytecode = True
 
 REL_PATH = os.path.join("config", "skill-values.json")
 SCHEMA_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "schema.json")
-TYPES = ("str", "int", "bool", "list", "dict", "text", "any")
+TYPES = ("str", "int", "bool", "list", "dict", "text", "any", "repo_names", "patterns", "words", "globs")
 
 
 class ValuesError(Exception):
@@ -141,6 +142,178 @@ def load(path):
 
 
 # ── 照らし ──
+try:  # 正規表現の解析の口（字の頭と尻を見ず、解いた形で全体の一致かを決める）
+    from re import _constants as _RC, _parser as _RP
+except ImportError:  # 3.10 まで
+    import sre_constants as _RC  # noqa: N812
+    import sre_parse as _RP  # noqa: N812
+
+_HEADS = {_RC.AT_BEGINNING, _RC.AT_BEGINNING_STRING}
+_TAILS = {_RC.AT_END, _RC.AT_END_STRING}
+
+
+def _edge(seq, at, heads):
+    """解いた並び seq の at 番（0 か -1）が、全体の頭（heads が _HEADS）か尻（_TAILS）の錨か。囲み（group）と
+    分かれ（|）の中は、全部の道がそうなら錨と見る。"""
+    items = list(seq)
+    if not items:
+        return False
+    op, av = items[at]
+    if op == _RC.AT:
+        return av in heads
+    if op == _RC.SUBPATTERN:
+        return _edge(av[-1], at, heads)
+    if op == _RC.BRANCH:
+        return all(_edge(b, at, heads) for b in av[1])
+    return False
+
+
+def _anchored(x):
+    """^ で始まり、エスケープしない $ で終わる（字の形。型 patterns の全体の鍵の前の形と今の形の見分けに使う）。"""
+    return isinstance(x, str) and x.startswith("^") and x.endswith("$") and not re.search(r"(?<!\\)(?:\\\\)*\\\$$", x)
+
+
+def _whole_regex(x):
+    """全体に当てる形と読める（正規表現として読め、解いた形の全部の道が頭の錨 ^・\\A で始まり尻の錨 $・\\Z で終わる）。
+    字の頭の ^ と尻の $ だけでは決めない（(?i)^o/r$ のように頭にフラグを置いた形・^a$|^b$ の分かれも全体の形。
+    \\$ で終わる形・^a|b$ は全体の形でない）。"""
+    if not isinstance(x, str):
+        return False
+    try:
+        seq = _RP.parse(x)
+    except (re.error, RecursionError, OverflowError):
+        return False
+    return _edge(seq, 0, _HEADS) and _edge(seq, -1, _TAILS)
+
+
+def bad_repo_names(v):
+    """型 repo_names（owner/repo の名の全体に当てる正規表現の並び）に合わない行の並び。
+    各行は正規表現として読め、解いた形が ^ で始まり $ で終わる（_whole_regex。頭にフラグを置いた (?i)^o/r$ も全体の形）。頭だけ（^owner/）・錨なし（owner/repo）の
+    前の形は、名の一部に当てる読み方と取り違えるので書けない（使う側は ^owner/repo$・owner ごとなら ^owner/.*$）。"""
+    out = []
+    for x in v if isinstance(v, list) else [v]:
+        ok = _whole_regex(x)
+        if ok:
+            try:
+                re.compile(x)
+            except re.error:
+                ok = False
+        if not ok:
+            out.append(x)
+    return out
+
+
+# ── 正規表現・字・glob の鍵の当て方（1 本の口） ──
+# 値の表の字や正規表現を「何に・全体か一部か」で当てるかは、型の正本 schema.json の鍵の spec が持つ:
+#   型 patterns: {"match": "whole"|"part", "against": 当てる相手}。whole は相手の全体に当てる（各行を ^ で始め $ で終える）。
+#                part は相手の文の一部に当てる（re.search）。行は字か {"pattern": 字, …}。
+#   型 words:    字のまま相手の一部に当てる（正規表現でない。\ を含む行は正規表現のつもりの書き違いとして名指す）。
+#   型 globs:    path（repo の根から・/ 区切り）の全体に当てる glob。* と ? は / をまたがない。** は dir をまたぐ。
+# 道具はこの口（compile_patterns・hit・words_in・glob_match）だけで当てる＝鍵ごとに re.search・fullmatch・
+# 部分文字列・fnmatch を書き分けない。
+def _row_pattern(x):
+    if isinstance(x, dict):
+        x = x.get("pattern")
+    return x if isinstance(x, str) and x else None
+
+
+def bad_pattern_rows(v):
+    """型 patterns の並びの、字でない・正規表現として読めない行（照らし check が名指す・型の違いにはしない）。"""
+    out = []
+    for x in v if isinstance(v, list) else [v]:
+        p = _row_pattern(x)
+        try:
+            ok = p is not None and re.compile(p) is not None
+        except re.error:
+            ok = False
+        if not ok:
+            out.append(x)
+    return out
+
+
+def old_pattern_rows(spec, v):
+    """全体に当てる鍵（match whole）の、^…$ でない行（前の形＝一部に当てる読み方。1 段目は前の読み方で効かせて名指す）。"""
+    if (spec or {}).get("type") != "patterns" or spec.get("match") != "whole" or not isinstance(v, list):
+        return []
+    return [x for x in v if _row_pattern(x) is not None and not _anchored(_row_pattern(x))]
+
+
+def bad_words(v):
+    """型 words（字のまま一部に当てる）の、字でない・正規表現のつもりの行（\\ を含む）。"""
+    return [x for x in (v if isinstance(v, list) else [v]) if not isinstance(x, str) or not x or "\\" in x]
+
+
+def key_spec(plugin, skill, key):
+    """鍵の spec（{"type": …, "match": …, "against": …}）。無ければ {}。"""
+    return (keys_of(plugin, skill) or {}).get(key) or {}
+
+
+def compile_patterns(spec, rows, flags=0):
+    """値の表の正規表現の並びを [(正規表現, 全体か, 元の行)] にする。読めない行は捨てる（照らし check が名指す）。
+    全体に当てる鍵（match whole）の ^…$ の行は全体に、前の形の行（^…$ でない）と一部に当てる鍵（match part）は一部に当てる。"""
+    whole = (spec or {}).get("match") == "whole"
+    out = []
+    for x in rows if isinstance(rows, list) else []:
+        p = _row_pattern(x)
+        if p is None:
+            continue
+        try:
+            rx = re.compile(p, flags)
+        except re.error:
+            continue
+        out.append((rx, whole and _anchored(p), x))
+    return out
+
+
+def patterns_of(plugin, skill, key, values, flags=0):
+    """値の表の欄 values（dict）の鍵 key を、型の正本の spec の当て方で読んだ形（hit に渡す）。"""
+    return compile_patterns(key_spec(plugin, skill, key), (values or {}).get(key) or [], flags)
+
+
+def hit(compiled, text, old_text=None):
+    """当たった最初の行（元の行）か None。全体の行は text の全体に当てる。前の形の行（全体の鍵の ^…$ でない行）は
+    old_text（前の当てる相手。渡さなければ text）の一部に当てる。一部の鍵の行は text の一部に当てる。"""
+    for rx, whole, row in compiled:
+        if whole:
+            if rx.fullmatch(text):
+                return row
+        elif rx.search(text if old_text is None else old_text):
+            return row
+    return None
+
+
+def words_in(words, text):
+    """型 words の字のうち text の一部に在る物の並び（字のまま）。"""
+    return [w for w in (words or []) if isinstance(w, str) and w and "\\" not in w and w in text]
+
+
+def _glob_rx(pat):
+    out, i = [], 0
+    while i < len(pat):
+        c = pat[i]
+        if pat.startswith("**/", i):
+            out.append("(?:[^/]*/)*")
+            i += 3
+        elif pat.startswith("**", i):
+            out.append(".*")
+            i += 2
+        elif c == "*":
+            out.append("[^/]*")
+            i += 1
+        elif c == "?":
+            out.append("[^/]")
+            i += 1
+        else:
+            out.append(re.escape(c))
+            i += 1
+    return re.compile("".join(out))
+
+
+def glob_match(pat, path):
+    """型 globs: path（repo の根から・/ 区切り）の全体に glob を当てる。* と ? は / をまたがず、** は dir をまたぐ。"""
+    return isinstance(pat, str) and bool(pat) and bool(_glob_rx(pat).fullmatch(str(path).replace(os.sep, "/")))
+
+
 def _type_ok(t, v):
     if v is None or t == "any":
         return True
@@ -156,11 +329,33 @@ def _type_ok(t, v):
         return isinstance(v, dict)
     if t == "text":
         return isinstance(v, str) or (isinstance(v, list) and all(isinstance(x, str) for x in v))
+    if t == "repo_names":
+        return isinstance(v, list) and not bad_repo_names(v)
+    if t == "patterns":
+        # 読めない行は型の違いにしない（鍵ごと落とすと、止める側の鍵〔irreversible_*_extra〕が黙って効かなくなる）。
+        # 読めない行は道具が捨てるか照らせないと止め、照らし check は名指す（_check_keys）。
+        return isinstance(v, list) and all(_row_pattern(x) is not None for x in v)
+    if t == "words":
+        # 書き違いの行（\ を含む）は型の違いにしない（鍵ごと落とすと、止める側の鍵 paid_markers_extra の正しい行まで
+        # 黙って効かなくなる）。その行だけ words_in が捨て、照らし check が名指す（_check_keys）。型 patterns と同じ扱い。
+        return isinstance(v, list) and all(isinstance(x, str) and x for x in v)
+    if t == "globs":
+        return isinstance(v, list) and all(isinstance(x, str) and x for x in v)
     return False
 
 
 TYPE_WORD = {"str": "文字列", "int": "整数", "bool": "真偽", "list": "並び [...]", "dict": "{...}",
-             "text": "文字列か文字列の並び", "any": "何でも"}
+             "text": "文字列か文字列の並び", "any": "何でも",
+             "repo_names": "owner/repo の名の全体に当てる正規表現の並び（各行を ^ で始め $ で終える・"
+                           "repo 1 つなら ^owner/repo$・owner ごとなら ^owner/.*$）",
+             "patterns": "正規表現の並び（読める形で書く）",
+             "words": "字の並び（字のまま一部に当てる・正規表現でない＝\\ を書かない）",
+             "globs": "glob の並び（repo の根からの path の全体に当てる・* は / をまたがない・dir をまたぐのは **）"}
+
+
+def _against(spec):
+    m = {"whole": "全体", "part": "一部"}.get(spec.get("match"), "")
+    return "（%sの%sに当てる）" % (spec.get("against") or "相手", m) if m else ""
 
 
 def _check_keys(where, node, specs, retired):
@@ -185,9 +380,24 @@ def _check_keys(where, node, specs, retired):
         if empty(v):
             continue   # 空（""・[]・{}・null）は型を問わず「既定で動く」＝問題ではない
         if not _type_ok(spec["type"], v):
-            out.append("%s の型が違う（%s で書く・今は %s）" % (at, TYPE_WORD[spec["type"]], type(v).__name__))
+            rows = {"repo_names": bad_repo_names}.get(spec["type"])
+            if rows and isinstance(v, list):
+                out.append("%s の行 %s が型に合わない（%s で書く%s）" % (
+                    at, "・".join(json.dumps(x, ensure_ascii=False) for x in rows(v)), TYPE_WORD[spec["type"]], _against(spec)))
+            else:
+                out.append("%s の型が違う（%s で書く・今は %s）" % (at, TYPE_WORD[spec["type"]], type(v).__name__))
             bad.add(k)
             continue
+        # 読めない行・書き違いの行は鍵を落とさず、その行だけが効かないと名指す（型ごとの「行の扱い」はここ 1 か所）
+        unread = {"patterns": bad_pattern_rows, "words": bad_words}.get(spec["type"], lambda _v: [])(v)
+        if unread:
+            out.append("%s の行 %s が型に合わない（その行だけ効かない・%s で書く%s）" % (
+                at, "・".join(json.dumps(x, ensure_ascii=False) for x in unread), TYPE_WORD[spec["type"]], _against(spec)))
+        old = old_pattern_rows(spec, v)
+        if old:
+            # 1 段目: 前の形の行は前の読み方（一部に当てる）で効かせたまま名指す（鍵は落とさない）
+            out.append("%s の行 %s は前の形（一部に当てる読み方）。この鍵は%s。^…$ で全体の形に書き直す" % (
+                at, "・".join(json.dumps(x, ensure_ascii=False) for x in old), _against(spec)))
         if isinstance(v, dict) and "keys" in spec:
             sub, subbad = _check_keys(at, v, {kk: _spec(vv) for kk, vv in spec["keys"].items()}, retired)
             out += sub

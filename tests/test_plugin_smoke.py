@@ -2,10 +2,9 @@
 
 土台は main の先端をそのまま配るので、合流の前の CI の job `plugin-smoke` が、使う側と同じ入れ方で入れて起動する。
 ここはその試験自身が「壊すと赤・戻すと緑」かを、作り物の写しで見る（注入の試験）。
-claude の命令が無い所（手元）では飛ばす。CI の job `plugin-smoke` は AF_REQUIRE_CLAUDE=1 で回し、無ければ赤にする。
+本物の claude を要る印 real_claude を付ける（飛ばす条件と CI で拾う所は tests/conftest.py の 1 か所）。
 """
 import json
-import os
 import re
 import shutil
 import subprocess
@@ -17,11 +16,7 @@ import pytest
 ROOT = Path(__file__).resolve().parent.parent
 SMOKE = ROOT / "scripts" / "plugin_smoke.py"
 
-if not shutil.which("claude"):
-    if os.environ.get("AF_REQUIRE_CLAUDE") == "1":
-        pytest.fail("claude の命令が無い（CI の job plugin-smoke では入れてから回す）", pytrace=False)
-    pytest.skip("claude の命令が無い所では入れて起動する試験を飛ばす（CI の job plugin-smoke が回す）",
-                allow_module_level=True)
+pytestmark = pytest.mark.real_claude
 
 
 def _git(cwd, *a):
@@ -93,6 +88,33 @@ def _drop_furumai_from_inject(d):
     f.write_text(broken, encoding="utf-8")
 
 
+def _append_after_inject(d):
+    """差し込む文の全体の後ろに、改行を挟んで正本に無い文を足す（核の部を頭から比べるだけでは緑のままだった）。"""
+    f = d / "plugins" / "core" / "scripts" / "kaku.py"
+    text = f.read_text(encoding="utf-8")
+    old = '"additionalContext": "\\n".join(parts)}'
+    broken = text.replace(old, '"additionalContext": "\\n".join(parts) + "\\n- 正本に無い原則"}')
+    assert broken != text, "kaku.py の inject() の形が変わった（この注入を合わせる）"
+    f.write_text(broken, encoding="utf-8")
+
+
+def _append_section_after_inject(d):
+    """差し込む口の出す文の後ろに、節の切れ目で始まる正本に無い節を足す（入った口が checkout と違うと全体の比べを
+    飛ばしていた頃は緑だった）。"""
+    f = d / "plugins" / "core" / "scripts" / "kaku.py"
+    text = f.read_text(encoding="utf-8")
+    old = '"additionalContext": "\\n".join(parts)}'
+    broken = text.replace(old, '"additionalContext": "\\n".join(parts) + "\\n## 足した節\\n- 正本に無い原則"}')
+    assert broken != text, "kaku.py の inject() の形が変わった（この注入を合わせる）"
+    f.write_text(broken, encoding="utf-8")
+
+
+def _append_to_furumai(d):
+    """差し込む口はそのままに、差し込む材料（振る舞い.md）の末尾に正本に無い節を足す。"""
+    f = d / "plugins" / "core" / "振る舞い.md"
+    f.write_text(f.read_text(encoding="utf-8") + "\n## 足した節\n- 正本に無い原則\n", encoding="utf-8")
+
+
 def _drop_entry(d):
     (d / "scripts" / "setup_plugins.py").unlink()
 
@@ -108,11 +130,14 @@ def _entry_skips_guard(d):
     (_break_core_hook, "核が起動した窓に差し込まれていない"),
     (_drop_from_market, "plugin guard が起動した窓に読み込まれていない"),
     (_guard_never_denies, "止めるべき作り物の入力を止めない"),
-    (_drop_furumai_from_inject, "振る舞い.md が起動した窓に差し込まれていない"),
+    (_drop_furumai_from_inject, "kaku.py が正本の checkout と一字違わず同じでない"),
+    (_append_after_inject, "kaku.py が正本の checkout と一字違わず同じでない"),
+    (_append_section_after_inject, "kaku.py が正本の checkout と一字違わず同じでない"),
+    (_append_to_furumai, "差し込まれた文が正本の差し込む口"),
     (_drop_entry, "土台の入口 scripts/setup_plugins.py を通っていない"),
     (_entry_skips_guard, "入っていない: guard"),
 ], ids=["skill が欠ける", "核の hook が壊れる", "配りの器から plugin が落ちる", "守りが止めない", "振る舞いの既定が届かない",
-        "入口が無い", "入口が plugin を落とす"])
+        "差し込みの後ろに足す", "差し込みの後ろに節を足す", "差し込む材料に節を足す", "入口が無い", "入口が plugin を落とす"])
 def test_届かない物を入れた土台は赤(tmp_path, breaks, want):
     src, sha = copy_of_foundation(tmp_path, breaks)
     code, out = smoke(src, sha)

@@ -10,9 +10,13 @@ import pytest
 from test_session_watch import CLOUD, LOGS, OK_REPLY, rows, set_title, stop_data, stop_env, sw
 
 
-def test_返し先が別の窓の子窓には親が付けた題を付け直すよう知らせる():
-    """親が create_session で付けた題は会話ログに無く、返事の差し戻しが照らせない＝付け直させる。"""
-    text = sw.remind({"prompt": "作り物を見て（親窓 session_X の子）"}, CLOUD)
+def test_返し先が別の窓の子窓には親が付けた題を付け直すよう知らせる(tmp_path):
+    """親が create_session で付けた題は会話ログに無く、返事の差し戻しが照らせない＝付け直させる。
+    子の窓かは頼みの文（写し）と頼みの行の記録（別の窓から来た）の両方で決める。"""
+    log = tmp_path / "child.jsonl"
+    row = {"type": "user", "message": {"content": "作り物を見て（親窓 session_X の子）"}, "origin": {"kind": "task-notification"}}
+    log.write_text(json.dumps(row, ensure_ascii=False) + "\n", encoding="utf-8")
+    text = sw.remind({"prompt": "作り物を見て（親窓 session_X の子）", "transcript_path": str(log)}, CLOUD)
     assert text and "set_session_title" in text and "付け直す" in text
 
 
@@ -174,16 +178,21 @@ def test_隣の正本が無ければ黙って抜かず_窓ごとに1回だけ差
 
 
 def test_隣の正本は入れた_plugin_の形でも見つかる(tmp_path, monkeypatch):
-    cache = tmp_path / "plugins" / "cache" / "mk"
-    sw_root = cache / "session-watch" / "v1"
-    (sw_root / "scripts").mkdir(parents=True)
-    (cache / "guard" / "v1" / "scripts").mkdir(parents=True)
-    (cache / "guard" / "v1" / "scripts" / "ask_shape.py").write_text("X = 1\n", encoding="utf-8")
+    import subprocess
     pg = tmp_path / "plugins" / "marketplaces" / "mk" / "public-guard"
     pg.mkdir(parents=True)
     (pg / "guard.py").write_text("X = 1\n", encoding="utf-8")
+    git = ["git", "-c", "user.name=t", "-c", "user.email=t@example.invalid", "-C", str(pg.parent)]
+    for a in (["init", "-q"], ["add", "-A"], ["commit", "-qm", "版"]):
+        subprocess.run(git + a, check=True, capture_output=True)
+    v1 = subprocess.run(git + ["rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip()[:12]
+    cache = tmp_path / "plugins" / "cache" / "mk"
+    sw_root = cache / "session-watch" / v1
+    (sw_root / "scripts").mkdir(parents=True)
+    (cache / "guard" / v1 / "scripts").mkdir(parents=True)
+    (cache / "guard" / v1 / "scripts" / "ask_shape.py").write_text("X = 1\n", encoding="utf-8")
     monkeypatch.setattr(sw, "PLUGIN_ROOT", str(sw_root))
-    assert sw.neighbor_path("ask_shape", {}) == str(cache / "guard" / "v1" / "scripts" / "ask_shape.py")
+    assert sw.neighbor_path("ask_shape", {}) == str(cache / "guard" / v1 / "scripts" / "ask_shape.py")
     assert sw.neighbor_path("public_guard", {}) == str(pg / "guard.py")
     assert sw.neighbor_path("public_guard", {"AF_PUBLIC_GUARD": str(tmp_path / "none.py")}) == str(pg / "guard.py")
 

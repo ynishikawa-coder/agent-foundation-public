@@ -1,0 +1,4 @@
+- 壊れる: scripts/checks/*.sh の「照らしていない」分岐は exit 3 で終わる（前は exit 0）。check_all は exit 3 を緑に数えず、最後の行に「照らしていない N 本: <名>」と名指す。pr_shape.py・pr_writer.py の照らさない分岐も 3 を返す。検査を足す人は、その場で照らせない分岐を exit 0 にしない。
+- 足した: check_all が pytest の飛ばした試験を理由ごとに数え、最後の行に「pytest で飛ばした N 本」を出す。理由が「待ち: <path>」の飛ばしは <path> が在るのに飛べば赤。CI（GITHUB_ACTIONS=true）では印 real_claude の試験を pytest の印の選び（-m "not real_claude"）で外し、それ以外の飛ばしは全部赤にする（飛ばした理由の文では見分けない）。
+- 足した: CI の job check に node と playwright（python と node・同じ版）と chromium を入れた。型の JS を実ブラウザで動かす試験が CI で回る。
+- 直した: tests/test_plugins_list.py の配りの器の照らしが、器が在るのに「まだ無い」の飛ばしを残していた（消した）。「出した」plugin の行が 0 なら何も照らさずに通る形も赤にした。tests/test_call_flows.py の全体の絵の飛ばしは「待ち: docs/全体の絵.json」にした（絵が入れば check_all が飛ばしを許さない）。
