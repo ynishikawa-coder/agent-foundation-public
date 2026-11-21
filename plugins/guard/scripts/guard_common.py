@@ -341,7 +341,10 @@ def _git_text(args):
 
 
 def _text_only(words):
-    """読み切れた行の 1 つの命令（語の並び）が字を挙げるだけか。"""
+    """読み切れた行の 1 つの命令（語の並び）が字を挙げるだけか。path 付きの名は決まった置き場（_TRUSTED_DIRS）の物だけ
+    （./grep・~/bin/echo は同じ名の別の実行ファイルかもしれない＝動く側）。"""
+    if "/" in words[0] and os.path.dirname(words[0]) not in _TRUSTED_DIRS:
+        return False
     prog = os.path.basename(words[0])
     args = words[1:]
     if prog in TEXT_ONLY:
@@ -451,36 +454,88 @@ def _scan(cmd, i=0, sub=False):
     return "".join(out), bodies, inner, i, subs
 
 
-def _pipelines(flat):
-    """印に置き換えた字を並び（| でつないだ命令の組）に分ける。各並びは命令ごとの語の並び。"""
-    lex = shlex.shlex(flat, posix=True, punctuation_chars=";&|()<>\n")
-    lex.whitespace = " \t\r"
-    lex.whitespace_split = True
-    lex.commenters = ""
-    try:
-        toks = list(lex)
-    except ValueError:
-        raise _Unread() from None
-    if any(t in ("(", ")", "{", "}") for t in toks):
-        raise _Unread()
-    pipelines, cur, words = [], [], []
-    for t in toks + ["\n"]:
-        if t and set(t) <= set(";&\n"):
+_CONT = ("|", "|&", "&&", "||")           # bash はこの後の改行（空行・注釈の跡も）を越えて同じ命令を続ける
+_TRUSTED_DIRS = ("/bin", "/usr/bin")      # path 付きで呼ぶ道具を字を挙げる側に数えるのはこの置き場だけ
+
+
+def _split(flat):
+    """印に置き換えた字を、bash と同じ区切りで命令に分ける。[[(命令の打った字, 語の並び), …]（| でつないだ組）, …]。
+    区切りは引用の外の ; & | && || |& と改行。| && || |& の後の改行は越えて続ける（bash と同じ）。
+    bash と読み方がずれうる形（引用の外の \\ と改行・\\r・括弧・{ }）は読み切れない（_Unread）。"""
+    pipelines, cur = [], []
+    q, i, n, seg0 = "", 0, len(flat), 0
+
+    def close(j):
+        raw = flat[seg0:j].strip(" \t")
+        if raw:
+            try:
+                lex = shlex.shlex(raw, posix=True)
+                lex.whitespace = " \t\n"
+                lex.whitespace_split = True
+                lex.commenters = ""
+                words = list(lex)
+            except ValueError:
+                raise _Unread() from None
+            if any(w in ("{", "}") for w in words):
+                raise _Unread()
             if words:
-                cur.append(words)
-            if cur:
-                pipelines.append(cur)
-            cur, words = [], []
-        elif t in ("|", "|&", "||"):
-            if words:
-                cur.append(words)
-            words = []
-            if t == "||":
-                pipelines.append(cur)
+                cur.append((raw, words))
+        elif cur or op in _CONT:
+            raise _Unread()                   # 空の命令（| | や先頭の |）は bash と読みがずれうる
+
+    op = ""
+    while i < n:
+        c = flat[i]
+        if q == "'":
+            q = "" if c == "'" else q
+            i += 1
+            continue
+        if c == "\\":
+            if i + 1 < n and flat[i + 1] in "\r\n":
+                raise _Unread()               # \ と改行は bash が消して 1 行につなぐ（shlex は語の字に残す）
+            i += 2
+            continue
+        if q == '"':
+            q = "" if c == '"' else q
+            i += 1
+            continue
+        if c in "'\"":
+            q = c
+            i += 1
+            continue
+        if c == "\r" or c in "()":
+            raise _Unread()                   # \r は bash では語の字・shlex では区切り。括弧の組は読まない
+        if c in ";&|\n":
+            two = flat[i:i + 2]
+            o = two if two in ("&&", "||", "|&", ";;") else c
+            close(i)
+            op = o
+            i += len(o)
+            if o in ("|", "|&"):
+                pass
+            else:
+                if cur:
+                    pipelines.append(cur)
                 cur = []
-        else:
-            words.append(t)
-    return [pl for pl in pipelines if pl]
+            if o in _CONT:
+                while i < n and flat[i] in " \t\n":
+                    i += 1
+                if i >= n:
+                    raise _Unread()           # 続きの無い | && ||
+            seg0 = i
+            continue
+        i += 1
+    if q:
+        raise _Unread()
+    close(n)
+    if cur:
+        pipelines.append(cur)
+    return pipelines
+
+
+def _pipelines(flat):
+    """命令ごとの語の並びの組（_split の語だけ）。"""
+    return [[w for _raw, w in pl] for pl in _split(flat)]
 
 
 def _readable(flat):
@@ -506,60 +561,58 @@ def _readable(flat):
 
 
 def _read_whole(cmd):
-    """命令の行全体を読み切れた時だけ、並び（命令ごとの語の並び）。読み切れない形は None。"""
+    """命令の行全体を読み切れた時だけ、_split の組。読み切れない形は None。"""
     try:
         flat, bodies, _inner, _, subs = _scan(cmd)
         if bodies or subs or "\x00" in flat or not _readable(flat):
             return None
-        pls = _pipelines(flat)
+        pls = _split(flat)
     except _Unread:
         return None
     for pl in pls:
-        for c in pl:
+        for _raw, c in pl:
             prog = os.path.basename(c[0])
             if _ENV.fullmatch(c[0]) or prog in _UNREAD_PROG:
                 return None                   # 代入・環境へ出す手・file を書く手
             if prog == "printf" and any(a.startswith("-v") for a in c[1:]):
                 return None                   # printf -v は変数へ書く
-    return flat, pls
+    return pls
 
 
-_QUOTED = re.compile(r"'[^']*'|\"(?:\\.|[^\"\\])*\"")
+def _all_text(pl):
+    return all(_text_only(w) for _raw, w in pl)
 
 
-def _bare_text_only(flat):
-    """字を挙げるだけの並びの、引用と heredoc の中身を空にした字（命令そのものの語: git push --force・gh repo delete）。"""
-    bare = _QUOTED.sub("''", flat)
-    out = []
-    for pl in _pipelines(bare):
-        if all(_text_only(c) for c in pl):
-            text = " ".join(" ".join(c) for c in pl)
-            out.append(re.sub(r"\x00(?:HD|SB)\d+\x00", " ", text))
-    return out
+_QUOTED = re.compile(r"'[^']*'|\"(?:\\.|[^\"\\])*\"|\\.", re.S)
 
 
 def executed_parts(cmd):
-    """Bash の命令のうち実際に動かす並び（| でつないだ命令の組）の字の並び。命令の行全体を読み切れた時だけ、字を挙げる
-    だけの並び（_text_only: git commit -m '…' の文・grep の語・echo の字）と注釈を外す。読み切れない形（変数・展開・
-    $( )・` `・<( )・heredoc・redirect・代入・export・tee・括弧の組・閉じない引用）は None＝呼ぶ側が命令の字全体で見る。"""
+    """Bash の命令のうち実際に動かす並び（| でつないだ命令の組）の字の並び（引用を外した語）。命令の行全体を読み切れた時だけ、
+    字を挙げるだけの並び（_text_only: git commit -m '…' の文・grep の語・echo の字）と注釈を外す。読み切れない形（変数・展開・
+    $( )・` `・<( )・heredoc・redirect・代入・export・tee・括弧の組・閉じない引用・bash と区切りがずれうる形）は None＝
+    呼ぶ側が命令の字全体で見る。"""
     if not isinstance(cmd, str):
         return None
     r = _read_whole(cmd)
     if r is None:
         return None
-    return [" ".join(" ".join(c) for c in pl) for pl in r[1] if not all(_text_only(c) for c in pl)]
+    return [" ".join(" ".join(w) for _raw, w in pl) for pl in r if not _all_text(pl)]
 
 
 def command_words(cmd):
-    """命令の語として当てる字: 動かす並び＋字を挙げるだけの並びの命令そのものの語（引用の中身を除く）。
-    値の表が git・gh を狙う行（git push --force・gh repo delete）を足していても当たる。読み切れない形は命令の字全体。"""
+    """命令の語として当てる字（前の版と同じく打った字のまま）: 動かす並びは打った字の全部、字を挙げるだけの並びは
+    引用の中身と \\ で逃がした字を空にした打った字（命令そのものの語: git push --force・gh repo delete）。
+    値の表の行（引用符を含む行も）は前の版と同じ字に当たる。読み切れない形は命令の字全体。"""
     if not isinstance(cmd, str):
         return [cmd]
     r = _read_whole(cmd)
     if r is None:
         return [cmd]
-    flat, pls = r
-    return [" ".join(" ".join(c) for c in pl) for pl in pls if not all(_text_only(c) for c in pl)] + _bare_text_only(flat)
+    out = []
+    for pl in r:
+        raws = [raw for raw, _w in pl]
+        out.append(" | ".join(_QUOTED.sub("''", x) for x in raws) if _all_text(pl) else " | ".join(raws))
+    return out
 
 
 def shell_and_heredocs(cmd):
