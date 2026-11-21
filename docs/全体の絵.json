@@ -450,9 +450,9 @@
    "t": "repo ごとの値の表",
    "k": "store",
    "side": "個別",
-   "x": 180,
+   "x": 40,
    "y": 402,
-   "w": 240,
+   "w": 250,
    "h": 48,
    "what": "各 repo の config/skill-values.json。無ければ既定で動く。",
    "why": "各 SKILL.md の「repo ごとの値」。",
@@ -464,9 +464,9 @@
    "t": "repo 固有の CLAUDE.md",
    "k": "store",
    "side": "個別",
-   "x": 520,
+   "x": 330,
    "y": 402,
-   "w": 240,
+   "w": 250,
    "h": 48,
    "what": "その repo だけの決まり。",
    "why": "核の届け方 2。",
@@ -489,12 +489,12 @@
   {
    "id": "a12",
    "tab": "arch",
-   "t": "skill-values（値の表の読み口と土台の在り処探し）",
+   "t": "skill-values（読み口）",
    "k": "part",
    "side": "共通",
    "x": 20,
-   "y": 330,
-   "w": 180,
+   "y": 312,
+   "w": 175,
    "h": 52,
    "what": "値の表を読む 1 本の口（skill-values/skill_values.py）と、土台の file・隣の plugin の file を探す口（skill-values/af_place.py）。各 plugin の lib/ へ symlink で届く。",
    "why": "skill-values/schema.json・各 SKILL.md の「repo ごとの値」・docs/公開の検査.md の在り処探し。",
@@ -503,14 +503,14 @@
   {
    "id": "a13",
    "tab": "arch",
-   "t": "使う側の repo の文書・script（*.md・*.sh・*.yml・*.py）",
+   "t": "使う側の repo の文書・script",
    "k": "store",
    "side": "個別",
-   "x": 350,
-   "y": 470,
+   "x": 620,
+   "y": 402,
    "w": 300,
    "h": 48,
-   "what": "使う側の repo の文書と script。core の古い形の見張り（kaku.py の find_olds・plugins/core/古い形.json の files）が、土台の古い形（写し）が残っていないかを読む。",
+   "what": "使う側の repo の文書と script（*.md・*.sh・*.yml・*.py）。core の古い形の見張り（kaku.py の find_olds・plugins/core/古い形.json の files）が、土台の古い形（写し）が残っていないかを読む。",
    "why": "plugins/core/古い形.json・CONTRIBUTING.md §8。",
    "intent": "土台の道具が使う側の repo の値の表と文書・script を読む事を許す。読む事だけで、実行の許しは含まない（2026-11-22）。"
   }
@@ -611,7 +611,7 @@
   {
    "from": "a1",
    "to": "a2",
-   "label": "版を指して入れる"
+   "label": "main の先端を入れる"
   },
   {
    "from": "a2",
