@@ -256,7 +256,6 @@ def test_PR_の先端は_PR_HEAD_SHA_が空でも_HEAD_でなく_event_の_head(
     r = subprocess.run(shape, capture_output=True, text=True,
                        env=dict(env, PR_HEAD_SHA="", GITHUB_EVENT_PATH=str(_event(tmp_path, "c" * 40))))
     assert r.stdout.strip() == "c" * 40
-    assert ":-HEAD" not in (ROOT / "scripts" / "checks" / "pr_writer.sh").read_text(encoding="utf-8")
 
 
 def test_check_all_の回した先端は_CI_の_PR_では_PR_の先端(tmp_path):

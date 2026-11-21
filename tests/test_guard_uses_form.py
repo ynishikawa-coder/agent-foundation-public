@@ -137,15 +137,7 @@ def test_paid_upstream_Bash_の_heredoc_も注釈の印では通らない(env):
     assert not denied(env, bash(gate))
 
 
-# ── pr_text・pr_writer（欄は本文の頭の塊だけ・`…` の中の置き場の字は説明） ──
-def test_pr_text_頭の塊の外で例に挙げた書いた窓は欄でない():
-    pt = _load("pr_text_uf", "plugins/guard/scripts/pr_text.py")
-    body = "書いた窓: session_AAA\njob: x\n\n## 本文\n\n例: `書いた窓: session_BBB` のように書く\n書いた窓: session_CCC\n"
-    assert pt.head_block(body) == "書いた窓: session_AAA\njob: x"
-    assert pt.WRITER_LINE.search(pt.head_block(body)).group(1) == "session_AAA"
-    assert pt.head_block("<!-- 注記 -->\n\n書いた窓: session_AAA\n\n本文") == "書いた窓: session_AAA"
-
-
+# ── pr_text（`…` の中の置き場の字は説明。書いた窓の欄は畳んだ＝tests/test_pr_writer.py） ──
 def test_pr_text_コードの中の置き場の字は残った置き場でなく_地の文の置き場は残った置き場(tmp_path, monkeypatch):
     pt = _load("pr_text_uf2", "plugins/guard/scripts/pr_text.py")
     tpl = tmp_path / "整地受領証.template.md"
@@ -155,28 +147,6 @@ def test_pr_text_コードの中の置き場の字は残った置き場でなく
     left = "## 1. 問題\n\n〔問題を 1 文で書く所〕\n"
     assert not any("残っている" in p for p in pt.check_cleanup(said, "", {}, {}))
     assert any("残っている" in p for p in pt.check_cleanup(left, "", {}, {}))
-
-
-def _repo(tmp_path, sid):
-    repo = tmp_path / "r"
-    repo.mkdir()
-    g = lambda *a: subprocess.run(["git", "-C", str(repo), *a], check=True, capture_output=True, text=True)  # noqa: E731
-    g("init", "-q", "-b", "main")
-    g("-c", "user.name=a", "-c", "user.email=a@example.com", "commit", "-q", "--allow-empty", "-m", "base")
-    g("checkout", "-q", "-b", "claude/x")
-    g("-c", "user.name=a", "-c", "user.email=a@example.com", "commit", "-q", "--allow-empty",
-      "-m", "作り物\n\nClaude-Session: https://claude.ai/code/%s" % sid)
-    return repo, g("rev-parse", "HEAD").stdout.strip()
-
-
-def test_pr_writer_欄は頭の塊だけで読み_本文の例は欄にしない(tmp_path):
-    pw = _load("pr_writer_uf", "plugins/checker/scripts/pr_writer.py")
-    repo, head = _repo(tmp_path, "session_AAA")
-    example_only = "## 何をどう変えたか\n\n例: 書いた窓: session_AAA と頭に書く\n"
-    assert any("頭に `書いた窓:` が無い" in p for p in pw.check(repo, head, "main", example_only))
-    wrong_head = "書いた窓: session_BBB\n\n本文の例: 書いた窓: session_AAA\n"
-    assert any("と違う" in p for p in pw.check(repo, head, "main", wrong_head))
-    assert pw.check(repo, head, "main", "書いた窓: session_AAA\njob: x\n\n本文\n") == []
 
 
 # ── seal（§6 の節の見出しと、理由の未定の印） ──

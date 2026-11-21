@@ -7,7 +7,6 @@
 - 照らしていない検査が在っても全体は緑（CI でも） → CI の「照らせない」は赤。「対象外」は名指すだけ
 - 最後の行が CI と手元の差を名指さない → 「場 CI」「場 手元（…）」を必ず書く
 - kaku_growth は main の先端（main への push・手元の main）では分かれ目が先端自身で必ず緑 → 先端の 1 つ前と比べる
-- pr_writer は本文が渡っても PR の外では照らさない → PR_BODY が在れば照らす
 """
 import subprocess
 from pathlib import Path
@@ -71,7 +70,7 @@ def test_最後の行は手元で_CI_との差を名指す(tmp_path):
     assert code == 0 and "場 手元（CI と違い、飛ばし 0 本と照らしていない 0 本を赤にしていない）" in last, out
 
 
-# ---- kaku_growth と pr_writer -----------------------------------------------------------------------
+# ---- kaku_growth ----------------------------------------------------------------------------
 
 def _git(cwd, *a):
     return subprocess.run(["git", *a], cwd=cwd, check=True, capture_output=True, text=True).stdout.strip()
@@ -102,20 +101,3 @@ def test_注入_kaku_growth_は_main_の先端で先端の_1_つ前と比べる(
                        env=box_env(GITHUB_EVENT_NAME="push"))
     parent = _git(work, "rev-parse", "HEAD^1")
     assert f"本体に来た grow --base {parent}" in r.stdout, r.stdout + r.stderr
-
-
-def test_注入_pr_writer_は本文が渡れば_PR_の外でも照らす(tmp_path):
-    work = _repo(tmp_path, "pr_writer.sh", "plugins/checker/scripts/pr_writer.py")
-    _git(work, "checkout", "-q", "-b", "claude/20261120-sakuramono")
-    r = subprocess.run(["bash", "scripts/checks/pr_writer.sh"], cwd=work, capture_output=True, text=True,
-                       env=box_env(PR_BODY="書いた窓: 作り物"))
-    assert "本体に来た --branch claude/20261120-sakuramono" in r.stdout, r.stdout + r.stderr
-
-
-@pytest.mark.parametrize("env,kind", [({"GITHUB_EVENT_NAME": "push"}, "対象外"), ({}, "照らせない")])
-def test_pr_writer_は本文が無い訳を書いて_3(tmp_path, env, kind):
-    work = _repo(tmp_path, "pr_writer.sh", "plugins/checker/scripts/pr_writer.py")
-    why = tmp_path / "why"
-    r = subprocess.run(["bash", "scripts/checks/pr_writer.sh"], cwd=work, capture_output=True, text=True,
-                       env=box_env(AF_CHECK_UNCHECKED=str(why), **env))
-    assert r.returncode == 3 and why.read_text(encoding="utf-8").startswith(kind + ":"), r.stdout + r.stderr

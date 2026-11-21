@@ -125,9 +125,9 @@ def test_注入_途中の_commit_を書いた窓も書いた側(env):
     assert deny_reason(env, p) == ""
 
 
-def test_注入_本文の書いた窓の写しを偽っても_commit_の記録で照らす(env):
+def test_注入_直しの_commit_を出す窓が書いたら_commit_の記録で照らす(env):
     p = gh("add_issue_comment", issue_number=1, body=verdict_comment())
-    _fake_gh(env, writer=WRITER, commits=[REVIEWER])     # 本文の写しは最初の窓のまま・直しの commit は出す窓が書いた
+    _fake_gh(env, commits=[WRITER, REVIEWER])            # 直しの commit は出す窓が書いた（本文は読まない）
     why = deny_reason(env, p)
     assert "[verdict]" in why and "別の目でない" in why, why
 

@@ -227,7 +227,7 @@ def _entry(work, name):
 
 
 def test_main_と比べる_checks_の入口が揃っている():
-    assert {"pr_shape.sh", "pr_writer.sh", "kaku_growth.sh"} <= set(ENTRIES), ENTRIES
+    assert {"pr_shape.sh", "kaku_growth.sh"} <= set(ENTRIES), ENTRIES
 
 
 @pytest.mark.parametrize("name", ENTRIES)

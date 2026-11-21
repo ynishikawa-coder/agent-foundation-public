@@ -1,6 +1,6 @@
 """照らしていない検査と飛ばした試験を、check_all が緑に数えないか（注入の試験）。
 
-前の形: scripts/checks の「照らしていない」分岐（PR の外の pr_writer・main や人の枝の pr_shape・CI の public_guard）は
+前の形: scripts/checks の「照らしていない」分岐（main や人の枝の pr_shape・CI の public_guard。前は PR の外の pr_writer も）は
 exit 0 で終わり、check_all は緑の本数に数えた。pytest の飛ばした試験は数も理由も出さず、前提が満ちた後も
 飛ばす条件が残り（marketplace.json が在るのに「まだ無い」）、CI に部品（playwright）が無くて飛ぶ試験も緑のままだった。
 今の形: 照らしていない検査は exit 3 で check_all が名指して緑に数えない。飛ばした試験は理由ごとに数え、
@@ -44,18 +44,19 @@ def skip_test(reason):
 
 
 def test_注入_照らさない分岐の検査を緑に数えない(tmp_path):
-    """本物の pr_writer.sh を PR の外で回す（照らさない分岐）。前の形（exit 0）なら「緑 2/2 本」と数えた。"""
+    """本物の public_guard.sh を CI で回す（照らさない分岐＝job public-guard が照らす）。前の形（exit 0）なら「緑 2/2 本」と数えた。"""
     root = box(tmp_path)
-    shutil.copy2(ROOT / "scripts" / "checks" / "pr_writer.sh", root / "scripts" / "checks" / "pr_writer.sh")
-    code, last, out = run(root)
-    assert "pr_writer: 照らしていない" in out
+    for rel in ("scripts/checks/public_guard.sh", "public-guard/workflow_reader.py", ".github/workflows/ci.yml"):
+        (root / rel).parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(ROOT / rel, root / rel)
+    code, last, out = run(root, GITHUB_ACTIONS="true")
+    assert "照らしていない" in out, out
     assert code == 0 and last.startswith("check_all: 緑"), last
-    assert "緑 1/2 本" in last and "照らしていない 1 本: pr_writer.sh" in last, last
+    assert "緑 1/2 本" in last and "対象外 1 本: public_guard.sh" in last, last
 
 
 @pytest.mark.parametrize("rel,env", [
     ("scripts/checks/public_guard.sh", {"GITHUB_ACTIONS": "true"}),
-    ("scripts/checks/pr_writer.sh", {"GITHUB_EVENT_NAME": "push"}),
 ])
 def test_照らさない分岐はどれも_exit_3(rel, env):
     e = box_env(**env)

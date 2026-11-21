@@ -35,9 +35,8 @@ jobs:
           python3 -m playwright install --with-deps chromium
           node "$(npm root -g)/playwright/cli.js" install chromium
       - name: 検査（入口は check_all の 1 本）
-        # PR 本文と先端は外から来る値なので run に直に埋めず env で渡す（scripts/checks/pr_writer.sh が読む）。
+        # PR の先端は外から来る値なので run に直に埋めず env で渡す（scripts/pr_shape.py の pr_head が読む）。
         env:
-          PR_BODY: ${{ github.event.pull_request.body }}
           PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: bash scripts/check_all.sh
 

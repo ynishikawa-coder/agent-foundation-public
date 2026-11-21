@@ -1,17 +1,20 @@
-"""PR 本文の `書いた窓:` を先端の commit の `Claude-Session:` で照らす（plugins/checker/scripts/pr_writer.py の注入の試験）。
+"""書いた窓の正本は PR の commit の `Claude-Session:` だけ（PR 本文に写しの欄を置かない）の注入の試験。
 
-前の形: 本文の `書いた窓:` は最初に PR を出した窓が手で書き、直しの往復で別の窓が commit しても付いて来なかった
-（別の目の照らしは本文の窓を書いた窓として読む）。今の形: 先端の commit の窓と違えば CI の job check で赤。
+前の形: PR 本文の頭の `書いた窓:` を最初に PR を出した窓が手で写し、直しの往復で別の窓が commit すると写しがずれて
+CI の job check（scripts/checks/pr_writer.sh）が赤になった。本文の頭の塊を読む head_block は guard の pr_text と
+checker の pr_writer に写しで 2 つ在った（plugin を跨いで import しない作りのため）。
+今の形: 写しの欄を PR の型から畳み、書いた窓の組は commit の記録だけから作る（pr_writer.py --writers・guard の pr_text）。
+本文を読む道は無いので head_block も要らない（どの plugin にも置かない）。
 """
-import os
+import ast
+import json
+import re
 import subprocess
 import sys
 from pathlib import Path
-from entry_box import box_env
 
 ROOT = Path(__file__).resolve().parent.parent
 TOOL = ROOT / "plugins" / "checker" / "scripts" / "pr_writer.py"
-CHECK = ROOT / "scripts" / "checks" / "pr_writer.sh"
 A, B = "session_01AAAAAAAAAAAAAAAAAAAAAAAA", "session_01BBBBBBBBBBBBBBBBBBBBBBBB"
 BRANCH = "claude/20261119-test"
 
@@ -44,97 +47,86 @@ def repo_with(tmp_path, sessions):
     return r, head
 
 
-def run(repo, head, body, branch=BRANCH):
-    f = repo.parent / "body.md"
-    f.write_text(body, encoding="utf-8")
-    p = subprocess.run([sys.executable, str(TOOL), "--repo", str(repo), "--branch", branch, "--head", head,
-                        "--base", "main", "--body-file", str(f)], capture_output=True, text=True)
-    return p.returncode, p.stdout + p.stderr
+def writers(repo, head, *extra):
+    p = subprocess.run([sys.executable, str(TOOL), "--writers", "--repo", str(repo), "--head", head, "--base", "main",
+                        *extra], capture_output=True, text=True)
+    return p.returncode, (p.stdout + p.stderr).strip()
 
 
-def body(writer):
-    return f"書いた窓: {writer}\njob: 20261119-test\n検査: x\n\n## 何をどう変えたか\n"
+def test_合格_直しの往復で別の窓が_commit_しても組に両方が入る(tmp_path):
+    repo, head = repo_with(tmp_path, [A, None, B])
+    code, out = writers(repo, head)
+    assert code == 0 and sorted(out.split(",")) == [A, B], out
 
 
-def test_合格_本文の窓と先端の窓が同じなら緑(tmp_path):
-    repo, head = repo_with(tmp_path, [A])
-    assert run(repo, head, body(A)) == (0, "pr_writer: 緑\n")
-
-
-def test_注入_直しの往復で別の窓が_commit_したのに本文が最初の窓のままなら赤(tmp_path):
-    repo, head = repo_with(tmp_path, [A, B])
-    code, out = run(repo, head, body(A))
-    assert code == 1 and f"書いた窓: {B}" in out, out
-
-
-def test_合格_本文を直した窓に替えると緑(tmp_path):
-    repo, head = repo_with(tmp_path, [A, B])
-    assert run(repo, head, body(B))[0] == 0
-
-
-def test_合格_main_を取り込む_merge_は飛ばして前の_commit_の窓を見る(tmp_path):
-    repo, _ = repo_with(tmp_path, [B])
-    git(repo, "checkout", "-q", "main")
-    commit(repo, "main2")
-    git(repo, "checkout", "-q", BRANCH)
-    git(repo, "merge", "-q", "--no-edit", "main")
-    head = git(repo, "rev-parse", "HEAD")
-    assert run(repo, head, body(B))[0] == 0
-    assert run(repo, head, body(A))[0] == 1
-
-
-def test_注入_Claude_Session_の無い_PR_は赤(tmp_path):
+def test_注入_Claude_Session_の無い_PR_は組を出さない(tmp_path):
     repo, head = repo_with(tmp_path, [None])
-    code, out = run(repo, head, body(A))
-    assert code == 1 and "Claude-Session" in out, out
+    code, out = writers(repo, head)
+    assert code == 2 and "Claude-Session" in out, out
 
 
-def test_注入_本文に書いた窓が無い_形でないは赤(tmp_path):
+def test_注入_本文を渡す道が無い(tmp_path):
+    """前の形の本文の照らし（--body-file・--branch）を渡すと道具が受けない＝写しを材料にする道が戻らない。"""
     repo, head = repo_with(tmp_path, [A])
-    assert run(repo, head, "job: x\n")[0] == 1
-    assert run(repo, head, body("<session id>"))[0] == 1
+    body = tmp_path / "body.md"
+    body.write_text(f"書いた窓: {B}\n", encoding="utf-8")
+    code, out = writers(repo, head, "--body-file", str(body))
+    assert code == 2 and "--body-file" in out, out
+    p = subprocess.run([sys.executable, str(TOOL), "--repo", str(repo), "--head", head, "--base", "main"],
+                       capture_output=True, text=True)
+    assert p.returncode == 2 and "--writers" in p.stderr, p.stderr
 
 
-def test_main_より前の_commit_の窓は見ない(tmp_path):
-    """分かれ目より前（main の上）の Claude-Session は PR の書いた窓でない。"""
-    r = tmp_path / "r"
-    r.mkdir()
-    git(r, "init", "-q", "-b", "main")
-    commit(r, "base", A)
-    git(r, "checkout", "-qb", BRANCH)
-    head = commit(r, "f", None)
-    assert run(r, head, body(A))[0] == 1
+def test_注入_PR_の型に書いた窓の欄を置かない():
+    t = (ROOT / ".github" / "pull_request_template.md").read_text(encoding="utf-8")
+    assert not re.search(r"(?m)^\s*書いた窓\s*[:：]", t)
+    assert not (ROOT / "scripts" / "checks" / "pr_writer.sh").exists()
+    assert "PR_BODY" not in (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
 
 
-def test_人の枝は照らさない(tmp_path):
-    repo, head = repo_with(tmp_path, [A])
-    code, out = run(repo, head, body(B), branch="patch-1")
-    assert code == 3 and "照らしていない" in out
+def test_使う側の型に残る書いた窓の欄は古い形として名指す():
+    """壊れる（1 段目）: 土台の型から畳み、使う側の型に残る欄は古い形の一覧で起動の hook が名指す。"""
+    olds = json.loads((ROOT / "plugins" / "core" / "古い形.json").read_text(encoding="utf-8"))["olds"]
+    row = next(o for o in olds if o["id"] == "pr-writer-field")
+    assert ".github/pull_request_template.md" in row["files"]
+    assert re.search(row["pattern"], "job: x\n" + row["example"] + "\n")
 
 
-def test_CI_の_job_check_が本文と先端を渡す():
-    """入口（scripts/checks/pr_writer.sh）が読む env を、ci.yml の job check が PR の値で渡す。"""
-    yml = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
-    job = yml.split("\n  check:\n", 1)[1].split("\n  overlap:", 1)[0]
-    assert "PR_BODY: ${{ github.event.pull_request.body }}" in job
-    assert "PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}" in job
-    sh = CHECK.read_text(encoding="utf-8")
-    assert "PR_BODY" in sh and "PR_HEAD_SHA" in sh
+def _defs(path):
+    return {n.name for n in ast.walk(ast.parse(path.read_text(encoding="utf-8"))) if isinstance(n, ast.FunctionDef)}
 
 
-def test_入口は_PR_で本文が違えば赤(tmp_path):
-    repo, head = repo_with(tmp_path, [A, B])
-    (repo / "scripts" / "checks").mkdir(parents=True)
-    (repo / "plugins" / "checker" / "scripts").mkdir(parents=True)
-    for p in (TOOL, CHECK, ROOT / "scripts" / "pr_shape.py", ROOT / "scripts" / "af_unchecked.sh"):  # pr_shape.py の fresh_main が出所の今の main を出す
-        (repo / p.relative_to(ROOT)).write_bytes(p.read_bytes())
-    subprocess.run(["git", "init", "-q", "--bare", "-b", "main", str(tmp_path / "出所.git")], check=True)
-    git(repo, "remote", "add", "origin", str(tmp_path / "出所.git"))
-    git(repo, "push", "-q", "origin", "main")
-    git(repo, "update-ref", "refs/remotes/origin/main", "main")
-    env = box_env(GITHUB_EVENT_NAME="pull_request", GITHUB_HEAD_REF=BRANCH, PR_HEAD_SHA=head, PR_BODY=body(A))
-    p = subprocess.run(["bash", str(repo / "scripts" / "checks" / "pr_writer.sh")], capture_output=True, text=True, env=env)
-    assert p.returncode == 1 and "pr_writer: 赤" in p.stdout, p.stdout + p.stderr
-    env["PR_BODY"] = body(B)
-    p = subprocess.run(["bash", str(repo / "scripts" / "checks" / "pr_writer.sh")], capture_output=True, text=True, env=env)
-    assert p.returncode == 0, p.stdout + p.stderr
+def test_注入_本文の頭の塊を読む関数をどの_plugin_にも写さない():
+    """前の形は head_block が pr_text と pr_writer に 2 つ在った。本文を読む道を畳んだので、どこにも置かない。"""
+    found = [str(p.relative_to(ROOT)) for p in (ROOT / "plugins").rglob("*.py") if "head_block" in _defs(p)]
+    assert found == [], found
+
+
+def test_注入_guard_の書いた窓の組は本文の欄を足さない(tmp_path, monkeypatch):
+    """本文の頭に commit を書いていない窓を `書いた窓:` で書いても、組に入らない（その窓の判定を止める側に数えない）。"""
+    import importlib.util
+    monkeypatch.syspath_prepend(str(ROOT / "plugins" / "guard" / "scripts"))
+    spec = importlib.util.spec_from_file_location("pr_text_writer", ROOT / "plugins" / "guard" / "scripts" / "pr_text.py")
+    pt = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(pt)
+
+    class R:
+        def __init__(self, out):
+            self.returncode, self.stdout, self.stderr = 0, out, ""
+
+    msg = json.dumps(f"x\n\nClaude-Session: https://claude.ai/code/{A}\n", ensure_ascii=False)
+    calls = []
+
+    def fake(args):
+        calls.append(args)
+        if args[0] == "--paginate":
+            return R(msg + "\n")
+        out = "a" * 40 + "\n1"
+        if ".body" in " ".join(args):     # 本文を問う形（前の形）なら、commit を書いていない窓の欄を返す
+            out += "\n" + f"書いた窓: {B}"
+        return R(out + "\n")
+
+    monkeypatch.setattr(pt, "_gh", fake)
+    head, ws, err = pt.pr_facts("o/r", {"pullNumber": 1})
+    assert err == "" and ws == [A], (ws, err)
+    assert not any(".body" in " ".join(c) for c in calls), calls

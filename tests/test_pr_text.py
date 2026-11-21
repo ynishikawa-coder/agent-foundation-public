@@ -52,22 +52,21 @@ def gh(tool, owner="fake-owner", repo="fake-private", **ti):
 FAKE_HEAD = "0123456789ab" + "c" * 28
 
 
-def _fake_gh(env, head=FAKE_HEAD, writer=WRITER, fail=False, commits=None, total=None):
+def _fake_gh(env, head=FAKE_HEAD, fail=False, commits=None, total=None):
     """作り物の gh を PATH の頭に置く。実の GitHub へは出ない。
-    PR を引く呼び出しには先端と本文の `書いた窓:`（写し）を、commit を引く呼び出しには各 commit の説明（`Claude-Session:` の
+    PR を引く呼び出しには先端と commit の数を、commit を引く呼び出しには各 commit の説明（`Claude-Session:` の
     記録。既定は書いた窓の 1 本・1 本ごとに JSON の 1 行）を返す。commits の None の要素は記録の無い commit。
     total は PR の commit の数（既定は返す commit の数。GitHub が commit の一覧を 250 本で切る時の作り物に、返す数より大きくする）。"""
     bindir = Path(env["CLAUDE_PROJECT_DIR"]).parent / "fakebin"
     bindir.mkdir(exist_ok=True)
     gh_path = bindir / "gh"
-    body = "書いた窓: %s\\n" % writer if writer else "作り物の本文\\n"
     commits = [WRITER] if commits is None else commits
     msgs = "".join(json.dumps("作り物の commit\n\n" + ("Claude-Session: https://claude.ai/code/%s\n" % c if c else ""),
                               ensure_ascii=False).replace("\\", "\\\\") + "\\n" for c in commits)
     total = len(commits) if total is None else total
     gh_path.write_text("#!/bin/sh\n" + ("echo 'not found' >&2; exit 1\n" if fail else
-                       'case "$*" in *"/commits"*) printf \'%s\' ;; *) printf \'%%s\\n%%s\\n%%s\' \'%s\' \'%s\' \'%s\' ;; esac\n'
-                       % (msgs, head, total, body)), encoding="utf-8")
+                       'case "$*" in *"/commits"*) printf \'%s\' ;; *) printf \'%%s\\n%%s\\n\' \'%s\' \'%s\' ;; esac\n'
+                       % (msgs, head, total)), encoding="utf-8")
     gh_path.chmod(0o755)
     env["PATH"] = str(bindir) + os.pathsep + env.get("PATH", "")
     return env
@@ -290,10 +289,8 @@ def test_pr_text_判定の材料は_PR_から引き_引けなければ止め_先
     assert deny_reason(env, p) == ""
     _fake_gh(env, head="fedcba9876543210" + "0" * 24)             # 見た後に push があった
     assert "[verdict]" in deny_reason(env, p) and "先端" in deny_reason(env, p)
-    _fake_gh(env, writer=REVIEWER)                                 # 書いた窓が自分の PR に判定を付けた
+    _fake_gh(env, commits=[REVIEWER])                              # 書いた窓が自分の PR に判定を付けた
     assert "[verdict]" in deny_reason(env, p)
-    _fake_gh(env, writer="")                                       # PR 本文に書いた窓が無い（写しが無くても記録で照らす）
-    assert deny_reason(env, p) == ""
     _fake_gh(env, commits=[None])                                  # commit に書き手の記録が無い（本文の写しだけでは決めない）
     assert "判定の材料" in deny_reason(env, p) and "Claude-Session" in deny_reason(env, p)
     _fake_gh(env, fail=True)                                       # PR を引けない
