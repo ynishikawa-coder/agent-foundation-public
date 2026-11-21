@@ -47,7 +47,7 @@ def sentences(text: str):
     """(行番号, 文) の並び。表の行・箇条の頭・見出しの印は除いて文として切る。"""
     out = []
     for no, line in enumerate(text.splitlines(), 1):
-        line = re.sub(r"^\s*(?:[-*+]|\d+[.)]|#+|>)\s*", "", line)
+        line = re.sub(r"^\s*(?:[-*+]|\d+[.)]|#+)\s*", "", line)
         for part in _SPLIT.split(line):
             if len(body(part)) >= MIN_CHARS:
                 out.append((no, part.strip()))

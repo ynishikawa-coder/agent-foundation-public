@@ -254,11 +254,51 @@ def py_code(text: str) -> str:
     return "".join(chars)
 
 
+_JS_REGEX_BEFORE = set("(,=:[!&|?{};+-*%<>~^")
+_JS_REGEX_WORDS = ("return", "typeof", "instanceof", "in", "of", "new", "delete", "void", "throw", "case", "do", "else",
+                   "yield", "await")
+
+
+def _js_regex_end(text: str, i: int) -> int | None:
+    """i の / が正規表現の字の並びの開きなら、閉じの / の次の位置（flags の前）。違えば None。前の字（語）で決める
+    （値の後の / は割り算・式の頭や演算子の後の / は正規表現）。"""
+    j = i - 1
+    while j >= 0 and text[j] in " \t\r\n":
+        j -= 1
+    if j >= 0 and text[j] not in _JS_REGEX_BEFORE:
+        k = j
+        while k >= 0 and (text[k].isalnum() or text[k] in "_$"):
+            k -= 1
+        if text[k + 1:j + 1] not in _JS_REGEX_WORDS:
+            return None
+    k, cls = i + 1, False
+    while k < len(text) and text[k] != "\n":
+        c = text[k]
+        if c == "\\":
+            k += 2
+            continue
+        if c == "[":
+            cls = True
+        elif c == "]":
+            cls = False
+        elif c == "/" and not cls:
+            return k + 1
+        k += 1
+    return None
+
+
 def js_code(text: str) -> str:
-    """JavaScript（.mjs .js）の字から注釈（字の値の外の // と /* */）を除いた物。' " ` の字の値の中の // は残す。"""
+    """JavaScript（.mjs .js）の字から注釈（字の値と正規表現の字の並びの外の // と /* */）を除いた物。' " ` の字の値と
+    /…/ の正規表現の中の ' " ` // は字のまま（正規表現の中の引用符を字の値の開きと読み、後の命令を注釈として切らない）。"""
     out, q, i, n = [], "", 0, len(text)
     while i < n:
         c = text[i]
+        if not q and c == "/" and not text.startswith(("//", "/*"), i):
+            end = _js_regex_end(text, i)
+            if end is not None:
+                out.append(text[i:end])
+                i = end
+                continue
         if q:
             if c == "\\" and i + 1 < n:
                 out.append(text[i:i + 2])

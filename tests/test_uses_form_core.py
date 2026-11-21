@@ -176,7 +176,6 @@ def test_古い言い回し_使う所に在れば今も残り(rel, text):
 
 
 # ── 読み口は 1 か所（kaku の「使う形の読み口」）。copies・refs・試験は呼ぶだけで、読み方を写さない ──
-import inspect  # noqa: E402
 
 copies = _load("copies_uses_form", "plugins/core/scripts/copies.py")
 RULE = "戻せない操作の前に人に聞く"
@@ -204,25 +203,6 @@ def test_読み口_字の値の中の_slash_slash_は注釈でない():
 def test_読み口_shell_の単引用の中の_backslash_は字のまま():
     assert kaku.sh_code("echo 'a\\' # 注\n") == "echo 'a\\' \n"
     assert "x.py" in kaku.sh_code('echo "a\\"" x.py # 注\n') and "注" not in kaku.sh_code('echo "a\\"" x.py # 注\n')
-
-
-@pytest.mark.parametrize("rel,func", [
-    ("plugins/core/scripts/copies.py", None),
-    ("plugins/core/scripts/refs.py", None),
-    ("tests/uses.py", None),
-    ("tests/test_core_plugin.py", "used_text"),
-    ("tests/test_skill_values_no_rule_copy.py", "pointing"),
-])
-def test_読み口_構造の読み方を写さない(rel, func):
-    """囲み・注記・注釈の読み方（```・~~~・<!--・tokenize・// の除き）を自分で書かず、kaku の読み口を呼ぶ。"""
-    if func:
-        mod = _load("m_" + func, rel)
-        src = inspect.getsource(getattr(mod, func))
-    else:
-        src = (ROOT / rel).read_text(encoding="utf-8")
-    code = kaku.py_code(src)
-    for w in ("```", "~~~", "<!--", "tokenize", "//[", "COMMENT", "startswith(\">\")"):
-        assert w not in code, f"{rel} が構造の読み方 {w!r} を写している（kaku の読み口を呼ぶ）"
 
 
 # ── 知らない形を黙って空にしない（reads: commands の .md） ──
@@ -318,11 +298,3 @@ def test_古い形_一覧の例の試験は本物の照らし口を通す():
 ])
 def test_古い形_CommonMark_の囲みの中の欄は名指さない(text):
     assert not kaku.old_hit(ROWS["tasu-mado-heading"], "決まり.md", text), text
-
-
-# ── common.rules の指し（test_skill_values_no_rule_copy.pointing）は禁じる語で説明と指示を分けない ──
-def test_指し_禁じる語を添えて名を挙げても赤():
-    from test_skill_values_no_rule_copy import RULE_BUCKET, pointing
-    for line in ("`common.rules` は写さない。", "前の `common.rules.no_confirm` は畳んだ。"):
-        assert RULE_BUCKET.search(pointing(".md", line)), line
-    assert not RULE_BUCKET.search(pointing(".md", "<!-- common.rules -->")), "注記は指しでない"

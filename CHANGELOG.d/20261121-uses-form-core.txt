@@ -1,6 +1,5 @@
-- 直した: core の古い形の一覧（古い形.json）の行に読み方 reads を足した。setup の 4 行（plugin-name-copy・no-marketplace-update・no-stale-catalog-remove・stale-remove-substring）は動く命令の所だけ（.md はコードの囲みの中・注釈と docstring を除く）を読み、入口の名が注釈に在るだけでは入口を呼ぶ側にしない・README の地の文で目録の命令を囲まずに書く説明は名指さない（地の文の `…` の中は説明の例か命令かを構文で分けられないので命令として読む）。札と欄の 2 行（atonobin-tag・tasu-mado-heading）は引用（「」『』“”`…`）・囲み・注記の中を読まない（見出しの印 # で始まる引用は書く行そのものとして読む）
+- 直した: core の古い形の一覧（古い形.json）の行に読み方 reads を足した。setup の 4 行（plugin-name-copy・no-marketplace-update・no-stale-catalog-remove・stale-remove-substring）は動く命令の所だけ（.md はコードの囲みの中・注釈と docstring を除く）を読み、入口の名が注釈に在るだけでは入口を呼ぶ側にしない・README の地の文の目録の説明は名指さない。札と欄の 2 行（atonobin-tag・tasu-mado-heading）は引用（「」『』“”`…`）・囲み・注記の中を読まない（見出しの印 # で始まる引用は書く行そのものとして読む）
 - 直した: core の copies.py は照らす file の > の引用・コードの囲み・「」『』の中を写しに数えない。refs.py はコードの囲みの中の行を指しとして照らさない
 - 直した: 試験 12 本が字の在る無しでなく使う形（コードの字・呼ぶ形・付けた印・shell の命令・workflow の出来事と run）で照らす（読み口 tests/uses.py）。古い言い回しの残りの照らし（old_words_left）も注釈・docstring・引用・囲みの中を数えない
 - 直した: 試験の読み口 tests/uses.py が読む PyYAML の版を scripts/pytest_plugin/requirements.txt に足した（CI の check と plugin-smoke が試験を集める所で yaml が無くて止まっていた）
 - 直した: 構造の読み方（コードの囲み・字下げ・<pre>・注記・引用・注釈）を core の kaku.py の「使う形の読み口」の 1 か所にまとめ、copies.py・refs.py と試験（tests/uses.py・古い言い回しの残りの照らし・common.rules の指しの照らし）はそれを呼ぶ。古い形の reads=commands は .md の 4 字以上の囲み・~~~ の囲み・閉じの無い囲み・字下げ・<pre> の中も命令として読む（前は 3 字ちょうどの囲みしか読まず、それ以外を黙って見なかった）。.mjs の字の値の中の // を注釈として切らない。古い形の一覧の例の試験は本物の照らし口（old_hit）で照らす
-- 直した: common.rules の指しの照らしは、禁じる・畳んだの語（写さない・畳んだ 等）が同じ文に在るかで説明と指示を分けない。.md と .html は注記の中だけを外し、地の文で名を挙げれば赤
