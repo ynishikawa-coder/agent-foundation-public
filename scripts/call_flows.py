@@ -13,6 +13,8 @@
   file 名（その名の file が plugin の外にも・2 つの plugin にも在る時は path ごと書いた物だけ）か、
   plugin の外の土台の部品（repo の根の dir のうち OUTSIDE_SKIP に無い物・例 public-guard）の道具の path（<dir>/…/<file 名>）。
   部品の名は dir の名。plugin が土台の file を借りる流れも、plugin どうしと同じく絵に要る（拾わないと人の目で漏れる）。
+  使う側の repo の物（値の表・CLAUDE.md・文書と script）を読む流れも拾う（形は using_items の上の注釈）。読む物の名が絵の
+  個別の箱の題の頭。前は土台の道具の流れしか拾わず、core が使う側の値の表と文書・script を読む流れが絵から漏れた。
   呼ぶ形:
   - .py: 字の値そのものが道具を指す（docstring と式だけの字は除く）・os.path.join／Path の字を繋いだ値・
     隣の plugin の名と並べた path（sibling_plugin_file("docs-kit", "…/check.mjs")）・import の名・interpreter で始まる命令の字。
@@ -22,7 +24,7 @@
     skill の名・文書（.md）の path（道具を呼ぶ流れでない）・.html・.txt（道具を呼ばない）・
     plugin の外の実体を指す symlink（例: lib/skill_values.py → skill-values/。中身は実体の部品の文で、置いた plugin の物でない）。
   前の形は行の字に名が在れば数え、説明の文で名を挙げるだけで「絵に無い流れ」の赤になり、絵に偽の流れを足すか
-  注釈の言い方を替えて逃げる圧になった。読めない .py・.json は黙って飛ばさず照らせない（exit 2）。
+  注釈の言い方を替えて逃げる圧になった。読めない file（読めない・utf-8 でない・.py・.json の形が崩れた）は黙って飛ばさず照らせない（exit 2）。
 絵との対応: 絵の箱のうち tab が arch で、題の頭（「（」の前）が plugin（部品）の名と同じ箱をその箱とみる。
   箱が無い plugin・2 つ在る plugin は照らせない＝赤（黙って通さない）。箱が無い部品は「絵に無い箱」＝赤。矢印の向きは 呼ぶ側 → 呼ばれる側。
 exit: list は 0（読めない file は 2）。check は 0=全部在る／1=絵に無い流れが在る／2=照らせない（絵が読めない・箱が無い・重なる）。
@@ -107,10 +109,15 @@ def flows(repo: Path) -> dict[tuple[str, str], list[str]]:
         x = parts[1]
         try:
             text = (repo / f).read_text(encoding="utf-8")
-        except (OSError, UnicodeDecodeError):
-            continue
+        except (OSError, UnicodeDecodeError) as e:   # 黙って飛ばすと、その file の流れを照らさず緑を返す
+            raise ValueError(f"{f} が読めず、呼ぶ形を拾えない（{type(e).__name__}: {e}）") from None
         seen = set()
         for no, piece, kind in pieces(f, text, units):
+            if kind == "value":
+                for item in using_items(f, piece):
+                    if (no, item) not in seen:
+                        seen.add((no, item))
+                        out[(x, item)].append(f"{f}:{no} {piece.strip()}")
             for y, name, path_pat, bare in pats:
                 if y == x or (no, y, name) in seen:
                     continue
@@ -118,6 +125,34 @@ def flows(repo: Path) -> dict[tuple[str, str], list[str]]:
                     seen.add((no, y, name))
                     out[(x, y)].append(f"{f}:{no} {name}")
     return dict(out)
+
+
+# ── 使う側の repo の物を読む形 ───────────────────────────────────
+# plugin は土台の道具だけでなく、開いた（使う側の）repo の物も読む。読む物ごとに絵の個別の箱が要る（無ければ「絵に無い箱」）。
+# 読む物の名＝絵の箱の題の頭（「（」の前）。拾う形はコードの値そのもの（説明の文は pieces が除く）:
+#   - 値の表: 値が config/skill-values.json・値の表の口 skill_values の import（plugin の lib/ の symlink を通して読む）
+#   - CLAUDE.md: 値が CLAUDE.md（開いた repo の根の CLAUDE.md を読む）
+#   - 文書・script: plugin の .json の表に置いた git の pathspec の glob（例 古い形.json の files の *.md・*.sh。
+#     その表を読む道具が使う側の repo の file を当てる）
+# 残る穴: .py・.mjs の中の glob は土台の自分の file を当てる物（copies.py・refs.py）と使う側の repo を当てる物を
+#   字の形で分けられないので拾わない。使う側の repo の物を .py の glob で読む道具を足す時は表（.json）に置く。
+USING_TABLE = "repo ごとの値の表"
+USING_CLAUDE = "repo 固有の CLAUDE.md"
+USING_FILES = "repo の文書・script"
+USING = (USING_TABLE, USING_CLAUDE, USING_FILES)
+_PATHSPEC_GLOB = re.compile(r"(?::\(exclude\))?[\w./-]*\*[\w./*-]*")
+
+
+def using_items(f: str, piece: str) -> list[str]:
+    """値 piece が使う側の repo の物を指すなら、その物の名（絵の箱の題の頭）。"""
+    w = piece.strip()
+    if w == "config/skill-values.json" or (f.endswith(".py") and w == "skill_values.py"):
+        return [USING_TABLE]
+    if w == "CLAUDE.md":
+        return [USING_CLAUDE]
+    if f.endswith(".json") and _PATHSPEC_GLOB.fullmatch(w):
+        return [USING_FILES]
+    return []
 
 
 # ── 呼ぶ形だけを取り出す ─────────────────────────────────────────
@@ -366,7 +401,8 @@ def check(pic_path: Path, repo: Path) -> int:
     arrows = {(a.get("from"), a.get("to")) for a in pic.get("arrows") or [] if isinstance(a, dict)}
     for u in no_box:
         ev = [e for (_, y), es in sorted(got.items()) if y == u for e in es]
-        print(f"✗ 絵に無い箱: {u}（plugin の外の土台の部品）証拠: {ev[0]}" + (f" ほか {len(ev) - 1}" if len(ev) > 1 else ""))
+        what = "使う側の repo の物" if u in USING else "plugin の外の土台の部品"
+        print(f"✗ 絵に無い箱: {u}（{what}）証拠: {ev[0]}" + (f" ほか {len(ev) - 1}" if len(ev) > 1 else ""))
     missing = [(x, y, ev) for (x, y), ev in sorted(got.items()) if y not in no_box and (box[x], box[y]) not in arrows]
     missing += [(x, y, ev) for (x, y), ev in sorted(got.items()) if y in no_box]
     for x, y, ev in missing:
