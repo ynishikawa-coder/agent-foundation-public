@@ -48,7 +48,7 @@
           "default": "~/.claude/af-guard"
         },
         "paid_markers_extra": {"type": "words", "default": [], "against": "試験の file に書く本文・試験の file に書く Bash の命令の全文"},
-        "irreversible_bash_extra": {"type": "patterns", "match": "part", "default": [], "against": "Bash の命令の語＝実際に動かす並びと、字を挙げるだけの命令（git・gh・echo など）そのものの語（命令の行が 1 つの素の命令〔shell の特別な字 改行・| & ; < > $ ` \\ ( ) { } と引用の外の glob の字 * ? [ が無く、命令の名が path を含まない〕で字を挙げるだけの時だけ commit の文・grep の語・echo の字・注釈を除く。git push --force・gh repo delete は当たる。それ以外は打った字の全文）"},
+        "irreversible_bash_extra": {"type": "patterns", "match": "part", "default": [], "against": "Bash の命令の語＝打った字のまま（命令の行が 1 つの素の命令〔shell の特別な字 改行・| & ; < > $ ` \\ ( ) { } と引用の外の glob の字 * ? [ が無く、命令の名が path を含まない〕で、引数が全部字を渡す口の表〔git commit の -m・git log の --grep／-S・gh pr／issue の --title／--body・grep／rg の型・echo の字〕に収まる時だけ、その口の値と注釈を除く。前置き・部分命令の語は引用で包んでも当たる〔git push origin main '--force'・gh repo 'delete'〕。それ以外は打った字の全文）"},
         "irreversible_tools_extra": {"type": "patterns", "match": "whole", "default": [], "against": "道具の名（例 mcp__server__delete_item）"},
         "qa_page_exempt": {"type": "patterns", "match": "whole", "default": [], "against": "問いのページの file の path（repo の根から・/ 区切り）"},
         "ask_question_max_chars": {

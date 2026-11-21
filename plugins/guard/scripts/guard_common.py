@@ -13,7 +13,6 @@ import glob
 import json
 import os
 import re
-import shlex
 import sys
 import tempfile
 from datetime import datetime, timezone
@@ -254,115 +253,180 @@ def is_child_log(path):
     return bool(row) and is_child_prompt(text_of(row), seeded_by_record(row))
 
 
-# ── Bash の命令のうち実際に動かす所（字を挙げるだけの所と分ける） ──
-# 外すのは、命令の行が 1 つの素の命令だけの時（_read_whole: shell の特別な字〔改行・| & ; < > $ ` \ ( ) { }・\r〕と引用の外の glob の字〔* ? [〕が
-# 1 つも無く、命令の名が path を含まない素の名で、代入・環境へ出す手でない）で、それが字を書く・探す・見せるだけの道具の時だけ。
-# それ以外は呼ぶ側が命令の字全体で見る（前の版と同じ判定）。shell の読み手が bash と同じに区切る前提に頼らない
-# （流れる道を 1 つずつ足して追う作りも、shlex で並びを区切る作りも、bash とのずれでまた抜けたのでやめた）。
-# 一覧に置くのは、引数が評価・実行される口を持たないと 1 つずつ確かめた道具だけ（確かめた結果）:
-# - echo・true・: … 引数を字として出す・捨てるだけ。
-# - printf … 書式を字として出すだけ。変数へ書く -v は _read_whole が外さない。
-# - cat・head・tail・wc … 引数は前置きか file の名で、file を読むだけ（中身を命令として動かす口が無い）。
-# - grep・egrep・fgrep … 引数は型・前置き・file の名で、-f も型の file を読むだけ（命令を動かす前置きが無い）。
-# test と [ は置かない: bash の組み込みの test -v は配列の添字（a[…]）を算術として評価し、添字の中の $(…) や、添字に
-# 書いた変数の値（前の命令で入れた $(…) の字）が命令を動かす（bash で確かめた）。[[ ]] は算術の比べでも同じなので置かない。
-TEXT_ONLY = frozenset(("echo", "printf", "cat", "grep", "egrep", "fgrep",
-                       "head", "tail", "wc", "true", ":"))
+# ── Bash の命令のうち実際に動かす所（字を渡す口の値と分ける） ──
+# 外すのは、命令の行が 1 つの素の命令だけの時（_read_whole: shell の特別な字〔改行・| & ; < > $ ` \ ( ) { }・\r〕と引用の外の
+# glob の字〔* ? [〕が 1 つも無く、命令の名が path を含まない素の名で、代入・環境へ出す手でない）で、しかもその行の引数が全部
+# 「字を渡す口の名」「その口の値」「動かす口が無いと確かめた前置き・その値・位置の引数」のどれかの時だけ（_SLOTS の表）。
+# 外すのは口の値（commit の文・grep の型・echo の字など）だけで、前置き・部分命令の語は打った字のまま当てる。
+# 道具の名で「字を挙げるだけ」を決めない（git・rg・test・gh と、道具の名で決めた所から同じ類の抜け道が続いたため）。
+# 表の外の道具・部分命令・前置き（-c・--・--pre・-O・-w・--editor・--body-file・-p など）が 1 つでも在れば外さず、
+# 呼ぶ側が前の版と同じく打った字（注釈は除く）で見る。shell の読み手が bash と同じに区切る前提にも頼らない。
+#
+# 表の 1 行の欄:
+#   text_long・text_short … 値が字として渡るだけの前置き（その値を外す）
+#   val_long・val_short   … 値が字として渡るだけでなく、動かす口も無い前置き（値は打った字のまま当てる）
+#   flag_long・flag_short … 値を取らず、動かす口の無い前置き
+#   num                   … -5 のような数だけの前置きを通すか
+#   pos                   … 位置の引数: "text"＝全部が字（外す）／"pattern"＝最初の 1 つが型（外す・-e が無い時）で
+#                           残りは file の名／"inert"＝revision や番号など動かす口の無い字（外さない）／None＝置けない
+# 確かめた結果（各道具の引数が評価・実行される口を持たないか）:
+#   echo・printf・true・: … 引数を字として出す・捨てるだけ（printf -v は _read_whole が外さない）。前置きも字に数える。
+#   grep・egrep・fgrep … 型と file の名を読むだけ。-f（型の file）・-P の外の前置きは表の外。
+#   rg … 型と file の名を読むだけ。--pre・-z（外の道具で展開する）は表の外。
+#   git commit … -m の文を字として渡すだけ。前置きは動かす口の無い物だけ（-c・--exec-path などの git の前置きは表の外）。
+#   git log … --grep・-S・-G の型を字として渡すだけ。-p・--stat・--ext-diff（外の diff・textconv を動かしうる）は表の外。
+#   gh pr／issue の create・edit・comment … --title・--body を字として渡すだけ。-w（browser）・-e（editor）・
+#   --body-file・`--` は表の外。gh repo clone のように `--` の後を git へ渡す部分命令は表に置かない。
+#   test・[ は置かない（bash の組み込みの test -v は配列の添字を算術として評価し、添字の中の $(…) や添字に書いた変数の
+#   値が命令を動かす＝bash で確かめた）。cat・head・tail・wc も置かない（字を渡す口が無い＝外して得る物が無い）。
+#   git grep も置かない（-O<prog> が当たった file を引数に命令を動かす）。
+def _spec(text_long=(), text_short="", val_long=(), val_short="", flag_long=(), flag_short="", num=False, pos=None):
+    return {"text_long": frozenset(text_long), "text_short": text_short, "val_long": frozenset(val_long),
+            "val_short": val_short, "flag_long": frozenset(flag_long), "flag_short": flag_short, "num": num, "pos": pos}
+
+
+_ALL_TEXT = _spec(pos="text")
+_GREP = _spec(text_long=("--regexp",), text_short="e",
+              val_long=("--max-count", "--after-context", "--before-context", "--context", "--include", "--exclude",
+                        "--exclude-dir", "--color", "--colour"),
+              val_short="mABC",
+              flag_long=("--recursive", "--dereference-recursive", "--line-number", "--ignore-case", "--no-ignore-case",
+                         "--files-with-matches", "--files-without-match", "--word-regexp", "--line-regexp",
+                         "--invert-match", "--count", "--extended-regexp", "--fixed-strings", "--basic-regexp",
+                         "--with-filename", "--no-filename", "--only-matching", "--quiet", "--silent", "--no-messages",
+                         "--byte-offset", "--null", "--text", "--initial-tab"),
+              flag_short="rRnilLwxvcEFGHhosqbZaT", num=True, pos="pattern")
+_RG = _spec(text_long=("--regexp",), text_short="e",
+            val_long=("--glob", "--iglob", "--type", "--type-not", "--max-count", "--after-context", "--before-context",
+                      "--context", "--max-depth", "--sort", "--sortr", "--color", "--max-columns", "--max-filesize"),
+            val_short="gtTmABCd",
+            flag_long=("--hidden", "--no-ignore", "--no-ignore-vcs", "--line-number", "--no-line-number",
+                       "--ignore-case", "--smart-case", "--case-sensitive", "--fixed-strings", "--word-regexp",
+                       "--line-regexp", "--invert-match", "--count", "--count-matches", "--files-with-matches",
+                       "--files-without-match", "--only-matching", "--no-heading", "--heading", "--json",
+                       "--multiline", "--multiline-dotall", "--follow", "--vimgrep", "--no-filename",
+                       "--with-filename", "--column", "--null", "--trim", "--stats", "--files", "--no-messages",
+                       "--quiet", "--text", "--unrestricted", "--no-config"),
+            flag_short="nNiSsFwxvcloUHIqLu.", num=False, pos="pattern")
+_GIT_COMMIT = _spec(text_long=("--message",), text_short="m",
+                    flag_long=("--all", "--amend", "--no-edit", "--quiet", "--signoff", "--allow-empty",
+                               "--allow-empty-message", "--no-verify", "--verbose"),
+                    flag_short="aqsnv", pos="inert")
+_GIT_LOG = _spec(text_long=("--grep",), text_short="SG",
+                 val_long=("--max-count", "--since", "--until", "--after", "--before", "--author", "--committer",
+                           "--skip"),
+                 val_short="n",
+                 flag_long=("--oneline", "--all", "--name-only", "--name-status", "--no-merges", "--merges",
+                            "--pickaxe-regex", "--pickaxe-all", "--regexp-ignore-case", "--all-match", "--invert-grep",
+                            "--fixed-strings", "--extended-regexp", "--basic-regexp", "--reverse", "--first-parent",
+                            "--no-decorate", "--decorate", "--abbrev-commit", "--no-color"),
+                 flag_short="iEF", num=True, pos="inert")
+_GH_TEXT = _spec(text_long=("--title", "--body"), text_short="tb",
+                 val_long=("--base", "--head", "--repo", "--label", "--assignee", "--reviewer", "--milestone",
+                           "--add-label", "--remove-label", "--add-assignee", "--remove-assignee"),
+                 val_short="BHRlarm",
+                 flag_long=("--draft", "--fill"), flag_short="df", pos="inert")
+# 命令の頭の語の並び → 表の行。git は頭の語の間に -C <dir>・--no-pager・-P だけを置ける（_head）。
+_SLOTS = {("echo",): _ALL_TEXT, ("printf",): _ALL_TEXT, ("true",): _ALL_TEXT, (":",): _ALL_TEXT,
+          ("grep",): _GREP, ("egrep",): _GREP, ("fgrep",): _GREP, ("rg",): _RG,
+          ("git", "commit"): _GIT_COMMIT, ("git", "log"): _GIT_LOG}
+for _k in ("pr", "issue"):
+    for _v in ("create", "edit", "comment"):
+        _SLOTS[("gh", _k, _v)] = _GH_TEXT
+_ENV = re.compile(r"[A-Za-z_]\w*=.*", re.S)
 # 素の命令でも、それだけで外さない物とする命令（環境・変数・別名へ出す手・file を書く手・他を読み込む手）。
 _UNREAD_PROG = frozenset(("export", "set", "declare", "typeset", "readonly", "local", "unset", "alias", "source", ".",
                           "env", "tee", "shopt", "trap", "hash", "builtin", "command"))
-# 中で命令を動かせる道具（git・rg・gh）は、前置き（-x・--foo）を「動かす口が無いと分かっている物」の一覧で通し、
-# 一覧の外の前置きが 1 つでも在れば動く側に数える（動かす口を数えて外す形は、次の口でまた抜ける＝
-# push --receive-pack・fetch --upload-pack）。環境変数の前置き（GIT_PAGER・RIPGREP_CONFIG_PATH など）も動く側。
-# git: 部分命令がこの組で、前置きが全部 _GIT_SAFE_OPT の時だけ。部分命令の前は -C <dir>・--no-pager・-P だけ。
-# gh: 部分命令がこの組（alias・extension・利用者の別名は中で命令を動かせる）で環境変数の前置きが無い時だけ。
-# rg: 前置きが全部 _RG_SAFE_OPT の時だけ（--pre・--pre-glob は一覧の外）。
-_GIT_TEXT = frozenset(("commit", "add", "status", "diff", "log", "show", "tag", "fetch", "push", "pull", "checkout",
-                       "switch", "branch", "restore", "rm", "mv", "ls-files", "ls-tree", "rev-parse", "merge-base",
-                       "blame", "reset", "remote", "stash", "describe", "shortlog", "cat-file", "grep"))
-_GIT_GLOBAL_SAFE = frozenset(("--no-pager", "-P", "--no-optional-locks", "--literal-pathspecs"))
-_GIT_SAFE_LONG = frozenset((
-    "message", "all", "amend", "no-edit", "no-verify", "quiet", "verbose", "signoff", "allow-empty",
-    "allow-empty-message", "author", "date", "fixup", "squash", "cleanup", "no-gpg-sign", "file", "reuse-message",
-    "oneline", "stat", "shortstat", "numstat", "name-only", "name-status", "cached", "staged", "patch", "no-patch",
-    "format", "pretty", "graph", "decorate", "no-decorate", "abbrev-commit", "abbrev", "branches", "remotes", "tags",
-    "since", "until", "after", "before", "grep", "committer", "max-count", "skip", "reverse", "first-parent",
-    "no-merges", "merges", "follow", "diff-filter", "unified", "word-diff", "color", "no-color",
-    "ignore-space-change", "ignore-all-space", "ignore-blank-lines", "merge-base", "porcelain", "short", "branch",
-    "untracked-files", "ignored", "abbrev-ref", "show-toplevel", "verify", "is-ancestor", "symbolic-full-name",
-    "git-dir", "show-prefix", "list", "contains", "merged", "no-merged", "sort", "points-at", "force",
-    "force-with-lease", "force-if-includes", "set-upstream", "set-upstream-to", "unset-upstream", "track",
-    "no-track", "delete", "move", "copy", "create", "detach", "orphan", "hard", "soft", "mixed", "keep", "merge",
-    "ff-only", "no-ff", "ff", "rebase", "no-rebase", "autostash", "no-autostash", "depth", "deepen",
-    "shallow-since", "unshallow", "prune", "prune-tags", "dry-run", "no-tags", "atomic", "follow-tags",
-    "include-untracked", "keep-index", "index", "worktree", "source", "ours", "theirs", "others",
-    "exclude-standard", "modified", "deleted", "error-unmatch", "full-name", "ignore-case", "line-number",
-    "files-with-matches", "count", "word-regexp", "extended-regexp", "fixed-strings", "perl-regexp",
-    "invert-match", "long", "exact-match", "always", "dirty", "full-history", "date-order", "topo-order",
-    "relative-date", "summary", "check", "raw", "name-rev", "stdin", "intent-to-add", "update", "pathspec-from-file",
-    "local", "verbose", "tracking", "upstream", "no-recurse-submodules", "set-head", "sparse", "no-commit",
-))
-_GIT_SAFE_OPT = re.compile(r"^(?:--|--end-of-options|-\d+|-[abdfmnpqsuvABDFMNPRSUWilrtwEGLIC]+"
-                           r"|-[nUSGlMm]\S+|--(?:%s)(?:=.*)?)$" % "|".join(sorted(map(re.escape, _GIT_SAFE_LONG),
-                                                                              key=len, reverse=True)), re.S)
-_RG_SAFE_LONG = frozenset((
-    "files", "hidden", "no-ignore", "no-ignore-vcs", "no-ignore-dot", "glob", "iglob", "type", "type-not",
-    "type-list", "json", "no-heading", "heading", "line-number", "no-line-number", "column", "count",
-    "count-matches", "files-with-matches", "files-without-match", "fixed-strings", "ignore-case", "smart-case",
-    "case-sensitive", "word-regexp", "line-regexp", "invert-match", "only-matching", "context", "before-context",
-    "after-context", "max-count", "max-depth", "follow", "multiline", "multiline-dotall", "null", "color",
-    "colors", "no-filename", "with-filename", "sort", "sortr", "replace", "trim", "vimgrep", "stats", "text",
-    "binary", "encoding", "max-columns", "max-filesize", "passthru", "pcre2", "engine", "unrestricted",
-    "no-config", "regexp", "quiet", "no-messages", "field-match-separator", "field-context-separator",
-))
-_RG_SAFE_OPT = re.compile(r"^(?:--|-\d+|-[ABCEFHILMNSTUVabcefghijlmnopqrstuvwx]+\S*|--(?:%s)(?:=.*)?)$"
-                          % "|".join(sorted(map(re.escape, _RG_SAFE_LONG), key=len, reverse=True)), re.S)
-_GH_TEXT = frozenset(("pr", "issue", "api", "release", "search", "label", "repo", "run", "workflow", "browse",
-                      "gist", "status", "secret", "variable", "cache", "ruleset", "project"))
-_ENV = re.compile(r"[A-Za-z_]\w*=.*", re.S)
 
 
-def _opts_safe(args, safe):
-    """引数のうち前置き（- で始まる語・-- の後は path）が全部 safe に当たるか。"""
-    for a in args:
-        if a == "--":
-            return True
-        if a.startswith("-") and a != "-" and not safe.match(a):
-            return False
-    return True
+def _head(words):
+    """(表の行, 頭の語の数)。表の外は (None, 0)。git の頭の語の間は -C <dir>・--no-pager・-P だけ。"""
+    if words[0] == "git":
+        i = 1
+        while i < len(words) and words[i].startswith("-"):
+            if words[i] == "-C" and i + 1 < len(words):
+                i += 2
+            elif words[i] in ("--no-pager", "-P"):
+                i += 1
+            else:
+                return None, 0                   # -c・--config-env・--exec-path・一覧の外の前置き
+        if i < len(words) and ("git", words[i]) in _SLOTS:
+            return _SLOTS[("git", words[i])], i + 1
+        return None, 0
+    for n in (3, 1):
+        key = tuple(words[:n])
+        if key in _SLOTS:
+            return _SLOTS[key], n
+    return None, 0
 
 
-def _git_text(args):
-    i = 0
-    while i < len(args) and args[i].startswith("-"):
-        if args[i] == "-C" and i + 1 < len(args):
-            i += 2
-            continue
-        if args[i] not in _GIT_GLOBAL_SAFE:
-            return False                  # -c・--config-env・--exec-path・一覧の外の前置き
+def _text_slots(words):
+    """素の 1 つの命令（引用を外した語の並び）で、字を渡す口の値の (位置, 前に残す字) の並び。引数が 1 つでも表の外なら None。
+    前に残す字は、--message=… や -m… のように前置きと値が 1 つの語の時の前置きの所（値だけを外す）。"""
+    spec, i = _head(words)
+    if spec is None:
+        return None
+    n = len(words)
+    if spec["pos"] == "text":
+        return [(j, "") for j in range(i, n)]
+    out, pattern_given = [], False
+    positional = []
+    while i < n:
+        w = words[i]
+        if w.startswith("--") and len(w) > 2:
+            name, eq, _val = w.partition("=")
+            if name in spec["text_long"]:
+                if eq:
+                    out.append((i, name + "="))
+                elif i + 1 < n:
+                    out.append((i + 1, ""))
+                    i += 1
+                else:
+                    return None
+                pattern_given = True
+            elif name in spec["val_long"]:
+                if not eq:
+                    if i + 1 >= n:
+                        return None
+                    i += 1
+            elif not (name in spec["flag_long"] and not eq):
+                return None
+        elif w.startswith("-") and len(w) > 1:
+            body = w[1:]
+            if spec["num"] and body.isdigit():
+                i += 1
+                continue
+            for k, c in enumerate(body):
+                rest = body[k + 1:]
+                if c in spec["text_short"]:
+                    if rest:
+                        out.append((i, "-" + body[:k + 1]))
+                    elif i + 1 < n:
+                        out.append((i + 1, ""))
+                        i += 1
+                    else:
+                        return None
+                    pattern_given = True
+                    break
+                if c in spec["val_short"]:
+                    if not rest:
+                        if i + 1 >= n:
+                            return None
+                        i += 1
+                    break
+                if c not in spec["flag_short"]:
+                    return None
+        else:
+            positional.append(i)
         i += 1
-    if i >= len(args) or args[i] not in _GIT_TEXT:
-        return False
-    return _opts_safe(args[i + 1:], _GIT_SAFE_OPT)
-
-
-def _text_only(words):
-    """素の 1 つの命令（語の並び）が字を挙げるだけか。命令の名は path を含まない素の名だけ（./grep・~/bin/echo は同じ名の
-    別の実行ファイルかもしれない＝動く側）。"""
-    if "/" in words[0]:
-        return False
-    prog = words[0]
-    args = words[1:]
-    if prog in TEXT_ONLY:
-        return True
-    if prog == "rg":
-        return _opts_safe(args, _RG_SAFE_OPT)
-    if prog == "git":
-        return _git_text(args)
-    if prog == "gh":
-        sub = next((a for a in args if not a.startswith("-")), "")
-        return sub in _GH_TEXT
-    return False
+    if positional:
+        if spec["pos"] is None:
+            return None
+        if spec["pos"] == "pattern" and not pattern_given:
+            out.append((positional[0], ""))
+    elif spec["pos"] == "pattern" and not pattern_given:
+        return None
+    return out
 
 
 _HEREDOC = re.compile(r"<<(-?)[ \t]*(['\"]?)([A-Za-z_][\w.-]*)\2")
@@ -471,47 +535,88 @@ _GLOB = frozenset("*?[")
 _QUOTED = re.compile(r"'[^']*'|\"[^\"]*\"")
 
 
+def _tokens(line):
+    """特別な字の無い行の語の並び [(引用を外した語, 打った字の始め, 終わり)]。閉じない引用は None。"""
+    toks, i, n = [], 0, len(line)
+    while i < n:
+        if line[i] in " \t":
+            i += 1
+            continue
+        start, val = i, []
+        while i < n and line[i] not in " \t":
+            c = line[i]
+            if c in "'\"":
+                j = line.find(c, i + 1)
+                if j < 0:
+                    return None
+                val.append(line[i + 1:j])
+                i = j + 1
+            else:
+                val.append(c)
+                i += 1
+        toks.append(("".join(val), start, i))
+    return toks
+
+
 def _read_whole(cmd):
-    """命令の行が 1 つの素の命令だけの時、その語の並び（引用を外した語）。shell の特別な字（改行・| & ; < > $ ` \\ ( ) { }・\\r）か引用の外の glob の字（* ? [）が
-    1 つでも在る・命令の名が path を含む・代入や環境へ出す手・閉じない引用は None（呼ぶ側が命令の字全体で見る）。"""
+    """命令の行が 1 つの素の命令だけの時、(注釈を落とした打った字, 語の並び)。shell の特別な字（改行・| & ; < > $ ` \\ ( ) { }・
+    \\r）か引用の外の glob の字（* ? [）が 1 つでも在る・命令の名が空か path を含む・代入や環境へ出す手・閉じない引用は None
+    （呼ぶ側が命令の字全体で見る）。"""
     if not isinstance(cmd, str) or any(c in _SHELL_SPECIAL for c in cmd):
         return None
     if any(c in _GLOB for c in _QUOTED.sub("", cmd)):
         return None
-    try:
-        lex = shlex.shlex(_strip_comment(cmd), posix=True)   # 特別な字の無い行で引用を外すだけに使う
-        lex.whitespace_split = True
-        lex.commenters = ""
-        words = list(lex)
-    except ValueError:
+    line = _strip_comment(cmd)
+    toks = _tokens(line)
+    if not toks:
         return None
-    if not words or "/" in words[0] or _ENV.fullmatch(words[0]) or words[0] in _UNREAD_PROG:
+    first = toks[0][0]
+    if not first or "/" in first or _ENV.fullmatch(first) or first in _UNREAD_PROG:
         return None
-    if words[0] == "printf" and any(a.startswith("-v") for a in words[1:]):
+    if first == "printf" and any(t[0].startswith("-v") for t in toks[1:]):
         return None                               # printf -v は変数へ書く
-    return words
+    return line, toks
+
+
+def _blanked(cmd):
+    """(注釈を落とした打った字, 字を渡す口の値を '' にした打った字 or None)。素の命令でない行は None。"""
+    read = _read_whole(cmd)
+    if read is None:
+        return None
+    line, toks = read
+    slots = _text_slots([t[0] for t in toks])
+    if slots is None:
+        return line, None
+    out, last = [], 0
+    for j, keep in sorted(slots):
+        _w, s, e = toks[j]
+        out.append(line[last:s])
+        out.append(keep + "''")
+        last = e
+    out.append(line[last:])
+    return line, "".join(out)
 
 
 def executed_parts(cmd):
-    """Bash の命令のうち実際に動かす所の字の並び。命令の行が 1 つの素の命令の時だけ読み、字を挙げるだけ（_text_only:
-    git commit -m '…' の文・grep の語・echo の字）なら [] （外す）、それ以外は注釈を落とした打った字 1 つ。素の命令でない行は
-    None＝呼ぶ側が命令の字全体で見る（前の版と同じ判定）。"""
-    words = _read_whole(cmd)
-    if words is None:
+    """Bash の命令のうち実際に動かす所の字の並び。命令の行が 1 つの素の命令で、引数が全部字を渡す口の表（_SLOTS）に収まる
+    行（git commit -m '…'・grep の型・echo の字）は [] （外す）、それ以外の素の命令は注釈を落とした打った字 1 つ。素の命令で
+    ない行は None＝呼ぶ側が命令の字全体で見る（前の版と同じ判定）。"""
+    b = _blanked(cmd)
+    if b is None:
         return None
-    return [] if _text_only(words) else [_strip_comment(cmd)]
+    return [] if b[1] is not None else [b[0]]
 
 
 def command_words(cmd):
-    """命令の語として当てる字（前の版と同じく打った字のまま）。1 つの素の命令で字を挙げるだけの行は、引用の中身を空にした
-    打った字（命令そのものの語: git push --force・gh repo delete）。素の命令で動く行は注釈を落とした打った字。それ以外は
-    命令の字全体（前の版と同じ）。"""
+    """命令の語として当てる字（前の版と同じく打った字のまま）。表に収まる行は、字を渡す口の値だけを '' にした打った字
+    （前置き・部分命令の語は打った字のまま＝'--force'・'delete' を引用で包んでも当たる）。素の命令で表の外の行は注釈を落とした
+    打った字。それ以外は命令の字全体（前の版と同じ）。"""
     if not isinstance(cmd, str):
         return [cmd]
-    parts = executed_parts(cmd)
-    if parts is None:
+    b = _blanked(cmd)
+    if b is None:
         return [cmd]
-    return parts or [_QUOTED.sub("''", _strip_comment(cmd))]
+    return [b[1] if b[1] is not None else b[0]]
 
 
 def _strip_comment(cmd):

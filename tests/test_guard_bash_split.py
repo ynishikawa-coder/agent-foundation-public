@@ -2,6 +2,8 @@
 今の扱いを示す（レビューの red の 4 回目）。
 - 外すのは、命令の行に shell の特別な字（改行・| & ; < > $ ` \\ ( ) { }・\\r・glob の * ? [）が 1 つも無く、命令の名が path を含まない素の名で、
   字を挙げるだけの道具（test と [ は -v の添字で命令を動かすので外さない）の時だけ。shell の読み手が bash と同じに区切る前提に頼らない（| の後の改行・\\ と改行・\\r で抜けない）。
+- 6 回目のレビューから、道具の名で外さず、引数が全部「字を渡す口」の表（git commit の -m・gh pr の --body・grep の型・echo の字など）
+  に収まる時だけ口の値を外す。gh の `--` の後・git grep -O・表の外の前置きは外さず、引用で包んだ '--force'・'delete' も当たる。
 - それ以外の行は前の main と同じく命令の字全体で見る（&& や ; でつないだ名挙げも前の main と同じ判定に戻る）。
 - path 付きの道具の名（./grep・/usr/bin/grep）は同じ名の別の実行ファイルかもしれない＝外さない。
 - 当てる字は前の main と同じく打った字のまま＝`DROP\\ TABLE` を前の main より多く止めず、値の表の引用符を含む行も当たる。
@@ -40,6 +42,19 @@ SPLIT = [
     "cat '{x}' [a]",
     "'' '{x}'",
     "\"\" echo '{x}'",
+    # 6 回目のレビュー: 道具の名でなく、字を渡す口の表に収まる引数だけを外す（gh の `--` の後・git grep の -O・表の外の前置き）
+    "gh repo clone o/r -- -c core.fsmonitor='{x}'",
+    "gh repo fork o/r --clone -- -c core.fsmonitor='{x}'",
+    "git grep -nO'{x}' hello",
+    "git grep -lO'{x}' hello",
+    "gh pr create --title t --body x -- '{x}'",
+    "gh pr comment 1 --body-file '{x}'",
+    "gh pr create -w --title '{x}'",
+    "git -c core.pager='{x}' log --grep=x",
+    "git log -p --grep=x '{x}'",
+    "git commit --template '{x}'",
+    "rg --pre '{x}' x .",
+    "grep -f '{x}' .",
 ]
 
 
@@ -99,3 +114,49 @@ def test_irreversible_値の表の引用符を含む行は動く並びに前の_
     assert denied(env, bash('kubectl delete ns "prod"'))
     assert denied(env, bash("my-db --wipe 'all'"))
     assert not denied(env, bash('git commit -m \'kubectl delete ns "prod" を止める\''))
+
+
+def _force_and_delete_table(env, tmp_path):
+    table = tmp_path / "values.json"
+    table.write_text(json.dumps({"guard": {"irreversible_bash_extra": [
+        {"pattern": r"\bgit\s+push\b.*--force\b", "why": "強制 push"},
+        {"pattern": r"\bgh\b.*\bdelete\b", "why": "repo の削除"}]}}), encoding="utf-8")
+    env["SKILL_VALUES"] = str(table)
+    hook(env, "post", ask_result())
+
+
+@pytest.mark.parametrize("cmd", [
+    "git push origin main '--force'",
+    'git push origin main "--force"',
+    "gh repo 'delete' o/r --yes",
+    "git push origin main --force",
+    "gh repo delete o/r --yes",
+])
+def test_irreversible_引用で包んだ前置きと部分命令の語も値の表に当たる_6_回目のレビュー(env, tmp_path, cmd):
+    _force_and_delete_table(env, tmp_path)
+    assert denied(env, bash(cmd)), cmd
+
+
+@pytest.mark.parametrize("cmd", [
+    "git commit -m '--force と gh repo delete を止める'",
+    "git commit -am 'git push --force を止める'",
+    "gh pr create --title t --body 'gh repo delete を止める'",
+    "grep -rn 'git push --force' plugins",
+    "echo 'gh repo delete'",
+    "git log --oneline --grep='--force'",
+])
+def test_irreversible_字を渡す口の値で名を挙げるだけは値の表に当てない_6_回目のレビュー(env, tmp_path, cmd):
+    _force_and_delete_table(env, tmp_path)
+    assert not denied(env, bash(cmd)), cmd
+
+
+@pytest.mark.parametrize("cmd", [
+    "git commit -am '%s を止める'" % RUN,
+    "git commit --message='%s を止める'" % RUN,
+    "git log -S '%s' --oneline" % RUN,
+    "gh issue comment 3 --body '%s を挙げるだけ'" % RUN,
+    "rg -n -g '*.py' '%s' plugins" % RUN,
+    "grep -rn -e '%s' plugins" % RUN,
+])
+def test_spec_gate_字を渡す口の値で名を挙げるだけは通す_6_回目のレビュー(env, cmd):
+    assert not denied(env, bash(cmd)), cmd

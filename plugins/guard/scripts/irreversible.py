@@ -10,11 +10,13 @@
   判定できない時（展開 `$(`・変数・rm が区切りの先頭に無い〔`| xargs rm`・`sudo rm`〕・在らない先への cd・
   rm より前に cd 以外の命令がある〔`mv keep gone && rm -rf gone`〕）は止める側に倒す。
 
-DB の破棄と値の表の足す形は、命令の語（guard_common.command_words）にだけ当てる＝実際に動かす並びと、字を挙げるだけの
-  命令（git・gh・echo など）そのものの語（引用の中身を除く: git push --force・gh repo delete は当たる）。
-  外すのは命令の行が 1 つの素の命令の時だけ（shell の特別な字〔改行・| & ; < > $ ` \\ ( ) { }〕と引用の外の glob の字〔* ? [〕が 1 つも無く、命令の名が path を含まない素の名で、代入・export・tee など file や環境へ出す手でない形）の、commit の文・grep の語・echo の字・注釈だけ。
-  echo … | psql・git/gh/rg の中で命令を動かす形（rebase --exec・-c alias/pager・rg --pre）は動く側。読み切れない形は
-  命令の字全体に当てる（前の版と同じ判定＝止める側に倒す）。
+DB の破棄と値の表の足す形は、命令の語（guard_common.command_words）にだけ当てる＝打った字のまま（前の版と同じ）で、
+  命令の行が 1 つの素の命令（shell の特別な字〔改行・| & ; < > $ ` \\ ( ) { }〕と引用の外の glob の字〔* ? [〕が 1 つも無く、
+  命令の名が path を含まない素の名で、代入・export・tee など file や環境へ出す手でない形）で、引数が全部「字を渡す口」の表
+  （guard_common._SLOTS: git commit の -m・git log の --grep／-S・gh pr／issue の --title／--body・grep／rg の型・echo の字）に
+  収まる時だけ、その口の値と注釈を除く。前置き・部分命令の語は引用で包んでも打った字のまま当てる
+  （git push origin main '--force'・gh repo 'delete' は当たる）。表の外の道具・前置き（gh の `--`・git の -c・rg --pre など）が
+  1 つでも在れば外さない。それ以外の行は命令の字全体に当てる（前の版と同じ判定＝止める側に倒す）。
 射程の天井: 判定は列挙であって証明ではない（`find … -delete`・再帰なしの `rm -f`・`git restore .` などは素通り）。
   足したい形は値の表の irreversible_bash_extra / irreversible_tools_extra へ。
 費用: 在席中は離席の印の stat 1 回で終わる。
