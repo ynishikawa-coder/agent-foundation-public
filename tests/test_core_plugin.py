@@ -9,6 +9,7 @@ from pathlib import Path
 
 import pytest
 from entry_box import box_env, copy_entry
+from uses import sh_code
 
 ROOT = Path(__file__).resolve().parent.parent
 PLUGIN = ROOT / "plugins" / "core"
@@ -848,7 +849,7 @@ def test_差し込む物を足すと増え方の照らしもそれを見る(monk
 
 def test_増え方の照らしは検査の入口から回る():
     assert kaku.injected() == (kaku.KAKU, kaku.FURUMAI)
-    sh = (ROOT / "scripts" / "checks" / "kaku_growth.sh").read_text(encoding="utf-8")
+    sh = sh_code((ROOT / "scripts" / "checks" / "kaku_growth.sh").read_text(encoding="utf-8"))   # 注釈の字は回すことにならない
     assert "kaku.py grow --base" in sh and "origin/main" in sh
     ci = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
     check_job = ci.split("public-guard:")[0]

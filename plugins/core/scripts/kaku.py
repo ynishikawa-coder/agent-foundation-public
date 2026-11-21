@@ -72,10 +72,82 @@ def olds_table(path: Path = OLDS) -> list[dict]:
         raise ValueError(f"{path.name} に olds の並びが無い")
     keys = {"id", "what", "files", "pattern", "fix", "example"}
     for r in rows:
-        if not isinstance(r, dict) or set(r) != keys or not isinstance(r["files"], list) or not r["files"]:
-            raise ValueError(f"{path.name} の行の欄が {sorted(keys)} でない: {r!r}")
+        if not isinstance(r, dict) or set(r) - {"reads"} != keys or not isinstance(r["files"], list) or not r["files"]:
+            raise ValueError(f"{path.name} の行の欄が {sorted(keys)}（と reads）でない: {r!r}")
+        if r.get("reads", "all") not in READS:
+            raise ValueError(f"{path.name} の行 {r['id']} の reads が {sorted(READS)} のどれでもない: {r['reads']!r}")
         r["re"] = re.compile(r["pattern"])
     return rows
+
+
+# 古い形の行が file のどこを読むか（reads）。名が在るかでなく、使う形の所だけに当てる（説明の文で名を挙げるだけは古い形でない）。
+#   all      … 中身の全部（既定）
+#   commands … 動く命令の所: .md はコードの囲みの中だけ（地の文・`…` の中の説明は読まない）。囲みの中と .sh .py .yml .yaml は
+#              注釈（語の頭の #）と Python の docstring を除く。入口の名が注釈に在るだけでは入口を呼ぶことにならない
+#   prose    … 書いた欄・札の所: .md のコードの囲み・注記 <!-- -->・引用（「」『』“”`…`）の中を除く。ただし引用の中身が見出しの印 #
+#              で始まる物（「## 欄の名」＝書く行そのもの）は残す
+READS = {"all", "commands", "prose"}
+_FENCE_BLOCK = re.compile(r"^[ \t]*(```|~~~)[^\n]*\n(.*?)^[ \t]*\1[ \t]*$", re.M | re.S)
+_QUOTES = re.compile(r"「[^「」\n]*」|『[^『』\n]*』|“[^“”\n]*”|`[^`\n]+`")
+
+
+def _strip_comments(text: str, py: bool = False) -> str:
+    """# の注釈（引用の外で語の頭に在る物）と、py なら行の頭から始まる三重引用（docstring）を除く。"""
+    out, i, n, q, head = [], 0, len(text), "", True
+    while i < n:
+        c = text[i]
+        if q:
+            if c == "\\" and i + 1 < n:
+                out.append(text[i:i + 2])
+                i += 2
+                continue
+            if text.startswith(q, i):
+                out.append(q)
+                i += len(q)
+                q = ""
+                continue
+            out.append(c)
+            i += 1
+            continue
+        if py and text.startswith(('"""', "'''"), i):
+            tq, j = text[i:i + 3], text.find(text[i:i + 3], i + 3)
+            if head:
+                i = n if j < 0 else j + 3
+                continue
+            out.append(text[i:] if j < 0 else text[i:j + 3])
+            i = n if j < 0 else j + 3
+            continue
+        if c == "#" and (i == 0 or text[i - 1] in " \t\n;&|("):
+            j = text.find("\n", i)
+            i = n if j < 0 else j
+            continue
+        if c in "'\"":
+            q = c
+        out.append(c)
+        head = c == "\n" or (head and c in " \t")
+        i += 1
+    return "".join(out)
+
+
+def old_view(row: dict, rel: str, text: str) -> str:
+    """古い形の行が読む所（reads の決まり）。"""
+    reads = row.get("reads", "all")
+    ext = Path(rel).suffix.lower()
+    if reads == "commands":
+        if ext in (".md", ".markdown"):
+            return "\n".join(_strip_comments(m.group(2)) for m in _FENCE_BLOCK.finditer(text))
+        if ext in (".sh", ".bash", ".py", ".yml", ".yaml"):
+            return _strip_comments(text, py=ext == ".py")
+        return text
+    if reads == "prose" and ext in (".md", ".markdown"):
+        text = re.sub(r"<!--.*?-->", " ", _FENCE_BLOCK.sub(" ", text), flags=re.S)
+        return _QUOTES.sub(lambda m: m.group(0) if m.group(0)[1:].lstrip(" \t").startswith("#") else " ", text)
+    return text
+
+
+def old_hit(row: dict, rel: str, text: str) -> bool:
+    """古い形の行が (相対 path, 中身) に当たるか（照らし方はこの 1 か所）。"""
+    return bool(row["re"].search(old_view(row, rel, text)))
 
 
 def _tracked(project: Path, specs: list[str]) -> list[Path]:
@@ -131,7 +203,7 @@ def _hits(rows: list[dict], texts) -> list[tuple[dict, str]]:
     found = []
     for r in rows:
         for rel, text in texts(r):
-            if r["re"].search(text):
+            if old_hit(r, rel, text):
                 found.append((r, rel))
     return found
 

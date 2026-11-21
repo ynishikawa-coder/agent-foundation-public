@@ -12,6 +12,7 @@
 """
 import re
 from pathlib import Path
+from uses import py_code
 
 ROOT = Path(__file__).resolve().parent.parent
 SKILL_FILES = sorted((ROOT / "plugins").glob("*/skills/*/SKILL.md"))
@@ -19,6 +20,23 @@ SKILL_FILES = sorted((ROOT / "plugins").glob("*/skills/*/SKILL.md"))
 CANON_REF = re.compile(r"核(の細目)?\s*§|細目\s*§")
 # 会社の規律の写しの入れ物。
 RULE_BUCKET = re.compile(r"common\.rules\b")
+
+
+# 禁じる・畳んだと説明する文（指す形でない）。この語が同じ文に在れば、その文の common.rules は読ませる指しでない。
+_NOT_POINTING = re.compile(r"写さない|置かない|読ませない|使わない|畳んだ|禁じ")
+
+
+def pointing(suffix, text):
+    """file の中で指す形の所だけ: .py は注釈と docstring を除いたコード・.mjs は注釈を除いた字・.md と .html は注記
+    <!-- --> と、禁じる・畳んだと説明する文を除いた字。.json は字のまま（値の表の鍵か値＝指す形）。"""
+    if suffix == ".py":
+        return py_code(text)
+    if suffix == ".mjs":
+        return re.sub(r"/\*.*?\*/", " ", re.sub(r"//[^\n]*", " ", text), flags=re.S)
+    if suffix in (".md", ".html"):
+        text = re.sub(r"<!--.*?-->", " ", text, flags=re.S)
+        return "\n".join(s for s in re.split(r"(?<=[。\n])", text) if not _NOT_POINTING.search(s))
+    return text
 
 
 def value_rows(text):
@@ -69,7 +87,7 @@ def test_雛形も_common_rules_を指さない():
             continue
         if p.is_file() and p.suffix in (".md", ".py", ".mjs", ".json", ".html"):
             text = p.read_text(encoding="utf-8", errors="ignore")
-            assert not RULE_BUCKET.search(text), f"{p.relative_to(ROOT)} が common.rules を指す"
+            assert not RULE_BUCKET.search(pointing(p.suffix, text)), f"{p.relative_to(ROOT)} が common.rules を指す"
 
 
 def test_値の表の節を読めている():

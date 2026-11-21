@@ -6,6 +6,7 @@ import sys
 from pathlib import Path
 
 import pytest
+from uses import sh_code
 
 ROOT = Path(__file__).resolve().parent.parent
 TOOL = ROOT / "scripts" / "conflict_markers.py"
@@ -60,4 +61,4 @@ def test_印に似た別の形は通す(tmp_path, body):
 
 def test_検査の入口が回す():
     sh = ROOT / "scripts" / "checks" / "conflict_markers.sh"
-    assert sh.is_file() and "conflict_markers.py" in sh.read_text(encoding="utf-8")
+    assert sh.is_file() and "conflict_markers.py" in sh_code(sh.read_text(encoding="utf-8"))   # 注釈の名は回すことにならない

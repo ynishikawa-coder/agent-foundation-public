@@ -8,6 +8,7 @@ import subprocess
 import sys
 from pathlib import Path
 from entry_box import box_env
+from uses import sh_code
 
 ROOT = Path(__file__).resolve().parent.parent
 TOOL = ROOT / "plugins" / "checker" / "scripts" / "pr_writer.py"
@@ -118,7 +119,7 @@ def test_CI_の_job_check_が本文と先端を渡す():
     job = yml.split("\n  check:\n", 1)[1].split("\n  overlap:", 1)[0]
     assert "PR_BODY: ${{ github.event.pull_request.body }}" in job
     assert "PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}" in job
-    sh = CHECK.read_text(encoding="utf-8")
+    sh = sh_code(CHECK.read_text(encoding="utf-8"))                     # 注釈で名を挙げるのは読むことにならない
     assert "PR_BODY" in sh and "PR_HEAD_SHA" in sh
 
 

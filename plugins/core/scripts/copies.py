@@ -94,10 +94,28 @@ def index(files: list[Path]):
     return rows, inv
 
 
+_FENCE = re.compile(r"^\s*(```|~~~)")
+_QUOTED = re.compile(r"「[^「」\n]*」|『[^『』\n]*』")
+
+
+def own_text(text: str) -> str:
+    """照らす file の自分の文（出所を示して引いた所を除く）: > の引用の行・コードの囲みの中の行・「」『』の中の字は空にする
+    （行の番号は保つ）。写しは自分の文として決まりを書き直した物で、引用は出所を示した引き。"""
+    out, fence = [], None
+    for ln in text.splitlines():
+        f = _FENCE.match(ln)
+        if f and (fence is None or f.group(1) == fence):
+            fence = f.group(1) if fence is None else None
+            out.append("")
+            continue
+        out.append("" if fence is not None or ln.lstrip().startswith(">") else _QUOTED.sub("「」", ln))
+    return "\n".join(out)
+
+
 def scan(targets: list[Path], rows, inv, threshold: float = THRESHOLD):
     hits = []
     for t in targets:
-        for no, s in sentences(t.read_text(encoding="utf-8")):
+        for no, s in sentences(own_text(t.read_text(encoding="utf-8"))):
             g = grams(s)
             n = sum(g.values())
             cand = Counter()

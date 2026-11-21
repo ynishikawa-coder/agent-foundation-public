@@ -1,0 +1,3 @@
+- 直した: core の古い形の一覧（古い形.json）の行に読み方 reads を足した。setup の 4 行（plugin-name-copy・no-marketplace-update・no-stale-catalog-remove・stale-remove-substring）は動く命令の所だけ（.md はコードの囲みの中・注釈と docstring を除く）を読み、入口の名が注釈に在るだけでは入口を呼ぶ側にしない・README の地の文の目録の説明は名指さない。札と欄の 2 行（atonobin-tag・tasu-mado-heading）は引用（「」『』“”`…`）・囲み・注記の中を読まない（見出しの印 # で始まる引用は書く行そのものとして読む）
+- 直した: core の copies.py は照らす file の > の引用・コードの囲み・「」『』の中を写しに数えない。refs.py はコードの囲みの中の行を指しとして照らさない
+- 直した: 試験 12 本が字の在る無しでなく使う形（コードの字・呼ぶ形・付けた印・shell の命令・workflow の出来事と run）で照らす（読み口 tests/uses.py）
