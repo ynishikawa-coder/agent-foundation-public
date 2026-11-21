@@ -45,7 +45,7 @@ description: チェック役として、書いた窓と別の窓（レビュー�
 
 ## 全体の絵と照らす（点 13）
 
-作り終わりに、実物が合意した全体の絵どおりかを別の目が確かめる段。差が無ければオーナーの一言なしで main へ入り、差があれば止めて聞く（細目 §7「main へ入れる」）。道具は docs-kit の skill big-picture の `scripts/big_picture.py`。
+作り終わりに、実物が合意した全体の絵どおりかを別の目が確かめる段。差が無ければオーナーの一言なしで main へ入り、差があれば止めて聞く（細目 §7「main へ入れる」）。道具は docs-kit の skill big-picture の `scripts/big_picture.py`（下の `<docs-kit>` は入った docs-kit の根: 入った形では `${CLAUDE_PLUGIN_ROOT}/../../docs-kit/<この plugin と同じ版の dir>`、土台の repo では `plugins/docs-kit`）。
 
 1. **合意した絵を引く**: `python3 <docs-kit>/skills/big-picture/scripts/big_picture.py pick <PR の repo の根> $(git diff --name-only origin/main...<先端>)` で、PR が触った file を覆う合意した絵を選ぶ（値の表 `docs-kit.big-picture.agreed`。1 repo に製品が複数ある時は製品ごとの絵の並びで、触った製品の絵だけが選ばれる。値が無ければ repo の根の `docs/全体の絵.json` 1 枚）。在り処が案件のページの名なら、そこから JSON を取る。exit 2（どの絵も覆わない file がある・絵が無い・値の形の誤り）、選んだ絵の `meta.kind` が `合意` でない・`meta.agreed` が無い時は fail（「絵が無い」＝先に絵を描いてオーナーの OK を取る）。N/A にしない。手順 2〜4 は選んだ絵ごとに回す。
 2. **実物の絵を自分で描く**: PR の先端のコードと決まりを読み、合意した絵と同じ箱の id の言葉で、実物の絵（`meta.kind: 実物`・`drawn_from: <repo>@<先端の SHA12>`・`drawn_by: <自分の session id>`）を窓の作業場に描く。**書いた窓の申告・PR 本文の説明・PR が足した絵の JSON は使わない**（読むのはコードと決まりの実物だけ）。在るのに絵に無い物・絵に在るのに無い物を、そのまま描く。**粗さ**: 合意した絵に在る箱の間の流れは、コード（script・hook・skill の手順）が実際に配る・呼ぶ・読む物を全部描く（代表の 1 本で済ませない）。箱は合意した絵と同じ粗さで、絵に無い部品は 1 つの箱で足す。
