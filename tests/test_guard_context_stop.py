@@ -24,9 +24,9 @@ def over_log(tmp_path, tokens, *after, first="作り物の頼み", name="o.jsonl
         *after])
 
 
-def stop_hook(env, tpath, active=False, sid="s1"):
+def stop_hook(env, tpath, active=False, sid="s1", **extra):
     p = subprocess.run([sys.executable, str(GUARD), "stop"],
-                       input=json.dumps({"session_id": sid, "transcript_path": tpath, "stop_hook_active": active},
+                       input=json.dumps({"session_id": sid, "transcript_path": tpath, "stop_hook_active": active, **extra},
                                         ensure_ascii=False),
                        capture_output=True, text=True, env=env, timeout=60)
     assert p.returncode == 0, p.stderr
@@ -91,7 +91,6 @@ def test_context_stop_値の表で引き継ぎの形を足せ差し戻しを外�
 
 
 def test_context_stop_助手の中と壊れた会話ログでは黙る(env, tmp_path):
-    d = tmp_path / "subagents"
-    d.mkdir()
-    assert stop_hook(env, over_log(d, 999_999)) == ""
+    # 助手の中（入力に agent_id。SubagentStop の transcript_path は本体の会話ログ＝公式の hooks の文書）
+    assert stop_hook(env, over_log(tmp_path, 999_999), agent_id="a1") == ""
     assert stop_hook(env, str(tmp_path / "無い.jsonl")) == ""

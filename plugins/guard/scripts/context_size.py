@@ -6,7 +6,7 @@
 
 測り方: 会話ログの最新の assistant の入力の総量（input + cache_read + cache_creation）＝今の文脈の大きさ。
   知らせた印は窓ごとに 1 個（一時の箱）＝2 回目からは黙る。
-黙る時: 助手の中（transcript の path に /subagents/）・会話ログや usage が読めない・もう知らせた。
+黙る時: 助手の中（hook の入力に agent_id・guard_common.BASIS）・会話ログや usage が読めない・もう知らせた。
 
 止めた文の最後には入口（guard.py）が、出し直すだけで済ませず原因を細目 §3「まず構造を疑う」で探す行を付ける。
 Stop（締めの差し戻し・オーナー同意 2026-11-19: 文で知らせるだけの所は AI だけ止めて書き直させる形にしてよい）:
@@ -48,10 +48,10 @@ MSG_UNATTENDED = (
 HOOKS = {"post": "check", "stop": "stop"}
 
 def measure(tpath):
-    """最新の assistant の入力の総量＝今の文脈の大きさ。"""
+    """最新の本体の assistant の入力の総量＝今の文脈の大きさ（読み方は guard_common.BASIS「文脈の大きさ」）。"""
     ctx = 0
     for row in G.iter_rows(tpath, TAIL_BYTES):
-        if row.get("type") != "assistant":
+        if not G.main_assistant_row(row):
             continue
         u = (row.get("message") or {}).get("usage") or {}
         if not isinstance(u, dict):
@@ -73,7 +73,7 @@ def _mark(session_id):
 def check(data, vals):
     """隣に出す文（無ければ ""）。"""
     tpath = str(data.get("transcript_path") or "")
-    if not tpath or not os.path.isfile(tpath) or "/subagents/" in tpath.replace(os.sep, "/"):
+    if not tpath or not os.path.isfile(tpath) or G.in_subagent(data):
         return ""
     limit = vals.get("context_limit") or G.DEFAULTS["context_limit"]
     try:
@@ -106,7 +106,7 @@ def handoff_state(tpath, limit, patterns):
     """(目安を越えたか, 越えた後に引き継ぎの跡が在るか)。"""
     over, handed = False, False
     for row in G.iter_rows(tpath):
-        if row.get("type") != "assistant":
+        if not G.main_assistant_row(row):
             continue
         if over:
             if any(G.SV.hit(patterns, sig) is not None for sig in _tool_sigs(row)):
@@ -147,7 +147,7 @@ def _stop_count(sid, reset):
 def stop(data, vals):
     """差し戻すなら理由、通すなら ""。"""
     tpath = str(data.get("transcript_path") or "")
-    if not tpath or not os.path.isfile(tpath) or "/subagents/" in tpath.replace(os.sep, "/"):
+    if not tpath or not os.path.isfile(tpath) or G.in_subagent(data):
         return ""
     cap = int(vals.get("context_stop_max") or 0)
     if cap <= 0:

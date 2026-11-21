@@ -6,7 +6,7 @@
 だけの所は AI だけ止めて書き直させる形にしてよい・オーナーの操作は止めない）。止まるのは AI の呼び出しだけ（画面はまだ人に
 出ていない）。
 
-跡とは: 会話ログ（transcript_path）の、最後の頼み（人か親の窓が打った行）より後の道具の呼び出しのうち、
+跡とは: 会話ログ（transcript_path）の、最後の頼み（人の行か、別の窓・知らせから来た行＝guard_common.is_prompt_row）より後の道具の呼び出しのうち、
   「道具の名 + 入力の JSON」が値の表 guard.ask_prior_lookup（正規表現の並び）のどれかに当たる物。
   引く先（決定の記録・問いの表の置き場と道具）は会社ごとに違うので、名は値の表から読む（ここに決め打ちしない）。
 
@@ -17,7 +17,7 @@
 誤って止めた時: 値の表 ask_prior_exempt（問いの文に当てる正規表現）に当たる問いだけの画面は照らさない（済んだかの確かめ等）。
   値の表は PR とレビューを通る＝窓の一存では外れない。
 止めた文の最後には入口（guard.py）が、出し直すだけで済ませず原因を細目 §3「まず構造を疑う」で探す行を付ける。
-黙る時: 選択肢の画面の外・助手の中（transcript の path に /subagents/）・会話ログが読めない（見張りの故障で窓を止めない）。
+黙る時: 選択肢の画面の外・助手の中（hook の入力に agent_id・guard_common.BASIS）・会話ログが読めない（見張りの故障で窓を止めない）。
 """
 from __future__ import annotations
 
@@ -41,10 +41,12 @@ def _tool_uses(row):
 
 
 def scan(tpath, patterns):
-    """(最後の頼みの印, 跡が在るか)。最後の頼みより後の道具の呼び出しだけを見る。"""
+    """(最後の頼みの印, 跡が在るか)。最後の頼みより後の道具の呼び出しだけを見る。
+    頼みは頼みの行（guard_common.is_prompt_row）＝人の行も、別の窓・知らせから来た行も新しい頼み。会話の要約の行
+    （isCompactSummary）は前の頼みの続きで、新しい頼みにしない（要約の前に引いた跡は、要約された同じ頼みの中の跡）。"""
     turn, found = "", False
     for i, row in enumerate(G.iter_rows(tpath)):
-        if G.is_owner_row(row):
+        if G.is_prompt_row(row):
             turn, found = str(row.get("uuid") or "row%d" % i), False
             continue
         if found or row.get("type") != "assistant":
@@ -94,7 +96,7 @@ def check(data, vals):
     if not isinstance(qs, list) or not qs or _all_exempt(qs, vals):
         return ""
     tpath = str(data.get("transcript_path") or "")
-    if not tpath or not os.path.isfile(tpath) or "/subagents/" in tpath.replace(os.sep, "/"):
+    if not tpath or not os.path.isfile(tpath) or G.in_subagent(data):
         return ""
     sid = G.safe_id(data.get("session_id") or os.path.basename(tpath)) or "window"
     patterns = G.patterns(vals, "ask_prior_lookup")

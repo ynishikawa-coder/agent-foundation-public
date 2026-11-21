@@ -198,45 +198,94 @@ def text_of(row):
     return ""
 
 
-def is_owner_row(row):
-    """人がタイプした行か（道具の返り・差し戻し〔isMeta〕を除く）。"""
-    return (row.get("type") == "user" and not row.get("isMeta") and "toolUseResult" not in row
-            and bool(text_of(row).strip()))
+# ── 会話ログ・hook の入力・窓の環境の値の読み方（正本はここ 1 か所。見張りは前提を自分で決めず、ここを呼ぶ）──
+# どの読み方も、確かめた物（公式の文書か、Claude Code の本体の実物・実物の会話ログ）を BASIS に名指す。
+# 確かめていない値（例: 会話ログの promptSource・窓の環境の CLAUDE_CODE_CHILD_SESSION）は読まない。
+BASIS = {
+    "人が打った行": "Claude Code 本体の判定（v2.1.328 の本体の人の行の判定）: type が user・isMeta でない・toolUseResult が無い・"
+                  "isCompactSummary でない・origin が無いか origin.kind が human",
+    "別の窓・仕組みから来た行": "実物の会話ログ（create_session で立った窓の最初の行）: origin.kind が task-notification。"
+                          "本体の origin.kind は human のほか task-notification・peer・channel・remote・plugin・"
+                          "auto-continuation 等（human 以外は人が打った頼みでない）",
+    "助手の中の hook": "hooks の文書（code.claude.com/docs/en/hooks の Common input fields）: 助手の中で回る hook の入力に "
+                    "agent_id が付く。SubagentStop の transcript_path は本体の会話ログ（助手の物は agent_transcript_path）",
+    "クラウドの窓": "env-vars の文書: CLAUDE_CODE_REMOTE はクラウドの窓で自動で true",
+    "窓の id": "cloud-environments の文書（Link output back to the session）: CLAUDE_CODE_REMOTE_SESSION_ID の cse_ を "
+             "session_ に替えると窓の URL の id",
+    "Stop の入力": "hooks の文書（Stop input）: stop_hook_active は stop の hook の差し戻しで続いている時 true・"
+                 "last_assistant_message は今の返事の本文（会話ログは遅れて書かれる）",
+    "文脈の大きさ": "Messages API の usage: 1 回の呼び出しの入力は input_tokens・cache_read_input_tokens・"
+               "cache_creation_input_tokens の和（実物の会話ログの最新の行で約 20 万＝窓の文脈と合う）。助手の行は本体の"
+               "会話ログに入らず subagents/ の別の file（hooks の文書の agent_transcript_path）。本体の行は isSidechain が偽",
+    "repo の根": "hooks の文書: CLAUDE_PROJECT_DIR は hook の処理に渡る（窓を始めた repo の根）。Bash の道具の中には無い"
+               "（実物の窓の環境で確かめた）＝Bash から呼ぶ道具は今の dir から探す",
+}
 
-
-# 人が打った頼みの記録（会話ログの行の origin.kind。Claude Code が頼みを受けた口で付ける＝文の中身では変わらない）。
+# 人が打った頼みの記録（会話ログの行の origin.kind）。Claude Code 本体が人の行と見るのは human だけ（BASIS）。
 # 正本はここ 1 か所（plugin session-watch も隣の正本としてこれを直に読む＝写さない）。
-HUMAN_ORIGINS = ("human", "person")
+HUMAN_ORIGINS = ("human",)
 # 窓の環境の CLAUDE_CODE_CHILD_SESSION は読まない: 公式の文書（code.claude.com/docs/en/env-vars）では「Claude Code が Bash・
 # hook・status line で起動する子プロセスに付く 1」で、どの窓でも hook の中では 1＝別の窓が立てた窓の見分けにならない。
 # 頼みの行がまだ無い時の見分けは、サーバの記録（get_session の parent_session_id）を AI に読ませる（session-watch の知らせ）。
 
 
-def seeded_by_record(row):
-    """頼みの行が、人が打った物でなく別の窓・仕組みから来た事を、記録が示すか（子の窓の見分けの記録の正本）。
-    記録: 頼みの行の origin.kind が人の物でない（別の窓の create_session・send_message・知らせ等）か promptSource が system。
-    行が無い・記録が無い・読めない時は False（文だけで子の窓と決めない＝人の窓の側へ倒す）。"""
-    if not isinstance(row, dict):
-        return False
+def _origin_kind(row):
     origin = row.get("origin")
     if isinstance(origin, dict) and isinstance(origin.get("kind"), str) and origin["kind"]:
-        return origin["kind"] not in HUMAN_ORIGINS
-    return row.get("promptSource") == "system"
+        return origin["kind"]
+    return None
 
 
-def first_owner_row(path):
+def is_prompt_row(row):
+    """ターンを始める頼みの行か（人が打った行も、別の窓・知らせから来た行も）。道具の返り・isMeta の行
+    （見張りの差し戻し・自動の続き・plugin の差し込み）・会話の要約は除く（BASIS「人が打った行」の origin 以外の条件）。"""
+    return (isinstance(row, dict) and row.get("type") == "user" and not row.get("isMeta")
+            and "toolUseResult" not in row and not row.get("isCompactSummary") and bool(text_of(row).strip()))
+
+
+def is_owner_row(row):
+    """人がタイプした行か（BASIS「人が打った行」）。知らせ・別の窓からの送り（origin.kind が human でない）は数えない。"""
+    if not is_prompt_row(row):
+        return False
+    kind = _origin_kind(row)
+    return kind is None or kind in HUMAN_ORIGINS
+
+
+def seeded_by_record(row):
+    """頼みの行が、人が打った物でなく別の窓・仕組みから来た事を、記録が示すか（子の窓の見分けの記録の正本）。
+    記録: 頼みの行の origin.kind が human でない（BASIS「別の窓・仕組みから来た行」）。
+    行が無い・記録が無い・読めない時は False（文だけで子の窓と決めない＝人の窓の側へ倒す・本体も origin 無しを人と見る）。"""
+    if not isinstance(row, dict):
+        return False
+    kind = _origin_kind(row)
+    return kind is not None and kind not in HUMAN_ORIGINS
+
+
+def in_subagent(payload):
+    """hook が窓の中の助手（subagent）の中で回っているか（BASIS「助手の中の hook」）。"""
+    return isinstance(payload, dict) and bool(payload.get("agent_id"))
+
+
+def is_cloud(env=None):
+    """クラウドの窓か（BASIS「クラウドの窓」）。"""
+    env = os.environ if env is None else env
+    return str(env.get("CLAUDE_CODE_REMOTE") or "").strip().lower() == "true"
+
+
+def main_assistant_row(row):
+    """本体（助手でない）の assistant 行か（BASIS「文脈の大きさ」）。文脈の大きさはこの行の usage だけから読む。"""
+    return isinstance(row, dict) and row.get("type") == "assistant" and not row.get("isSidechain")
+
+
+def first_prompt_row(path):
+    """会話ログの最初の頼みの行（人の行か、別の窓・知らせから来た行か）。子の窓の見分けはこの行の文と記録を読む。"""
     try:
         for row in iter_rows(path):
-            if is_owner_row(row):
+            if is_prompt_row(row):
                 return row
     except Exception:
         return None
     return None
-
-
-def first_owner_text(path):
-    row = first_owner_row(path)
-    return text_of(row) if row else ""
 
 
 def is_child_prompt(text, seeded=False):
@@ -249,5 +298,5 @@ def is_child_prompt(text, seeded=False):
 
 def is_child_log(path):
     """会話ログの最初の頼みの行で子の窓かを決める（文と記録の両方を読む）。"""
-    row = first_owner_row(path)
+    row = first_prompt_row(path)
     return bool(row) and is_child_prompt(text_of(row), seeded_by_record(row))

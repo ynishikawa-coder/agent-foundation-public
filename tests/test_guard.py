@@ -138,7 +138,8 @@ def test_答えが返れば台帳から降りて冒頭に出ない(env):
 
 
 def test_助手の中の問いは台帳に積まない(env):
-    assert hook(env, "post", ask_result(tpath="/x/subagents/a.jsonl")) == {}
+    """助手の中の hook は入力に agent_id が付く（公式の hooks の文書・guard_common.BASIS）。transcript_path は本体の会話ログ。"""
+    assert hook(env, "post", {**ask_result(tpath="/x/main.jsonl"), "agent_id": "a1"}) == {}
     assert hook(env, "start", {"session_id": "s2"}) == {}
 
 
@@ -295,10 +296,10 @@ def test_文脈の目安は値の表で変えられる(env, tmp_path):
 
 
 def test_助手の中では文脈を見ない(env, tmp_path):
-    d = tmp_path / "subagents"
-    d.mkdir()
-    tpath = write_log(d / "a.jsonl", [{"type": "assistant", "message": {"usage": {"input_tokens": 999_999}}}])
-    assert hook(env, "post", post_tool(tpath)) == {}
+    """助手の中の hook（入力に agent_id）は、本体の会話ログが目安を越えていても知らせない。"""
+    tpath = write_log(tmp_path / "main.jsonl", [{"type": "assistant", "message": {"usage": {"input_tokens": 999_999}}}])
+    assert hook(env, "post", {**post_tool(tpath), "agent_id": "a1"}) == {}
+
 
 
 def _age_ledger(tmp_path, keys=None):

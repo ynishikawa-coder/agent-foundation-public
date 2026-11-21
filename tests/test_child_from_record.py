@@ -16,7 +16,7 @@ CHILD_TEXTS = ["あなたは書く窓です（親窓 session_ABC123 の子）。
 
 
 @pytest.mark.parametrize("first", CHILD_TEXTS)
-@pytest.mark.parametrize("origin", [None, "human", "person"])
+@pytest.mark.parametrize("origin", [None, "human"])
 def test_注入_人が引き継ぎの文を貼った窓は子の窓にしない(env, tmp_path, first, origin):
     """頼みの文の親窓・返し先は手で書いた写し。頼みの行の記録が人（または記録なし）なら子の窓と見ない
     （前の形: 文だけで決め、オーナーが貼った引き継ぎの文でオーナー相手の窓が子の窓の知らせになった）。"""
@@ -35,16 +35,17 @@ def test_注入_別の窓を指す返し先は頼みの行の記録と合う時�
     """手で書いた返し先（写し）だけでは子の窓にしない。記録が人・記録なしなら決めない。"""
     for text in ("作り物を調べて（返し先=session_Y）。", "あなたは書く窓です（親窓 session_X の子）。"):
         assert sw.kind_of(text) is None
-        for origin, want in ((None, None), ({"kind": "human"}, None), ({"kind": "person"}, None),
+        for origin, want in ((None, None), ({"kind": "human"}, None),
                              ({"kind": "task-notification"}, sw.AI), ({"kind": "peer"}, sw.AI)):
             row = {"type": "user", "message": {"content": text}}
             if origin:
                 row["origin"] = origin
             log = sw.Log([row])
             assert sw.kind_of(log.first_prompt, log.first_seeded) == want, (text, origin)
+        # promptSource は確かめていない欄なので読まない（記録は origin.kind だけ・guard_common.BASIS）
         row = {"type": "user", "message": {"content": text}, "promptSource": "system"}
         log = sw.Log([row])
-        assert sw.kind_of(log.first_prompt, log.first_seeded) == sw.AI
+        assert sw.kind_of(log.first_prompt, log.first_seeded) is None
 
 
 @pytest.mark.parametrize("origin", [None, {"kind": "human"}])
