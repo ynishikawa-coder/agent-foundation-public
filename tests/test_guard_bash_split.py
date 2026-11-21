@@ -1,10 +1,10 @@
 """「読み切れた」と見なす命令の読み方が bash とずれる所と、前の main より止める・当てる場面が変わる所を、わざと入れて
 今の扱いを示す（レビューの red の 4 回目）。
-- | && || |& の後の改行（空行・注釈も）は bash が越えて同じ命令を続ける＝動く側（前の main でも止まっていた形）。
-- 引用の外の \\ と改行・\\r は bash と shlex で読みがずれる＝読み切れない形として字全体で見る。
-- path 付きの道具の名（./grep・~/bin/echo）は同じ名の別の実行ファイルかもしれない＝動く側（/bin・/usr/bin の物だけ字を挙げる側）。
-- 字を挙げるだけの並びは打った字（引用と \\ で逃がした字を空にした形）で当てる＝`DROP\\ TABLE` を前の main より多く止めない。
-- 動く並びは打った字のまま当てる＝値の表の引用符を含む行が前の main と同じく当たる。
+- 外すのは、命令の行に shell の特別な字（改行・| & ; < > $ ` \\ ( ) { }・\\r）が 1 つも無く、命令の名が path を含まない素の名で、
+  字を挙げるだけの道具の時だけ。shell の読み手が bash と同じに区切る前提に頼らない（| の後の改行・\\ と改行・\\r で抜けない）。
+- それ以外の行は前の main と同じく命令の字全体で見る（&& や ; でつないだ名挙げも前の main と同じ判定に戻る）。
+- path 付きの道具の名（./grep・/usr/bin/grep）は同じ名の別の実行ファイルかもしれない＝外さない。
+- 当てる字は前の main と同じく打った字のまま＝`DROP\\ TABLE` を前の main より多く止めず、値の表の引用符を含む行も当たる。
 入力は全部作り物（名は字を割って書く）。"""
 import json
 
@@ -31,6 +31,7 @@ SPLIT = [
     "~/bin/cat -c '{x}'",
     "echo '{x}' | ./grep",
     "bin/git log --grep='{x}'",
+    "/usr/bin/grep -c '{x}'",
 ]
 
 
@@ -48,12 +49,24 @@ def test_irreversible_bash_と区切りがずれる形と_path_付きの道具�
 
 
 @pytest.mark.parametrize("cmd", [
-    "echo '%s は止まる'\n/bin/echo ok" % RUN,
-    "/usr/bin/grep -rn '%s' plugins" % LOCK,
-    "git commit -m '%s を止める' &&\n  git push -u origin claude/x" % RUN,
+    "echo '%s は止まる'" % RUN,
+    "grep -rn '%s' plugins" % LOCK,
+    "git commit -m '%s を止める'" % RUN,
+    "git commit -m '%s を止める'  # 注釈" % RUN,
 ])
-def test_spec_gate_決まった置き場の道具と続きの行の字を挙げるだけの形は今も通す(env, cmd):
+def test_spec_gate_素の_1_つの命令で名を挙げるだけの形は通す(env, cmd):
     assert not denied(env, bash(cmd)), cmd
+
+
+@pytest.mark.parametrize("cmd", [
+    "echo '%s は止まる'\necho ok" % RUN,
+    "git commit -m '%s を止める' && git push -u origin claude/x" % RUN,
+    "echo '%s'; grep -rn x ." % RUN,
+    "/usr/bin/grep -rn '%s' plugins" % RUN,
+    "git commit -m '%s (例)'" % RUN,
+])
+def test_spec_gate_特別な字や_path_の在る行は前の_main_と同じく字全体で見る(env, cmd):
+    assert denied(env, bash(cmd)), cmd
 
 
 @pytest.mark.parametrize("cmd", [

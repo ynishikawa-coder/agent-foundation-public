@@ -76,8 +76,8 @@ def test_irreversible_出力と変数と一覧の外の前置きで動かす形�
 
 
 @pytest.mark.parametrize("cmd", [
-    "git commit -m '%s を止める' && git push -u origin claude/x" % RUN,
-    "echo '%s は止まる'; grep -rn '%s' plugins | head -3" % (RUN, LOCK),
+    "git commit -m '%s を止める'" % RUN,
+    "grep -rn '%s' plugins" % LOCK,
     "gh pr create --title t --body '%s を挙げるだけ'" % RUN,
     "git commit -m \"%s を直す\"" % RUN,
     "git -C . log --oneline -5 --grep='%s'" % RUN,
