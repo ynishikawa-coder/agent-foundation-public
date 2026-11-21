@@ -850,7 +850,7 @@ def test_差し込む物を足すと増え方の照らしもそれを見る(monk
 def test_増え方の照らしは検査の入口から回る():
     assert kaku.injected() == (kaku.KAKU, kaku.FURUMAI)
     sh = sh_code((ROOT / "scripts" / "checks" / "kaku_growth.sh").read_text(encoding="utf-8"))   # 注釈の字は回すことにならない
-    assert "kaku.py grow --base" in sh and "origin/main" in sh
+    assert "kaku.py grow --base" in sh and "pr_shape.py --print-main" in sh   # 比べる元は出所の今の main（前は注釈の origin/main の字で緑だった）
     ci = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
     check_job = ci.split("public-guard:")[0]
     assert "fetch-depth: 0" in check_job, "CI の check が origin/main を取らず、比べる元が無くなる"
