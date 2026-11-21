@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 from entry_box import box_env, copy_entry
-from uses import py_code, sh_code
+from uses import sh_code
 
 ROOT = Path(__file__).resolve().parent.parent
 PLUGIN = ROOT / "plugins" / "core"
@@ -22,19 +22,10 @@ LIMITS = kaku.LIMITS
 
 
 def used_text(rel, text):
-    """古い言い回しを探す所（使う形の所）: .py は注釈と docstring を除いたコード・.mjs は注釈を除いた字・.md は
-    古い形の prose の読み方（kaku.old_view: 囲み・注記・引用の中を除く。# で始まる引用は書く行として残す）・.html は
-    注記を除いた字・.json は字のまま。注釈や引用で古い名を挙げて経緯を説明するのは残りでない。"""
-    suffix = Path(rel).suffix
-    if suffix == ".py":
-        return py_code(text)
-    if suffix == ".mjs":
-        return re.sub(r"/\*.*?\*/", " ", re.sub(r"(?<![:\"'])//[^\n]*", " ", text), flags=re.S)
-    if suffix == ".md":
-        return kaku.old_view({"reads": "prose"}, str(rel), text)
-    if suffix == ".html":
-        return re.sub(r"<!--.*?-->", " ", text, flags=re.S)
-    return text
+    """古い言い回しを探す所（使う形の所）: .md は自分の文（囲み・注記・引用の中を除く。# で始まる引用は書く行として残す）・
+    .py は注釈と docstring を除いたコード・.mjs は注釈を除いた字・.html は注記を除いた字・.json は字のまま。注釈や引用で
+    古い名を挙げて経緯を説明するのは残りでない。読み方の正本は kaku.own（写さない）。"""
+    return kaku.own(str(rel), text)
 
 
 def old_words_left(olds):
@@ -110,11 +101,29 @@ def test_写しの枠が在る_repo_にも正本の核を差し込み_枠を名�
     assert "古い形（写し）が残っている" in ctx and "CLAUDE.md: CLAUDE.md の核の写しの枠" in ctx
 
 
+def example_files(r):
+    """古い形の行の例を置く (相対 path, 中身) の組: files の照らす形ごとに 1 つ（glob の * を字に替えた path）。.md で命令を
+    読む行（reads=commands）は、使う側が命令を書く形（コードの囲み）に例を置く。"""
+    out = []
+    for spec in r["files"]:
+        if spec.startswith(":("):
+            continue
+        rel = spec.replace("**/", "x/").replace("*", "x")
+        md = rel.endswith((".md", ".markdown"))
+        out.append((rel, "```bash\n%s\n```\n" % r["example"] if md and r.get("reads") == "commands" else r["example"]))
+    return out
+
+
 def test_古い形の一覧の行は形が揃い_例が自分の形に当たる():
+    """例を本物の照らし口（kaku.old_hit＝行の reads の読み方を通す）で、行の照らす file の形ごとに当てる。読み方を変えて
+    例が当たらなくなれば赤（字の形だけで照らすと、読み方が見つける力を失っても緑のまま）。"""
     rows = kaku.olds_table()
     assert {r["id"] for r in rows} >= {"af-core-frame", "plugin-name-copy"}
     for r in rows:
-        assert r["re"].search(r["example"]), f"{r['id']} の例が形に当たらない（見つける力が無い）"
+        files = example_files(r)
+        assert files, f"{r['id']} に照らす file の形が無い"
+        for rel, text in files:
+            assert kaku.old_hit(r, rel, text), f"{r['id']} の例が {rel} で形に当たらない（見つける力が無い）"
 
 
 @pytest.mark.parametrize("line", [

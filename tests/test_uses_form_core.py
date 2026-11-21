@@ -172,3 +172,148 @@ def test_古い言い回し_注釈と引用で挙げるだけは残りにしな�
 def test_古い言い回し_使う所に在れば今も残り(rel, text):
     from test_core_plugin import used_text
     assert OLD in used_text(rel, text), text
+
+
+# ── 読み口は 1 か所（kaku の「使う形の読み口」）。copies・refs・試験は呼ぶだけで、読み方を写さない ──
+import inspect  # noqa: E402
+
+copies = _load("copies_uses_form", "plugins/core/scripts/copies.py")
+RULE = "戻せない操作の前に人に聞く"
+NESTED = "````md\n```\n%s\n```\n````\n"          # 4 字の囲みの中に 3 字の囲み（3 字の行は閉じでない）
+
+
+def test_読み口_囲みの見分けが_copies_refs_古い形_試験で揃う():
+    """4 字の囲みの中の 3 字の行は閉じでない（CommonMark）。所ごとに読み方を写すと、どこかが 3 字の行で閉じて中を地の文に読む。"""
+    from test_core_plugin import used_text
+    assert refs.check_text(refs.contract(), NESTED % "細目 §3 を読む") == []
+    assert RULE not in copies.own_text(NESTED % RULE)
+    assert OLD not in used_text("x.md", NESTED % ("## " + OLD))
+    assert not kaku.old_hit(ROWS["tasu-mado-heading"], "x.md", NESTED % ("## " + OLD))
+
+
+def test_読み口_字の値の中の_slash_slash_は注釈でない():
+    """.mjs の注釈の除き方が字の値の中の // を注釈として切ると、値の中の指し・古い名を見落とす。"""
+    from test_core_plugin import used_text
+    from test_skill_values_no_rule_copy import RULE_BUCKET, pointing
+    src = 'const u = "https://x//common.rules"; // 注\n/* 注 */ const v = `a//b ' + OLD + '`;\n'
+    assert RULE_BUCKET.search(pointing(".mjs", src))
+    assert OLD in used_text("x.mjs", src) and "注" not in used_text("x.mjs", src)
+
+
+def test_読み口_shell_の単引用の中の_backslash_は字のまま():
+    assert kaku.sh_code("echo 'a\\' # 注\n") == "echo 'a\\' \n"
+    assert "x.py" in kaku.sh_code('echo "a\\"" x.py # 注\n') and "注" not in kaku.sh_code('echo "a\\"" x.py # 注\n')
+
+
+@pytest.mark.parametrize("rel,func", [
+    ("plugins/core/scripts/copies.py", None),
+    ("plugins/core/scripts/refs.py", None),
+    ("tests/uses.py", None),
+    ("tests/test_core_plugin.py", "used_text"),
+    ("tests/test_skill_values_no_rule_copy.py", "pointing"),
+])
+def test_読み口_構造の読み方を写さない(rel, func):
+    """囲み・注記・注釈の読み方（```・~~~・<!--・tokenize・// の除き）を自分で書かず、kaku の読み口を呼ぶ。"""
+    if func:
+        mod = _load("m_" + func, rel)
+        src = inspect.getsource(getattr(mod, func))
+    else:
+        src = (ROOT / rel).read_text(encoding="utf-8")
+    code = kaku.py_code(src)
+    for w in ("```", "~~~", "<!--", "tokenize", "//[", "COMMENT", "startswith(\">\")"):
+        assert w not in code, f"{rel} が構造の読み方 {w!r} を写している（kaku の読み口を呼ぶ）"
+
+
+# ── 知らない形を黙って空にしない（reads: commands の .md） ──
+@pytest.mark.parametrize("text", [
+    "````bash\n%s\n````\n" % ADD,                       # 4 字の囲み
+    "~~~~sh\n%s\n~~~~\n" % ADD,                         # 4 字の ~ の囲み
+    "````bash\n```\n%s\n```\n````\n" % ADD,             # 囲みの中の 3 字の行
+    "~~~\n%s\n~~~~~\n" % ADD,                           # 閉じは同じ字で数以上
+    "入れ方:\n\n    %s\n" % ADD,                         # 4 字下げのコード
+    "入れ方:\n\n\t%s\n" % ADD,                           # tab の字下げ
+    "<pre>\n%s\n</pre>\n" % ADD,                        # <pre>
+    "<PRE>%s</PRE>\n" % ADD,
+    "```bash\n%s\n" % ADD,                              # 閉じの無い囲み（読めない形＝読む）
+    "```bash\n%s\n``\n" % ADD,                          # 2 字の行は閉じでない
+])
+def test_古い形_知らない囲みの形も命令として読む(text):
+    assert kaku.old_hit(ROWS["plugin-name-copy"], "README.md", text), text
+
+
+def test_古い形_閉じの字が違えば閉じでない():
+    """~~~ で開いた囲みは ``` の行で閉じない。中の命令の後の入口の呼び出しも同じ囲みの中（入口を呼ぶ側）。"""
+    text = "~~~bash\n%s\n```\npython3 \"$af/scripts/%s\"\n~~~\n" % (ADD, ENTRY)
+    assert not kaku.old_hit(ROWS["plugin-name-copy"], "x.md", text)
+    assert kaku.old_hit(ROWS["no-marketplace-update"], "x.md", text)
+
+
+def test_古い形_地の文の囲みに見える行は囲みでない():
+    """` の囲みの開きの情報の欄に ` は入らない（```x``` は地の文の `…`）。"""
+    assert kaku.md_blocks("```x``` は地の文\n")[0][0] == "text"
+
+
+@pytest.mark.parametrize("text", [
+    "```md\n## %s\n" % OLD,                             # 閉じの無い囲みは囲みと決められない＝地の文として読む
+    "    ## %s\n" % OLD,                                # 字下げも地の文として読む
+    "<pre>\n## %s\n</pre>\n" % OLD,
+])
+def test_古い形_読めない形の欄も今も名指す(text):
+    assert kaku.old_hit(ROWS["tasu-mado-heading"], "決まり.md", text), text
+
+
+# ── 古い形の行（reads: commands）の 4 行が、本物の照らし口で今も名指す ──
+STALE = "claude plugin marketplace add ynishikawa-coder/agent-foundation-public --scope user || true\n" \
+        "claude plugin marketplace update agent-foundation || true\n" \
+        "python3 \"$af/scripts/%s\" || true\n" % ENTRY
+SUBSTR = "af_old=\"$af_old\"';sys.exit(not(s.get(\"ref\") or a[2] not in json.dumps(s)))'\n" \
+         "python3 \"$af/scripts/%s\"\n" % ENTRY
+
+
+@pytest.mark.parametrize("rel,text", [
+    ("setup.sh", STALE),
+    ("setup.sh", STALE + "# claude plugin marketplace remove agent-foundation は前の形\n"),   # 注釈の remove は外すことにならない
+    ("docs.md", "```bash\n%s```\n" % STALE),
+    ("docs.md", "````bash\n%s````\n" % STALE),
+    ("ci.yml", "run: |\n" + "".join("  " + ln + "\n" for ln in STALE.splitlines())),
+])
+def test_古い形_前の目録を外さない_setup_は今も名指す(rel, text):
+    assert kaku.old_hit(ROWS["no-stale-catalog-remove"], rel, text), text
+
+
+def test_古い形_前の目録を外さない_setup_を地の文で説明するだけは名指さない():
+    text = "前は `%s` だけで、前の目録を外さなかった。\n" % STALE.splitlines()[0]
+    assert not kaku.old_hit(ROWS["no-stale-catalog-remove"], "README.md", text)
+
+
+@pytest.mark.parametrize("rel,text", [
+    ("setup.sh", SUBSTR),
+    ("docs.md", "```bash\n%s```\n" % SUBSTR),
+    ("docs.md", "~~~~\n%s~~~~\n" % SUBSTR),
+    ("x.py", 'import os\nos.system(%r)\n' % SUBSTR),
+])
+def test_古い形_出所を文字列の包含で見る_setup_は今も名指す(rel, text):
+    assert kaku.old_hit(ROWS["stale-remove-substring"], rel, text), text
+
+
+def test_古い形_出所を文字列の包含で見る形を注釈で挙げるだけは名指さない():
+    text = "# 前は a[2] not in json.dumps(s) で見ていた\npython3 \"$af/scripts/%s\"\n" % ENTRY
+    assert not kaku.old_hit(ROWS["stale-remove-substring"], "setup.sh", text)
+
+
+def test_古い形_一覧の例の試験は本物の照らし口を通す():
+    """一覧の例の試験（test_core_plugin）が行の読み方を通すこと: commands の行の例は .md の地の文に置けば当たらない。"""
+    from test_core_plugin import example_files
+    r = ROWS["no-stale-catalog-remove"]
+    files = dict(example_files(r))
+    assert files["x.md"].startswith("```") and not kaku.old_hit(r, "x.md", r["example"])
+    assert all(kaku.old_hit(r, rel, text) for rel, text in files.items())
+
+
+@pytest.mark.parametrize("text", [
+    "~~~md\n## %s\n~~~~~\n" % OLD,                      # 閉じは同じ字で開きの数以上
+    "````md\n## %s\n````\n" % OLD,                      # 4 字の囲み
+    NESTED % ("## " + OLD),                             # 4 字の囲みの中の 3 字の行は閉じでない
+])
+def test_古い形_CommonMark_の囲みの中の欄は名指さない(text):
+    assert not kaku.old_hit(ROWS["tasu-mado-heading"], "決まり.md", text), text

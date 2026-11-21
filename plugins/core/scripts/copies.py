@@ -94,22 +94,17 @@ def index(files: list[Path]):
     return rows, inv
 
 
-_FENCE = re.compile(r"^\s*(```|~~~)")
-_QUOTED = re.compile(r"「[^「」\n]*」|『[^『』\n]*』")
-
-
 def own_text(text: str) -> str:
-    """照らす file の自分の文（出所を示して引いた所を除く）: > の引用の行・コードの囲みの中の行・「」『』の中の字は空にする
-    （行の番号は保つ）。写しは自分の文として決まりを書き直した物で、引用は出所を示した引き。"""
-    out, fence = [], None
-    for ln in text.splitlines():
-        f = _FENCE.match(ln)
-        if f and (fence is None or f.group(1) == fence):
-            fence = f.group(1) if fence is None else None
-            out.append("")
-            continue
-        out.append("" if fence is not None or ln.lstrip().startswith(">") else _QUOTED.sub("「」", ln))
-    return "\n".join(out)
+    """照らす file の自分の文（出所を示して引いた所を除く）。写しは自分の文として決まりを書き直した物で、引用は出所を示した引き。
+    読み方（コードの囲み・> の引用・「」『』“” の引用）の正本は kaku.md_own（写さない）。注記の中は AI が読む文なので照らし、
+    地の文の `…` の中も照らす（決まりの文を `…` で囲むだけで迂回させない）。"""
+    return _kaku().md_own(text, notes=True, spans=True)
+
+
+def _kaku():
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    import kaku
+    return kaku
 
 
 def scan(targets: list[Path], rows, inv, threshold: float = THRESHOLD):

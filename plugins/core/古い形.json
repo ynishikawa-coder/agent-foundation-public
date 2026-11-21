@@ -1,5 +1,5 @@
 {
-  "説明": "使う側に残りうる土台の古い形（写し）の一覧。plugin core の起動の hook が、開いた repo にこれが残っていれば名指しで知らせる。「壊れる（1 段目）」の PR が行を足し、使う側が移ったのを `kaku.py olds <各 checkout>` で確かめた「壊れる（2 段目）」の PR が行を消す（CONTRIBUTING.md §8）。files は git の pathspec（試験と変更の記録は経緯や作り物として古い名を持つので :(exclude) で外す）、pattern は Python の正規表現、example は pattern に当たる作り物の 1 行。reads は file のどこに当てるか（既定 all＝全部・commands＝動く命令の所〔.md はコードの囲みの中だけ・注釈と docstring を除く〕・prose＝書いた欄と札の所〔.md のコードの囲み・注記・引用の中を除く。見出しの印 # で始まる引用は残す〕。読み方の正本は kaku.py の old_view）。files に無い拡張子の file（.py・.json 等）と、repo の外の環境の setup script は olds では見えない（環境の setup script は起動の hook が入口の印で見る）。",
+  "説明": "使う側に残りうる土台の古い形（写し）の一覧。plugin core の起動の hook が、開いた repo にこれが残っていれば名指しで知らせる。「壊れる（1 段目）」の PR が行を足し、使う側が移ったのを `kaku.py olds <各 checkout>` で確かめた「壊れる（2 段目）」の PR が行を消す（CONTRIBUTING.md §8）。files は git の pathspec（試験と変更の記録は経緯や作り物として古い名を持つので :(exclude) で外す）、pattern は Python の正規表現、example は pattern に当たる作り物の 1 行。reads は file のどこに当てるか（既定 all＝全部・commands＝動く命令の所〔.md はコードの所＝CommonMark の囲み〔` か ~ が 3 字以上・閉じは同じ字で数以上〕の中と、囲みと決められない形〔閉じの無い囲み・字下げ・<pre>〕。注釈と docstring を除く〕・prose＝書いた欄と札の所〔.md の閉じの在る囲み・注記・引用の中を除く。見出しの印 # で始まる引用は残す〕。読み方の正本は kaku.py の「使う形の読み口」〔old_view・code・md_own〕）。files に無い拡張子の file（.py・.json 等）と、repo の外の環境の setup script は olds では見えない（環境の setup script は起動の hook が入口の印で見る）。",
   "olds": [
     {
       "id": "af-core-frame",

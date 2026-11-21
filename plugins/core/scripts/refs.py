@@ -52,19 +52,22 @@ _DOC = (r"`?(?P<path>[\w./-]*[\w-]\.md)`?"
         r"|(?<![\u4e00-\u9fff々])(?P<alias>" + "|".join(map(re.escape, sorted(ALIASES, key=len, reverse=True))) + r")"
         r"|(?P<skill>skill:[\w-]+:[\w-]+)")
 _REF = re.compile(r"(?:" + _DOC + r")\s*(?:§\s*(?P<no>\d+)\s*)?(?:「(?P<name>[^」\n]+)」)?")
-_FENCE_MARK = re.compile(r"^\s*(```|~~~)")
 MIN_QUOTE = 4   # 名でない引きは、これより短いと文書のどこかに当たるだけで合ってしまう（「の」）
+
+
+def _kaku():
+    """構造の読み方（コードの囲みの見分け）の正本 kaku.md_blocks を持つ core の kaku（写さない）。"""
+    sys.path.insert(0, str(HERE))
+    import kaku
+    return kaku
 
 
 def parse(text: str) -> dict:
     """1 つの文書の節と名のついた箇条（字形を読むのはここだけ）。"""
-    sections, names, cur, fence = [], [], None, False
-    for no, line in enumerate(text.splitlines(), 1):
-        if line.lstrip().startswith("```"):
-            fence = not fence
-            continue
-        if fence:
-            continue
+    sections, names, cur = [], [], None
+    for no, (kind, line, _) in enumerate(_kaku().md_blocks(text), 1):
+        if kind in ("mark", "fence"):
+            continue                                       # 閉じの在るコードの囲みの中は見本（囲みの見分けの正本は kaku）
         m = _HEAD.match(line)
         if m:
             cur = m.group(3)
@@ -208,14 +211,9 @@ def check_text(c: dict, text: str, numbers_ok: bool = False) -> list[tuple[int, 
 def check_all(c: dict, text: str, numbers_ok: bool = False) -> tuple[list, list]:
     """(外れ, 照らせない指し)。照らせない指し＝土台の文書がこの形で読めない（入れた形で目録の clone が無い等）。"""
     bad, unread = [], []
-    fence = None
-    for lno, line in enumerate(text.splitlines(), 1):
-        f = _FENCE_MARK.match(line)
-        if f and (fence is None or f.group(1) == fence):
-            fence = f.group(1) if fence is None else None
-            continue
-        if fence is not None:
-            continue                                       # コードの囲みの中は例・見本（指しでない）
+    for lno, (kind, line, _) in enumerate(_kaku().md_blocks(text), 1):
+        if kind in ("mark", "fence"):
+            continue                                       # 閉じの在るコードの囲みの中は例・見本（指しでない）
         for m in _REF.finditer(line):
             doc = m.group("path") or m.group("alias") or m.group("skill")
             no, name = m.group("no"), m.group("name")

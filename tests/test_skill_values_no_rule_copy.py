@@ -12,7 +12,7 @@
 """
 import re
 from pathlib import Path
-from uses import py_code
+from uses import kaku
 
 ROOT = Path(__file__).resolve().parent.parent
 SKILL_FILES = sorted((ROOT / "plugins").glob("*/skills/*/SKILL.md"))
@@ -28,15 +28,12 @@ _NOT_POINTING = re.compile(r"写さない|置かない|読ませない|使わな
 
 def pointing(suffix, text):
     """file の中で指す形の所だけ: .py は注釈と docstring を除いたコード・.mjs は注釈を除いた字・.md と .html は注記
-    <!-- --> と、禁じる・畳んだと説明する文を除いた字。.json は字のまま（値の表の鍵か値＝指す形）。"""
-    if suffix == ".py":
-        return py_code(text)
-    if suffix == ".mjs":
-        return re.sub(r"/\*.*?\*/", " ", re.sub(r"//[^\n]*", " ", text), flags=re.S)
+    <!-- --> と、禁じる・畳んだと説明する文を除いた字。.json は字のまま（値の表の鍵か値＝指す形）。注釈・注記の読み方の
+    正本は kaku.code（写さない）。.md の `common.rules` は鍵の名を指す字なので、引用・囲みも外さない。"""
     if suffix in (".md", ".html"):
-        text = re.sub(r"<!--.*?-->", " ", text, flags=re.S)
+        text = kaku.note_code(text)
         return "\n".join(s for s in re.split(r"(?<=[。\n])", text) if not _NOT_POINTING.search(s))
-    return text
+    return kaku.code("x" + suffix, text)
 
 
 def value_rows(text):

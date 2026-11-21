@@ -2,44 +2,32 @@
 
 字が在るか無いかで照らす試験は、注釈に名を書くだけで緑（呼んでいないのに呼ぶ側）や赤（禁じる説明の文で写しの側）に
 倒れる。照らす相手を、構文で読んだ使う所に絞ってから字を見る:
-  py_code   … Python の源から注釈と docstring を除いた字（tokenize と ast で読む）
+  py_code   … Python の源から注釈と docstring を除いた字（正本 kaku.py_code）
   py_calls  … Python の源で呼ぶ関数の名（ast の Call）
   py_marks  … Python の源の試験に付いた印（デコレータと pytestmark の pytest.mark.<名>）
-  sh_code   … shell の源から注釈（語の頭の #）を除いた字
+  sh_code   … shell の源から注釈（語の頭の #）を除いた字（正本 kaku.sh_code）
+  kaku      … core の読み口の正本（md_own・md_code・code・own・note_code・js_code など）
   yaml_runs … workflow・action の yml の steps の run の字（注釈・name は入らない）
   yaml_on   … workflow の yml の on: の出来事の名
 """
 from __future__ import annotations
 
 import ast
-import io
-import tokenize
+import importlib.util
+from pathlib import Path
 
 import yaml
 
-
-def _docstring_lines(tree) -> set[int]:
-    lines = set()
-    for node in ast.walk(tree):
-        if isinstance(node, (ast.Module, ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
-            body = getattr(node, "body", [])
-            if body and isinstance(body[0], ast.Expr) and isinstance(getattr(body[0], "value", None), ast.Constant) \
-                    and isinstance(body[0].value.value, str):
-                lines.update(range(body[0].lineno, body[0].end_lineno + 1))
-    return lines
+# 構造（囲み・引用・注釈）の読み方の正本は core の kaku.py の「使う形の読み口」。試験は写しを置かずここから読む。
+_spec = importlib.util.spec_from_file_location(
+    "kaku_reader", Path(__file__).resolve().parent.parent / "plugins" / "core" / "scripts" / "kaku.py")
+kaku = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(kaku)
 
 
 def py_code(src: str) -> str:
-    """注釈と docstring を除いた Python の源の字（字の値・名・演算子は残る）。"""
-    doc = _docstring_lines(ast.parse(src))
-    out = []
-    for tok in tokenize.generate_tokens(io.StringIO(src).readline):
-        if tok.type == tokenize.COMMENT:
-            continue
-        if tok.type == tokenize.STRING and tok.start[0] in doc:
-            continue
-        out.append(tok.string)
-    return " ".join(out)
+    """注釈と docstring を空にした Python の源の字（字の値・名・演算子は元の字のまま）。読み方の正本は kaku.py_code。"""
+    return kaku.py_code(src)
 
 
 def py_calls(src: str) -> set[str]:
@@ -76,28 +64,8 @@ def py_marks(src: str) -> set[str]:
 
 
 def sh_code(src: str) -> str:
-    """shell の源から注釈（引用の外で語の頭に在る #）を除いた字。"""
-    out, q, i, n = [], "", 0, len(src)
-    while i < n:
-        c = src[i]
-        if q:
-            out.append(c)
-            if c == "\\" and q == '"' and i + 1 < n:
-                out.append(src[i + 1])
-                i += 2
-                continue
-            q = "" if c == q else q
-        elif c in "'\"":
-            q = c
-            out.append(c)
-        elif c == "#" and (i == 0 or src[i - 1] in " \t\n;&|("):
-            j = src.find("\n", i)
-            i = n if j < 0 else j
-            continue
-        else:
-            out.append(c)
-        i += 1
-    return "".join(out)
+    """shell の源から注釈（引用の外で語の頭に在る #）を除いた字。読み方の正本は kaku.sh_code。"""
+    return kaku.sh_code(src)
 
 
 def _steps(doc) -> list[dict]:
