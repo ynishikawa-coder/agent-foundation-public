@@ -6,7 +6,7 @@ import pytest
 from test_guard import ask_pre, deny_reason, env, q, write_log  # noqa: F401  （env は fixture）
 
 # ── prior_ask（選択肢の画面の前に決定の記録と問いの表を引いた跡）──
-LOOKUP = ["作り物の記録を引く道具", "\\bGrep\\b.*問いの表"]
+LOOKUP = ["^作り物の記録を引く道具 \\{.*\\}$", "^Grep \\{.*問いの表.*\\}$"]
 
 
 

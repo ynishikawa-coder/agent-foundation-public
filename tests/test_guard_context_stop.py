@@ -84,7 +84,7 @@ def test_context_stop_値の表で引き継ぎの形を足せ差し戻しを外�
     assert stop_hook(env, tpath)
     table = tmp_path / "values.json"
     env["SKILL_VALUES"] = str(table)
-    table.write_text(json.dumps({"guard": {"context_handoff": ["作り物の引き継ぎ道具"]}}, ensure_ascii=False), encoding="utf-8")
+    table.write_text(json.dumps({"guard": {"context_handoff": ["^作り物の引き継ぎ道具 \\{.*\\}$"]}}, ensure_ascii=False), encoding="utf-8")
     assert stop_hook(env, tpath) == ""
     table.write_text(json.dumps({"guard": {"context_stop_max": 0}}), encoding="utf-8")
     assert stop_hook(env, over_log(tmp_path, 300_000, name="z.jsonl")) == ""

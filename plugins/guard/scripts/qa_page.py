@@ -170,7 +170,7 @@ def repo_rel(path):
 def check_page(path, vals):
     if not path.lower().endswith(PAGE_EXT):
         return ""
-    if G.SV.hit(G.patterns(vals, "qa_page_exempt"), repo_rel(path), path.replace(os.sep, "/")) is not None:
+    if G.SV.hit(G.patterns(vals, "qa_page_exempt"), repo_rel(path)) is not None:
         return ""
     try:
         with open(path, encoding="utf-8") as f:
