@@ -148,7 +148,7 @@ def flows(repo: Path) -> dict[tuple[str, str], list[str]]:
 #   字の形で分けられないので拾わない。使う側の repo の物を .py の glob で読む道具を足す時は表（.json）に置く。
 USING_TABLE = "repo ごとの値の表"
 USING_CLAUDE = "repo 固有の CLAUDE.md"
-USING_FILES = "repo の文書・script"
+USING_FILES = "使う側の repo の文書・script"
 USING = (USING_TABLE, USING_CLAUDE, USING_FILES)
 _PATHSPEC_GLOB = re.compile(r"(?::\(exclude\))?[\w./-]*\*[\w./*-]*")
 

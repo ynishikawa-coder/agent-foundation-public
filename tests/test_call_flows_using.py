@@ -16,7 +16,7 @@ _spec.loader.exec_module(_base)
 put, git, run, picture = _base.put, _base.git, _base.run, _base.picture
 fake = pytest.fixture(_base.fake.__wrapped__ if hasattr(_base.fake, "__wrapped__") else _base.fake)
 
-TABLE, CLAUDE, FILES = "repo ごとの値の表", "repo 固有の CLAUDE.md", "repo の文書・script"
+TABLE, CLAUDE, FILES = "repo ごとの値の表", "repo 固有の CLAUDE.md", "使う側の repo の文書・script"
 
 
 @pytest.fixture
