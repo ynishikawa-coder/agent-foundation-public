@@ -255,12 +255,19 @@ def is_child_log(path):
 
 
 # ── Bash の命令のうち実際に動かす所（字を挙げるだけの所と分ける） ──
-# 外すのは、命令の行が 1 つの素の命令だけの時（_read_whole: shell の特別な字〔改行・| & ; < > $ ` \ ( ) { }・\r〕が
+# 外すのは、命令の行が 1 つの素の命令だけの時（_read_whole: shell の特別な字〔改行・| & ; < > $ ` \ ( ) { }・\r〕と引用の外の glob の字〔* ? [〕が
 # 1 つも無く、命令の名が path を含まない素の名で、代入・環境へ出す手でない）で、それが字を書く・探す・見せるだけの道具の時だけ。
 # それ以外は呼ぶ側が命令の字全体で見る（前の版と同じ判定）。shell の読み手が bash と同じに区切る前提に頼らない
 # （流れる道を 1 つずつ足して追う作りも、shlex で並びを区切る作りも、bash とのずれでまた抜けたのでやめた）。
+# 一覧に置くのは、引数が評価・実行される口を持たないと 1 つずつ確かめた道具だけ（確かめた結果）:
+# - echo・true・: … 引数を字として出す・捨てるだけ。
+# - printf … 書式を字として出すだけ。変数へ書く -v は _read_whole が外さない。
+# - cat・head・tail・wc … 引数は前置きか file の名で、file を読むだけ（中身を命令として動かす口が無い）。
+# - grep・egrep・fgrep … 引数は型・前置き・file の名で、-f も型の file を読むだけ（命令を動かす前置きが無い）。
+# test と [ は置かない: bash の組み込みの test -v は配列の添字（a[…]）を算術として評価し、添字の中の $(…) や、添字に
+# 書いた変数の値（前の命令で入れた $(…) の字）が命令を動かす（bash で確かめた）。[[ ]] は算術の比べでも同じなので置かない。
 TEXT_ONLY = frozenset(("echo", "printf", "cat", "grep", "egrep", "fgrep",
-                       "head", "tail", "wc", "true", ":", "test", "["))
+                       "head", "tail", "wc", "true", ":"))
 # 素の命令でも、それだけで外さない物とする命令（環境・変数・別名へ出す手・file を書く手・他を読み込む手）。
 _UNREAD_PROG = frozenset(("export", "set", "declare", "typeset", "readonly", "local", "unset", "alias", "source", ".",
                           "env", "tee", "shopt", "trap", "hash", "builtin", "command"))
@@ -456,12 +463,20 @@ def _scan(cmd, i=0, sub=False):
 # shell の特別な字。命令の行にこの字が 1 つでも在れば、shell の読み手（shlex など）が bash と同じに読む前提に頼らず、
 # 前の版と同じく命令の字全体で見る（| の後の改行・\ と改行・\r のように、読み手と bash のずれで抜けた形を作りで無くす）。
 _SHELL_SPECIAL = frozenset("\n\r|&;<>$`\\(){}")
+# glob の字。引用の外に 1 つでも在れば同じく字全体で見る（file の名に開かれ、打った字と動く語がずれる）。引用の中は
+# bash でも開かれない（上の特別な字の無い行では、引用は '…' と "…" の素の対だけ＝_QUOTED で外せる）。
+_GLOB = frozenset("*?[")
+
+
+_QUOTED = re.compile(r"'[^']*'|\"[^\"]*\"")
 
 
 def _read_whole(cmd):
-    """命令の行が 1 つの素の命令だけの時、その語の並び（引用を外した語）。shell の特別な字（改行・| & ; < > $ ` \\ ( ) { }・\\r）が
+    """命令の行が 1 つの素の命令だけの時、その語の並び（引用を外した語）。shell の特別な字（改行・| & ; < > $ ` \\ ( ) { }・\\r）か引用の外の glob の字（* ? [）が
     1 つでも在る・命令の名が path を含む・代入や環境へ出す手・閉じない引用は None（呼ぶ側が命令の字全体で見る）。"""
     if not isinstance(cmd, str) or any(c in _SHELL_SPECIAL for c in cmd):
+        return None
+    if any(c in _GLOB for c in _QUOTED.sub("", cmd)):
         return None
     try:
         lex = shlex.shlex(_strip_comment(cmd), posix=True)   # 特別な字の無い行で引用を外すだけに使う
@@ -475,9 +490,6 @@ def _read_whole(cmd):
     if words[0] == "printf" and any(a.startswith("-v") for a in words[1:]):
         return None                               # printf -v は変数へ書く
     return words
-
-
-_QUOTED = re.compile(r"'[^']*'|\"[^\"]*\"")
 
 
 def executed_parts(cmd):

@@ -12,7 +12,7 @@
 
 DB の破棄と値の表の足す形は、命令の語（guard_common.command_words）にだけ当てる＝実際に動かす並びと、字を挙げるだけの
   命令（git・gh・echo など）そのものの語（引用の中身を除く: git push --force・gh repo delete は当たる）。
-  外すのは命令の行が 1 つの素の命令の時だけ（shell の特別な字〔改行・| & ; < > $ ` \\ ( ) { }〕が 1 つも無く、命令の名が path を含まない素の名で、代入・export・tee など file や環境へ出す手でない形）の、commit の文・grep の語・echo の字・注釈だけ。
+  外すのは命令の行が 1 つの素の命令の時だけ（shell の特別な字〔改行・| & ; < > $ ` \\ ( ) { }〕と引用の外の glob の字〔* ? [〕が 1 つも無く、命令の名が path を含まない素の名で、代入・export・tee など file や環境へ出す手でない形）の、commit の文・grep の語・echo の字・注釈だけ。
   echo … | psql・git/gh/rg の中で命令を動かす形（rebase --exec・-c alias/pager・rg --pre）は動く側。読み切れない形は
   命令の字全体に当てる（前の版と同じ判定＝止める側に倒す）。
 射程の天井: 判定は列挙であって証明ではない（`find … -delete`・再帰なしの `rm -f`・`git restore .` などは素通り）。
