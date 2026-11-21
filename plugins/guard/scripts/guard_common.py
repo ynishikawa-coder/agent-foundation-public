@@ -257,22 +257,85 @@ def is_child_log(path):
 # ── Bash の命令のうち実際に動かす所（字を挙げるだけの所と分ける） ──
 # 字を書く・探す・見せるだけの道具。並び（|）の全部がこれなら、その並びの引数・heredoc の中身は動かない字。
 # 1 つでも外の命令が並びに居れば（echo … | psql・cat <<EOF | sh）、並びの字は全部動く側に数える。
+# 字を挙げるだけの命令でも、その「出力」と「変数」が動く側へ流れる形（eval "$(echo …)"・bash -c "$(…)"・$(echo …)・
+# x='…'; $x・eval $x）は、流れる先が動く側なので元の字も動く側に数える（_parts）。
 TEXT_ONLY = frozenset(("echo", "printf", "cat", "tee", "grep", "egrep", "fgrep",
                        "head", "tail", "wc", "true", ":", "test", "["))
-# 中で命令を動かせる道具は、動かす口の無い形の時だけ字を挙げる側（_text_only）。
-# git: 部分命令がこの組で、-c・--config-env・--exec-path・環境変数の前置き（GIT_PAGER など）が無い時だけ。
-#   rebase --exec・-c alias.x='!…'・-c core.pager=…・bisect run・submodule foreach・difftool -x・grep -O は動く側。
+# 中で命令を動かせる道具（git・rg・gh）は、前置き（-x・--foo）を「動かす口が無いと分かっている物」の一覧で通し、
+# 一覧の外の前置きが 1 つでも在れば動く側に数える（動かす口を数えて外す形は、次の口でまた抜ける＝
+# push --receive-pack・fetch --upload-pack）。環境変数の前置き（GIT_PAGER・RIPGREP_CONFIG_PATH など）も動く側。
+# git: 部分命令がこの組で、前置きが全部 _GIT_SAFE_OPT の時だけ。部分命令の前は -C <dir>・--no-pager・-P だけ。
 # gh: 部分命令がこの組（alias・extension・利用者の別名は中で命令を動かせる）で環境変数の前置きが無い時だけ。
-# rg: --pre（読む前に命令を通す）と環境変数の前置き（RIPGREP_CONFIG_PATH で --pre を足せる）が無い時だけ。
+# rg: 前置きが全部 _RG_SAFE_OPT の時だけ（--pre・--pre-glob は一覧の外）。
 _GIT_TEXT = frozenset(("commit", "add", "status", "diff", "log", "show", "tag", "fetch", "push", "pull", "checkout",
                        "switch", "branch", "restore", "rm", "mv", "ls-files", "ls-tree", "rev-parse", "merge-base",
                        "blame", "reset", "remote", "stash", "describe", "shortlog", "cat-file", "grep"))
-_GIT_EXEC_OPT = re.compile(r"^(?:-c|--config-env(?:=.*)?|--exec-path(?:=.*)?|-x|--exec(?:=.*)?|--extcmd(?:=.*)?"
-                           r"|-O.*|--open-files-in-pager(?:=.*)?|--ext-diff|-c.+)$", re.S)
+_GIT_GLOBAL_SAFE = frozenset(("--no-pager", "-P", "--no-optional-locks", "--literal-pathspecs"))
+_GIT_SAFE_LONG = frozenset((
+    "message", "all", "amend", "no-edit", "no-verify", "quiet", "verbose", "signoff", "allow-empty",
+    "allow-empty-message", "author", "date", "fixup", "squash", "cleanup", "no-gpg-sign", "file", "reuse-message",
+    "oneline", "stat", "shortstat", "numstat", "name-only", "name-status", "cached", "staged", "patch", "no-patch",
+    "format", "pretty", "graph", "decorate", "no-decorate", "abbrev-commit", "abbrev", "branches", "remotes", "tags",
+    "since", "until", "after", "before", "grep", "committer", "max-count", "skip", "reverse", "first-parent",
+    "no-merges", "merges", "follow", "diff-filter", "unified", "word-diff", "color", "no-color",
+    "ignore-space-change", "ignore-all-space", "ignore-blank-lines", "merge-base", "porcelain", "short", "branch",
+    "untracked-files", "ignored", "abbrev-ref", "show-toplevel", "verify", "is-ancestor", "symbolic-full-name",
+    "git-dir", "show-prefix", "list", "contains", "merged", "no-merged", "sort", "points-at", "force",
+    "force-with-lease", "force-if-includes", "set-upstream", "set-upstream-to", "unset-upstream", "track",
+    "no-track", "delete", "move", "copy", "create", "detach", "orphan", "hard", "soft", "mixed", "keep", "merge",
+    "ff-only", "no-ff", "ff", "rebase", "no-rebase", "autostash", "no-autostash", "depth", "deepen",
+    "shallow-since", "unshallow", "prune", "prune-tags", "dry-run", "no-tags", "atomic", "follow-tags",
+    "include-untracked", "keep-index", "index", "worktree", "source", "ours", "theirs", "others",
+    "exclude-standard", "modified", "deleted", "error-unmatch", "full-name", "ignore-case", "line-number",
+    "files-with-matches", "count", "word-regexp", "extended-regexp", "fixed-strings", "perl-regexp",
+    "invert-match", "long", "exact-match", "always", "dirty", "full-history", "date-order", "topo-order",
+    "relative-date", "summary", "check", "raw", "name-rev", "stdin", "intent-to-add", "update", "pathspec-from-file",
+    "local", "verbose", "tracking", "upstream", "no-recurse-submodules", "set-head", "sparse", "no-commit",
+))
+_GIT_SAFE_OPT = re.compile(r"^(?:--|--end-of-options|-\d+|-[abdfmnpqsuvABDFMNPRSUWilrtwEGLIC]+"
+                           r"|-[nUSGlMm]\S+|--(?:%s)(?:=.*)?)$" % "|".join(sorted(map(re.escape, _GIT_SAFE_LONG),
+                                                                              key=len, reverse=True)), re.S)
+_RG_SAFE_LONG = frozenset((
+    "files", "hidden", "no-ignore", "no-ignore-vcs", "no-ignore-dot", "glob", "iglob", "type", "type-not",
+    "type-list", "json", "no-heading", "heading", "line-number", "no-line-number", "column", "count",
+    "count-matches", "files-with-matches", "files-without-match", "fixed-strings", "ignore-case", "smart-case",
+    "case-sensitive", "word-regexp", "line-regexp", "invert-match", "only-matching", "context", "before-context",
+    "after-context", "max-count", "max-depth", "follow", "multiline", "multiline-dotall", "null", "color",
+    "colors", "no-filename", "with-filename", "sort", "sortr", "replace", "trim", "vimgrep", "stats", "text",
+    "binary", "encoding", "max-columns", "max-filesize", "passthru", "pcre2", "engine", "unrestricted",
+    "no-config", "regexp", "quiet", "no-messages", "field-match-separator", "field-context-separator",
+))
+_RG_SAFE_OPT = re.compile(r"^(?:--|-\d+|-[ABCEFHILMNSTUVabcefghijlmnopqrstuvwx]+\S*|--(?:%s)(?:=.*)?)$"
+                          % "|".join(sorted(map(re.escape, _RG_SAFE_LONG), key=len, reverse=True)), re.S)
 _GH_TEXT = frozenset(("pr", "issue", "api", "release", "search", "label", "repo", "run", "workflow", "browse",
                       "gist", "status", "secret", "variable", "cache", "ruleset", "project"))
 _ENV = re.compile(r"[A-Za-z_]\w*=.*", re.S)
 _REDIR = re.compile(r"\d*[<>]+&?\d*-?")
+_SB = re.compile(r"\x00SB(\d+)\x00")
+
+
+def _opts_safe(args, safe):
+    """引数のうち前置き（- で始まる語・-- の後は path）が全部 safe に当たるか。"""
+    for a in args:
+        if a == "--":
+            return True
+        if a.startswith("-") and a != "-" and not safe.match(a):
+            return False
+    return True
+
+
+def _git_text(args):
+    i = 0
+    while i < len(args) and args[i].startswith("-"):
+        if args[i] == "-C" and i + 1 < len(args):
+            i += 2
+            continue
+        if args[i] not in _GIT_GLOBAL_SAFE:
+            return False                  # -c・--config-env・--exec-path・一覧の外の前置き
+        i += 1
+    if i >= len(args) or args[i] not in _GIT_TEXT:
+        return False
+    return _opts_safe(args[i + 1:], _GIT_SAFE_OPT)
 
 
 def _text_only(words):
@@ -281,23 +344,26 @@ def _text_only(words):
     while k < len(words) and _ENV.fullmatch(words[k]):
         k += 1
     env = words[:k]                       # 頭の環境変数の前置きだけ（引数の a=b は前置きでない）
-    ws = [w for w in words[k:] if not _REDIR.fullmatch(w) and w != "\x00SB\x00"]
+    ws = [w for w in words[k:] if not _REDIR.fullmatch(w)]
     if not ws:
-        return True
+        return True                       # 代入だけ（値が動く側へ流れるかは _parts が変数の流れで見る）
+    if _SB.search(ws[0]) or "$" in ws[0]:
+        return False                      # $(…)・$x の出力を命令として動かす
     prog = os.path.basename(ws[0])
+    args = [w for w in ws[1:] if not _SB.fullmatch(w)]
+    if prog == "printf" and any(a == "-v" or a.startswith("-v") for a in args):
+        return False                      # printf -v は変数へ書く＝代入と同じ（その変数を動かす形は _parts が見る）
     if prog in TEXT_ONLY:
         return True
-    args = ws[1:]
+    if env:
+        return False
     if prog == "rg":
-        return not env and not any(a == "--pre" or a.startswith("--pre=") or a.startswith("--pre-glob") for a in args)
+        return _opts_safe(args, _RG_SAFE_OPT)
     if prog == "git":
-        if env or any(_GIT_EXEC_OPT.match(a) for a in args):
-            return False
-        sub = next((a for a in args if not a.startswith("-")), "")
-        return sub in _GIT_TEXT
+        return _git_text(args)
     if prog == "gh":
         sub = next((a for a in args if not a.startswith("-")), "")
-        return not env and sub in _GH_TEXT
+        return sub in _GH_TEXT
     return False
 
 
@@ -326,10 +392,10 @@ class _Unread(Exception):
 
 
 def _scan(cmd, i=0, sub=False):
-    """命令の字を頭から読み、(heredoc の中身と $( ) を印に置き換えた字, heredoc の中身の並び, $( ) の中で動く並び, 終わりの位置)。
-    印は \\x00HDn\\x00（heredoc の中身）と \\x00SB\\x00（$( ) の跡）。注釈（語の頭の #）は落とす。
-    sub=True は $( の後から読み、対になる ) で終わる。読み切れなければ _Unread。"""
-    out, bodies, inner, pending = [], [], [], []
+    """命令の字を頭から読み、(heredoc の中身と $( ) を印に置き換えた字, heredoc の中身の並び, $( ) の中で動く並び,
+    終わりの位置, $( ) の中の字の並び)。印は \\x00HDn\\x00（heredoc の中身）と \\x00SBn\\x00（n 番目の $( ) の跡）。
+    注釈（語の頭の #）は落とす。sub=True は $( の後から読み、対になる ) で終わる。読み切れなければ _Unread。"""
+    out, bodies, inner, pending, subs = [], [], [], [], []
     n, q, depth = len(cmd), "", 0
     while i < n:
         c = cmd[i]
@@ -341,10 +407,11 @@ def _scan(cmd, i=0, sub=False):
             i += 1
             continue
         if cmd.startswith("$(", i) and not cmd.startswith("$((", i):
-            s_out, s_bodies, s_inner, j = _scan(cmd, i + 2, sub=True)
-            parts = _parts(s_out, s_bodies, s_inner)
+            s_out, s_bodies, s_inner, j, s_subs = _scan(cmd, i + 2, sub=True)
+            parts = _parts(s_out, s_bodies, s_inner, s_subs)
             inner.extend(s_inner + parts)
-            out.append("\x00SB\x00")
+            subs.append(cmd[i + 2:j - 1])     # 中の字（出力が動く側へ流れる時に、動く側に数える）
+            out.append("\x00SB%d\x00" % (len(subs) - 1))
             i = j
             continue
         if q == '"':
@@ -377,7 +444,7 @@ def _scan(cmd, i=0, sub=False):
             if depth == 0:
                 if pending:
                     raise _Unread()
-                return "".join(out), bodies, inner, i + 1
+                return "".join(out), bodies, inner, i + 1, subs
             depth -= 1
         if cmd.startswith("<<<", i):
             out.append("<<<")
@@ -411,7 +478,7 @@ def _scan(cmd, i=0, sub=False):
         i += 1
     if q or pending or sub:
         raise _Unread()
-    return "".join(out), bodies, inner, i
+    return "".join(out), bodies, inner, i, subs
 
 
 def _pipelines(flat):
@@ -446,28 +513,72 @@ def _pipelines(flat):
     return [pl for pl in pipelines if pl]
 
 
-def _parts(flat, bodies, inner=()):
+_VAR = re.compile(r"\$\{?([A-Za-z_]\w*)")
+
+
+def _assigns(pl):
+    """並びの命令のうち代入だけの命令（x=…）と printf -v が書く変数の名。"""
+    names = set()
+    for c in pl:
+        ws = [w for w in c if not _REDIR.fullmatch(w)]
+        if ws and all(_ENV.fullmatch(w) for w in ws):
+            names.update(w.split("=", 1)[0] for w in ws)
+        k = 0
+        while k < len(ws) and _ENV.fullmatch(ws[k]):
+            k += 1
+        if k < len(ws) and os.path.basename(ws[k]) == "printf":
+            for j, w in enumerate(ws[k + 1:], k + 1):
+                if w == "-v" and j + 1 < len(ws):
+                    names.add(ws[j + 1])
+                elif w.startswith("-v") and len(w) > 2:
+                    names.add(w[2:])
+    return names
+
+
+def _parts(flat, bodies, inner=(), subs=()):
     """並びごとに、字を挙げるだけの並びを除いた字の並び（heredoc の中身を戻す）。
-    字を挙げるだけの並びでも、書いた file を同じ命令の中の動く並び（$( ) の中を含む）が読む形
-    （printf '…' > q.sql && psql -f q.sql・cat > a.sh <<EOF … && bash a.sh）は動く側に数える。"""
+    字を挙げるだけの並びでも、その字が同じ命令の中の動く側へ流れる形は動く側に数える:
+      - 書いた file を動く並び（$( ) の中を含む）が読む（printf '…' > q.sql && psql -f q.sql・cat > a.sh <<EOF … && bash a.sh）
+      - 代入した変数を動く並びが使う（x='…'; $x・x='…'; eval $x・x=$(echo …); bash -c "$x"）
+    動く並びに $( ) が在れば、その中の字を全部動く側に足す（eval "$(echo …)"・bash -c "$(…)"・$(echo …)）。"""
     pls = _pipelines(flat)
-    text_only = [all(_text_only(c) for c in pl) for pl in pls]
+    run = [not all(_text_only(c) for c in pl) for pl in pls]
+    while True:                           # 変数の流れ: 動く側が使う変数を代入した並びも動く側（代入が代入を呼ぶので閉じるまで）
+        used = set()
+        for pl, r in zip(pls, run):
+            if r:
+                t = " ".join(" ".join(c) for c in pl)
+                t += " " + " ".join(subs[int(n)] for n in _SB.findall(t))
+                used.update(_VAR.findall(t))
+                if "${!" in t:
+                    used.add("\x00all")
+        for x in inner:
+            used.update(_VAR.findall(x))
+        grow = False
+        for k, pl in enumerate(pls):
+            if not run[k]:
+                names = _assigns(pl)
+                if names and ("\x00all" in used or names & used):
+                    run[k] = grow = True
+        if not grow:
+            break
     run_words = set()
-    for pl, t in zip(pls, text_only):
-        if not t:
+    for pl, r in zip(pls, run):
+        if r:
             for c in pl:
                 run_words.update(c)
     for x in inner:
         run_words.update(x.split())
     run_names = run_words | {os.path.basename(w) for w in run_words}
     out = []
-    for pl, t in zip(pls, text_only):
-        if t:
+    for pl, r in zip(pls, run):
+        if not r:
             targets = [w for c in pl for w in _writes(c)]
             if not any(w in run_names or os.path.basename(w) in run_names for w in targets):
                 continue
         text = " ".join(" ".join(c) for c in pl)
-        out.append(re.sub(r"\x00HD(\d+)\x00", lambda m: "\n" + bodies[int(m.group(1))] + "\n", text))
+        text = re.sub(r"\x00HD(\d+)\x00", lambda m: "\n" + bodies[int(m.group(1))] + "\n", text)
+        out.append(_SB.sub(lambda m: " " + subs[int(m.group(1))] + " ", text))
     return out
 
 
@@ -481,7 +592,7 @@ def _bare_text_only(flat):
     for pl in _pipelines(bare):
         if all(_text_only(c) for c in pl):
             text = " ".join(" ".join(c) for c in pl)
-            out.append(re.sub(r"\x00(?:HD\d+|SB)\x00", " ", text))
+            out.append(re.sub(r"\x00(?:HD|SB)\d+\x00", " ", text))
     return out
 
 
@@ -493,8 +604,8 @@ def executed_parts(cmd):
     if not isinstance(cmd, str):
         return None
     try:
-        flat, bodies, inner, _ = _scan(cmd)
-        return inner + _parts(flat, bodies, inner)
+        flat, bodies, inner, _, subs = _scan(cmd)
+        return inner + _parts(flat, bodies, inner, subs)
     except _Unread:
         return None
 
@@ -505,8 +616,8 @@ def command_words(cmd):
     if not isinstance(cmd, str):
         return [cmd]
     try:
-        flat, bodies, inner, _ = _scan(cmd)
-        return inner + _parts(flat, bodies, inner) + _bare_text_only(flat)
+        flat, bodies, inner, _, subs = _scan(cmd)
+        return inner + _parts(flat, bodies, inner, subs) + _bare_text_only(flat)
     except _Unread:
         return [cmd]
 
@@ -514,10 +625,10 @@ def command_words(cmd):
 def shell_and_heredocs(cmd):
     """(注釈と heredoc の中身を抜いた命令の字, heredoc の中身の並び)。読み切れない形は None。"""
     try:
-        flat, bodies, _inner, _ = _scan(cmd)
+        flat, bodies, _inner, _, _subs = _scan(cmd)
     except _Unread:
         return None
-    return re.sub(r"\x00(?:HD\d+|SB)\x00", " ", flat), bodies
+    return re.sub(r"\x00(?:HD|SB)\d+\x00", " ", flat), bodies
 
 
 # ── 書く中身のうちコードの所（注釈・docstring を除く） ──

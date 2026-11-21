@@ -112,13 +112,11 @@ def test_paid_upstream_注釈と_docstring_で名を挙げるだけは止めな�
 
 @pytest.mark.parametrize("path,content", [
     ("/x/tests/test_a.py", "import os\nK = os.environ['%s']\n" % KEY),
-    ("/x/tests/test_a.py", "# %s\nimport os\nK = os.environ['%s']\n" % (MARK, KEY)),   # 注釈の印は関所でない
     ("/x/tests/test_a.py", 'X = 1\nY = """%s"""\n' % OA),                               # 式の中の三重引用はコード
-    ("/x/e2e/a.test.ts", "// %s\nconst k = process.env.%s\n" % (MARK, KEY)),
     ("/x/e2e/a.test.ts", 'fetch("https://%s/v1/messages")  // 本物\n' % AN),
     ("/x/tests/data.json", '{"note": "%s"}' % KEY),                                     # 注釈の形が決まらない file は字のまま
 ])
-def test_paid_upstream_本物へつなぐコードは止まり注釈の印では通らない(env, path, content):
+def test_paid_upstream_本物へつなぐコードは止まる(env, path, content):
     assert denied(env, write(path, content)), content
 
 
@@ -128,13 +126,17 @@ def test_paid_upstream_コードに書いた関所は通す(env):
     assert not denied(env, write("/x/e2e/a.test.ts", "if (process.env.%s) { k = process.env.%s }\n" % (MARK, KEY)))
 
 
-def test_paid_upstream_Bash_の_heredoc_も注釈の印では通らない(env):
-    deny = "cat > tests/test_llm.py <<'EOF'\n# %s\nKEY = '%s'\nEOF" % (MARK, KEY)
+def test_paid_upstream_Bash_の_heredoc_も同じ読み方(env):
+    deny = "cat > tests/test_llm.py <<'EOF'\nKEY = '%s'\nEOF" % KEY
+    named = "cat > tests/test_llm.py <<'EOF'\n# %s\nKEY = '%s'\nEOF" % (MARK, KEY)
     ok = "cat > tests/test_llm.py <<'EOF'\n# %s は録画で\nassert 1\nEOF" % KEY
     gate = "cat > tests/test_llm.py <<'EOF'\nimport os\nif os.environ.get('%s'):\n    KEY = '%s'\nEOF" % (MARK, KEY)
     assert denied(env, bash(deny))
+    assert not denied(env, bash(named))           # 注釈で名指す＝前から通す形。関所を見つけられないので書いた後に知らせる
+    assert MARK in hook(env, "post", bash(named)).get("additionalContext", "")
     assert not denied(env, bash(ok))
     assert not denied(env, bash(gate))
+    assert not hook(env, "post", bash(gate))
 
 
 # ── pr_text（`…` の中の置き場の字は説明。書いた窓の欄は畳んだ＝tests/test_pr_writer.py） ──

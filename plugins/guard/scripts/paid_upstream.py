@@ -6,10 +6,13 @@
 
 止める: 試験らしい path（tests/・e2e/・spec/・__tests__/・test_*.py・*.test.js …）へ書く中身に、
   有料の上流の鍵名か公式のエンドポイントが現れた時。
-逃げ道: コードに PAID_UPSTREAM_GUARD を書く（＝環境変数 1 本で本物へ切り替える共通の関所を通す。既定は録画の再生か偽物。
-  例 `os.environ.get("PAID_UPSTREAM_GUARD")`・`process.env.PAID_UPSTREAM_GUARD`）。関所が共通の補助（上の dir の conftest.py・
-  コードが import する手元の module）に在る時は、この file に注釈で印を名指せば、その補助のコードが印を読む時に通す。
-  注釈に印を書くだけで関所がどこにも無い形は通さない（gate_read）。
+逃げ道: PAID_UPSTREAM_GUARD を書く（＝環境変数 1 本で本物へ切り替える共通の関所を通す。既定は録画の再生か偽物。
+  例 `os.environ.get("PAID_UPSTREAM_GUARD")`・`process.env.PAID_UPSTREAM_GUARD`）。コードに書けば黙って通す。
+  関所が共通の補助に在り、この file には注釈で印を名指すだけの時も止めない（関所の置き場は pytest_plugins・jest の setupFiles・
+  TS の別名・shell の source など限りなく在り、探し方の一覧の外の正しい置き方を止めないため）。その時は手元で見つかる補助
+  （上の dir の conftest.py・コードが import する手元の module）のコードが印を読むかを見て、見つかれば黙って通し、
+  見つからなければ書いた後に「関所を見つけられなかった」と知らせる（notice・止めない）。
+  止めるのは印がどこにも無い形だけ（前から止めていた形）。
 見るのはコードの所だけ（guard_common.code_only: 注釈〔# か // と /* */〕と Python の docstring を除く）。Edit・MultiEdit は
   手元の file に置き換えを当てた全体を読み、この置き換えがコードに新しく足した印だけを数える。全体を組めない時は断片を
   字のまま見る。注釈・docstring で鍵の名や host を挙げるだけでは止めない。拡張子で注釈の形が決まらない file は字のまま見る。
@@ -52,7 +55,7 @@ CONTENT_KEYS = ("content", "new_string", "new_source")
 
 
 # この見張りが回る出来事と関数（guard.py がこの宣言を読んで回す＝入口の一覧に足さない）
-HOOKS = {"pre": "check"}
+HOOKS = {"pre": "check", "post": "notice"}
 
 def _path_of(tool_input):
     for k in ("file_path", "notebook_path"):
@@ -79,7 +82,7 @@ def reason(path, hits):
         "開発中の自動試験が本物の API を叩き続けると、費用の大半がそこに消えます（実測がある）。\n"
         "進め方:\n"
         "  ① 既定は録画の再生か偽物にする（本物が無い時は赤で止める。『無ければ本物で』の逃げは黙って課金する）\n"
-        "  ② 本物を通す線が本当に要るなら、環境変数 1 本で切り替える共通の関所を通し、この file のコードで `{}` を読む（注釈に書くだけでは関所にならない）\n"
+        "  ② 本物を通す線が本当に要るなら、環境変数 1 本で切り替える共通の関所を通し、この file のコードで `{}` を読む（関所が別の file に在るなら、この file に注釈で名指す）\n"
         "  ③ 手元のサーバが本物の鍵で中継していないかも、その行を引用して確かめる（この見張りからは見えない）"
     ).format(path, " / ".join(hits), GUARD_MARKER)
 
@@ -147,17 +150,29 @@ def _helpers(path, code):
 
 
 def gate_read(path, raw, code):
-    """本物へ切り替える共通の関所の印を、コードで読んでいるか: この file のコード、または注釈で印を名指した上で
-    その file が使う共通の補助（conftest.py・import する手元の module）のコード。注釈に印を書くだけで関所が無い形は通さない。"""
+    """本物へ切り替える共通の関所の印の読み方: "code"（この file のコードが印を読む）・"helper"（注釈で印を名指し、
+    手元で見つかる共通の補助〔conftest.py・import する手元の module〕のコードが印を読む）・"named"（注釈で名指すだけで、
+    関所を見つけられない＝止めずに知らせる）・""（印がどこにも無い＝止める）。"""
     if GUARD_MARKER in code:
-        return True
+        return "code"
     if GUARD_MARKER not in raw:
-        return False
+        return ""
     for h in _helpers(path, code):
         t = _read(h) if os.path.isfile(h) else None
         if t and GUARD_MARKER in G.code_only(t, h):
-            return True
-    return False
+            return "helper"
+    return "named"
+
+
+def note(path, hits):
+    return (
+        "試験の file に有料の上流（AI の API など）への線が在り、本物へ切り替える関所の印 `{}` は注釈で名指すだけでした（止めていません）。\n"
+        "  書いた file: {}\n"
+        "  当たった印: {}\n"
+        "手元で見つかる共通の補助（上の dir の conftest.py・import する手元の module）には、印を読むコードが見つかりませんでした。\n"
+        "関所を別の置き方（pytest_plugins・jest の setupFiles・TS の別名・shell の source など）で通しているなら、そのままで構いません。\n"
+        "関所がどこにも無いなら、既定を録画の再生か偽物にし、本物へは環境変数 1 本で切り替える関所を通してください。"
+    ).format(GUARD_MARKER, path, " / ".join(hits))
 
 
 def written_body(tool_name, tool_input, path):
@@ -183,43 +198,71 @@ def written_body(tool_name, tool_input, path):
     return text
 
 
-def check_bash(data, vals):
+def _bash_judge(data, vals):
     ti = data.get("tool_input")
     cmd = ti.get("command") if isinstance(ti, dict) else None
     if not isinstance(cmd, str):
-        return ""
+        return None
     tests = [t for t in bash_targets(cmd) if TEST_PATH_RE.search(t.replace(os.sep, "/"))]
     if not tests:
-        return ""
+        return None
     code = bash_code(cmd, tests[0])
     cwd = str(data.get("cwd") or "")
     target = tests[0] if os.path.isabs(tests[0]) or not cwd else os.path.join(cwd, tests[0])
-    if gate_read(target, cmd, code):
-        return ""
+    gate = gate_read(target, cmd, code)
+    if gate in ("code", "helper"):
+        return None
     hits = SV.words_in(list(PAID_MARKERS) + list(vals.get("paid_markers_extra") or []), code)
-    return reason(", ".join(tests), hits) if hits else ""
+    return (gate, ", ".join(tests), hits) if hits else None
+
+
+def _write_judge(data, vals, post):
+    tool_name = str(data.get("tool_name") or "")
+    tool_input = data.get("tool_input")
+    if not isinstance(tool_input, dict):
+        return None
+    path = _path_of(tool_input)
+    if not path or not TEST_PATH_RE.search(path.replace(os.sep, "/")):
+        return None
+    if post and tool_name in ("Edit", "MultiEdit"):
+        full = _read(path)                                   # 書いた後の手元の file
+        frag = G.code_only(_payload(tool_input), path)       # 知らせるのはこの置き換えが足した印だけ
+    else:
+        full = written_body(tool_name, tool_input, path)
+        frag = None
+    raw = full if full is not None else _payload(tool_input)
+    body = G.code_only(full, path) if full is not None else raw   # 断片は字のまま（どこから始まるか分からない）
+    if not body:
+        return None
+    gate = gate_read(path, raw, body)
+    if gate in ("code", "helper"):
+        return None
+    hits = SV.words_in(list(PAID_MARKERS) + list(vals.get("paid_markers_extra") or []), body)
+    if hits and not post and full is not None and tool_name in ("Edit", "MultiEdit"):
+        before = G.code_only(_read(path) or "", path)       # この置き換えがコードに新しく足した印だけ（前から在る行で止めない）
+        hits = [h for h in hits if body.count(h) > before.count(h)]
+    if hits and frag is not None:
+        hits = [h for h in hits if h in frag]
+    return (gate, path, hits) if hits else None
+
+
+def _judge(data, vals, post=False):
+    """(印の読み方, 書く先, 当たった印) か None。"""
+    tool_name = str(data.get("tool_name") or "")
+    if tool_name == "Bash":
+        return _bash_judge(data, vals)
+    if tool_name not in WRITE_TOOLS:
+        return None
+    return _write_judge(data, vals, post)
 
 
 def check(data, vals):
-    """止めるなら理由、通すなら ""。"""
-    tool_name = str(data.get("tool_name") or "")
-    if tool_name == "Bash":
-        return check_bash(data, vals)
-    if tool_name not in WRITE_TOOLS:
-        return ""
-    tool_input = data.get("tool_input")
-    if not isinstance(tool_input, dict):
-        return ""
-    path = _path_of(tool_input)
-    if not path or not TEST_PATH_RE.search(path.replace(os.sep, "/")):
-        return ""
-    full = written_body(tool_name, tool_input, path)
-    raw = full if full is not None else _payload(tool_input)
-    body = G.code_only(full, path) if full is not None else raw   # 断片は字のまま（どこから始まるか分からない）
-    if not body or gate_read(path, raw, body):
-        return ""
-    hits = SV.words_in(list(PAID_MARKERS) + list(vals.get("paid_markers_extra") or []), body)
-    if hits and full is not None and tool_name in ("Edit", "MultiEdit"):
-        before = G.code_only(_read(path) or "", path)       # この置き換えがコードに新しく足した印だけ（前から在る行で止めない）
-        hits = [h for h in hits if body.count(h) > before.count(h)]
-    return reason(path, hits) if hits else ""
+    """PreToolUse: 止めるなら理由、通すなら ""。止めるのは関所の印がどこにも無い形だけ。"""
+    j = _judge(data, vals)
+    return reason(j[1], j[2]) if j and j[0] == "" else ""
+
+
+def notice(data, vals):
+    """PostToolUse: 印を注釈で名指すだけで関所を見つけられなかった時に知らせる（止めない）。"""
+    j = _judge(data, vals, post=True)
+    return note(j[1], j[2]) if j and j[0] == "named" else ""

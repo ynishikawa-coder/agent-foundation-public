@@ -86,15 +86,20 @@ def test_paid_upstream_Edit_の断片は手元の全体に当てて読む(env, t
     assert denied(env, lost)
 
 
-def test_paid_upstream_共通の関所が_conftest_か_import_する補助に在れば注釈の印で通す(env, tmp_path):
+def _noted(env, payload):
+    return MARK in hook(env, "post", payload).get("additionalContext", "")
+
+
+def test_paid_upstream_共通の関所が_conftest_か_import_する補助に在れば注釈の印で黙って通す(env, tmp_path):
     t = tmp_path / "tests"
     t.mkdir()
     body = "# %s: 本物へは conftest の関所で切り替える\nimport os\nK = os.environ.get('%s')\n" % (MARK, KEY)
-    assert denied(env, write(str(t / "test_a.py"), body))              # 関所がどこにも無い＝注釈の印だけでは通さない
+    # 関所を見つけられない＝止めない（前から通す形）が、書いた後に知らせる
+    assert not denied(env, write(str(t / "test_a.py"), body)) and _noted(env, write(str(t / "test_a.py"), body))
     (t / "conftest.py").write_text("# %s を挙げるだけ\n" % MARK, encoding="utf-8")
-    assert denied(env, write(str(t / "test_a.py"), body))              # conftest も注釈だけ＝関所でない
+    assert not denied(env, write(str(t / "test_a.py"), body)) and _noted(env, write(str(t / "test_a.py"), body))
     (t / "conftest.py").write_text("import os\nREAL = bool(os.environ.get('%s'))\n" % MARK, encoding="utf-8")
-    assert not denied(env, write(str(t / "test_a.py"), body))
+    assert not denied(env, write(str(t / "test_a.py"), body)) and not _noted(env, write(str(t / "test_a.py"), body))
     assert not denied(env, bash("cat > %s <<'EOF'\n%sEOF" % (t / "test_b.py", body)))   # heredoc で書く形も同じ
     u = tmp_path / "u" / "tests"
     u.mkdir(parents=True)
