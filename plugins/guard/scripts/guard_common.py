@@ -257,8 +257,8 @@ def is_child_log(path):
 # ── Bash の命令のうち実際に動かす所（字を挙げるだけの所と分ける） ──
 # 字を書く・探す・見せるだけの道具。並び（|）の全部がこれなら、その並びの引数・heredoc の中身は動かない字。
 # 1 つでも外の命令が並びに居れば（echo … | psql・cat <<EOF | sh）、並びの字は全部動く側に数える。
-# 字を挙げるだけの命令でも、その「出力」と「変数」が動く側へ流れる形（eval "$(echo …)"・bash -c "$(…)"・$(echo …)・
-# x='…'; $x・eval $x）は、流れる先が動く側なので元の字も動く側に数える（_parts）。
+# 字を挙げるだけの命令でも、その「出力」が動く側へ流れる形（eval "$(echo …)"・bash -c "$(…)"・$(echo …)）は
+# 元の字も動く側に数える（_parts）。代入だけの命令（x=…・printf -v）は使い所を追わず常に動く側（_text_only）。
 TEXT_ONLY = frozenset(("echo", "printf", "cat", "tee", "grep", "egrep", "fgrep",
                        "head", "tail", "wc", "true", ":", "test", "["))
 # 中で命令を動かせる道具（git・rg・gh）は、前置き（-x・--foo）を「動かす口が無いと分かっている物」の一覧で通し、
@@ -346,13 +346,13 @@ def _text_only(words):
     env = words[:k]                       # 頭の環境変数の前置きだけ（引数の a=b は前置きでない）
     ws = [w for w in words[k:] if not _REDIR.fullmatch(w)]
     if not ws:
-        return True                       # 代入だけ（値が動く側へ流れるかは _parts が変数の流れで見る）
+        return not env                    # 代入だけの命令は動く側（値がどこで使われるかを追わない）
     if _SB.search(ws[0]) or "$" in ws[0]:
         return False                      # $(…)・$x の出力を命令として動かす
     prog = os.path.basename(ws[0])
     args = [w for w in ws[1:] if not _SB.fullmatch(w)]
     if prog == "printf" and any(a == "-v" or a.startswith("-v") for a in args):
-        return False                      # printf -v は変数へ書く＝代入と同じ（その変数を動かす形は _parts が見る）
+        return False                      # printf -v は変数へ書く＝代入と同じく動く側
     if prog in TEXT_ONLY:
         return True
     if env:
@@ -513,68 +513,30 @@ def _pipelines(flat):
     return [pl for pl in pipelines if pl]
 
 
-_VAR = re.compile(r"\$\{?([A-Za-z_]\w*)")
-
-
-def _assigns(pl):
-    """並びの命令のうち代入だけの命令（x=…）と printf -v が書く変数の名。"""
-    names = set()
+def _plain(pl):
+    """並びの命令が全部、字を挙げるだけの素の道具（TEXT_ONLY・環境変数の前置き無し）か。git・gh・rg・代入は素でない。"""
     for c in pl:
         ws = [w for w in c if not _REDIR.fullmatch(w)]
-        if ws and all(_ENV.fullmatch(w) for w in ws):
-            names.update(w.split("=", 1)[0] for w in ws)
-        k = 0
-        while k < len(ws) and _ENV.fullmatch(ws[k]):
-            k += 1
-        if k < len(ws) and os.path.basename(ws[k]) == "printf":
-            for j, w in enumerate(ws[k + 1:], k + 1):
-                if w == "-v" and j + 1 < len(ws):
-                    names.add(ws[j + 1])
-                elif w.startswith("-v") and len(w) > 2:
-                    names.add(w[2:])
-    return names
+        if not ws or _ENV.fullmatch(ws[0]) or _SB.search(ws[0]) or "$" in ws[0]:
+            return False
+        if os.path.basename(ws[0]) not in TEXT_ONLY:
+            return False
+    return True
 
 
 def _parts(flat, bodies, inner=(), subs=()):
     """並びごとに、字を挙げるだけの並びを除いた字の並び（heredoc の中身を戻す）。
-    字を挙げるだけの並びでも、その字が同じ命令の中の動く側へ流れる形は動く側に数える:
-      - 書いた file を動く並び（$( ) の中を含む）が読む（printf '…' > q.sql && psql -f q.sql・cat > a.sh <<EOF … && bash a.sh）
-      - 代入した変数を動く並びが使う（x='…'; $x・x='…'; eval $x・x=$(echo …); bash -c "$x"）
+    代入だけの並び（x=…・printf -v）は _text_only が動く側に数える（変数がどこで使われるか＝export・set -a・
+    declare -n・heredoc の中の $x・道具が環境から読む GIT_PAGER などを 1 つずつ追う形は、次の道でまた抜けるので追わない）。
+    字を挙げるだけの並びが file へ書き、同じ命令の後ろに素の道具（_plain）でない並びが 1 つでも在れば、書いた中身を
+    動く側に数える（道具が名を挙げずに暗に読む file＝.git/hooks/pre-commit と git commit・Makefile と make）。
     動く並びに $( ) が在れば、その中の字を全部動く側に足す（eval "$(echo …)"・bash -c "$(…)"・$(echo …)）。"""
     pls = _pipelines(flat)
     run = [not all(_text_only(c) for c in pl) for pl in pls]
-    while True:                           # 変数の流れ: 動く側が使う変数を代入した並びも動く側（代入が代入を呼ぶので閉じるまで）
-        used = set()
-        for pl, r in zip(pls, run):
-            if r:
-                t = " ".join(" ".join(c) for c in pl)
-                t += " " + " ".join(subs[int(n)] for n in _SB.findall(t))
-                used.update(_VAR.findall(t))
-                if "${!" in t:
-                    used.add("\x00all")
-        for x in inner:
-            used.update(_VAR.findall(x))
-        grow = False
-        for k, pl in enumerate(pls):
-            if not run[k]:
-                names = _assigns(pl)
-                if names and ("\x00all" in used or names & used):
-                    run[k] = grow = True
-        if not grow:
-            break
-    run_words = set()
-    for pl, r in zip(pls, run):
-        if r:
-            for c in pl:
-                run_words.update(c)
-    for x in inner:
-        run_words.update(x.split())
-    run_names = run_words | {os.path.basename(w) for w in run_words}
     out = []
-    for pl, r in zip(pls, run):
+    for k, (pl, r) in enumerate(zip(pls, run)):
         if not r:
-            targets = [w for c in pl for w in _writes(c)]
-            if not any(w in run_names or os.path.basename(w) in run_names for w in targets):
+            if not any(_writes(c) for c in pl) or all(_plain(q) for q in pls[k + 1:]):
                 continue
         text = " ".join(" ".join(c) for c in pl)
         text = re.sub(r"\x00HD(\d+)\x00", lambda m: "\n" + bodies[int(m.group(1))] + "\n", text)
@@ -599,7 +561,7 @@ def _bare_text_only(flat):
 def executed_parts(cmd):
     """Bash の命令のうち、実際に動かす並び（| でつないだ命令の組）の字の並び。heredoc の中身はその並びに入れ、
     $( ) の中は中で動く並びだけを足す。字を挙げるだけの並び（_text_only: git commit -m の文・grep の語・
-    echo・file へ書く heredoc）と注釈は入れない。ただし字を挙げるだけの並びが書いた file を動く並びが読むなら入れる。
+    echo・file へ書く heredoc）と注釈は入れない。ただし字を挙げるだけの並びが file へ書き、後ろに素の道具でない並びが在るなら入れる（_parts）。
     読み切れない形（` `・<( )・括弧の組・閉じない引用や heredoc）は None＝呼ぶ側が命令の字全体で見る（止める側に倒す）。"""
     if not isinstance(cmd, str):
         return None

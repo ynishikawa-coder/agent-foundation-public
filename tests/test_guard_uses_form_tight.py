@@ -27,8 +27,14 @@ def test_spec_gate_道具の中で動かす形と書いてから流す形は止�
     assert denied(env, bash(cmd)), cmd
 
 
-def test_spec_gate_書いた_file_を流さない形は今も通す(env):
-    assert not denied(env, bash("cat > メモ.md <<'EOF'\npython3 %s 設計書 %s\nEOF\ngit add メモ.md" % (GATE, LOCK)))
+def test_spec_gate_書いた後ろに素の道具でない並びが在れば止まる(env):
+    """git add・git commit も書いた file を暗に読める（.git/hooks・.gitattributes の駆動）ので、名が一致するかを見ない（前の main も止めていた）。"""
+    assert denied(env, bash("cat > メモ.md <<'EOF'\npython3 %s 設計書 %s\nEOF\ngit add メモ.md" % (GATE, LOCK)))
+
+
+@pytest.mark.parametrize("tail", ["", "\ncat メモ.md", "\ngrep -n 設計書 メモ.md | head -3"])
+def test_spec_gate_書くだけか後ろが素の道具だけなら通す(env, tail):
+    assert not denied(env, bash("cat > メモ.md <<'EOF'\npython3 %s 設計書 %s\nEOF%s" % (GATE, LOCK, tail)))
 
 
 # ── irreversible: 書いてから流す形・git の中で動かす形・値の表が git・gh を狙う行 ──
@@ -147,7 +153,7 @@ def test_pr_text_実物の雛形の置き場は全部数える(tmp_path):
     "直した（理由: まだ決まっていないが仮置き）",
     "直した（理由: 後で聞くので仮に直した）",
     "直した（理由: まだ途中だが進める）",
-    "関係なし（理由: これから決めるが今は外す）",
+    "関係なし（理由: 後で聞くが今は外す）",
 ])
 def test_seal_未決の後に文が続いても未決(look):
     seal = _load("seal_tight", "plugins/dev-flow/skills/spec-doc/seal.py")

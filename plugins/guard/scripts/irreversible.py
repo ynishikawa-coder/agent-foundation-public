@@ -14,7 +14,8 @@ DB の破棄と値の表の足す形は、命令の語（guard_common.command_wo
   命令（git・gh・echo など）そのものの語（引用と heredoc の中身を除く: git push --force・gh repo delete は当たる）。
   commit の文・grep の語・echo の字・file へ書く heredoc・注釈で語を挙げるだけの所は動かない。psql -c・heredoc を psql へ
   流す形・echo … | psql・$( ) の中で動く並び・git/gh/rg の中で命令を動かす形（rebase --exec・-c alias/pager・rg --pre）・
-  書いた file を同じ命令で流す形（printf … > q.sql && psql -f q.sql）は動く側。読み切れない形（` `・<( )・括弧の組）は
+  代入だけの命令（x=…・printf -v）と、file へ書いた後ろに素の道具〔echo・cat・grep など〕でない並びが在る形
+  （printf … > q.sql && psql -f q.sql・… > .git/hooks/pre-commit; git commit）は動く側。読み切れない形（` `・<( )・括弧の組）は
   命令の字全体に当てる（止める側に倒す）。
 射程の天井: 判定は列挙であって証明ではない（`find … -delete`・再帰なしの `rm -f`・`git restore .` などは素通り）。
   足したい形は値の表の irreversible_bash_extra / irreversible_tools_extra へ。

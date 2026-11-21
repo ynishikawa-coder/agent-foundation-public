@@ -14,7 +14,7 @@
   見つからなければ書いた後に「関所を見つけられなかった」と知らせる（notice・止めない）。
   止めるのは印がどこにも無い形だけ（前から止めていた形）。
 見るのはコードの所だけ（guard_common.code_only: 注釈〔# か // と /* */〕と Python の docstring を除く）。Edit・MultiEdit は
-  手元の file に置き換えを当てた全体を読み、この置き換えがコードに新しく足した印だけを数える。全体を組めない時は断片を
+  手元の file に置き換えを当てた全体を読み、置き換えの後にだけ在るコードの行（前との行の差）に在る印だけを数える。全体を組めない時は断片を
   字のまま見る。注釈・docstring で鍵の名や host を挙げるだけでは止めない。拡張子で注釈の形が決まらない file は字のまま見る。
 
 見る口: Write / Edit / MultiEdit / NotebookEdit と、Bash で試験らしい path へ書く形（`>`・`>>` のリダイレクト・
@@ -29,6 +29,7 @@ from __future__ import annotations
 import os
 import re
 import sys
+from collections import Counter
 
 sys.dont_write_bytecode = True
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib"))
@@ -198,6 +199,14 @@ def written_body(tool_name, tool_input, path):
     return text
 
 
+def added_lines(before, after, path):
+    """置き換えの後のコードの行のうち、前に無かった行（行の多重集合の差）をつないだ字。前から在る行に触れない
+    Edit を止めず、同じ数のまま偽物を本物へ書き換える行（fake('鍵') → os.environ['鍵']）は足した行として数える。"""
+    old = Counter(G.code_only(before, path).splitlines())
+    new = Counter(G.code_only(after, path).splitlines())
+    return "\n".join((new - old).elements())
+
+
 def _bash_judge(data, vals):
     ti = data.get("tool_input")
     cmd = ti.get("command") if isinstance(ti, dict) else None
@@ -226,7 +235,7 @@ def _write_judge(data, vals, post):
         return None
     if post and tool_name in ("Edit", "MultiEdit"):
         full = _read(path)                                   # 書いた後の手元の file
-        frag = G.code_only(_payload(tool_input), path)       # 知らせるのはこの置き換えが足した印だけ
+        frag = _payload(tool_input)                          # 知らせるのは new_string の字に在る印だけ
     else:
         full = written_body(tool_name, tool_input, path)
         frag = None
@@ -239,8 +248,7 @@ def _write_judge(data, vals, post):
         return None
     hits = SV.words_in(list(PAID_MARKERS) + list(vals.get("paid_markers_extra") or []), body)
     if hits and not post and full is not None and tool_name in ("Edit", "MultiEdit"):
-        before = G.code_only(_read(path) or "", path)       # この置き換えがコードに新しく足した印だけ（前から在る行で止めない）
-        hits = [h for h in hits if body.count(h) > before.count(h)]
+        hits = [h for h in hits if h in added_lines(_read(path) or "", full, path)]
     if hits and frag is not None:
         hits = [h for h in hits if h in frag]
     return (gate, path, hits) if hits else None
