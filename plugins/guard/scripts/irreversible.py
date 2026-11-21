@@ -10,6 +10,9 @@
   判定できない時（展開 `$(`・変数・rm が区切りの先頭に無い〔`| xargs rm`・`sudo rm`〕・在らない先への cd・
   rm より前に cd 以外の命令がある〔`mv keep gone && rm -rf gone`〕）は止める側に倒す。
 
+DB の破棄と値の表の足す形は、命令のうち実際に動かす並び（guard_common.executed_parts）にだけ当てる。commit の文・grep・
+  echo・file へ書く heredoc・注釈で語を挙げるだけの所は動かない。psql -c・heredoc を psql へ流す形・echo … | psql・
+  $( ) の中で動く並びは動く側。読み切れない形（` `・<( )・括弧の組）は命令の字全体に当てる（止める側に倒す）。
 射程の天井: 判定は列挙であって証明ではない（`find … -delete`・再帰なしの `rm -f`・`git restore .` などは素通り）。
   足したい形は値の表の irreversible_bash_extra / irreversible_tools_extra へ。
 費用: 在席中は離席の印の stat 1 回で終わる。
@@ -213,10 +216,11 @@ def match(tool_name, tool_input, cwd, vals):
     cmd = str((tool_input or {}).get("command") or "") if isinstance(tool_input, dict) else ""
     if recursive_rm(cmd) and not rm_restorable(cmd, cwd):
         return RM_WHY
+    runs = "\n".join(G.executed_or_whole(cmd))    # 実際に動かす並びだけ（commit の文・grep の語・echo・注釈は動かない）
     for rx, why in _compile(_BASH):
-        if rx.search(cmd):
+        if rx.search(runs):
             return why
-    row = G.SV.hit(G.patterns(vals, "irreversible_bash_extra", re.IGNORECASE), cmd)
+    row = G.SV.hit(G.patterns(vals, "irreversible_bash_extra", re.IGNORECASE), runs)
     if row is not None:
         return _why(row)
     return ""

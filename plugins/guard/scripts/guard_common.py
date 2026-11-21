@@ -13,6 +13,7 @@ import glob
 import json
 import os
 import re
+import shlex
 import sys
 import tempfile
 from datetime import datetime, timezone
@@ -251,3 +252,247 @@ def is_child_log(path):
     """会話ログの最初の頼みの行で子の窓かを決める（文と記録の両方を読む）。"""
     row = first_owner_row(path)
     return bool(row) and is_child_prompt(text_of(row), seeded_by_record(row))
+
+
+# ── Bash の命令のうち実際に動かす所（字を挙げるだけの所と分ける） ──
+# 字を書く・探す・見せるだけの道具。並び（|）の全部がこれなら、その並びの引数・heredoc の中身は動かない字。
+# 1 つでも外の命令が並びに居れば（echo … | psql・cat <<EOF | sh）、並びの字は全部動く側に数える。
+TEXT_ONLY = frozenset(("echo", "printf", "cat", "tee", "grep", "egrep", "fgrep", "rg", "git", "gh",
+                       "head", "tail", "wc", "true", ":", "test", "["))
+_HEREDOC = re.compile(r"<<(-?)[ \t]*(['\"]?)([A-Za-z_][\w.-]*)\2")
+_OPS = frozenset(("&&", "||", ";", "&", ";;", "\n"))
+
+
+class _Unread(Exception):
+    """読み切れない形（閉じない引用・heredoc・$( )、` `・<( )）。"""
+
+
+def _scan(cmd, i=0, sub=False):
+    """命令の字を頭から読み、(heredoc の中身と $( ) を印に置き換えた字, heredoc の中身の並び, $( ) の中で動く並び, 終わりの位置)。
+    印は \\x00HDn\\x00（heredoc の中身）と \\x00SB\\x00（$( ) の跡）。注釈（語の頭の #）は落とす。
+    sub=True は $( の後から読み、対になる ) で終わる。読み切れなければ _Unread。"""
+    out, bodies, inner, pending = [], [], [], []
+    n, q, depth = len(cmd), "", 0
+    while i < n:
+        c = cmd[i]
+        if c == "`":
+            raise _Unread()
+        if q == "'":
+            out.append(c)
+            q = "" if c == "'" else q
+            i += 1
+            continue
+        if cmd.startswith("$(", i) and not cmd.startswith("$((", i):
+            s_out, s_bodies, s_inner, j = _scan(cmd, i + 2, sub=True)
+            parts = _parts(s_out, s_bodies)
+            inner.extend(s_inner + parts)
+            out.append("\x00SB\x00")
+            i = j
+            continue
+        if q == '"':
+            out.append(c)
+            if c == "\\" and i + 1 < n:
+                out.append(cmd[i + 1])
+                i += 2
+                continue
+            q = "" if c == '"' else q
+            i += 1
+            continue
+        if c in "'\"":
+            q = c
+            out.append(c)
+            i += 1
+            continue
+        if c == "\\" and i + 1 < n:
+            out.append(cmd[i:i + 2])
+            i += 2
+            continue
+        if c == "#" and (i == 0 or cmd[i - 1] in " \t\n;&|("):
+            j = cmd.find("\n", i)
+            i = n if j < 0 else j            # 注釈は動かない（改行は残す）
+            continue
+        if cmd.startswith("<(", i) or cmd.startswith(">(", i):
+            raise _Unread()
+        if sub and c == "(":
+            depth += 1
+        if sub and c == ")":
+            if depth == 0:
+                if pending:
+                    raise _Unread()
+                return "".join(out), bodies, inner, i + 1
+            depth -= 1
+        if cmd.startswith("<<<", i):
+            out.append("<<<")
+            i += 3
+            continue
+        m = _HEREDOC.match(cmd, i)
+        if m:
+            bodies.append("")
+            pending.append((len(bodies) - 1, m.group(3), bool(m.group(1))))
+            out.append(" \x00HD%d\x00 " % (len(bodies) - 1))
+            i = m.end()
+            continue
+        if c == "\n" and pending:
+            out.append(c)
+            i += 1
+            for k, word, strip in pending:
+                lines = []
+                while True:
+                    if i >= n:
+                        raise _Unread()
+                    j = cmd.find("\n", i)
+                    line = cmd[i:] if j < 0 else cmd[i:j]
+                    i = n if j < 0 else j + 1
+                    if (line.lstrip("\t") if strip else line) == word:
+                        break
+                    lines.append(line)
+                bodies[k] = "\n".join(lines)
+            pending = []
+            continue
+        out.append(c)
+        i += 1
+    if q or pending or sub:
+        raise _Unread()
+    return "".join(out), bodies, inner, i
+
+
+def _parts(flat, bodies):
+    """印に置き換えた字を並び（|）ごとに分け、字を挙げるだけの並びを除いた字の並び（heredoc の中身を戻す）。"""
+    lex = shlex.shlex(flat, posix=True, punctuation_chars=";&|()<>\n")
+    lex.whitespace = " \t\r"
+    lex.whitespace_split = True
+    lex.commenters = ""
+    try:
+        toks = list(lex)
+    except ValueError:
+        raise _Unread() from None
+    if any(t in ("(", ")", "{", "}") for t in toks):
+        raise _Unread()
+    pipelines, cur, words = [], [], []
+    for t in toks + ["\n"]:
+        if t and set(t) <= set(";&\n"):
+            if words:
+                cur.append(words)
+            if cur:
+                pipelines.append(cur)
+            cur, words = [], []
+        elif t in ("|", "|&", "||"):
+            if words:
+                cur.append(words)
+            words = []
+            if t == "||":
+                pipelines.append(cur)
+                cur = []
+        else:
+            words.append(t)
+    out = []
+    for pl in pipelines:
+        if not pl:
+            continue
+        progs = []
+        for c in pl:
+            ws = [w for w in c if not re.fullmatch(r"[A-Za-z_]\w*=.*", w, re.S)
+                  and not re.fullmatch(r"\d*[<>]+&?\d*-?", w) and w != "\x00SB\x00"]
+            progs.append(os.path.basename(ws[0]) if ws else "")
+        if all(p in TEXT_ONLY for p in progs):
+            continue
+        text = " ".join(" ".join(c) for c in pl)
+        out.append(re.sub(r"\x00HD(\d+)\x00", lambda m: "\n" + bodies[int(m.group(1))] + "\n", text))
+    return out
+
+
+def executed_parts(cmd):
+    """Bash の命令のうち、実際に動かす並び（| でつないだ命令の組）の字の並び。heredoc の中身はその並びに入れ、
+    $( ) の中は中で動く並びだけを足す。字を挙げるだけの並び（TEXT_ONLY の道具だけ: git commit -m の文・grep の語・
+    echo・file へ書く heredoc）と注釈は入れない。読み切れない形（` `・<( )・括弧の組・閉じない引用や heredoc）は
+    None＝呼ぶ側が命令の字全体で見る（止める側に倒す）。"""
+    if not isinstance(cmd, str):
+        return None
+    try:
+        flat, bodies, inner, _ = _scan(cmd)
+        return inner + _parts(flat, bodies)
+    except _Unread:
+        return None
+
+
+def shell_and_heredocs(cmd):
+    """(注釈と heredoc の中身を抜いた命令の字, heredoc の中身の並び)。読み切れない形は None。"""
+    try:
+        flat, bodies, _inner, _ = _scan(cmd)
+    except _Unread:
+        return None
+    return re.sub(r"\x00(?:HD\d+|SB)\x00", " ", flat), bodies
+
+
+# ── 書く中身のうちコードの所（注釈・docstring を除く） ──
+_HASH_EXT = (".py", ".sh", ".bash", ".zsh", ".rb", ".pl", ".yml", ".yaml", ".toml", ".r")
+_SLASH_EXT = (".js", ".mjs", ".cjs", ".jsx", ".ts", ".mts", ".cts", ".tsx", ".go", ".java", ".kt", ".kts",
+              ".c", ".cc", ".cpp", ".h", ".hpp", ".rs", ".swift", ".cs", ".scala", ".dart", ".php")
+
+
+def code_only(text, path):
+    """file の中身から注釈（# か // と /* */）と Python の docstring（行の頭から始まる三重引用の字）を除いた字。
+    引用の中の # や // は注釈でない。拡張子で注釈の形が決まらない file は字のまま返す（除かない＝止める側）。"""
+    ext = os.path.splitext(str(path or "").lower())[1]
+    hash_, slash = ext in _HASH_EXT, ext in _SLASH_EXT
+    if not (hash_ or slash):
+        return text
+    py = ext == ".py"
+    out, i, n, q = [], 0, len(text), ""
+    line_head = True                      # 行の頭からここまで空白だけか
+    while i < n:
+        c = text[i]
+        if q:
+            if c == "\\" and i + 1 < n:
+                out.append(text[i:i + 2])
+                i += 2
+                continue
+            if text.startswith(q, i):
+                out.append(q)
+                i += len(q)
+                q = ""
+                continue
+            out.append(c)
+            i += 1
+            continue
+        if py and (text.startswith('"""', i) or text.startswith("'''", i)):
+            tq = text[i:i + 3]
+            j = text.find(tq, i + 3)
+            if line_head:                 # 文として置いた三重引用＝docstring（説明の文）
+                i = n if j < 0 else j + 3
+                continue
+            out.append(text[i:] if j < 0 else text[i:j + 3])
+            i = n if j < 0 else j + 3
+            line_head = False
+            continue
+        if hash_ and c == "#":
+            j = text.find("\n", i)
+            i = n if j < 0 else j
+            continue
+        if slash and text.startswith("//", i):
+            j = text.find("\n", i)
+            i = n if j < 0 else j
+            continue
+        if slash and text.startswith("/*", i):
+            j = text.find("*/", i + 2)
+            i = n if j < 0 else j + 2
+            continue
+        if c in "'\"" or (slash and c == "`"):
+            q = c
+            out.append(c)
+            line_head = False
+            i += 1
+            continue
+        out.append(c)
+        if c == "\n":
+            line_head = True
+        elif not c.isspace():
+            line_head = False
+        i += 1
+    return "".join(out)
+
+
+def executed_or_whole(cmd):
+    """executed_parts の並び。読み切れない時は命令の字全体を 1 つの並びとして返す（止める側に倒す）。"""
+    parts = executed_parts(cmd)
+    return [cmd] if parts is None else parts

@@ -1,0 +1,4 @@
+- 直した: guard の spec_gate と irreversible（DB の破棄・値の表の irreversible_bash_extra）は、Bash の命令のうち実際に動かす並びだけを見る。commit の文・grep の語・echo・file へ書く heredoc・注釈で名を挙げるだけでは止めない（python の heredoc・bash -c・$( ) の中・| で外の命令へ流す形は今も止まる。読み切れない形は命令の字全体で見る）
+- 壊れる: guard の paid_upstream は試験の file のコードの所（注釈と Python の docstring を除く）だけを見る。逃げ道の印 PAID_UPSTREAM_GUARD も注釈に書くだけでは効かず、コードで読む形（os.environ.get("PAID_UPSTREAM_GUARD") など）にする
+- 直した: PR 本文の `書いた窓:` は本文の頭の塊（最初の空行の前）だけで読む（checker の pr_writer・guard の pr_text）。整地の雛形の置き場の字は `…` の中なら残りに数えない
+- 直した: spec-doc の seal.py は §6 の節を見出しの頭の番号（6.・§6）か「決定照合」で始まる名で決め、コードの囲みの中の行と別の節の見出しの中の §6 は数えない。理由の未定の印は未決の形（まだ…ない・聞く・聞いてから・未定 など）だけにした

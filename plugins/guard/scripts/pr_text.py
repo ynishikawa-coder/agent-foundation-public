@@ -240,7 +240,7 @@ def pr_facts(repo, ti):
     if not writers:
         return head.strip(), [], ("PR #%s の commit に `Claude-Session:` の行が 1 つも無く、書いた窓が記録から決まらない"
                                   "（本文の `書いた窓:` の写しだけで別の目を照らさない）" % number)
-    m = WRITER_LINE.search(body)
+    m = WRITER_LINE.search(head_block(body))          # 欄は本文の頭の塊だけ（本文の中で例に挙げた行は欄でない）
     if m and m.group(1) not in writers:
         writers.append(m.group(1))
     return head.strip(), writers, ""
@@ -306,10 +306,22 @@ def check_cleanup(body, repo, data, vals):
             if not re.search(r"^#{1,6}\s*(?:%s\.\s*)?%s" % (no, re.escape(name)), body, re.M)]
     if lack:
         out.append("整地の見出しが無い: %s（雛形の見出し %d つ）" % ("・".join(lack), len(heads)))
-    left = [h for h in holders if h in body]
+    left = [h for h in holders if h in INLINE.sub(" ", body)]   # `…` の中は置き場の字を挙げた説明（残った置き場でない）
     if left:
         out.append("整地の雛形の `〔…〕` が残っている: %s" % "・".join(h + "…" for h in left[:3]))
     return out
+
+
+def head_block(body):
+    """本文の頭の塊（注記を除いた最初の空行の前まで）。`書いた窓:` などの欄はここだけで読む。"""
+    out = []
+    for ln in COMMENT.sub(" ", body or "").splitlines():
+        if not ln.strip():
+            if out:
+                break
+            continue
+        out.append(ln)
+    return "\n".join(out)
 
 
 # ── words（PR の題・本文の言葉）──
@@ -318,7 +330,7 @@ def visible_prose(body):
     body = FENCE.sub(" ", COMMENT.sub(" ", body))
     lines, top = [], True
     for ln in body.splitlines():
-        if not ln.strip():
+        if not ln.strip() and lines:
             top = False
         if top and HEAD_FIELD.match(ln):
             continue

@@ -42,13 +42,21 @@ import skill_values  # noqa: E402  値の表の 1 本の口（plugin の lib/＝
 
 UNMATCHED = "未照合"
 _HEAD = re.compile(r"^(#{1,6})\s*(.*?)\s*#*\s*$")
-_SEC6 = re.compile(r"(?:§\s*6(?!\d)|^6[.．](?!\d)|決定照合)")
+# §6 の節の見出し: 見出しの頭が自分の番号 6（「6.」「§6」）か、番号の無い見出しの名が「決定照合」で始まる物。
+# 別の節の見出しが中で §6・決定照合を指すだけ（「## 7. 実装（§6 の結果を受けて）」）は §6 の節でない。
+_SEC6 = re.compile(r"^(?:§\s*6(?!\d)|6[.．](?!\d)|決定照合)")
+_FENCE = re.compile(r"^\s*(```|~~~)")
 _TABLE = re.compile(r"^\s*\|")
 _TABLE_SEP = re.compile(r"^\s*\|[\s:\-|]+\|?\s*$")
 # 扱いの閉じた形: 語ちょうど（覆すだけ ＝墓標へ を付けてよい）＋ 理由か根拠の括弧 1 つまで。ほかの字が付けば済みでない。
 _DONE = re.compile(r"^(?:直した|覆す(?:＝墓標へ)?|関係なし)(?:[（(](?:理由|根拠)\s*[:：]\s*([^（）()]+)[）)])?$")
-# 理由の中にこれが在れば、照合の中身が済んでいない印（「直した（理由: まだ未定）」）。
-_PENDING = re.compile(r"未定|未照合|まだ|聞く|保留|TBD|TODO", re.I)
+# 理由がこの形なら、照合の中身が済んでいない印（「直した（理由: まだ未定）」「関係なし（理由: オーナーに聞く）」）。
+# 未定・未照合・保留・TBD・TODO は語そのものが未決。「まだ」は打ち消しで終わる文（まだ決まっていない）、「聞く」は
+# これから聞く形（聞く・聞く予定・聞いてから）だけ。経緯を説明しただけの理由（前はまだ無かった口を足した・オーナーに聞いた）は済み。
+_PENDING = re.compile(r"未定|未照合|保留|TBD|TODO"
+                      r"|まだ[^。、]*?(?:ない|ず|中|途中|これから)\s*[。]?\s*$"
+                      r"|聞いてから|これから"
+                      r"|(?:聞|決め)(?:く|る|てみる)(?:予定|つもり|まで|こと|事)?\s*[。]?\s*$", re.I)
 _SEP = re.compile(r"→|->|:|：")
 _PAREN = re.compile(r"（[^（）]*）|\([^()]*\)")
 _ITEM = re.compile(r"^\s*(?:[-*+]|\d+[.)])\s+\S")
@@ -85,8 +93,14 @@ def _cells(line: str) -> list[str]:
 def section6(text: str) -> list[tuple[int, str]] | None:
     """§6 の節の中の行を (行番号, 行) で返す。節が無ければ None。当たる見出しが 2 つ以上なら止める。"""
     lines = text.splitlines()
-    heads = [(i, len(m.group(1)), m.group(2)) for i, ln in enumerate(lines)
-             if (m := _HEAD.match(ln))]
+    heads, fence = [], None
+    for i, ln in enumerate(lines):
+        f = _FENCE.match(ln)
+        if f and (fence is None or f.group(1) == fence):
+            fence = f.group(1) if fence is None else None     # コードの囲みの中の行（# で始まる命令の注釈など）は見出しでない
+            continue
+        if fence is None and (m := _HEAD.match(ln)):
+            heads.append((i, len(m.group(1)), m.group(2)))
     hits = [h for h in heads if _SEC6.search(h[2])]
     if len(hits) > 1:
         names = "、".join(f"{i + 1} 行目「{t}」" for i, _, t in hits)

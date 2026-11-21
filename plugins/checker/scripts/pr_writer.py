@@ -57,6 +57,19 @@ def live_main(root: Path) -> str:
     return tip
 
 
+def head_block(body: str) -> str:
+    """本文の頭の塊（注記 <!-- --> を除いた最初の空行の前まで）。`書いた窓:` の欄はここだけで読む（本文の中で例に挙げた
+    行・引用は欄でない）。guard の pr_text.head_block と同じ線。"""
+    out: list[str] = []
+    for ln in re.sub(r"<!--.*?-->", " ", body or "", flags=re.S).splitlines():
+        if not ln.strip():
+            if out:
+                break
+            continue
+        out.append(ln)
+    return "\n".join(out)
+
+
 def tip_session(root: Path, head: str, base: str) -> tuple[str, str]:
     """(先端の窓の session id, その commit の SHA)。無ければ ("", "")。"""
     mb = git(root, "merge-base", base, head).strip()
@@ -81,7 +94,7 @@ def check(root: Path, head: str, base: str, body: str) -> list[str]:
     tip, sha = tip_session(root, head, base)
     if not tip:
         return [f"PR の commit（{base} との分かれ目から {head[:12]} まで）に `Claude-Session:` の行が無く、書いた窓が決まらない"]
-    m = WRITER.search(body)
+    m = WRITER.search(head_block(body))
     if not m:
         return [f"PR 本文の頭に `書いた窓:` が無い。頭に `書いた窓: {tip}` を書く（先端の commit {sha[:12]} の窓）"]
     if not ID.match(m.group(1)):

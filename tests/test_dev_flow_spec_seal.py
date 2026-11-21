@@ -203,10 +203,11 @@ def test_扱いの頭の語の後ろと括弧の中の区切り(env, item, code)
 
 def test_6_に当たる見出しが2つ以上なら照らす所を決めずに止める(env):
     repo, spec = env
-    put15(spec, HEAD + "## 2. 決定照合の進め方\n\n- 作り物の手順: 関係なし\n\n"
+    put15(spec, HEAD + "## 決定照合\n\n- 作り物の手順: 関係なし\n\n"
                 "## 6. 照合の結果\n\n| 決定 | 扱い |\n|---|---|\n| 作り物の決定 A | 未定 |\n")
     res = seal(repo, spec, "--match-only")
     assert res.returncode == 1 and "2 つ以上" in res.stderr
+
 
 
 def test_6_で始まるだけの見出しは_6_の節とみなさない(env):

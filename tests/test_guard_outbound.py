@@ -206,7 +206,7 @@ def test_paid_upstream_Bash_で試験へ書く有料の上流も止める(env, c
 @pytest.mark.parametrize("cmd", [
     "grep -rn " + "OPENAI" + "_API_KEY tests/",
     "cat > src/client.py <<'EOF'\nKEY = '" + "OPENAI" + "_API_KEY'\nEOF",
-    "cat > tests/test_llm.py <<'EOF'\n# PAID_UPSTREAM_GUARD\nKEY = '" + "OPENAI" + "_API_KEY'\nEOF",
+    "cat > tests/test_llm.py <<'EOF'\nimport os\nif os.environ.get('PAID_UPSTREAM_GUARD'):\n    KEY = '" + "OPENAI" + "_API_KEY'\nEOF",
     "pytest tests/ 2>&1 > /tmp/out.txt && echo " + "OPENAI" + "_API_KEY",
 ])
 def test_paid_upstream_Bash_の読みと試験の外への書き込みと関所つきは通す(env, cmd):

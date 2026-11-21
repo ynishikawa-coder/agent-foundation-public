@@ -75,7 +75,7 @@ PAID_CASES = [
     ("試験の file に本物の鍵", {"tool_name": "Write", "tool_input": {
         "file_path": "/x/e2e/walk.mjs", "content": "const key = process.env.ANTHROPIC_API_KEY;"}}, True),
     ("関所の印がある", {"tool_name": "Write", "tool_input": {
-        "file_path": "/x/e2e/walk.mjs", "content": "// PAID_UPSTREAM_GUARD\nprocess.env.ANTHROPIC_API_KEY"}}, False),
+        "file_path": "/x/e2e/walk.mjs", "content": "if (process.env.PAID_UPSTREAM_GUARD) { process.env.ANTHROPIC_API_KEY }"}}, False),
     ("試験でない file", {"tool_name": "Write", "tool_input": {
         "file_path": "/x/src/api/extract.mjs", "content": "process.env.ANTHROPIC_API_KEY"}}, False),
     ("試験だが有料の印なし", {"tool_name": "Write", "tool_input": {
