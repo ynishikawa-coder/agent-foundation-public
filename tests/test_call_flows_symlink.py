@@ -17,7 +17,7 @@ _spec.loader.exec_module(_base)
 put, git, run = _base.put, _base.git, _base.run
 fake = pytest.fixture(_base.fake.__wrapped__ if hasattr(_base.fake, "__wrapped__") else _base.fake)
 
-SHARED_TEXT = "# 共通の口。使う道具の例: judge.py\n"
+SHARED_TEXT = "TOOL = [\"python3\", \"judge.py\"]  # 共通の口が呼ぶ道具\n"
 
 
 def _link(repo, rel, target):
