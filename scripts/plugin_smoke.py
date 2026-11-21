@@ -202,6 +202,50 @@ def setup_block(repo: Path) -> str:
     return block
 
 
+def sha_problems(rows: dict[str, dict], plugins: list[str], expect_sha: str | None) -> list[str]:
+    """入った台帳の行 rows（installed_rows）が、届くべき plugin の全部について試したい先端 expect_sha を指すか。外れの名指し。
+    台帳に行の無い plugin（台帳が空・読めない形を含む）は入った commit を照らせないので、黙って飛ばさず外れと名指す。"""
+    bad = [f"plugin {name} の行が入った台帳 installed_plugins.json に無い（入った commit を照らせない）"
+           for name in plugins if name not in rows]
+    if expect_sha:
+        for name, row in rows.items():
+            if row.get("gitCommitSha") != expect_sha:
+                bad.append(f"plugin {name} に入った commit {row.get('gitCommitSha')} が試したい先端 {expect_sha} でない")
+    return bad
+
+
+def hook_contexts(responses: list[dict]) -> tuple[list[str], list[str]]:
+    """起動の hook の出来事（hook_response）から (差し込まれた文脈の並び, 外れの名指し)。
+    終わり方が分からない（exit_code が無い）・0 でない hook は落ちたと名指す。出力が JSON の形（{ で始まる）なのに
+    読めない hook も、届けるつもりの文脈を失っているので名指す（黙って捨てない）。JSON でない字の出力は、Claude Code と
+    同じく字のまま文脈に足す。"""
+    ctx: list[str] = []
+    bad: list[str] = []
+    for e in responses:
+        name = e.get("hook_name")
+        code = e.get("exit_code")
+        if code is None:
+            bad.append(f"起動の hook {name} の終わり方（exit_code）が分からない（通ったと言えない）")
+        elif code != 0:
+            bad.append(f"起動の hook {name} が落ちた（exit {code}）: {(e.get('stderr') or '')[-200:]}")
+        out = (e.get("output") or "").strip()
+        if not out:
+            continue
+        if not out.startswith("{"):
+            ctx.append(out)
+            continue
+        try:
+            body = json.loads(out)
+        except ValueError as err:
+            bad.append(f"起動の hook {name} の出力の JSON が読めない（{err}）: {out[:200]}")
+            continue
+        hso = body.get("hookSpecificOutput") if isinstance(body, dict) else None
+        add = hso.get("additionalContext") if isinstance(hso, dict) else None
+        if isinstance(add, str):
+            ctx.append(add)
+    return ctx, bad
+
+
 def sh(args, env, timeout=300):
     return subprocess.run(args, env=env, capture_output=True, text=True, timeout=timeout)
 
@@ -277,10 +321,7 @@ def smoke(source: str, repo: Path, expect_sha: str | None) -> list[str]:
         table = json.loads((home / ".claude" / "plugins" / "installed_plugins.json").read_text(encoding="utf-8")
                            if (home / ".claude" / "plugins" / "installed_plugins.json").exists() else "{}")
         rows = installed_rows(table)
-        if expect_sha:
-            for name, row in rows.items():
-                if row.get("gitCommitSha") != expect_sha:
-                    bad.append(f"plugin {name} に入った commit {row.get('gitCommitSha')} が試したい先端 {expect_sha} でない")
+        bad += sha_problems(rows, want["plugins"], expect_sha)
 
         # 2. 起動する。
         try:
@@ -298,16 +339,8 @@ def smoke(source: str, repo: Path, expect_sha: str | None) -> list[str]:
                 bad.append(f"skill {s} が起動した窓に読み込まれていない")
 
         # 3. 毎回差し込む物（SessionStart の hook の出力）。injected() の一覧の全部が、正本と一字違わず同じ中身で届く。
-        responses = [e for e in events if e.get("subtype") == "hook_response"]
-        for e in responses:
-            if e.get("exit_code") not in (0, None):
-                bad.append(f"起動の hook {e.get('hook_name')} が落ちた: {(e.get('stderr') or '')[-200:]}")
-        ctx = []
-        for e in responses:
-            try:
-                ctx.append(json.loads(e.get("output") or "{}")["hookSpecificOutput"]["additionalContext"])
-            except (ValueError, KeyError, TypeError):
-                pass
+        ctx, hook_bad = hook_contexts([e for e in events if e.get("subtype") == "hook_response"])
+        bad += hook_bad
         core_root = Path(rows.get("core", {}).get("installPath") or "/nonexistent")
         if not same_inject_code(repo, core_root):
             # 期待の文は、checkout の正本と一字違わず同じと確かめた入った copy の口で作る。口が違えば同じ材料でも文が違いうるので、

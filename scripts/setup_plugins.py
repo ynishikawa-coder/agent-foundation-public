@@ -162,6 +162,10 @@ def save_state(state: dict) -> None:
         d = home() / "af-foundation"
         d.mkdir(parents=True, exist_ok=True)
         (d / STATE).write_text(json.dumps(state, ensure_ascii=False), encoding="utf-8")
+        if state.get("catalog_sha"):
+            # 版ごとにも残す: 起動の時に別の口がこの入口を回し直すと setup.json は新しい版の記録に替わる。窓の中で
+            # 動いている版の記録を、並んで走る起動の hook（plugin core の kaku.py）が版の名で引けるようにする。
+            (d / f"setup-{state['catalog_sha']}.json").write_text(json.dumps(state, ensure_ascii=False), encoding="utf-8")
     except OSError as e:  # 印が無いと起動の hook が「古い形の setup script」と取り違えるので、書けなかった事を残す
         print(f"✗ 入れた印を書けない（起動の時に古い形と取り違えられる）: {e}", file=sys.stderr)
 

@@ -2,7 +2,7 @@
 
 どれも前の誤りを入れると赤になる形で書く:
 - 全体に当てる鍵の、全体の形でない行（錨なし・一番外に | の在る ^a|b$）を前の読み方（一部に当てる）で効かせ直すと赤
-- ^a|b$ を全体の形と読む（_anchored だけで見る）へ戻すと赤
+- ^a|b$ を全体の形と読む（^ と $ の字だけで見る）へ戻すと赤
 - 止める側の鍵（irreversible_tools_extra）で、効かない行を黙って捨てる（止めない）へ倒すと赤
 - 通す側の鍵（qa_page_exempt など）で、効かない行を照らせない時にも通す側へ倒すと赤
 - codex の self_allow・clients.<名>.paths で * が / をまたぐ読み方へ戻す（前の読み方でだけ当たる path を通す）と赤
@@ -36,13 +36,13 @@ TODAY = dt.date(2026, 11, 20)
     ("^mcp__s__[|]x$", True),                  # 字の組の中の | は選択でない
     ("^mcp__s__[]|]x$", True),                 # ] で始まる字の組の中の |
     ("^mcp__s__delete_item|mcp__s__purge$", False),   # 一番外の | ＝読み方が割れる
-    ("^a$|^b$", False),
+    ("^a$|^b$", True),                       # 分かれの全部の道が錨で挟まれる
     ("delete", False),
     ("^delete", False),
     ("delete$", False),
 ])
-def test_全体の形は錨で挟み一番外に選択を持たない行だけ(row, whole):
-    assert SV._whole_form(row) is whole
+def test_全体の形は全部の道が錨で挟まれる行だけ(row, whole):
+    assert SV._whole_regex(row) is whole
     assert (SV.not_whole_rows(TOOLS, [row]) == []) is whole
 
 

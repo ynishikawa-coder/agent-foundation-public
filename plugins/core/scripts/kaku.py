@@ -8,8 +8,9 @@
                                       古い形の setup script（土台の入口 scripts/setup_plugins.py を通っていない）／入っていない plugin。
                                       あわせて、窓の最初の 1 回だけ、入った土台が main の先端と同じかを見て窓ごとに覚える。古ければ、
                                       setup の時の main の先端の記録（setup.json の main_at_setup）と比べて、setup が古い物を入れた
-                                      （setup script を直す）か setup の後に main が進んだ（引き継ぐ）かを分ける（記録が無ければ分からないと名指す）。
-  python3 kaku.py fresh               UserPromptSubmit の hook が呼ぶ。起動の後に main の先端の plugin が変わったら、
+                                      （setup script を直す）か setup の後に main が進んだ（作り置きの箱・何もしない）かを分ける
+                                      （記録が無ければ分からないと名指す）。
+  python3 kaku.py fresh               UserPromptSubmit の hook が呼ぶ。窓が立った時の main の先端から plugin が変わったら、
                                       この窓を新しい窓へ引き継いで閉じるよう AI に知らせる（人の作業は止めない）。
   python3 kaku.py check [--claude P]  核と振る舞いの既定が在り、上限の内かを照らす。--claude を渡すと、その CLAUDE.md が各社固有の上限の内で
                                       核の写しの枠を持たないかも照らす。
@@ -78,9 +79,11 @@ def olds_table(path: Path = OLDS) -> list[dict]:
 
 
 def _tracked(project: Path, specs: list[str]) -> list[Path]:
+    """照らす file の全部。数で切らない（切ると残りを照らさず緑を返す）。時間の上限は find_olds_bounded が
+    process の外から掛け、越えたら打ち切ったと名指す。"""
     out = _git(str(project), "ls-files", "-z", "--", *specs, timeout=10)
     if out is not None:
-        return [project / n for n in out.split("\0") if n][:2000]
+        return [project / n for n in out.split("\0") if n]
     return [project / s for s in specs if "*" not in s]  # git でない dir は、名で書いた file だけ見る
 
 
@@ -154,7 +157,7 @@ def _tree_texts(project: Path, ref: str, only: set[tuple[str, str]] | None = Non
                    "--", *r["files"], timeout=10)
         if empty is None or out is None:
             raise OSError(f"main（{ref[:12]}）の木を読めない")
-        names = [n for n in out.split("\0") if n and "\n" not in n and (only is None or (r["id"], n) in only)][:2000]
+        names = [n for n in out.split("\0") if n and "\n" not in n and (only is None or (r["id"], n) in only)]
         if not names:
             return
         try:
@@ -361,10 +364,23 @@ def setup_record() -> tuple[dict | None, str | None]:
     file が在るだけでは今回の記録と見ない: 記録の名簿の版（catalog_sha）が入った plugin core の commit と同じで、
     記録の時（at）が土台の plugin を入れ直した時（台帳の lastUpdated）より前でない時だけ今回の物（前の setup の記録が
     残った容器で、入口を通らない古い形の setup script が入れ直したのを見逃さない）。"""
+    have = installed_sha()
+    # 版ごとの記録（入口が setup-<入れた版>.json にも書く）が今動いている版の物なら、それが今回の記録。setup.json は
+    # 起動の時に別の口（使う側の起動の hook）が入口を回し直すと、並んで走るこの hook が読む前に新しい版の記録へ
+    # 書き換わる＝今動いている版の記録を版の名で引けば取り違えない。同じ版を後で入れ直しても動く物は同じ。
+    own = _read_json(_home() / "af-foundation" / f"setup-{have}.json") if have else None
+    if isinstance(own, dict) and own.get("catalog_sha") == have:
+        # 版ごとの記録にも記録の時の照らしを当てる（入口を通らない古い形が同じ版を記録の後に入れ直したのを見逃さない）。
+        # 見るのは今動いている版の行だけ: 並んだ入れ直しが書いた別の版の行は、今動いている物を変えていない。
+        at = _when(own.get("at"))
+        same = [t for rows in user_rows().values() for r in rows if r.get("gitCommitSha") == have
+                for t in [_when(r.get("lastUpdated"))] if t is not None]
+        if at is None or (same and max(same) > at + 2):
+            return None, "入口の記録の時が土台の plugin を入れ直した時より前（記録の後に入口を通らずに入れ直した）"
+        return own, None
     state = _read_json(_home() / "af-foundation" / "setup.json")
     if not isinstance(state, dict):
         return None, "入口の記録（~/.claude/af-foundation/setup.json）が無い"
-    have = installed_sha()
     if not have or state.get("catalog_sha") != have:
         return None, (f"入口の記録の名簿の版 {str(state.get('catalog_sha'))[:12]} が入った土台 {str(have)[:12]} と違う"
                       "（前の setup の記録が残っている）")
@@ -486,7 +502,22 @@ def installed_sha() -> str | None:
     for row in rows if isinstance(rows, list) else []:
         if isinstance(row, dict) and row.get("installPath") and Path(row["installPath"]).resolve() == PLUGIN:
             return row.get("gitCommitSha") or None
-    return None
+    return _running_from_record()
+
+
+def _running_from_record() -> str | None:
+    """台帳の行が無い時（起動の時に別の口が入れ直し、台帳が新しい版の dir を指した）、今動いている dir の名
+    （Claude Code の cache は <目録>/<plugin>/<commit の頭 12 字>）と入口の版ごとの記録から入った commit を引く。
+    名が commit の頭でない・記録が 1 つに決まらない時は None（分からない）。"""
+    if not re.fullmatch(r"[0-9a-f]{12}", PLUGIN.name):
+        return None
+    hits = set()
+    for f in (_home() / "af-foundation").glob(f"setup-{PLUGIN.name}*.json"):
+        rec = _read_json(f)
+        sha = rec.get("catalog_sha") if isinstance(rec, dict) else None
+        if isinstance(sha, str) and f.name == f"setup-{sha}.json":
+            hits.add(sha)
+    return hits.pop() if len(hits) == 1 else None
 
 
 def _carrier_names(names: str) -> set[str]:
@@ -534,6 +565,20 @@ def freshness() -> dict | None:
         elif names:
             plugins.add(name)
     return {"installed": have, "main": tip, "ref": ref, "shas": shas, "plugins": sorted(plugins)}
+
+
+def moved_since(base: str, tip: str) -> list[str]:
+    """base（窓が立った時の先端）から tip（今の先端）までに変わった plugin の名。比べられなければ空（知らない値で
+    人の作業を止めない）。目録の clone が浅く取り直されて base が無ければ base だけを取って来る。"""
+    if base == tip:
+        return []
+    loc = catalog_source()[0].get("installLocation")
+    if not loc:
+        return []
+    if _git(loc, "cat-file", "-e", f"{base}^{{commit}}") is None:
+        _git(loc, "fetch", "--quiet", "--depth=1", "origin", base)
+    names = _git(loc, "diff", "--name-only", base, tip, "--", *CARRIERS)
+    return sorted(_carrier_names(names)) if names else []
 
 
 def _state_path(session: str) -> Path:
@@ -650,12 +695,12 @@ def inject() -> int:
         except Exception:  # noqa: BLE001  新しさの見張りが壊れても核の差し込みは止めない
             f, cause = None, None
         if session:
-            # setup の後に main が進んだだけ（after）は「起動の時から古い」でなく、起動の後に古くなった窓と同じ
-            # 引き継ぎ（fresh が問いのたびに知らせる）。setup script を直させない。
+            # setup の後に main が進んだだけ（after）は setup script を直させず、引き継ぎもさせない: 箱は作り置き
+            # （setup は箱を作った時に走り、窓は後でその箱を使う）なので、引き継いだ新しい窓も作り置きの箱から立ち
+            # 新しくならない＝引き継ぎが輪になる。引き継ぐのは、この窓が立った時の main の先端（start_main）から
+            # 先端が plugin を変えた時だけ（fresh）。
             state = {"checked": time.time(), "stale_at_start": cause in ("setup", "unknown"), "cause": cause,
-                     "comparable": f is not None, "start": f}
-            if cause == "after":
-                state["seen"] = f
+                     "comparable": f is not None, "start": f, "start_main": f["main"] if f else None}
             _save_state(session, state)
     if f and f["plugins"] and cause in ("setup", "unknown"):
         parts.append(stale_at_start_text(f) if cause == "setup" else unknown_at_start_text(f))
@@ -687,6 +732,10 @@ def fresh() -> int:
         except Exception:  # noqa: BLE001
             got = None
         state["checked"] = time.time()
+        if got and got["plugins"] and state.get("start_main"):
+            # 入った版でなく、この窓が立った時の先端と比べる（作り置きの箱で立った窓を、立つ前の main の進みで替えない）
+            moved = moved_since(state["start_main"], got["main"])
+            got = dict(got, plugins=moved) if moved else None
         if got and got["plugins"]:
             state["seen"] = f = got
         _save_state(session, state)

@@ -14,10 +14,11 @@ import subprocess
 from pathlib import Path
 
 import pytest
-from entry_box import copy_entry
+from entry_box import box_env, copy_entry
 
 ROOT = Path(__file__).resolve().parent.parent
 ENTRY = "scripts/pytest.sh"
+ENTRY_RUN = "scripts/pytest_plugin/af_run.py"   # 入口が python3 -I -S で起こす口（入口の一部）
 
 # 落ちる試験 1 本だけの小箱に置く設定。どれも直す前は check_all を緑にした（1 本も回さない・回す物を減らす）。
 CONFIGS = {
@@ -41,8 +42,7 @@ def box(tmp_path, config=None):
 
 
 def check_all(root, **env):
-    e = {k: v for k, v in os.environ.items() if k not in ("PYTEST_ADDOPTS", "PYTEST_PLUGINS")}
-    e.update(env)
+    e = box_env(**env)
     r = subprocess.run(["bash", "scripts/check_all.sh"], cwd=root, capture_output=True, text=True, env=e, timeout=120)
     return r.returncode, r.stdout + r.stderr
 
@@ -101,7 +101,7 @@ def direct_callers():
              *ROOT.glob("tests/**/*.py"), *ROOT.glob("plugins/**/*.py"), *ROOT.glob("plugins/**/*.sh"),
              ROOT / "CONTRIBUTING.md"]
     return sorted(str(p.relative_to(ROOT)) for p in files
-                  if p.relative_to(ROOT).as_posix() not in (ENTRY, SELF) and DIRECT.search(p.read_text(encoding="utf-8")))
+                  if p.relative_to(ROOT).as_posix() not in (ENTRY, ENTRY_RUN, SELF) and DIRECT.search(p.read_text(encoding="utf-8")))
 
 
 def test_検査と_CI_は入口を通して試験を回す():

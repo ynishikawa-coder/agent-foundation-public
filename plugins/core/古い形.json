@@ -120,6 +120,37 @@
       "pattern": "^親窓\\s*[:：]",
       "fix": "PR の型から `親窓:` の行を消す。窓の親はサーバの記録（get_session の parent_session_id）を読む",
       "example": "親窓: <session id>"
+    },
+    {
+      "id": "public-guard-empty-deny-words",
+      "what": "公開の検査の呼び口が名指す置かない語の表に、語の行が無い（コメントと空行だけ。1 段目は止めずに名指す。2 段目で exit 3 にする）",
+      "files": [
+        "*deny*",
+        "**/*deny*",
+        "**/*denylist*"
+      ],
+      "pattern": "\\A(?:[ \\t]*(?:#.*)?\\n)*\\Z",
+      "fix": "語を 1 行 1 語で入れるか、workflow の deny-words-file を外す（語を名指さないなら入力を空のままにする）",
+      "example": "# 語はまだ無い\n"
+    },
+    {
+      "id": "public-guard-skip-whole-file",
+      "what": "pattern-skip に名指す形の見本の行に、印 public-guard: 形の見本 が無い（1 段目は印の無い file の形を file ごと外す。印を 1 行でも書くと、印の無い行と秘密の形は赤になる）",
+      "files": [
+        "*.py",
+        "*.md",
+        "*.yml",
+        "*.yaml",
+        ":(exclude)tests/**",
+        ":(exclude)**/tests/**",
+        ":(exclude)**/test_*.py",
+        ":(exclude)CHANGELOG.md",
+        ":(exclude)**/CHANGELOG.md",
+        ":(exclude)CHANGELOG.d/**"
+      ],
+      "pattern": "(?m)^(?!.*public-guard: 形の見本).*(?:03-1234-(?:5678)|090(?:12345678)|taro\\.yamada@(?:gmail)\\.com|〒100-(?:0001)|notion\\.so/(?:abc123))",
+      "fix": "その file の形の見本の行に印 public-guard: 形の見本 を書く（印の行の個人の情報の形だけが外れる。秘密の形は印の行でも照らす）",
+      "example": "連絡先 taro.yamada@gmail.com"
     }
   ]
 }

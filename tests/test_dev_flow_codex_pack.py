@@ -115,9 +115,9 @@ FAKE_SECRETS = {
     ".env 形の行": "AWS_SECRET_ACCESS" + "_KEY=" + X[:20],
     ".env 形の行 (TOKEN)": "API" + "_TOKEN=" + X[:20],
     "Google の API 鍵": "AI" + "za" + X[:35],
-    "sk- 20〜39 字": "s" + "k-" + X[:24],
+    "OpenAI の project の鍵": "s" + "k-" + "proj-" + X[:24],
     "引用符なしの api_key": "api" + "_key: " + X[:24],
-    "GitHub 20 字": "gh" + "p_" + X[:24],
+    "GitHub のトークン": "gh" + "p_" + X[:36],
     "DB の接続文字列": "postgre" + "sql://db.example.invalid/app",
     "合言葉のタグ": "<pass" + "word>hunter22</password>",
 }

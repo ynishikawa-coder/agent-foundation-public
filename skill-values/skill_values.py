@@ -142,48 +142,52 @@ def load(path):
 
 
 # ── 照らし ──
-def _anchored(x):
-    """^ で始まり、エスケープしない $ で終わる（全体に当てる形と読める）。"""
-    return isinstance(x, str) and x.startswith("^") and x.endswith("$") and not re.search(r"(?<!\\)(?:\\\\)*\\\$$", x)
+try:  # 正規表現の解析の口（字の頭と尻を見ず、解いた形で全体の一致かを決める）
+    from re import _constants as _RC, _parser as _RP
+except ImportError:  # 3.10 まで
+    import sre_constants as _RC  # noqa: N812
+    import sre_parse as _RP  # noqa: N812
+
+_HEADS = {_RC.AT_BEGINNING, _RC.AT_BEGINNING_STRING}
+_TAILS = {_RC.AT_END, _RC.AT_END_STRING}
 
 
-def _top_alternation(x):
-    """正規表現の一番外に | が在るか（括弧・字の組 [...] の中と、エスケープした \\| は数えない）。"""
-    depth, cls, i = 0, False, 0
-    while i < len(x):
-        c = x[i]
-        if c == "\\":
-            i += 2
-            continue
-        if cls:
-            cls = c != "]"
-        elif c == "[":
-            cls = True
-            if x.startswith("]", i + 1) or x.startswith("^]", i + 1):
-                i += 1 if x[i + 1] == "]" else 2
-        elif c == "(":
-            depth += 1
-        elif c == ")":
-            depth = max(depth - 1, 0)
-        elif c == "|" and depth == 0:
-            return True
-        i += 1
+def _edge(seq, at, heads):
+    """解いた並び seq の at 番（0 か -1）が、全体の頭（heads が _HEADS）か尻（_TAILS）の錨か。囲み（group）と
+    分かれ（|）の中は、全部の道がそうなら錨と見る。"""
+    items = list(seq)
+    if not items:
+        return False
+    op, av = items[at]
+    if op == _RC.AT:
+        return av in heads
+    if op == _RC.SUBPATTERN:
+        return _edge(av[-1], at, heads)
+    if op == _RC.BRANCH:
+        return all(_edge(b, at, heads) for b in av[1])
     return False
 
 
-def _whole_form(x):
-    """全体に当てる鍵の行の形: ^ で始め $ で終え、一番外に | を持たない（| で分けるなら ^(?:a|b)$）。
-    ^a|b$ は「a で始まるか b で終わる」（一部の読み方）と「a か b の全体」（全体の読み方）に割れるので全体の形と読まない。"""
-    return _anchored(x) and not _top_alternation(x)
+def _whole_regex(x):
+    """全体に当てる形と読める（正規表現として読め、解いた形の全部の道が頭の錨 ^・\\A で始まり尻の錨 $・\\Z で終わる）。
+    字の頭の ^ と尻の $ だけでは決めない（(?i)^o/r$ のように頭にフラグを置いた形・^a$|^b$ の分かれも全体の形。
+    \\$ で終わる形・^a|b$ は全体の形でない）。"""
+    if not isinstance(x, str):
+        return False
+    try:
+        seq = _RP.parse(x)
+    except (re.error, RecursionError, OverflowError):
+        return False
+    return _edge(seq, 0, _HEADS) and _edge(seq, -1, _TAILS)
 
 
 def bad_repo_names(v):
     """型 repo_names（owner/repo の名の全体に当てる正規表現の並び）に合わない行の並び。
-    各行は ^ で始まり（エスケープしない）$ で終わり、正規表現として読める。頭だけ（^owner/）・錨なし（owner/repo）の
+    各行は正規表現として読め、解いた形が ^ で始まり $ で終わる（_whole_regex。頭にフラグを置いた (?i)^o/r$ も全体の形）。頭だけ（^owner/）・錨なし（owner/repo）の
     前の形は、名の一部に当てる読み方と取り違えるので書けない（使う側は ^owner/repo$・owner ごとなら ^owner/.*$）。"""
     out = []
     for x in v if isinstance(v, list) else [v]:
-        ok = _anchored(x)
+        ok = _whole_regex(x)
         if ok:
             try:
                 re.compile(x)
@@ -223,11 +227,11 @@ def bad_pattern_rows(v):
 
 
 def not_whole_rows(spec, v):
-    """全体に当てる鍵（match whole）の、全体の形（_whole_form）でない行。その行は効かない（照らし check が名指し、
+    """全体に当てる鍵（match whole）の、全体の形（_whole_regex）でない行。その行は効かない（照らし check が名指し、
     止める側の鍵の道具は unread_hit で照らせないと止める）。前の読み方（一部に当てる）で効かせる受けは畳んだ。"""
     if (spec or {}).get("type") != "patterns" or spec.get("match") != "whole" or not isinstance(v, list):
         return []
-    return [x for x in v if _row_pattern(x) is not None and not _whole_form(_row_pattern(x))]
+    return [x for x in v if _row_pattern(x) is not None and not _whole_regex(_row_pattern(x))]
 
 
 def bad_words(v):
@@ -254,7 +258,7 @@ def compile_patterns(spec, rows, flags=0):
             rx = re.compile(p, flags)
         except re.error:
             continue
-        out.append((rx, ("whole" if _whole_form(p) else "unread") if whole else "part", x))
+        out.append((rx, ("whole" if _whole_regex(p) else "unread") if whole else "part", x))
     return out
 
 

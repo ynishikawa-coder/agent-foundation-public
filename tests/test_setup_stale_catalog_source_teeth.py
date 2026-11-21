@@ -13,7 +13,7 @@ import subprocess
 from pathlib import Path
 
 import pytest
-from entry_box import copy_entry
+from entry_box import box_env, copy_entry
 
 ROOT = Path(__file__).resolve().parent.parent
 TEST = "tests/test_setup_stale_catalog_source.py"
@@ -46,8 +46,7 @@ def run_box(tmp_path, doc_text):
     (root / DOC).parent.mkdir(parents=True, exist_ok=True)
     (root / DOC).write_text(doc_text, encoding="utf-8")
     tally = tmp_path / "tally.json"
-    env = {k: v for k, v in os.environ.items() if not k.startswith("GITHUB_")}
-    env["AF_PYTEST_TALLY"] = str(tally)
+    env = box_env(AF_PYTEST_TALLY=str(tally))
     r = subprocess.run(["bash", "scripts/pytest.sh", "-q", "-p", "no:cacheprovider", TEST, TEXT],
                        capture_output=True, text=True, cwd=root, env=env, timeout=300)
     out = r.stdout + r.stderr

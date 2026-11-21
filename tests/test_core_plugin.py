@@ -8,7 +8,7 @@ import sys
 from pathlib import Path
 
 import pytest
-from entry_box import copy_entry
+from entry_box import box_env, copy_entry
 
 ROOT = Path(__file__).resolve().parent.parent
 PLUGIN = ROOT / "plugins" / "core"
@@ -719,7 +719,8 @@ def test_失敗で終わる道具は一覧に載せなくても全部根治の�
     tools = [r for r in out.stdout.split() if r.endswith((".py", ".sh", ".mjs", ".js"))]
     found = [r for r in tools if 失敗で終わる.search((ROOT / r).read_text(encoding="utf-8"))]
     assert "public-guard/guard.py" in found and "plugins/guard/scripts/guard.py" in found, "拾い方が壊れた"
-    missing = [r for r in found if "細目 §3「まず構造を疑う」" not in (ROOT / r).read_text(encoding="utf-8")]
+    entry = re.compile(r"細目(?:\s*§\s*\d+)?「まず構造を疑う」")  # 番号は付けても付けなくても（合うかは refs.py が照らす）
+    missing = [r for r in found if not entry.search((ROOT / r).read_text(encoding="utf-8"))]
     assert not missing, f"失敗で終わるのに根治の入口を指さない道具: {missing}"
 
 
@@ -780,7 +781,8 @@ def test_検査の入口の赤の最後の行は根治の入口を指し緑は�
     copy_entry(tmp_path)
     (tmp_path / "tests").mkdir()
     test = tmp_path / "tests" / "test_x.py"
-    run = lambda: subprocess.run(["bash", str(tmp_path / "scripts" / "check_all.sh")], capture_output=True, text=True)
+    run = lambda: subprocess.run(["bash", str(tmp_path / "scripts" / "check_all.sh")], capture_output=True, text=True,
+                                 env=box_env())
     test.write_text("def test_x():\n    assert False\n", encoding="utf-8")
     red = run()
     last = red.stdout.strip().splitlines()[-1]

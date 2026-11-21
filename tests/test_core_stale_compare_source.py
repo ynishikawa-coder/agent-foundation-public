@@ -18,21 +18,6 @@ SETUP_FIX = "update_environment"
 
 # ── 起動の時の古さ: setup の時の main と比べる ──
 
-def test_setup_の後に_main_が進んだだけの窓に_setup_script_を直せと言わない(tmp_path):
-    """注入 (a): setup は main の先端を入れた（記録＝入った commit）→ その後に main で plugin が変わる → 起動の知らせは
-    「起動の時から古い・setup script を直せ」を出さず、問いのたびの引き継ぎ（fresh）にする。"""
-    f = Foundation(tmp_path)
-    f.install(main_at_setup=f.installed)
-    _commit(f.work, {"plugins/guard/x.py": "x\n"}, "setup の後に守りを変える")
-    text = f.hook("inject")
-    assert "土台が古いまま立った窓" not in text and SETUP_FIX not in text, text
-    assert "# 振る舞いの核" in text                        # 核の差し込みは止めない
-    hand = f.hook("fresh")
-    assert "引き継いで閉じる" in hand and "guard" in hand and "create_session" in hand and SETUP_FIX not in hand
-    assert "土台が古いまま立った窓" not in f.hook("inject", source="compact")
-    assert "引き継いで閉じる" in f.hook("fresh")          # 圧縮の後も引き継ぎは消えない
-
-
 def test_setup_が古い物を入れた窓には_setup_script_を直せと言う(tmp_path):
     """注入 (b): setup の時の main の先端は進んでいたのに、setup は 1 つ前を入れた → 直してから引き継ぐ知らせ。"""
     f = Foundation(tmp_path)

@@ -11,6 +11,7 @@ import subprocess
 import sys
 from pathlib import Path
 
+import needs
 import pytest
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -118,14 +119,8 @@ def test_読めない答えは赤():
     assert answer("{ 壊れた")["red"][0].startswith("答えの JSON が読めない")
 
 
-def _node_playwright():
-    if not NODE:
-        return False
-    return subprocess.run([NODE, "-e", "require('playwright')"], capture_output=True, timeout=60).returncode == 0
-
-
-@pytest.mark.skipif(not _node_playwright(), reason="node の playwright が無い（型の JS を実ブラウザで動かす）")
 def test_型の_JS_が実際に作る答えは答えの形の検査で緑(tmp_path):
+    node = needs.node_playwright()
     spec = importlib.util.spec_from_file_location("af_test_docs_kit_for_answer", ROOT / "tests" / "test_docs_kit.py")
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
@@ -136,7 +131,7 @@ def test_型の_JS_が実際に作る答えは答えの形の検査で緑(tmp_pa
 const { chromium } = require('playwright');
 (async () => {
   let b;
-  try { b = await chromium.launch(); } catch (e) { console.log(JSON.stringify({ skip: String(e).split('\\n')[0] })); return; }
+  b = await chromium.launch();   // ブラウザの file が在るのに起こせなければ赤（needs.node_playwright が file を見た）
   const pg = await b.newPage();
   await pg.goto(process.argv[2]);
   const got = await pg.evaluate(() => new Promise((ok) => {
@@ -155,11 +150,9 @@ const { chromium } = require('playwright');
   await b.close();
 })();
 """, encoding="utf-8")
-    p = subprocess.run([NODE, str(script), page.as_uri()], capture_output=True, text=True, timeout=120)
+    p = subprocess.run([node, str(script), page.as_uri()], capture_output=True, text=True, timeout=120)
     assert p.returncode == 0, p.stderr
     out = json.loads(p.stdout.strip().splitlines()[-1])
-    if "skip" in out:
-        pytest.skip(f"ブラウザを起こせない: {out['skip']}")
     got = out["got"]
     assert got["form"] == "qa-html/2" and got["answers"], got
     assert answer(got)["red"] == []
