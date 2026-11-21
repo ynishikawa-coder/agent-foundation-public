@@ -27,14 +27,15 @@ def test_spec_gate_道具の中で動かす形と書いてから流す形は止�
     assert denied(env, bash(cmd)), cmd
 
 
-def test_spec_gate_書いた後ろに素の道具でない並びが在れば止まる(env):
-    """git add・git commit も書いた file を暗に読める（.git/hooks・.gitattributes の駆動）ので、名が一致するかを見ない（前の main も止めていた）。"""
+def test_spec_gate_書いた後ろに_git_が在っても止まる(env):
+    """git add・git commit も書いた file を暗に読める（.git/hooks・.gitattributes の駆動）。file を書く手が在る行は読み切れない形（前の main も止めていた）。"""
     assert denied(env, bash("cat > メモ.md <<'EOF'\npython3 %s 設計書 %s\nEOF\ngit add メモ.md" % (GATE, LOCK)))
 
 
 @pytest.mark.parametrize("tail", ["", "\ncat メモ.md", "\ngrep -n 設計書 メモ.md | head -3"])
-def test_spec_gate_書くだけか後ろが素の道具だけなら通す(env, tail):
-    assert not denied(env, bash("cat > メモ.md <<'EOF'\npython3 %s 設計書 %s\nEOF%s" % (GATE, LOCK, tail)))
+def test_spec_gate_file_へ書く形は後ろに何が在っても前の_main_と同じく字全体で見る(env, tail):
+    """file を書く手（redirect・heredoc）が在る行は読み切れない形＝外さない（後ろの道具が暗に読むかを追わない）。"""
+    assert denied(env, bash("cat > メモ.md <<'EOF'\npython3 %s 設計書 %s\nEOF%s" % (GATE, LOCK, tail)))
 
 
 # ── irreversible: 書いてから流す形・git の中で動かす形・値の表が git・gh を狙う行 ──

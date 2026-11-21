@@ -255,12 +255,16 @@ def is_child_log(path):
 
 
 # ── Bash の命令のうち実際に動かす所（字を挙げるだけの所と分ける） ──
-# 字を書く・探す・見せるだけの道具。並び（|）の全部がこれなら、その並びの引数・heredoc の中身は動かない字。
-# 1 つでも外の命令が並びに居れば（echo … | psql・cat <<EOF | sh）、並びの字は全部動く側に数える。
-# 字を挙げるだけの命令でも、その「出力」が動く側へ流れる形（eval "$(echo …)"・bash -c "$(…)"・$(echo …)）は
-# 元の字も動く側に数える（_parts）。代入だけの命令（x=…・printf -v）は使い所を追わず常に動く側（_text_only）。
-TEXT_ONLY = frozenset(("echo", "printf", "cat", "tee", "grep", "egrep", "fgrep",
+# 外すのは、命令の行全体を読み切れた時だけ（_readable: 変数・展開・置き換え・環境へ出す手・heredoc・redirect・
+# file を書く手が 1 つも無い、決まった単純な形）。1 つでも読み切れない物が在れば、呼ぶ側は命令の字全体で見る（前の版と同じ判定）。
+# 流れる道（出力・変数・環境・暗に読む file）を 1 つずつ足して追う作りは、次の道でまた抜けたのでやめた。
+# 読み切れた行の中では、並び（|）の全部が字を書く・探す・見せるだけの道具なら、その並びの引数は動かない字。
+# 1 つでも外の命令が並びに居れば（echo … | sh）、並びの字は全部動く側に数える。
+TEXT_ONLY = frozenset(("echo", "printf", "cat", "grep", "egrep", "fgrep",
                        "head", "tail", "wc", "true", ":", "test", "["))
+# 読み切れた行に在っても、それだけで行全体を読み切れない物とする命令（環境・変数・別名へ出す手・file を書く手・他を読み込む手）。
+_UNREAD_PROG = frozenset(("export", "set", "declare", "typeset", "readonly", "local", "unset", "alias", "source", ".",
+                          "env", "tee", "shopt", "trap", "hash", "builtin", "command"))
 # 中で命令を動かせる道具（git・rg・gh）は、前置き（-x・--foo）を「動かす口が無いと分かっている物」の一覧で通し、
 # 一覧の外の前置きが 1 つでも在れば動く側に数える（動かす口を数えて外す形は、次の口でまた抜ける＝
 # push --receive-pack・fetch --upload-pack）。環境変数の前置き（GIT_PAGER・RIPGREP_CONFIG_PATH など）も動く側。
@@ -310,8 +314,6 @@ _RG_SAFE_OPT = re.compile(r"^(?:--|-\d+|-[ABCEFHILMNSTUVabcefghijlmnopqrstuvwx]+
 _GH_TEXT = frozenset(("pr", "issue", "api", "release", "search", "label", "repo", "run", "workflow", "browse",
                       "gist", "status", "secret", "variable", "cache", "ruleset", "project"))
 _ENV = re.compile(r"[A-Za-z_]\w*=.*", re.S)
-_REDIR = re.compile(r"\d*[<>]+&?\d*-?")
-_SB = re.compile(r"\x00SB(\d+)\x00")
 
 
 def _opts_safe(args, safe):
@@ -339,24 +341,11 @@ def _git_text(args):
 
 
 def _text_only(words):
-    """1 つの命令（環境変数の前置きと語の並び）が字を挙げるだけか。"""
-    k = 0
-    while k < len(words) and _ENV.fullmatch(words[k]):
-        k += 1
-    env = words[:k]                       # 頭の環境変数の前置きだけ（引数の a=b は前置きでない）
-    ws = [w for w in words[k:] if not _REDIR.fullmatch(w)]
-    if not ws:
-        return not env                    # 代入だけの命令は動く側（値がどこで使われるかを追わない）
-    if _SB.search(ws[0]) or "$" in ws[0]:
-        return False                      # $(…)・$x の出力を命令として動かす
-    prog = os.path.basename(ws[0])
-    args = [w for w in ws[1:] if not _SB.fullmatch(w)]
-    if prog == "printf" and any(a == "-v" or a.startswith("-v") for a in args):
-        return False                      # printf -v は変数へ書く＝代入と同じく動く側
+    """読み切れた行の 1 つの命令（語の並び）が字を挙げるだけか。"""
+    prog = os.path.basename(words[0])
+    args = words[1:]
     if prog in TEXT_ONLY:
         return True
-    if env:
-        return False
     if prog == "rg":
         return _opts_safe(args, _RG_SAFE_OPT)
     if prog == "git":
@@ -367,24 +356,7 @@ def _text_only(words):
     return False
 
 
-def _writes(words):
-    """字を挙げるだけの命令が書く先の file（> と >> の的・tee の引数）。"""
-    out, prev = [], ""
-    for w in words:
-        if prev in (">", ">>", ">|", "&>", "&>>") or re.fullmatch(r"\d*>>?\|?", prev or "-"):
-            out.append(w)
-        prev = w
-    k = 0
-    while k < len(words) and _ENV.fullmatch(words[k]):
-        k += 1
-    ws = words[k:]
-    if ws and os.path.basename(ws[0]) == "tee":
-        out += [w for w in ws[1:] if not w.startswith("-")]
-    return [w for w in out if w not in ("/dev/null", "/dev/stdout", "/dev/stderr", "-")]
-
-
 _HEREDOC = re.compile(r"<<(-?)[ \t]*(['\"]?)([A-Za-z_][\w.-]*)\2")
-_OPS = frozenset(("&&", "||", ";", "&", ";;", "\n"))
 
 
 class _Unread(Exception):
@@ -392,7 +364,7 @@ class _Unread(Exception):
 
 
 def _scan(cmd, i=0, sub=False):
-    """命令の字を頭から読み、(heredoc の中身と $( ) を印に置き換えた字, heredoc の中身の並び, $( ) の中で動く並び,
+    """命令の字を頭から読み、(heredoc の中身と $( ) を印に置き換えた字, heredoc の中身の並び, 空の並び〔前の形の名残〕,
     終わりの位置, $( ) の中の字の並び)。印は \\x00HDn\\x00（heredoc の中身）と \\x00SBn\\x00（n 番目の $( ) の跡）。
     注釈（語の頭の #）は落とす。sub=True は $( の後から読み、対になる ) で終わる。読み切れなければ _Unread。"""
     out, bodies, inner, pending, subs = [], [], [], [], []
@@ -407,10 +379,8 @@ def _scan(cmd, i=0, sub=False):
             i += 1
             continue
         if cmd.startswith("$(", i) and not cmd.startswith("$((", i):
-            s_out, s_bodies, s_inner, j, s_subs = _scan(cmd, i + 2, sub=True)
-            parts = _parts(s_out, s_bodies, s_inner, s_subs)
-            inner.extend(s_inner + parts)
-            subs.append(cmd[i + 2:j - 1])     # 中の字（出力が動く側へ流れる時に、動く側に数える）
+            j = _scan(cmd, i + 2, sub=True)[3]
+            subs.append(cmd[i + 2:j - 1])     # 中の字（$( ) が在る行は読み切れない形＝executed_parts が None）
             out.append("\x00SB%d\x00" % (len(subs) - 1))
             i = j
             continue
@@ -513,35 +483,45 @@ def _pipelines(flat):
     return [pl for pl in pipelines if pl]
 
 
-def _plain(pl):
-    """並びの命令が全部、字を挙げるだけの素の道具（TEXT_ONLY・環境変数の前置き無し）か。git・gh・rg・代入は素でない。"""
-    for c in pl:
-        ws = [w for w in c if not _REDIR.fullmatch(w)]
-        if not ws or _ENV.fullmatch(ws[0]) or _SB.search(ws[0]) or "$" in ws[0]:
+def _readable(flat):
+    """印に置き換えた字が決まった単純な形か: 引用の外か "…" の中の $・` と、引用の外の < > が無い（'…' の中は字）。"""
+    q, i, n = "", 0, len(flat)
+    while i < n:
+        c = flat[i]
+        if q == "'":
+            q = "" if c == "'" else q
+        elif c == "\\":
+            i += 1
+        elif q == '"':
+            if c == '"':
+                q = ""
+            elif c in "$`":
+                return False
+        elif c in "'\"":
+            q = c
+        elif c in "$`<>":
             return False
-        if os.path.basename(ws[0]) not in TEXT_ONLY:
-            return False
+        i += 1
     return True
 
 
-def _parts(flat, bodies, inner=(), subs=()):
-    """並びごとに、字を挙げるだけの並びを除いた字の並び（heredoc の中身を戻す）。
-    代入だけの並び（x=…・printf -v）は _text_only が動く側に数える（変数がどこで使われるか＝export・set -a・
-    declare -n・heredoc の中の $x・道具が環境から読む GIT_PAGER などを 1 つずつ追う形は、次の道でまた抜けるので追わない）。
-    字を挙げるだけの並びが file へ書き、同じ命令の後ろに素の道具（_plain）でない並びが 1 つでも在れば、書いた中身を
-    動く側に数える（道具が名を挙げずに暗に読む file＝.git/hooks/pre-commit と git commit・Makefile と make）。
-    動く並びに $( ) が在れば、その中の字を全部動く側に足す（eval "$(echo …)"・bash -c "$(…)"・$(echo …)）。"""
-    pls = _pipelines(flat)
-    run = [not all(_text_only(c) for c in pl) for pl in pls]
-    out = []
-    for k, (pl, r) in enumerate(zip(pls, run)):
-        if not r:
-            if not any(_writes(c) for c in pl) or all(_plain(q) for q in pls[k + 1:]):
-                continue
-        text = " ".join(" ".join(c) for c in pl)
-        text = re.sub(r"\x00HD(\d+)\x00", lambda m: "\n" + bodies[int(m.group(1))] + "\n", text)
-        out.append(_SB.sub(lambda m: " " + subs[int(m.group(1))] + " ", text))
-    return out
+def _read_whole(cmd):
+    """命令の行全体を読み切れた時だけ、並び（命令ごとの語の並び）。読み切れない形は None。"""
+    try:
+        flat, bodies, _inner, _, subs = _scan(cmd)
+        if bodies or subs or "\x00" in flat or not _readable(flat):
+            return None
+        pls = _pipelines(flat)
+    except _Unread:
+        return None
+    for pl in pls:
+        for c in pl:
+            prog = os.path.basename(c[0])
+            if _ENV.fullmatch(c[0]) or prog in _UNREAD_PROG:
+                return None                   # 代入・環境へ出す手・file を書く手
+            if prog == "printf" and any(a.startswith("-v") for a in c[1:]):
+                return None                   # printf -v は変数へ書く
+    return flat, pls
 
 
 _QUOTED = re.compile(r"'[^']*'|\"(?:\\.|[^\"\\])*\"")
@@ -559,29 +539,27 @@ def _bare_text_only(flat):
 
 
 def executed_parts(cmd):
-    """Bash の命令のうち、実際に動かす並び（| でつないだ命令の組）の字の並び。heredoc の中身はその並びに入れ、
-    $( ) の中は中で動く並びだけを足す。字を挙げるだけの並び（_text_only: git commit -m の文・grep の語・
-    echo・file へ書く heredoc）と注釈は入れない。ただし字を挙げるだけの並びが file へ書き、後ろに素の道具でない並びが在るなら入れる（_parts）。
-    読み切れない形（` `・<( )・括弧の組・閉じない引用や heredoc）は None＝呼ぶ側が命令の字全体で見る（止める側に倒す）。"""
+    """Bash の命令のうち実際に動かす並び（| でつないだ命令の組）の字の並び。命令の行全体を読み切れた時だけ、字を挙げる
+    だけの並び（_text_only: git commit -m '…' の文・grep の語・echo の字）と注釈を外す。読み切れない形（変数・展開・
+    $( )・` `・<( )・heredoc・redirect・代入・export・tee・括弧の組・閉じない引用）は None＝呼ぶ側が命令の字全体で見る。"""
     if not isinstance(cmd, str):
         return None
-    try:
-        flat, bodies, inner, _, subs = _scan(cmd)
-        return inner + _parts(flat, bodies, inner, subs)
-    except _Unread:
+    r = _read_whole(cmd)
+    if r is None:
         return None
+    return [" ".join(" ".join(c) for c in pl) for pl in r[1] if not all(_text_only(c) for c in pl)]
 
 
 def command_words(cmd):
-    """命令の語として当てる字: 動かす並び＋字を挙げるだけの並びの命令そのものの語（引用と heredoc の中身を除く）。
+    """命令の語として当てる字: 動かす並び＋字を挙げるだけの並びの命令そのものの語（引用の中身を除く）。
     値の表が git・gh を狙う行（git push --force・gh repo delete）を足していても当たる。読み切れない形は命令の字全体。"""
     if not isinstance(cmd, str):
         return [cmd]
-    try:
-        flat, bodies, inner, _, subs = _scan(cmd)
-        return inner + _parts(flat, bodies, inner, subs) + _bare_text_only(flat)
-    except _Unread:
+    r = _read_whole(cmd)
+    if r is None:
         return [cmd]
+    flat, pls = r
+    return [" ".join(" ".join(c) for c in pl) for pl in pls if not all(_text_only(c) for c in pl)] + _bare_text_only(flat)
 
 
 def shell_and_heredocs(cmd):

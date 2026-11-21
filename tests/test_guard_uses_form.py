@@ -1,4 +1,4 @@
-"""守りの見張りが「実際に使う形」だけを見て、説明の文（commit の文・grep の語・echo・file へ書く heredoc・注釈・
+"""守りの見張りが「実際に使う形」だけを見て、説明の文（行全体を読み切れる commit の文・grep の語・echo・注釈・
 docstring）で名を挙げるだけの所では止めないか。緩める向きの直しなので、止めるべき形（実際に動かす・つなぐ形）が
 全部まだ止まることを同じ file の注入の試験で示す。入力は全部作り物（道具の名・鍵の名・host は字を割って書く＝この
 試験を書く命令が今入っている守りに当たらない）。"""
@@ -31,8 +31,6 @@ def _load(name, rel):
 # ── spec_gate ──
 @pytest.mark.parametrize("cmd", [
     'git commit -m "%s を %s で直に呼ぶ手を止める"' % (GATE, LOCK),
-    "git commit -m \"$(cat <<'EOF'\n%s %s の見張りを直す\nEOF\n)\"" % (GATE, LOCK),
-    "cat > /tmp/台帳の行.md <<'EOF'\npython3 %s 設計書 %s\nEOF" % (GATE, LOCK),
     'grep -rn "%s.*%s" plugins/' % (GATE, LOCK),
     'echo "%s %s は止まる"' % (GATE, LOCK),
     "ls  # python3 %s 設計書 %s" % (GATE, LOCK),
@@ -53,6 +51,9 @@ def test_spec_gate_名を挙げるだけの命令は通す(env, cmd):
     "for d in a b; do python3 %s $d %s; done" % (GATE, LOCK),
     "(python3 %s 設計書 %s)" % (GATE, LOCK),               # 読み切れない形は字全体で見る（止める側）
     "echo `python3 %s 設計書 %s`" % (GATE, LOCK),
+    # 行全体を読み切れない形（heredoc・$( )・redirect）は名を挙げるだけでも前の main と同じく字全体で見る
+    "git commit -m \"$(cat <<'EOF'\n%s %s の見張りを直す\nEOF\n)\"" % (GATE, LOCK),
+    "cat > /tmp/台帳の行.md <<'EOF'\npython3 %s 設計書 %s\nEOF" % (GATE, LOCK),
 ])
 def test_spec_gate_実際に動かす形は全部まだ止まる(env, cmd):
     assert denied(env, bash(cmd)), cmd
@@ -62,7 +63,6 @@ def test_spec_gate_実際に動かす形は全部まだ止まる(env, cmd):
 @pytest.mark.parametrize("cmd", [
     'git commit -m "離席の間は %s を止める"' % SQL,
     'grep -rn "%s" plugins/' % SQL,
-    "cat > /tmp/メモ.md <<'EOF'\n%s を止める話\nEOF" % SQL,
     "git log -S '%s' --oneline" % SQL,
 ])
 def test_irreversible_語を挙げるだけの命令は離席中も通す(env, cmd):

@@ -48,7 +48,7 @@
           "default": "~/.claude/af-guard"
         },
         "paid_markers_extra": {"type": "words", "default": [], "against": "試験の file に書く本文・試験の file に書く Bash の命令の全文"},
-        "irreversible_bash_extra": {"type": "patterns", "match": "part", "default": [], "against": "Bash の命令の語＝実際に動かす並びと、字を挙げるだけの命令（git・gh・echo など）そのものの語（commit の文・grep の語・echo の字・heredoc の中身・注釈を除く。git push --force・gh repo delete は当たる。読み切れない形は全文）"},
+        "irreversible_bash_extra": {"type": "patterns", "match": "part", "default": [], "against": "Bash の命令の語＝実際に動かす並びと、字を挙げるだけの命令（git・gh・echo など）そのものの語（命令の行全体を読み切れた時だけ commit の文・grep の語・echo の字・注釈を除く。git push --force・gh repo delete は当たる。変数・展開・heredoc・redirect・代入などで読み切れない形は全文）"},
         "irreversible_tools_extra": {"type": "patterns", "match": "whole", "default": [], "against": "道具の名（例 mcp__server__delete_item）"},
         "qa_page_exempt": {"type": "patterns", "match": "whole", "default": [], "against": "問いのページの file の path（repo の根から・/ 区切り）"},
         "ask_question_max_chars": {

@@ -1,9 +1,10 @@
 """字を挙げるだけの命令の「出力」と「変数」が動く側へ流れる形、git・rg の一覧の外の前置き、関所の置き方の一覧の外の
 正しい試験、seal の理由の語の一部に当たる未決の印を、わざと入れて今の扱いを示す（レビューの red の 2 回目と 3 回目）。
 - 出力・変数を通して動かす形と、一覧の外の前置きは止める側（前の main でも止まっていた形）。
-- 代入だけの並び（x=…・printf -v）は使い所を追わず常に動く側（export・set -a・heredoc の中・declare -n で抜けた）。
-  file へ書いた後ろに素の道具でない並びが在れば書いた中身も動く側（.git/hooks・Makefile を道具が暗に読む）。
-- 字を挙げるだけで動く側へ流れない形（commit の文の $( )・一覧の中の前置き）は今も通す。
+- 字を挙げるだけと見なして外すのは、命令の行全体を読み切れた時だけ（変数・展開・heredoc・redirect・代入・export・tee が
+  1 つも無い形）。1 つでも在れば前の main と同じく字全体で見る（export・set -a・heredoc の中の $x・declare -n・
+  .git/hooks・Makefile を道具が暗に読む形・commit の文の $( ) と変数も、流れる道を追わずに全部この 1 つで止まる）。
+- 読み切れる形で名を挙げるだけ（git commit -m '…'・grep・echo '…'・gh pr create --body '…'・一覧の中の前置き）は今も通す。
 - paid_upstream の Edit は置き換えの後にだけ在るコードの行の印を数える。seal は前の main より止める側を広げない。
 - 共通の関所が探し方の外に在る正しい試験は止めない（前の main でも通っていた形）。関所を見つけられない時は書いた後に知らせる。
 入力は全部作り物（名は字を割って書く）。"""
@@ -30,18 +31,34 @@ FLOW = [
     "git fetch --upload-pack='{x}' .",
     "git push --receive-pack '{x}' .",
     "git log --no-such-option='{x}'",
-    # 3 回目の red: 変数の使い所を 1 つずつ追う形が抜ける道（代入だけの並びは常に動く側に数える）
+    # 3 回目の red: 変数・環境・heredoc の道（行全体を読み切れない形＝字全体で見る）
     "GIT_PAGER='{x}'; export GIT_PAGER; git log",
     "PAGER='{x}'; export PAGER; git log -p",
     "set -a; GIT_PAGER='{x}'; git log",
     "x='{x}'; bash <<EOF\n$x\nEOF",
     "x='{x}'; cat <<EOF | sh\n$x\nEOF",
     "x='{x}'; declare -n r=x; eval \"$r\"",
-    # 3 回目の red: 道具が名を挙げずに暗に読む file（書いた後ろに素の道具でない並びが在れば、書いた中身を動く側に数える）
+    # 3 回目の red: 道具が名を挙げずに暗に読む file（redirect で書く手が在る行は読み切れない形）
     "printf '#!/bin/sh\\n{x}\\n' > .git/hooks/pre-commit; git commit -m m",
     "printf 'all:\\n\\t{x}\\n' > Makefile; make",
     "msg='{x}'; git commit -m \"$msg\"",
     "x='{x}'; echo \"$x\"",
+    "git commit -m \"$(cat <<'EOF'\n{x} を止める\nEOF\n)\"",
+    # 読み切れない形の組み合わせ（どれか 1 つが在れば行全体を前の main と同じく字全体で見る）
+    "echo '{x}' > メモ.md",
+    "echo '{x}' | tee メモ.md",
+    "echo '{x}' >> メモ.md && git add メモ.md",
+    "FOO=1 echo '{x}'",
+    "export FOO; echo '{x}'",
+    "env FOO=1 echo '{x}'",
+    "set -a; echo '{x}'",
+    "declare -n r=x; echo '{x}'",
+    "source ./a.sh; echo '{x}'",
+    "echo \"$HOME\" '{x}'",
+    "echo '{x}' $(true)",
+    "cat <<'EOF'\n{x}\nEOF",
+    "git commit -m '{x}' < /dev/null",
+    "grep -n '{x}' <(cat a)",
 ]
 
 
@@ -59,8 +76,10 @@ def test_irreversible_出力と変数と一覧の外の前置きで動かす形�
 
 
 @pytest.mark.parametrize("cmd", [
-    "git commit -m \"$(cat <<'EOF'\n%s を止める\nEOF\n)\"" % RUN,
     "git commit -m '%s を止める' && git push -u origin claude/x" % RUN,
+    "echo '%s は止まる'; grep -rn '%s' plugins | head -3" % (RUN, LOCK),
+    "gh pr create --title t --body '%s を挙げるだけ'" % RUN,
+    "git commit -m \"%s を直す\"" % RUN,
     "git -C . log --oneline -5 --grep='%s'" % RUN,
     "rg -n --hidden '%s' plugins" % RUN,
 ])
