@@ -48,3 +48,15 @@ def test_plugin_の中を指す_symlink_は今までどおり拾う(fake):
     git(fake, "add", "-A")
     res = run("list", "--repo", str(fake))
     assert "alpha → beta  plugins/alpha/lib/reader.py:1 judge.py" in res.stdout, res.stdout
+
+
+def test_symlink_を_import_して実体の部品のコードを借りる流れは実体の部品への流れに数える(fake):
+    """lib/ の symlink を import する形は、実体の部品（ここでは shared）を借りる流れ。前は拾わず、借りが絵から漏れた。"""
+    put(fake, "shared/reader.py", SHARED_TEXT)
+    _link(fake, "plugins/alpha/lib/reader.py", "shared/reader.py")
+    _link(fake, "plugins/beta/lib/reader.py", "shared/reader.py")      # 置いただけで import しない plugin
+    put(fake, "plugins/alpha/scripts/use.py", "import reader\n")
+    git(fake, "add", "-A")
+    res = run("list", "--repo", str(fake))
+    assert "alpha → shared  plugins/alpha/scripts/use.py:1 reader.py" in res.stdout, res.stdout
+    assert "beta → shared" not in res.stdout, res.stdout

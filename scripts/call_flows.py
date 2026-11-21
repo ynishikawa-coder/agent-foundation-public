@@ -22,7 +22,8 @@
   - .md（手順の文）: コードの中の命令の形だけ（`python3 <名>/…/x.py …`・`x.py olds` のように引数を付けた直の実行・コードの塊の行）。
   拾わない物: 説明の文（docstring・注釈・人への文・`x.py` と名や path を挙げるだけの手順の文）＝呼んでいない。
     skill の名・文書（.md）の path（道具を呼ぶ流れでない）・.html・.txt（道具を呼ばない）・
-    plugin の外の実体を指す symlink（例: lib/skill_values.py → skill-values/。中身は実体の部品の文で、置いた plugin の物でない）。
+    plugin の外の実体を指す symlink（例: lib/skill_values.py → skill-values/）の中身（実体の部品の文で、置いた plugin の物でない）。
+    ただし plugin がその symlink を import して実体の部品のコードを借りる形は、実体の部品（例 skill-values）への流れに数える。
   前の形は行の字に名が在れば数え、説明の文で名を挙げるだけで「絵に無い流れ」の赤になり、絵に偽の流れを足すか
   注釈の言い方を替えて逃げる圧になった。読めない file（読めない・utf-8 でない・.py・.json の形が崩れた）は黙って飛ばさず照らせない（exit 2）。
 絵との対応: 絵の箱のうち tab が arch で、題の頭（「（」の前）が plugin（部品）の名と同じ箱をその箱とみる。
@@ -73,6 +74,11 @@ def flows(repo: Path) -> dict[tuple[str, str], list[str]]:
     files = tracked(repo)
     plugins = sorted({f.split("/")[1] for f in files if f.startswith("plugins/") and f.count("/") >= 2
                       and (repo / "plugins" / f.split("/")[1] / ".claude-plugin" / "plugin.json").is_file()})
+    borrowed: dict[str, dict[str, str]] = defaultdict(dict)   # plugin → {借りた file 名: 実体の部品}
+    for f in files:
+        if borrowed_link(repo, f) and f.endswith(TOOL_SUFFIX):
+            real = (repo / f).resolve().relative_to(repo.resolve()).parts
+            borrowed[f.split("/")[1]][f.rsplit("/", 1)[-1]] = real[0]
     files = [f for f in files if not borrowed_link(repo, f)]
     owner: dict[str, set[str]] = defaultdict(set)      # 道具の file 名 → 持つ plugin
     outside: set[str] = set()                          # plugin の外にも同じ名の file が在る名
@@ -114,6 +120,10 @@ def flows(repo: Path) -> dict[tuple[str, str], list[str]]:
         seen = set()
         for no, piece, kind in pieces(f, text, units):
             if kind == "value":
+                y = borrowed[x].get(piece.strip()) if f.endswith(".py") else None
+                if y and y != x and (no, y, "lib") not in seen:   # lib/ の symlink（土台の部品の実体）を import して借りる
+                    seen.add((no, y, "lib"))
+                    out[(x, y)].append(f"{f}:{no} {piece.strip()}")
                 for item in using_items(f, piece):
                     if (no, item) not in seen:
                         seen.add((no, item))
