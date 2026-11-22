@@ -122,7 +122,6 @@ plugins/core/細目.md	節の番号は核と同じです。
 plugins/core/細目.md	結論は 1 行、根拠は 2〜3 行。
 plugins/core/細目.md	綺麗な新しい repo に、照らした中身だけを noreply の名義で置く。
 plugins/core/細目.md	背景を問いの文に詰めない。
-plugins/core/細目.md	行き先の無い行（未定）を残して終わらない。
 plugins/core/細目.md	親は依頼文に「その窓が持つ論点」を書いて分け、同じ問いを 2 つの窓で出さない。
 plugins/core/細目.md	親は子の ❓ を見て、1 時間答えの無い問いを自分の窓に `まだ答えの無い問い: <窓 URL>・<問い 1 行>` で知らせる。
 plugins/core/細目.md	言えない時は解決がまだ足りていない。

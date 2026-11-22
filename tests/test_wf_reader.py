@@ -26,7 +26,8 @@ import pr_text as P  # noqa: E402
 import workflow_reader as W  # noqa: E402
 
 # 作り物の箱と GitHub の道具の入力（守りの hook の入口から当てる）は test_pr_text の物を共に使う
-from test_pr_text import MAIL, PUBLIC_WORD, _fake_public_repo, deny_reason, env, gh  # noqa: E402,F401
+import test_pr_text as TP  # noqa: E402
+from test_pr_text import MAIL, PUBLIC_WORD, _fake_public_repo, _visibility_gh, deny_reason, env, gh  # noqa: E402,F401
 from entry_box import box_env
 
 F = W.FOUNDATION
@@ -129,6 +130,13 @@ def test_github_の_repo_でない_URL_は読まない(url):
     assert P.github_repo(url) == ""
 
 
+def _private_on_github(env, monkeypatch):
+    """GitHub は fake-owner/fake-public を private と答える（作り物の gh）。取り出しの workflow で公開と決まらない時、
+    visibility の引き（引けなければ公開として照らす）に倒れず、workflow の読みだけを見る。"""
+    monkeypatch.setitem(TP.VISIBILITY, "fake-owner/fake-public", "private")
+    _visibility_gh(env)
+
+
 def _raw_remote(env):
     """git の URL の書き替え（insteadOf を環境で渡す窓がある）を外し、remote の URL を置いたままの形で読ませる。"""
     for k in [k for k in env if k.startswith("GIT_CONFIG")]:
@@ -152,8 +160,9 @@ def test_ssh_の取り出しでも公開の_repo_と見分けて照らす(env, u
 @pytest.mark.parametrize("url", ["https://github.com/fake-owner/fake-public-fork.git",
                                  "git" + "@" + "github.com:x-fake-owner/fake-public.git",
                                  "https://gitlab.example.com/fake-owner/fake-public.git"])   # github.com でない（直す前は末尾だけで当てた）
-def test_似た名の取り出しは別の_repo(env, url):  # noqa: F811
+def test_似た名の取り出しは別の_repo(env, url, monkeypatch):  # noqa: F811
     _raw_remote(env)
+    _private_on_github(env, monkeypatch)
     _fake_public_repo(Path(env["CLAUDE_PROJECT_DIR"]), PUBLIC_WORD, url=url)
     assert deny_reason(env, gh("add_issue_comment", issue_number=1, body="連絡は %s へ" % MAIL, repo="fake-public")) == ""
 
@@ -179,8 +188,9 @@ def _mail(env):
     {"a.yml": _wf(" [pull_request]", step_if="false")},                               # step が走らない
     {"a.yml": "on: [pull_request]\njobs:\n  a:\n    steps:\n      - run: |\n          %s\n" % CALL},  # run の字
 ])
-def test_PR_push_で走らない呼び口は公開と数えない(env, files):  # noqa: F811
+def test_PR_push_で走らない呼び口は公開と数えない(env, files, monkeypatch):  # noqa: F811
     """注入: 直す前は on: と if: を見ず、workflow_dispatch だけ・if: false の呼び口でも公開と見て照らしていた。"""
+    _private_on_github(env, monkeypatch)
     proj = Path(env["CLAUDE_PROJECT_DIR"])
     _fake_public_repo(proj, PUBLIC_WORD)
     _put_workflows(proj, files)
