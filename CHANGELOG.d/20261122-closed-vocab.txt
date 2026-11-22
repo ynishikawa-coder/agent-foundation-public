@@ -1,0 +1,9 @@
+- 壊れる: 値の表（config/skill-values.json）の頂の欄を閉じた表にした。土台の欄・`_` で始まる注・頂の鍵 repo_sections に名を並べた repo 自身の欄のどれでもない頂の欄（打ち間違い・名を並べ忘れた repo 自身の欄）を「知らない頂の欄」と名指す（起動の知らせ・values_keys.py・AI の書き込みは止まる）。使う側がやる事: repo 自身の欄を持つ値の表は、頂に "repo_sections": ["<欄の名>", …] を足す。
+- 直した: checker の verdict_form が verdict の行と 1 行目の判定を review-pr の雛形の形だけで照らす（green（blocked: …）・yellow など表に無い判定を拒む）。
+- 直した: guard の pr_text が判定の字を問わず判定のコメントと見分け、整地の短い置き場も拾い、整地の見出しと「整地: 不要」の 1 行を字どおりに照らす。取り出しの無い repo は GitHub の visibility で公開を決め、引けなければ公開として照らす。
+- 直した: guard の unanswered が問いを降ろす訳を表 DROP_WHY（答え済み・要らない・言い直した）に閉じる。
+- 直した: guard の context_size が後継へ渡す返し先を、この窓の最初の頼みの行の記録から読んで字のまま示す（推して写させない）。
+- 直した: guard_common の頼みの行の印を人の表と別の窓の表で閉じ、どちらにも無い印は promptSource で決める。
+- 直した: blueprint が表に無い fate・kind・mode を selftest の NG にし、置き場の知らない札を「保存される」に倒さない。
+- 畳んだ: qa-html の宛先・問いの形・長さの上限の表を check.mjs 1 か所の正本にし（`node check.mjs --table dests|kinds|limits`）、SKILL.md の表はその出力の写しを試験が一字違わず照らす。重なった later_lead の行を 1 つにした。
+- 足した: guard の見張り ledger_dest（PostToolUse・止めずに知らせる）。Notion の原因の台帳へ書く `行き先` を、core の細目.md「原因の台帳」の行の値の表と字どおりに照らす。
