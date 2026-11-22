@@ -10,7 +10,7 @@
   正本を指す字（file の path・`…` のコード・skill の名 `plugin:skill`）は字の並びから除く（_POINTER）。写しの直し方は
   「正本を指す 1 行に替える」なので、指す字が重なっただけの行を写しと呼ぶと、直した行がまた赤になる。指す字を除いて
   MIN_CHARS に足りない行（指すだけの行）は照らさない。
-土台の文: 同じ plugin の 核.md・振る舞い.md・細目.md と、並ぶ plugin の skills/*/SKILL.md
+土台の文: 同じ plugin の 核.md・振る舞い.md・細目/ の節ごとの file と、並ぶ plugin の skills/*/SKILL.md
   （repo の形 plugins/<名>/ は並ぶ plugin、入れた写しの形 cache/<市場>/<名>/<版>/ は入った版の dir だけ＝plugin_dirs）。--foundation で dir を渡せば
   その下の .md を全部使う。土台の文が 1 つも読めない時は照らさずに止める（黙って緑にしない）。
 
@@ -64,7 +64,7 @@ def plugin_dirs() -> list[Path]:
     """土台の文を読む plugin の dir（入った版だけ）。
     repo の形（plugins/<名>/）: 並ぶ plugin の dir。入れた形（cache/<市場>/<名>/<版>/）: 入った台帳の、土台の目録の
     plugin ごとに今読まれる行（kaku.current_row）の installPath だけ。cache に残る前の版の dir は読まない
-    （もう土台に無い言い回しの写しまで赤にしない）。台帳が読めなければ core と同じ版の dir だけ。"""
+    （もう土台に無い言い回しの写しまで赤にしない）。台帳が無い・行が無ければ core と同じ版の dir だけ（在るのに読めない台帳は main が「照らせない」と名指す）。"""
     if (PLUGIN.parent.parent / ".claude-plugin").is_dir():
         return sorted(d for d in PLUGIN.parent.iterdir() if d.is_dir())
     sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -78,7 +78,7 @@ def plugin_dirs() -> list[Path]:
 def foundation_files(base: Path | None) -> list[Path]:
     if base is not None:
         return sorted(p for p in base.rglob("*.md") if p.is_file())
-    own = [PLUGIN / n for n in ("核.md", "振る舞い.md", "細目.md")]
+    own = [PLUGIN / n for n in ("核.md", "振る舞い.md")] + sorted((PLUGIN / "細目").glob("*.md"))   # 細目は節ごとの file
     skills = {p for d in plugin_dirs() for p in d.glob("skills/*/SKILL.md")}
     return [p for p in own if p.is_file()] + sorted(skills)
 
@@ -135,13 +135,15 @@ def main(argv=None) -> int:
     ap.add_argument("--foundation", type=Path)
     ap.add_argument("--threshold", type=float, default=THRESHOLD)
     a = ap.parse_args(argv)
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    import kaku
     try:
         rows, inv = index(foundation_files(a.foundation))
         if not rows:
             print("copies: 照らせない — 土台の文が 1 つも読めない（--foundation で土台の dir を渡す）")
             return 2
         hits = scan(a.files, rows, inv, a.threshold)
-    except (OSError, UnicodeDecodeError) as e:
+    except (OSError, UnicodeDecodeError, kaku.Unreadable) as e:  # 入った台帳が読めない時も名指す
         print(f"copies: 照らせない — {e}")
         return 2
     for t, no, s, score, f, fno, fs in hits:

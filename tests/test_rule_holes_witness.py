@@ -14,7 +14,7 @@ ROOT = Path(__file__).resolve().parent.parent
 spec = importlib.util.spec_from_file_location("af_rule_holes_for_witness", ROOT / "tests" / "test_rule_holes.py")
 holes = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(holes)
-REL = "plugins/core/細目.md"
+REL = "plugins/core/細目/03-直すは根治.md"
 TEXT = "- 作り物の決まり。\n"
 
 

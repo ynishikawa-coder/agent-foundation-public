@@ -16,6 +16,7 @@ import subprocess
 from pathlib import Path
 
 import pytest
+from saimoku import 全文 as 細目の全文
 
 ROOT = Path(__file__).resolve().parent.parent
 GUARD_SKILL = ROOT / "plugins/guard/skills/guard-rules/SKILL.md"
@@ -82,7 +83,7 @@ def _dunno_forms(text):
 
 
 def test_細目の分からないは_ask_shape_の見分けに当たる():
-    assert AS.is_dunno(_dunno_word(_read(ROOT / "plugins/core/細目.md")))
+    assert AS.is_dunno(_dunno_word(細目の全文()))
 
 
 def test_guard_rules_に書いた分からないの形は全部_ask_shape_の見分けに当たる():
