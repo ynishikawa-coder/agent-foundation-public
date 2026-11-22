@@ -29,6 +29,7 @@ RULES = [
     ("plugins/core/振る舞い.md", "黙って縮めない・膨らませない。"),
     ("plugins/core/細目/03-直すは根治.md", "／`オーナーの判断`（目標の外の穴）。"),
     ("plugins/core/細目/03-直すは根治.md", "行に元の頼みを書く。"),
+    ("plugins/core/細目/03-直すは根治.md", "- **範囲の形** — 迷ったら最新の版と、repo に既に在る型を採る。"),
     ("plugins/core/細目/03-直すは根治.md", "`直さない` はオーナーが決め、直す窓は目標の中の行かオーナーが「直して」と答えた行にだけ立てる。"),
     ("plugins/core/細目/07-完了の4状態.md", "| 一部 | 合意した目標そのものが途中で止まった。残りは原因の台帳の行へ |"),
     ("plugins/core/細目/07-完了の4状態.md", "- **根治の終わり** — 根治の仕事は、目標の中の台帳の行が全部 `直した` か `直さない` の時に「終わった」。"),
@@ -57,7 +58,7 @@ def _log(tmp_path, *rows):
                                             *rows])
 
 
-def _create(tpath, prompt, title="🤖⏳ 作り物の直し"):
+def _create(tpath, prompt, title="🤖💤 作り物の直し"):
     return {"tool_name": "mcp__claude-code-remote__create_session", "session_id": "s1", "transcript_path": tpath,
             "tool_input": {"prompt": prompt, "title": title}}
 
@@ -91,7 +92,7 @@ def test_オーナーの打った目標の文を引いた直す窓は通る(env,
 
 
 def test_直す窓でない窓は照らさない(env, tmp_path):
-    assert not denied(env, _create(_log(tmp_path), "作り物の画面の並走の窓", title="🤖⏳ 作り物の並走"))
+    assert not denied(env, _create(_log(tmp_path), "作り物の画面の並走の窓", title="🤖💤 作り物の並走"))
 
 
 # ── 3. 終わりの報告に穴を聞く欄が無ければ知らせる（session-watch の holes）──
