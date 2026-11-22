@@ -2,3 +2,4 @@
 - 直した: common.rules の指しの照らしは、禁じる・畳んだの語（写さない・畳んだ 等）が同じ文に在るかで説明と指示を分けない。.md と .html は注記の中だけを外し、地の文で名を挙げれば赤
 - 直した: 構造の読み方を写さない試験は、名を挙げた 5 か所の字でなく、core の plugin・tests・scripts の .py 全部を構文で読み、囲み・注記・注釈・引用の印を自分で拾う所（tokenize・正規表現・startswith）を名指す（tests/test_reader_one_place.py）。見つけた copies.py の行頭の > の外しを畳んだ（引用の行は kaku.md_own が空にする）
 - 直した: core の kaku.js_code は /…/ の正規表現の中の引用符・// を字の値の開きや注釈と読まず、後の命令を消さない
+- 直した: scripts/call_flows.py（全体の絵の流れを拾う道具）は JS の注釈と .md の囲みを自分で読まず、core の kaku の読み口（js_code・md_blocks）を呼ぶ（main で入った写しを、構造の読み方を写さない試験が名指した）

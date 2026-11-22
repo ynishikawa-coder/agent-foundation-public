@@ -34,6 +34,7 @@ from __future__ import annotations
 
 import argparse
 import ast
+import importlib.util
 import json
 import re
 import shlex
@@ -43,6 +44,10 @@ from collections import defaultdict
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
+# 囲み・注釈の読み方は core の kaku.py の「使う形の読み口」の 1 か所だけが持つ（ここに写さない）。
+_kspec = importlib.util.spec_from_file_location("kaku_call_flows", ROOT / "plugins" / "core" / "scripts" / "kaku.py")
+kaku = importlib.util.module_from_spec(_kspec)
+_kspec.loader.exec_module(kaku)
 TOOL_SUFFIX = (".py", ".mjs", ".js", ".sh")
 CODE_SUFFIX = (".py", ".mjs", ".js", ".sh", ".md", ".json")   # 呼ぶ形を読める file（.html・.txt は道具を呼ばない）
 OUTSIDE_SKIP = {"plugins", "tests", "scripts", "docs", "CHANGELOG.d"}  # 配らない・道具でない dir（. で始まる dir も外す）
@@ -160,7 +165,7 @@ USING_REPO = "使う側の repo"
 USING = (USING_TABLE, USING_CLAUDE, USING_REPO)
 _LOCATE_VALUES = {"CLAUDE_PROJECT_DIR", "--show-toplevel", "cwd"}
 _LOCATE_SH = re.compile(r"CLAUDE_PROJECT_DIR|--show-toplevel|\$PWD\b|\$\{PWD\}|\$\(\s*pwd\s*\)")
-_PATHSPEC_GLOB = re.compile(r"(?::\(exclude\))?[\w./-]*\*[\w./*-]*")
+_PATHSPEC = re.compile(r"(?::\(exclude\))?[\w./*-]+")
 
 
 def using_items(f: str, piece: str) -> list[str]:
@@ -170,7 +175,7 @@ def using_items(f: str, piece: str) -> list[str]:
         return [USING_TABLE]
     if w == "CLAUDE.md":
         return [USING_CLAUDE]
-    if f.endswith(".json") and _PATHSPEC_GLOB.fullmatch(w):
+    if f.endswith(".json") and "*" in w and _PATHSPEC.fullmatch(w):
         return [USING_REPO]
     if f.endswith((".py", ".mjs", ".js")) and w in _LOCATE_VALUES:
         return [USING_REPO]
@@ -190,9 +195,8 @@ def locate_calls(f: str, text: str) -> list[int]:
                 and (n.func.attr if isinstance(n.func, ast.Attribute) else getattr(n.func, "id", "")) in ("cwd", "getcwd")
                 and not n.args]
     if f.endswith((".mjs", ".js")):
-        code = re.sub(r"/\*.*?\*/", lambda m: "\n" * m.group(0).count("\n"), text, flags=re.S)
-        return [no for no, ln in enumerate(code.splitlines(), 1)
-                if re.search(r"\bprocess\.cwd\(\s*\)", ln.split("//", 1)[0])]
+        return [no for no, ln in enumerate(kaku.js_code(text).splitlines(), 1)
+                if re.search(r"\bprocess\.cwd\(\s*\)", ln)]
     return []
 
 
@@ -295,55 +299,34 @@ def _py_pieces(f, text, units):
 
 
 def _js_pieces(text):
-    """注釈を除き、字の値（'…' "…" `…`）だけを取り出す。正規表現の値は字に数えない。"""
-    out, i, n, line, prev = [], 0, len(text), 1, ""
+    """注釈を除き（kaku.js_code）、字の値（'…' "…" `…`）だけを取り出す。正規表現の値は字に数えない（kaku の見分け）。"""
+    code = kaku.js_code(text)
+    out, i, n, line = [], 0, len(code), 1
     while i < n:
-        c = text[i]
+        c = code[i]
         if c == "\n":
             line += 1
             i += 1
             continue
-        if text.startswith("//", i):
-            j = text.find("\n", i)
-            i = n if j < 0 else j
-            continue
-        if text.startswith("/*", i):
-            j = text.find("*/", i + 2)
-            j = n if j < 0 else j + 2
-            line += text.count("\n", i, j)
-            i = j
-            continue
+        if c == "/":
+            end = kaku._js_regex_end(code, i)
+            if end is not None:
+                i = end
+                continue
         if c in "'\"`":
             j, start, buf = i + 1, line, []
-            while j < n and text[j] != c:
-                if text[j] == "\\":
-                    buf.append(text[j:j + 2])
+            while j < n and code[j] != c:
+                if code[j] == "\\":
+                    buf.append(code[j:j + 2])
                     j += 2
                     continue
-                if text[j] == "\n":
+                if code[j] == "\n":
                     line += 1
-                buf.append(text[j])
+                buf.append(code[j])
                 j += 1
             out.append((start, "".join(buf), "value"))
-            i, prev = j + 1, c
+            i = j + 1
             continue
-        if c == "/" and (prev == "" or prev in "(,=:[!&|?{};+-*%<>~^" or re.search(r"\b(return|typeof|case|in|of)\s*$", text[max(0, i - 8):i])):
-            j, cls = i + 1, False
-            while j < n and text[j] != "\n":
-                if text[j] == "\\":
-                    j += 2
-                    continue
-                if text[j] == "[":
-                    cls = True
-                elif text[j] == "]":
-                    cls = False
-                elif text[j] == "/" and not cls:
-                    break
-                j += 1
-            i, prev = j + 1, "/"
-            continue
-        if not c.isspace():
-            prev = c
         i += 1
     return out
 
@@ -384,21 +367,18 @@ def _json_pieces(f, text):
     return out
 
 
-_FENCE = re.compile(r"^\s*(```|~~~)")
 _SPAN = re.compile(r"(`+)(.+?)\1")
 
 
 def _md_pieces(text):
-    """手順の文は、命令の形のコード（`python3 …/x.py`・コードの塊の行）だけを呼ぶ形とみる。名を `x.py` と挙げるだけは数えない。"""
-    out, fence = [], False
-    for no, ln in enumerate(text.splitlines(), 1):
-        if _FENCE.match(ln):
-            fence = not fence
-            continue
-        if fence:
+    """手順の文は、命令の形のコード（`python3 …/x.py`・コードの塊の行）だけを呼ぶ形とみる。名を `x.py` と挙げるだけは数えない。
+    囲みの読み方は kaku.md_blocks（閉じの無い囲みもコードの塊として読む）。"""
+    out = []
+    for no, (kind, ln, _lang) in enumerate(kaku.md_blocks(text), 1):
+        if kind in ("fence", "open"):
             out.append((no, ln, "command"))
-            continue
-        out += [(no, m.group(2), "command") for m in _SPAN.finditer(ln)]
+        elif kind != "mark":
+            out += [(no, m.group(2), "command") for m in _SPAN.finditer(ln)]
     return out
 
 
