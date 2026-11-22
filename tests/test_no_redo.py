@@ -113,13 +113,21 @@ def test_注入_引き継いで閉じる文を入れると見分けが拾う():
     assert HANDOVER.search(old)
 
 
-@pytest.mark.parametrize("make", ["update_text", "stale_at_start_text", "unknown_at_start_text"])
+def _update(f):
+    return kaku.update_text(f, kaku.changed_core_text(f["main"], kaku.tip_texts(f["main"]), {}))
+
+
+@pytest.mark.parametrize("make", [_update, kaku.stale_at_start_text, kaku.unknown_at_start_text,
+                                  kaku.after_setup_text, lambda f: kaku.RESTART_TEXT])
 def test_土台の新しさの知らせは窓をそのまま続けさせる(monkeypatch, tmp_path, make):
     monkeypatch.setenv("HOME", str(tmp_path))       # 目録が無い＝先端の本文は読めない（読めない事を 1 行で名指す）
-    text = getattr(kaku, make)(_f())
+    text = make(_f())
     assert not HANDOVER.search(text), text
     assert "そのまま頼みを続ける" in text and "create_session・archive_session をしない" in text
-    assert "（main の先端の 核.md を読めなかった" in text
+    if make is _update:
+        assert "（main の先端の 核.md を読めなかった" in text
+    else:                                            # 起動の時は核を上に 1 枚だけ差し込み、知らせに本文を重ねない
+        assert "### main の先端の" not in text
 
 
 def test_起動の後の知らせは同じ先端で繰り返さない():
