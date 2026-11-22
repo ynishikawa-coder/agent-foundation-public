@@ -16,8 +16,8 @@ def _節(text, n):
 def test_答えの無い問いを時間で数えて親が知らせ直す仕組みを前提にしない():
     """「1 時間答えの無い問いは親が知らせ直す」形を細目 §4・guard の注に戻すと赤（決定 2026-11-22）。"""
     s4d = _節(細目の全文(), 4)
-    assert "時間で数えて親が知らせ直す仕組みは持たない" in (ROOT / "plugins" / "guard" / "scripts" / "unanswered.py").read_text(encoding="utf-8")
     unanswered = (ROOT / "plugins" / "guard" / "scripts" / "unanswered.py").read_text(encoding="utf-8")
+    assert "時間で数えて親が知らせ直す仕組みは持たない" in unanswered
     for text in (s4d, unanswered):
         assert "1 時間答えの無い問い" not in text and "1時間答えの無い問い" not in text
 
