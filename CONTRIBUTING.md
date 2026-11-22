@@ -9,6 +9,7 @@
 - 枝の名は `claude/<日付>-<話題>`。日付は `YYYYMMDD`（例: `claude/20261111-hone`）。
 - **1 枝 = 1 PR = 1 窓。** 1 つの窓が 1 本の枝を持ち、その枝から PR を 1 本だけ出す。他の窓の枝へは push しない。1 本に入らなかった仕事は各社の原因の台帳の行にし、直す窓（行ごとでなく互いに関係しない直しのまとまりごとに 1 つ）を付けて PR 本文の「残り」に書く（細目 §3）。土台を直す時は、使う側の repo に残った写しも同じ仕事の中で直し、PR 本文の「使う側の写しの残り」に書く（細目 §7「土台の直しの終わり」）。
 - PR の base は `main`。本文は `.github/pull_request_template.md` の型で書く（冒頭 3 行: 書いた窓・job・検査。親窓の欄は置かない＝窓の親は照らせない写しにせず、サーバの記録〔`get_session` の `parent_session_id`〕を読む。触った path は本文に手で書かず、レビューの窓が `git diff --name-only` で取る）。書いた窓は先端の commit の `Claude-Session:` の窓（直しの往復で別の窓が commit したらその窓に書き換える。違えば CI の job check が赤＝`plugins/checker/scripts/pr_writer.py`）。
+- 窓を並べる前に、触る file を宣言して `python3 scripts/pr_overlap.py --repo <owner/name> --files <path>...` で開いている PR と重なるかを引く。重なる窓は並べず、重なる PR が入ってから始める（振る舞いの既定「並走」）。
 - **どちらの AI（Javis の窓・UTC エージェントの窓）からも、この repo へ直に PR を出してよい。**
 
 ## 2. レビュー
