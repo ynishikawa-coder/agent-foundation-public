@@ -18,7 +18,7 @@ def test_PR_の型は触った_path_と残りの行き先を手で写させな�
     assert "触る path" not in t
     assert "行き先: 直す窓" not in t and "`- 台帳の行 <行の id の末尾 12 字>` だけ" in t
     c = (ROOT / "CONTRIBUTING.md").read_text(encoding="utf-8")
-    assert "冒頭 3 行: 書いた窓・job・検査" in c
+    assert "冒頭の欄は job の 1 行" in c and "冒頭 3 行" not in c   # 書いた窓・検査は記録を読む（写しの欄を置かない）
 
 
 def test_レビューは触った_path_を差分から取る():
