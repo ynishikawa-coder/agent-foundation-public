@@ -76,3 +76,21 @@ def test_本物の細目は節ごとの_file_を空の行でつなぐと全文�
     text = kaku.saimoku_text()
     assert text == "\n".join(f.read_text(encoding="utf-8") for f in files)
     assert kaku.read_guarded(kaku.SAIMOKU) == text
+
+
+def test_細目の_dir_が_repo_の下の段に在っても比べ元の節を読む(monkeypatch, tmp_path):
+    """git ls-tree は出力を cwd の下に絞る。cwd を dir の親（下の段）にして読んでも、比べ元の節の file が見える。"""
+    _g(tmp_path, "init", "-q")
+    _g(tmp_path, "config", "user.email", "t@example.invalid")
+    _g(tmp_path, "config", "user.name", "t")
+    core = tmp_path / "plugins" / "core"
+    d = core / "細目"
+    d.mkdir(parents=True)
+    (core / "核.md").write_text("元の核\n", encoding="utf-8")
+    (d / "01-甲.md").write_text("## 1. 甲\n", encoding="utf-8")
+    _g(tmp_path, "add", "-A")
+    _g(tmp_path, "commit", "-q", "-m", "元")
+    monkeypatch.setattr(kaku, "injected", lambda: (core / "核.md",))
+    monkeypatch.setattr(kaku, "SAIMOKU", d)
+    assert kaku.base_text("HEAD", d) == "## 1. 甲\n"
+    assert kaku.grow("HEAD") == 0

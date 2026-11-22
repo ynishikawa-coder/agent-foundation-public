@@ -1133,9 +1133,8 @@ def base_text(ref: str, path: Path) -> str:
 
     if not path.is_dir():
         return show(rel)
-    # ls-tree は作業場所の下だけを並べるので、repo の頭で呼ぶ（dir の中で呼ぶと中身が空に見え、割る前の 1 枚を探して止まる）
-    ls = subprocess.run(["git", "-c", "core.quotepath=off", "ls-tree", "--name-only", f"{ref}:{rel}"],
-                        cwd=top.stdout.strip(), capture_output=True)
+    ls = subprocess.run(["git", "-c", "core.quotepath=off", "ls-tree", "--full-tree", "--name-only", f"{ref}:{rel}"],
+                        cwd=path.parent, capture_output=True)
     names = sorted(n for n in ls.stdout.decode("utf-8").splitlines() if n.endswith(".md")) if ls.returncode == 0 else []
     if names:
         return "\n".join(show(f"{rel}/{n}") for n in names)
