@@ -259,10 +259,20 @@ def is_compact_boundary(row):
     return isinstance(row, dict) and row.get("type") == "system" and row.get("subtype") == "compact_boundary"
 
 
+# 人が Esc で止めた時に Claude Code が書く印の行（人の行の形だが、人が打った頼みではない）。字は Claude Code が決める定まった文
+INTERRUPT_MARK = re.compile(r"^\[Request interrupted by user(?: for tool use)?\]$")
+
+
+def is_interrupt_mark(row):
+    """人が止めた時に Claude Code が書く中断の印の行か（新しい頼みではない）。"""
+    return isinstance(row, dict) and bool(INTERRUPT_MARK.match(text_of(row).strip()))
+
+
 def is_human_row(row):
-    """人がタイプした頼みの行か（正本はこの 1 つ）。知らせ・別の窓の頼み（seeded_by_record）・縮めた後の要約は人の行でない。
-    頼みを切る・オーナーが戻ったかを見る所は、どれもこれで見る（形だけの is_owner_row で番を切らない）。"""
-    return is_owner_row(row) and not seeded_by_record(row) and not is_compact_summary(row)
+    """人がタイプした頼みの行か（正本はこの 1 つ）。知らせ・別の窓の頼み（seeded_by_record）・縮めた後の要約・中断の印は
+    人の行でない。頼みを切る・オーナーが戻ったかを見る所は、どれもこれで見る（形だけの is_owner_row で番を切らない）。"""
+    return (is_owner_row(row) and not seeded_by_record(row) and not is_compact_summary(row)
+            and not is_interrupt_mark(row))
 
 
 def last_human_index(rows):

@@ -8,7 +8,8 @@
 
 止めるのは pre（permissionDecision=deny）だけ。post と start は隣に文を出すだけ。AI の締め（Stop）を差し戻す口は持たない
 （差し戻すと同じ返事を書き直させる無駄になる＝形の崩れは知らせるだけ）。
-どの見張りも壊れた時は黙って通す（1 つの故障で他の見張りや仕事を止めない）。exit は常に 0。
+どの見張りも壊れた時は通す（1 つの故障で他の見張りや仕事を止めない）が、黙っては通さない: 壊れた見張りの名と訳を
+隣に知らせる（pre の止めの文に添え、止めの無い時は systemMessage で出す。post・start は隣への文に添える）。exit は常に 0。
 """
 import ast
 import glob
@@ -28,16 +29,25 @@ EVENTS = {"pre": "PreToolUse", "post": "PostToolUse", "start": "SessionStart"}
 ROOT_CAUSE = "直し: 止められた所を直して出し直すだけで済ませず、その形が出た原因を細目 §3「まず構造を疑う」で探して直す"
 
 
-def _run(module, func, data, vals):
-    """1 つの見張りを走らせる。import から呼び出しまでを try の中に置く＝1 つが壊れても他は走る。"""
+def broken_note(name, why):
+    """壊れて照らせなかった見張りの知らせ（黙って通さない＝この 1 か所の形で出す）。"""
+    return "[guard] 見張り %s が壊れて照らせなかった（この出来事は照らさずに通した）: %s。plugin guard の %s.py を直す" % (
+        name, why, name.split(".")[0])
+
+
+def _run(module, func, data, vals, broken=None):
+    """1 つの見張りを走らせる。import から呼び出しまでを try の中に置く＝1 つが壊れても他は走る。
+    壊れた時は "" を返し、訳を broken（並び）へ足す（黙って通さない）。"""
     try:
         return getattr(importlib.import_module(module), func)(data, vals) or ""
     except Exception as e:      # noqa: BLE001
         sys.stderr.write("[guard] %s.%s: %s\n" % (module, func, e))
+        if broken is not None:
+            broken.append(broken_note("%s.%s" % (module, func), "%s: %s" % (type(e).__name__, e)))
         return ""
 
 
-def watchers(event):
+def watchers(event, broken=None):
     """この出来事で回す (module, 関数) の並び。同じ dir の各見張りが自分の頭に書く HOOKS = {出来事: 関数} を読む
     （入口に一覧を持たない＝見張りを足す PR が同じ 1 行へ足して互いに衝突しない）。読むのは字の宣言だけで import しない
     （import で壊れる見張りも、ここでは他を巻き込まない）。並びは module の名の順。"""
@@ -55,6 +65,8 @@ def watchers(event):
             continue                     # 宣言の無い file は見張りでない（手伝いの部品）
         except Exception as e:           # noqa: BLE001
             sys.stderr.write("[guard] %s の HOOKS が読めない: %s\n" % (name, e))
+            if broken is not None:
+                broken.append(broken_note(name, "HOOKS が読めない（%s: %s）" % (type(e).__name__, e)))
             continue
         if isinstance(hooks, dict) and isinstance(hooks.get(event), str):
             out.append((name, hooks[event]))
@@ -67,13 +79,16 @@ def run(event, data):
         vals = G.values(data)
     except Exception:          # noqa: BLE001
         vals = dict(G.DEFAULTS)
-    outs = [o for o in (_run(m, f, data, vals) for m, f in watchers(event)) if o]
-    if not outs:
+    broken = []
+    outs = [o for o in (_run(m, f, data, vals, broken) for m, f in watchers(event, broken)) if o]
+    if not outs and not broken:
         return None
     if event == "pre":
+        if not outs:        # 止めは無い＝通すが、照らせなかった見張りを黙らず出す
+            return {"systemMessage": "\n".join(broken), "hookSpecificOutput": {"hookEventName": EVENTS[event]}}
         return {"hookSpecificOutput": {"hookEventName": EVENTS[event], "permissionDecision": "deny",
-                                       "permissionDecisionReason": "\n\n".join(outs + [ROOT_CAUSE])}}
-    return {"hookSpecificOutput": {"hookEventName": EVENTS[event], "additionalContext": "\n\n".join(outs)}}
+                                       "permissionDecisionReason": "\n\n".join(outs + broken + [ROOT_CAUSE])}}
+    return {"hookSpecificOutput": {"hookEventName": EVENTS[event], "additionalContext": "\n\n".join(outs + broken)}}
 
 
 def main(argv):
