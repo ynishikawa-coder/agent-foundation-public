@@ -88,7 +88,7 @@ def test_題の目印の誤りを拾う():
     base = rows("child_ok.jsonl")
     assert codes(set_title(base, "🤖✅ 作り物の作業", "作り物の作業")) == ["title"]       # 種類が無い
     assert codes(set_title(base, "🤖✅ 作り物の作業", "🤖 作り物の作業")) == ["title"]   # 残りなしなのに ✅ が無い
-    assert "title" in codes(set_title(rows("owner_ok.jsonl"), "🙋 作り物の続き", "🙋✅ 作り物の続き"))  # 🙋 に ✅
+    assert "title" in codes(set_title(rows("owner_ok.jsonl"), "🙋 作り物の続き", "🙋🟢 作り物の続き"))  # 表に無い状態の印
     q = set_title(rows("plain_unanswered.jsonl"), "🤖❓ 作り物の置き場", "🤖 作り物の置き場")
     assert any("❓" in m for c, m in sw.check(sw.Log(q[:5])) if c == "title")             # 問いの前に ❓ が無い
 
@@ -111,15 +111,15 @@ def test_あなたがやることなしは窓を閉じてよいかを書く():
 
 
 def test_あなたがやることがあれば済むまで進めない事を書く():
-    c = set_last_text(rows("owner_ok.jsonl"), "⏳待ち（オーナー・今日中）\n設定を頼んだ。\nAI がこの後やること: なし\nあなたがやること: 設定を 1 つ")
+    c = set_last_text(rows("owner_ok.jsonl"), "💤待ち（オーナー・今日中）\n設定を頼んだ。\nAI がこの後やること: なし\nあなたがやること: 設定を 1 つ")
     assert "close" in codes(c)
-    c = set_last_text(rows("owner_ok.jsonl"), "⏳待ち（オーナー・今日中）\n設定を頼んだ。\nAI がこの後やること: なし\n"
+    c = set_last_text(rows("owner_ok.jsonl"), "💤待ち（オーナー・今日中）\n設定を頼んだ。\nAI がこの後やること: なし\n"
                                               "あなたがやること: 設定を 1 つ。これが済むまで公開に進めません。")
     assert "close" not in codes(c)
 
 
 def test_あなたがやることがある締めでは言い回しの平文の問いを拾う():
-    body = "⏳待ち（オーナー・今日中）\n置き場は上の箱と下の箱のどちらがよいか教えてください\n"
+    body = "💤待ち（オーナー・今日中）\n置き場は上の箱と下の箱のどちらがよいか教えてください\n"
     c = set_last_text(rows("owner_ok.jsonl"), body + "AI がこの後やること: なし\nあなたがやること: 上の問いに答える。これが済むまで置き場を作れません。")
     assert sw.is_plain_question(c[-1]["message"]["content"][0]["text"])
     c = set_last_text(rows("owner_ok.jsonl"), body + "AI がこの後やること: なし\nあなたがやること: なし。この窓は閉じて大丈夫です。")
@@ -163,21 +163,21 @@ def test_知らせる_hook_と返事の形を差し戻す_hook_を持つ():
     assert json.loads((PLUGIN / ".claude-plugin" / "plugin.json").read_text(encoding="utf-8"))["name"] == "session-watch"
 
 
-# ── 手の窓（題 `🙋⏳ 手: <何を>`）──
+# ── 手の窓（題 `✋ <何を>`）──
 def test_手の窓に型が欠ければ拾い_揃えば拾わない():
-    rs = set_title(rows("owner_ok.jsonl"), "🙋 作り物の続き", "🙋⏳ 手: 作り物の設定")
+    rs = set_title(rows("owner_ok.jsonl"), "🙋 作り物の続き", "✋ 作り物の設定")
     close = "\nAI がこの後やること: 済んだら頼んだ窓へ返す（今日中・この窓で）\nあなたがやること: この窓で設定を 1 つする。これが済むまで先へ進めません。"
-    bad = set_last_text(rs, "⏳待ち（オーナー・今日中）\n作り物の設定を直してください。" + close)
+    bad = set_last_text(rs, "💤待ち（オーナー・今日中）\n作り物の設定を直してください。" + close)
     found = sw.check(sw.Log(bad))
     assert [c for c, _ in found] == ["hand"] and "済んだ目印" in found[0][1]
-    good = set_last_text(rs, "⏳待ち（オーナー・今日中）\n目的: 作り物の設定が動く。\n手順:\n1. 作り物の画面を開く\n"
+    good = set_last_text(rs, "💤待ち（オーナー・今日中）\n目的: 作り物の設定が動く。\n手順:\n1. 作り物の画面を開く\n"
                              "2. `保存` を押す\n済んだ目印: 画面に「保存しました」が出る\n済んだ後: 頼んだ窓へ返して閉じる。" + close)
     assert codes(good) == []
 
 
 def test_手の窓でない待ちは型を見ない():
-    rs = set_title(rows("owner_ok.jsonl"), "🙋 作り物の続き", "🙋⏳ 作り物の続き")
-    rs = set_last_text(rs, "⏳待ち（子の窓・今日中）\n子の窓の返しを待つ。\nAI がこの後やること: 子の返しを受けて合流（今日中・この窓で）\nあなたがやること: なし。この窓で AI が続けるので、まだ閉じないでください。")
+    rs = set_title(rows("owner_ok.jsonl"), "🙋 作り物の続き", "🙋💤 作り物の続き")
+    rs = set_last_text(rs, "💤待ち（子の窓・今日中）\n子の窓の返しを待つ。\nAI がこの後やること: 子の返しを受けて合流（今日中・この窓で）\nあなたがやること: なし。この窓で AI が続けるので、まだ閉じないでください。")
     assert codes(rs) == []
 
 
@@ -264,7 +264,7 @@ NO_STEPS = [
 
 
 def reply(rs, owner):
-    return set_last_text(rs, "⏳待ち（オーナー・今日中）\n作り物の PR を出した。" + AI_DONE + owner)
+    return set_last_text(rs, "💤待ち（オーナー・今日中）\n作り物の PR を出した。" + AI_DONE + owner)
 
 
 def test_あなたがやることに手順を直に書けば拾い_URL_なし_問いだけは拾わない():
@@ -277,8 +277,8 @@ def test_あなたがやることに手順を直に書けば拾い_URL_なし_�
 
 
 def test_手の窓自身のあなたがやることは手順を見ない():
-    rs = set_title(rows("owner_ok.jsonl"), "🙋 作り物の続き", "🙋⏳ 手: 作り物の設定")
-    body = "⏳待ち（オーナー・今日中）\n目的: 作り物が動く。\n手順:\n1. 開く\n済んだ目印: 出る\n済んだ後: 返す。"
+    rs = set_title(rows("owner_ok.jsonl"), "🙋 作り物の続き", "✋ 作り物の設定")
+    body = "💤待ち（オーナー・今日中）\n目的: 作り物が動く。\n手順:\n1. 開く\n済んだ目印: 出る\n済んだ後: 返す。"
     rs = set_last_text(rs, body + "\nAI がこの後やること: 済んだら返す（今日中・この窓で）\n"
                        "あなたがやること: 上の手順 1 を開いて押す。これが済むまで先へ進めません。")
     assert "hand" not in codes(rs)
@@ -292,7 +292,7 @@ def test_前の返事に手順を直に書いた窓へ次の頼みで知らせ�
     for extra in ([], [nxt]):            # 新しい頼みが記録に載る前でも後でも、前の返事を見る
         log.write_text("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in rs + extra), encoding="utf-8")
         text = sw.remind({"transcript_path": str(log)}, CLOUD)
-        assert text and text.startswith("[session-watch] 前の返事の") and "🙋⏳ 手: <何を>" in text
+        assert text and text.startswith("[session-watch] 前の返事の") and "✋ <何を>" in text
         assert "set_session_title" not in text          # 題は付いている＝題の知らせと重ねない
     ok = reply(rows("owner_ok.jsonl"), NO_STEPS[0])
     log.write_text("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in ok), encoding="utf-8")

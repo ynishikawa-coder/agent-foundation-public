@@ -6,14 +6,14 @@
              guard の outbound が題を付ける口・窓を立てる口でもこれを直に呼ぶ＝題の形の正本）
   close    … 返事の最後が締めの 2 行（`AI がこの後やること: …`／`あなたがやること: …`）か。あなたがやることが「なし」なら窓を閉じてよいかを、
              「なし」でなければ「これが済むまで <何> に進めません」を書いているか
-  card     … 返事の 1 行目が 4 札（✅❓⏳🛑）のどれかで始まるか
+  card     … 返事の 1 行目が 4 札（✅❓💤🛑・CARD_WORDS）のどれかで始まるか（⏳ は札から無くした）
              （close と card は、一言で済む返事＝札も締めも無く SHORT_LINES 行以下・このターンに問いを出していない返事を見ない・細目 §5）
   plain    … 答えを求める問いを、選択肢モーダル（AskUserQuestion）でなく平文で書き、AI の今の読みも添えていないか
              （開いた問い＝意味・考え・前提はチャットで聞いてよい。その時は「AI の今の読み」を添える・細目 §4）
   idk      … 選択肢モーダルの問いに「分からない」の選択肢が無いか
   unanswered … モーダルで出した問いに、答えが返らないまま残っている物があるか
   rest     … 締めの `AI がこの後やること` が「なし」でないのに、この窓で残りを動かす手（子窓・送る・見張り・後で起こす・背で走る助手）を一度も打っていないか
-  hand     … 手の窓（題 `🙋⏳ 手: <何を>`）の返事に、目的・手順・済んだ目印・済んだ後が揃っているか。
+  hand     … 手の窓（題 `✋ <何を>`）の返事に、目的・手順・済んだ目印・済んだ後が揃っているか。
              手の窓でない窓が、あなたがやることに人の手の手順を直に書き、手の窓の URL を書いていないか
   inner    … 人への返事の本文（コードの囲み・`…`・URL を外した所）に、AI の中の言葉らしい字（番号・窓の id・
              `直し_0020` の形の識別子・commit の印）が在るか。見分けの正本は plugin guard の ask_shape.inner_terms
@@ -25,7 +25,7 @@
 
 窓の種類＝「オーナーが相手の窓か」。誰が立てたかだけでは決めない（立てた記録は返し先の写しを数えるかの照らしにだけ使う）。
 決め方の正本は window_kind 1 つ（決まりの文 KIND_RULE を skill title-mark がそのまま載せ、細目 §4 は skill を指す。試験が照らす）:
-  手の窓（作業名が `手:` で始まる窓）は返し先によらず 🙋 ／ それ以外は最初の頼みの文に書かれた返し先で
+  手の窓（種類 ✋ の窓）は返し先によらず ✋ ／ それ以外は最初の頼みの文に書かれた返し先で
   `返し先=オーナー` → 🙋 ／ `返し先=session_…` → 🤖 ／ `（親窓 session_… の子）` → 🤖 ／ 書いていない → 決めない。
   別の窓を指す返し先は手で書いた写しなので、頼みの行の記録（origin.kind が人でない・promptSource が system＝
   別の窓や仕組みから来た頼み）と合う時だけ数える。行がまだ無い最初の知らせでは記録を読めないので決めず、サーバの記録
@@ -35,7 +35,7 @@
 
 使い方:
   python3 session_watch.py <transcript.jsonl>  … 拾った物を 1 行ずつ出す（拾えば exit 1）
-  python3 session_watch.py --remind            … UserPromptSubmit の hook。クラウドの窓で、まだ題に種類（🙋／🤖）を
+  python3 session_watch.py --remind            … UserPromptSubmit の hook。クラウドの窓で、まだ題に種類（🙋／✋／🤖）を
                                                  付けていなければ、付けるよう AI に知らせる文を隣に出す。前の返事の
                                                  あなたがやることに人の手の手順を直に書いていれば、手の窓で頼むよう
                                                  知らせる（どちらも止めない）
@@ -108,14 +108,45 @@ SET_TITLE_SUFFIX = "set_session_title"
 REMOTE_PREFIX = "mcp__claude-code-remote__"
 ROOT_CAUSE = "直し: 拾われた所を出し直すだけで済ませず、細目 §3「まず構造を疑う」で原因から直す"
 
-AI = "🤖"       # 返し先が別の窓か仕組み
-HUMAN = "🙋"    # 返し先がオーナー（オーナーが話しかける窓）
-KINDS = (AI, HUMAN)
+# ── 題の印の表（正本はここ 1 か所・オーナーの決定 2026-11-22）──────────────────
+#  題は `<種類><状態> <作業名>`。種類は 1 文字目、状態は 2 文字目（無し＝AI が動いている）。表に無い印・表に無い組み合わせは
+#  title_shape が拒む（guard の outbound が題を付ける口・窓を立てる口で、Stop の見張りが返事の締めで、同じ物を直に呼ぶ）。
+#  skill title-mark の表は TITLE_TABLE_DOC をそのまま載せ、細目 §4 は skill を指す（試験が一致を照らす）。
+HUMAN = "🙋"    # オーナーと話す窓
+HAND = "✋"     # 手の窓（オーナーの操作を頼む窓）
+AI = "🤖"       # AI が立てて AI に返す窓
+KINDS = (HUMAN, HAND, AI)
+MOVING = ""     # 状態の印なし: AI が動いている（✋ はオーナーの操作待ち）
 ASKING = "❓"    # オーナーの答え待ち
-WAITING = "⏳"   # オーナーの作業待ち
-DONE = "✅"      # 終わった（🤖 の窓だけ）
-STATES = (ASKING, WAITING, DONE)
-CARDS = ("✅", "❓", "⏳", "🛑")
+WAITING = "💤"   # ほかの窓・合流待ち
+STOPPED = "🛑"   # 止まった（外し方は本文）
+DONE = "✅"      # 終わった・後継へ渡した（🙋✅ は AI の手は終わり・閉じるかはオーナー）
+STATES = (ASKING, WAITING, STOPPED, DONE)
+# 種類ごとに付けてよい状態（表に無い組み合わせは拒む）。
+TITLE_TABLE = {
+    HUMAN: (MOVING, ASKING, WAITING, STOPPED, DONE),
+    AI: (MOVING, ASKING, WAITING, STOPPED, DONE),
+    HAND: (MOVING, DONE),
+}
+KIND_NAMES = {HUMAN: "オーナーと話す窓", HAND: "手の窓（オーナーの操作を頼む窓）", AI: "AI が立てて AI に返す窓"}
+STATE_NAMES = {MOVING: "（無し）", ASKING: "オーナーの答え待ち", WAITING: "ほかの窓・合流待ち",
+               STOPPED: "止まった（外し方は本文）", DONE: "終わった（核 §7）・後継へ渡した"}
+# 返事の 1 行目の札（題の状態と同じ絵）。
+CARD_WORDS = {DONE: "終わった", ASKING: "答えて", WAITING: "待ち", STOPPED: "止まった"}
+CARDS = tuple(CARD_WORDS)
+VS16 = "\ufe0f"  # 絵の字の後に付きうる見た目の切り替えの字（印の一部として読む）
+
+
+def table_doc():
+    """skill title-mark に載せる表の文（正本は TITLE_TABLE。写しの一致は試験が照らす）。"""
+    rows = ["| 状態 | 意味 | 付けてよい種類 |", "|---|---|---|"]
+    for s in (MOVING,) + STATES:
+        kinds = "・".join("`%s`" % k for k in KINDS if s in TITLE_TABLE[k])
+        mark = "無し" if s == MOVING else "`%s`" % s
+        mean = "AI が動いている（`%s` はオーナーの操作待ち）" % HAND if s == MOVING else STATE_NAMES[s]
+        rows.append("| %s | %s | %s |" % (mark, mean, kinds))
+    return "\n".join(rows)
+
 
 # 最初の頼みの文に書く返し先（型はここ 1 か所）。
 RETURN_TO = re.compile(r"返し先\s*[=＝:：]\s*(オーナー|session_[A-Za-z0-9]+)")
@@ -138,7 +169,9 @@ STRONG = re.compile(
 COND = re.compile(r"(なら|たら|れば|場合)[^。]*(教えて|声をかけて|言って)")
 # 開いた問いをチャットで聞く時に添える AI の読み（細目 §4）。これが在る平文の問いは拾わない。
 READING = re.compile(r"AI の(今の)?読み")
-CARD_LINE = re.compile(r"^[#>*\s]*(✅|❓|⏳|🛑)")
+CARD_LINE = re.compile(r"^[#>*\s]*(%s)" % "|".join(map(re.escape, CARDS)))
+# 畳んだ札（2026-11-22 に 💤 へ替えた）。1 行目がこれで始まれば、札の表に無いと名指して差し戻す。
+OLD_CARD_LINE = re.compile(r"^[#>*\s]*⏳")
 DONE_LINE = re.compile(r"^[#>*\s]*✅(?!\s*終わった\s*[（(]\s*一部)")   # 終わった（「✅終わった（一部）」は除く・核 §7）
 # 一言で済む返事（細目 §5）の行数の上限。札で始めた返事・問いを出したターンは長さに関わらず札と締めを見る。
 SHORT_LINES = 3
@@ -154,7 +187,7 @@ def moves(name, inp):
         return True
     return name == "Agent" and inp.get("run_in_background") is not False
 
-# 手の窓（題 `🙋⏳ 手: <何を>`）が書く 4 つ。
+# 手の窓（題 `✋ <何を>`）が書く 4 つ。作業名の頭の `手:` は、種類 ✋ の前の古い形（title_shape が拒む）。
 HAND_TITLE = re.compile(r"^手[:：]")
 HAND_PARTS = ("目的", "手順", "済んだ目印", "済んだ後")
 # 頼んだ窓のあなたがやること: 手の窓の URL だけを書く（細目 §4）。手順を直に書いたかを型で見る。
@@ -320,7 +353,7 @@ def _norm(text):
 
 # ── 窓の種類と題 ──────────────────────────────────────────────
 # 窓の種類の決まりの文（skill title-mark はこの文をそのまま載せ、細目 §4 は skill を指す＝試験が照らす）。決め方は window_kind。
-KIND_RULE = ("種類の決め方は 2 段: まず手の窓（作業名が `手:` で始まる窓）は返し先によらず `🙋`（相手はオーナー）。"
+KIND_RULE = ("種類の決め方は 2 段: まず手の窓（オーナーの操作を頼む窓）は返し先によらず `✋`。"
              "それ以外は窓の最初の頼みの文に書いた返し先だけで決める: `返し先=オーナー` → `🙋`／"
              "`返し先=session_…` か `（親窓 session_… の子）` → `🤖`（別の窓を指す返し先は手で書いた写しなので、頼みの行の記録が人の打った物でない時（行がまだ無い最初の知らせでは get_session の `parent_session_id`＝別の窓が立てた記録が在る時）＝別の窓や仕組みから来た頼みの時だけ数える。オーナーが引き継ぎの文を貼った窓は `🤖` にしない）／どれも無い → 窓が自分で決める（点検は種類の食い違いを拾わない）。")
 
@@ -339,43 +372,69 @@ def kind_of(first_prompt, seeded=False):
 
 
 def window_kind(first_prompt, title=None, seeded=False):
-    """窓の種類の正本（KIND_RULE）。手の窓（作業名が `手:`）は返し先によらず 🙋、ほかは最初の頼みの返し先。"""
-    if HAND_TITLE.match(split_title(title)[2]):
-        return HUMAN
+    """窓の種類の正本（KIND_RULE）。手の窓（題の種類 ✋）は返し先によらず ✋、ほかは最初の頼みの返し先。"""
+    if split_title(title)[0] == HAND:
+        return HAND
     return kind_of(first_prompt, seeded)
 
 
-def split_title(title):
-    """題を (種類, 状態, 作業名) に分ける。印が無ければ None。"""
+def _parts(title):
+    """題を (種類, 状態, 残り〔印の直後から・削らない〕) に分ける。印が無ければ None。"""
     t = str(title or "").strip()
     kind = mark = None
     for k in KINDS:
         if t.startswith(k):
-            kind, t = k, t[len(k):]
+            kind, t = k, t[len(k):].lstrip(VS16)
             break
-    for s in STATES:
-        if t.startswith(s):
-            mark, t = s, t[len(s):]
-            break
-    return kind, mark, t.strip()
+    if kind is not None:
+        for st in STATES:
+            if t.startswith(st):
+                mark, t = st, t[len(st):].lstrip(VS16)
+                break
+    return kind, mark, t
+
+
+def split_title(title):
+    """題を (種類, 状態, 作業名) に分ける。印が無ければ None（状態の無しも None）。"""
+    kind, mark, rest = _parts(title)
+    return kind, mark, rest.strip()
+
+
+def _is_mark(ch):
+    """印の字（絵・記号）か。作業名の字（文字・数字・かっこ等）と分ける。"""
+    import unicodedata
+    return unicodedata.category(ch) in ("So", "Sk", "Cn") or ch in (VS16, "\u200d")
 
 
 def title_shape(title):
     """題そのものの形の崩れ [説明]（会話ログを見ずに題だけで決まる物）。題を付ける口・立てる口（guard の outbound）も
-    これを直に呼ぶ＝題の形の決まりの正本はここ 1 つ。"""
-    kind, mark, name = split_title(title)
+    これを直に呼ぶ＝題の形の決まりの正本はここ 1 つ（表は TITLE_TABLE）。表に無い 2 文字目・許されない組み合わせを拒む。"""
+    kind, mark, rest = _parts(title)
+    name = rest.strip()
     out = []
+    states = "・".join(("無し" if x == MOVING else x) for x in (MOVING,) + STATES)
     if kind is None:
-        out.append("題の頭に種類（%s／%s）が無い（題: %s）" % (AI, HUMAN, title))
+        head = str(title or "").strip()[:1]
+        out.append("題の頭に種類（%s）が無い%s（題: %s）" % ("／".join(KINDS),
+                   "。頭の「%s」は種類の表に無い" % head if head and _is_mark(head) else "", title))
+        return out + ([] if name else ["題に作業名が無い（題: %s）" % title])
+    if rest and not rest[0].isspace():
+        if _is_mark(rest[0]):
+            odd = "".join(c for c in rest.split()[0] if _is_mark(c)) or rest[0]
+            if mark:
+                out.append("状態の印は 1 つだけ（%s の後の「%s」）（題: %s）" % (kind + mark, odd, title))
+            else:
+                out.append("%s の後の「%s」は状態の表に無い（状態は %s。⏳ は畳んだ＝待ちは 💤、手の窓は種類 %s）（題: %s）"
+                           % (kind, odd, states, HAND, title))
+        else:
+            out.append("印と作業名の間に空白が無い（`<種類><状態> <作業名>`）（題: %s）" % title)
     if not name:
         out.append("題に作業名が無い（題: %s）" % title)
-    if kind == HUMAN and mark == DONE:
-        out.append("%s の窓に %s は付けない（閉じるかはオーナーが決める）" % (HUMAN, DONE))
+    if (mark or MOVING) not in TITLE_TABLE[kind]:
+        ok = "・".join(("無し" if x == MOVING else x) for x in TITLE_TABLE[kind])
+        out.append("%s の窓に %s は付けない（%s の状態は %s）（題: %s）" % (kind, mark, kind, ok, title))
     if HAND_TITLE.match(name):
-        if kind != HUMAN or mark != WAITING:
-            out.append("手の窓の題は `%s%s 手: <何を>`（題: %s）" % (HUMAN, WAITING, title))
-        if not HAND_TITLE.sub("", name).strip():
-            out.append("手の窓の題の `手:` の後に何を頼むかが無い（題: %s）" % title)
+        out.append("作業名の頭の `手:` は古い形。手の窓は種類 %s で `%s <何を>` と書く（題: %s）" % (HAND, HAND, title))
     return out
 
 
@@ -612,7 +671,8 @@ def check(log, closing=None, data=None):
                 title = v
             elif k == "ask":
                 in_turn = i >= len(log.events) - len(log.turn)
-                if in_turn and split_title(title)[1] != ASKING:
+                # 手の窓（✋）は状態に ❓ を持たない（無し＝オーナーの操作待ち。済んだかも選択肢の画面で聞く・細目 §4）
+                if in_turn and split_title(title)[1] != ASKING and split_title(title)[0] != HAND:
                     found.append(("title", ASK_BEFORE + " %s にしていない（題: %s）" % (ASKING, title or "（無し）")))
                 open_ask = True
             elif k == "answer":
@@ -620,8 +680,9 @@ def check(log, closing=None, data=None):
                 open_ask = not v
         if title is None and closing.strip():
             found.append(("title", NO_TITLE + "（親が窓を立てた時に付けた題は会話ログの外で照らせない）。`get_session` を "
-                                   "session_id を省いて読み、今の題を `set_session_title` で `<種類><状態> <作業名>` に付け直す"
-                                   "（同じ題でもよい。会話ログに載れば照らせる）"))
+                                   "session_id を省いて読み、今の題を skill `session-watch:title-mark` の表に照らして "
+                                   "`set_session_title` で `<種類><状態> <作業名>` に付け直す（表に無い印・表に無い組み合わせは"
+                                   "直して付ける。崩れた題は付ける口で止まる）"))
         if title is not None:
             tk, tm, _ = split_title(title)
             kind = window_kind(log.first_prompt, title, log.first_seeded)
@@ -633,19 +694,20 @@ def check(log, closing=None, data=None):
                 found.append(("title", "答えが返ったのに題に %s が残っている" % ASKING))
             # ✅ は「終わった」（核 §7）の印。AI の手が尽きた（AI がこの後やること: なし）とは結ばない。
             first = next((ln.strip() for ln in closing.splitlines() if ln.strip()), "")
-            if (kind or tk) == AI and CARD_LINE.match(first):
+            kk = kind or tk
+            if CARD_LINE.match(first):
                 done = bool(DONE_LINE.match(first))
-                if done and tm != DONE:
-                    found.append(("title", "%s の窓が %s終わった で報告するのに、題の状態が %s でない" % (AI, DONE, DONE)))
+                if done and tm != DONE and kk in (AI, HAND):
+                    found.append(("title", "%s の窓が %s終わった で報告するのに、題の状態が %s でない" % (kk, DONE, DONE)))
                 elif not done and tm == DONE:
-                    found.append(("title", "%s の窓が 終わった でない札（止まった・一部・待ち・問い）で締めるのに、題が %s" % (AI, DONE)))
+                    found.append(("title", "終わった でない札（止まった・一部・待ち・問い）で締めるのに、題が %s" % DONE))
             # 手の窓（細目 §4）: 済んだ目印を確かめたら頼んだ窓へ返して閉じる。✅ で締めるのに、このターンに頼んだ窓へ
             #   返した跡（send_message）が無ければ、済んだ手の窓が頼んだ窓に済んだと分からないまま残る。
-            hand_done = bool(DONE_LINE.match(first)) and bool(HAND_TITLE.match(split_title(title)[2]))
+            hand_done = bool(DONE_LINE.match(first)) and tk == HAND
             if hand_done and not any(k == "move" and str(v).endswith("send_message") for k, v in log.turn):
                 found.append(("title", "手の窓が %s終わった で締めるのに、頼んだ窓へ済んだ目印を返した跡（send_message）が"
                                        "このターンに無い（返してから締め、自分を閉じる）" % DONE))
-            if tm == WAITING and HAND_TITLE.match(split_title(title)[2]) and closing.strip() and not hand_done:
+            if tk == HAND and tm != DONE and closing.strip() and not hand_done:
                 lack = [p for p in HAND_PARTS if p not in closing]
                 if lack:
                     found.append(("hand", "手の窓の返事に %s が無い（目的・手順〔貼る文は全部〕・済んだ目印・済んだ後を書く）"
@@ -660,7 +722,9 @@ def check(log, closing=None, data=None):
     short = bool(lines) and not CARD_LINE.match(lines[0]) and close is None and len(lines) <= SHORT_LINES and not log.turn_asked()
     if lines and not short:
         if not CARD_LINE.match(lines[0]):
-            found.append(("card", "返事の 1 行目が 4 札（%s）で始まらない: %s" % ("／".join(CARDS), lines[0][:40])))
+            old = "（⏳ の札は畳んだ＝待ちは %s%s）" % (WAITING, CARD_WORDS[WAITING]) if OLD_CARD_LINE.match(lines[0]) else ""
+            found.append(("card", "返事の 1 行目が 4 札（%s）で始まらない%s: %s"
+                          % ("／".join(c + CARD_WORDS[c] for c in CARDS), old, lines[0][:40])))
         if close is None:
             found.append(("close", "返事の最後が締めの 2 行（`AI がこの後やること: …`／`あなたがやること: …`）でない: %s"
                           % lines[-1][-60:]))
@@ -672,13 +736,14 @@ def check(log, closing=None, data=None):
                 found.append(("close", "あなたがやることがあるのに、「これが済むまで <何> に進めません」を書いていない"))
 
     # 動かしていない AI がこの後やること（核 §5: 締める前に AI が自分で動かす）
-    #   待ちの題（❓ オーナーの答え待ち／⏳ 手待ち・子の返し待ち）と、この窓で既に動かした手（子窓・見張り）は拾わない。
+    #   待ちの題（❓ オーナーの答え待ち／💤 ほかの窓・合流待ち／✋ 手の窓）と、この窓で既に動かした手（子窓・見張り）は拾わない。
     if close and not close.startswith("AI がこの後やること: なし"):
         last_title = None
         for k, v in log.events:
             if k == "title":
                 last_title = v
-        waiting = split_title(last_title)[1] in (ASKING, WAITING)
+        lk, lm, _ = split_title(last_title)
+        waiting = lm in (ASKING, WAITING) or lk == HAND
         moved = any(k == "move" for k, _ in log.events)
         if not (waiting or moved):
             found.append(("rest", "AI がこの後やることを書いたのに、この窓で動かしていない（子窓や背で走る助手に頼む・PR を見張る・"
@@ -726,7 +791,7 @@ def watch(path):
 
 # ── 知らせる（UserPromptSubmit の hook・止めない）──────────────────
 REMIND = (
-    "[session-watch] この窓の題にまだ種類の印（%s／%s）が無い。最初の返事を書く前に、"
+    "[session-watch] この窓の題にまだ種類の印（%s／%s／%s）が無い。最初の返事を書く前に、"
     "%s の `set_session_title` で題を `<種類><状態> <作業名>` に付ける（自分の session id は `get_session` を "
     "session_id を省いて読む）。種類: %s。形の細目は skill `session-watch:title-mark`。")
 
@@ -738,22 +803,23 @@ REMIND_PARENT = ("[session-watch] 最初の頼みの文の返し先が別の窓�
 
 
 REMIND_CHILD = ("[session-watch] 親が付けた題は会話ログに載らず、返事の差し戻し（Stop）が照らせない。最初の返事の前に "
-                "`get_session` を session_id を省いて読み、今の題を `set_session_title` で付け直す（形が合っていれば同じ題でよい）。")
+                "`get_session` を session_id を省いて読み、今の題を skill `session-watch:title-mark` の表（種類 🙋／✋／🤖 × 状態 "
+                "無し・❓・💤・🛑・✅）に照らして `set_session_title` で付ける。表に無い印・表に無い組み合わせは直して付ける"
+                "（親の題を写さない。崩れた題は付ける口で止まる）。")
 
 
-HAND_ASK = ("あなたがやることに人の手の手順を直に書いた。人の手は手の窓（題 🙋⏳ 手: <何を>・1 つの頼みに 1 つの窓）"
+HAND_ASK = ("あなたがやることに人の手の手順を直に書いた。人の手は手の窓（題 ✋ <何を>・1 つの頼みに 1 つの窓）"
             "で頼み、あなたがやることには手の窓の URL だけを書く（細目 §4）")
 HAND_REMIND = "[session-watch] 前の返事の" + HAND_ASK + "。"
 
 
 def in_hand_window(log):
-    """この窓が手の窓（題 `🙋⏳ 手: <何を>`）か。手の窓は手順を自分の返事に書く。"""
+    """この窓が手の窓（題 `✋ <何を>`）か。手の窓は手順を自分の返事に書く。"""
     last = None
     for k, v in log.events:
         if k == "title":
             last = v
-    _, mark, name = split_title(last)
-    return mark == WAITING and bool(HAND_TITLE.match(name))
+    return split_title(last)[0] == HAND
 
 
 def last_reply(log):
@@ -802,8 +868,8 @@ def remind_title(log, data):
     if kind == AI:
         return REMIND_CHILD   # 親が create_session で付けた題は会話ログに無い＝返事の差し戻しで照らせないので、付け直させる
     which = ("%s（最初の頼みの返し先から）" % kind) if kind else (
-        "オーナーと話す窓なら %s・別の窓へ返す窓なら %s" % (HUMAN, AI))
-    return REMIND % (HUMAN, AI, REMOTE_PREFIX.rstrip("_"), which)
+        "オーナーと話す窓なら %s・オーナーの操作を頼む窓なら %s・別の窓へ返す窓なら %s" % (HUMAN, HAND, AI))
+    return REMIND % (HUMAN, HAND, AI, REMOTE_PREFIX.rstrip("_"), which)
 
 
 def remind_hand(log):

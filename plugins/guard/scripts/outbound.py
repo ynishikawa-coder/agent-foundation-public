@@ -12,9 +12,9 @@
   number  … send_message（MCP）・SendMessage の文と create_session の頼みの文に、番号（E02・#3 の形）だけで中身の
             名の無い文がある（「#3 やって」「E02 の件」）。番号の見分けは ask_shape の中の言葉の見分け（INNER の「番号」）、
             中身の語の見分けは ask_shape の話題の語（_words）を直に呼ぶ。
-  title   … set_session_title と create_session の title が題の形（`<種類><状態> <作業名>`）でない。手の窓の題
-            （`🙋⏳ 手: <何を>`）で窓を立てるのに、頼みの文に 目的・手順・済んだ目印・済んだ後 が揃っていない。
-            形の正本は session-watch の session_watch.py（title_shape・HAND_PARTS）。見つからない時は題を照らさない。
+  title   … set_session_title と create_session の title が題の形（`<種類><状態> <作業名>`・種類×状態の表に在る組み合わせ）
+            でない。手の窓の題（`✋ <何を>`）で窓を立てるのに、頼みの文に 目的・手順・済んだ目印・済んだ後 が揃っていない。
+            形の正本は session-watch の session_watch.py（TITLE_TABLE・title_shape・HAND_PARTS）。見つからない時は題を照らさない。
 誤って止めた時: 値の表 config/skill-values.json の "guard" の outbound_secret_allow（当たった字の塊の全体に当てる正規表現・各行 ^…$・
 作り物の見本だけ）・number_request_exempt（文に当てる正規表現）で外す。値の表は PR とレビューを通る＝窓の一存では外れない。
 """
@@ -59,7 +59,7 @@ def _session_watch():
         return None
     sw = G.load_module("af_session_watch", path)
     # 版がずれて正本に題の形の見分けが無い時は「読めない」と同じ扱い
-    return sw if all(hasattr(sw, n) for n in ("title_shape", "split_title", "HAND_TITLE", "HAND_PARTS")) else None
+    return sw if all(hasattr(sw, n) for n in ("title_shape", "split_title", "HAND", "HAND_PARTS", "KINDS", "KIND_NAMES", "table_doc")) else None
 
 
 # ── secret ──
@@ -201,8 +201,8 @@ def title_findings(data, sw):
     if not isinstance(title, str) or not title.strip():
         return []            # 題の無い窓立ては、立った窓が自分で付ける（UserPromptSubmit の知らせが受け持つ）
     out = list(sw.title_shape(title))
-    _, mark, work = sw.split_title(title)
-    if name.endswith(CREATE_SUFFIX) and sw.HAND_TITLE.match(work):
+    kind, _, _ = sw.split_title(title)
+    if name.endswith(CREATE_SUFFIX) and kind == sw.HAND:
         prompt = ti.get("prompt") if isinstance(ti.get("prompt"), str) else ""
         lack = [p for p in sw.HAND_PARTS if p not in prompt]
         if lack:
@@ -226,9 +226,11 @@ def check_title(data, vals):
     lines = ["[guard] 窓の題か手の窓の頼みが決まりの形でないので、出す前に止めた（細目 §4・オーナー同意 2026-11-19・"
              "人の操作は止めていない）。"]
     lines += ["- " + m for m in found]
-    lines.append("直し方: 題は `<種類><状態> <作業名>`（種類 🙋＝オーナーと話す窓〔手の窓は返し先によらず 🙋〕／🤖＝別の窓へ返す窓・状態 ❓⏳✅〔✅ は 🤖 だけ〕"
-                 "か無し）。手の窓は `🙋⏳ 手: <何を>` で、頼みの文に目的・手順・済んだ目印・済んだ後を書く。"
-                 "細目は skill `session-watch:title-mark`。")
+    lines.append("直し方: 題は `<種類><状態> <作業名>`。種類は %s。状態は次の表の組み合わせだけ（表の正本は "
+                 "session-watch の TITLE_TABLE）:" % "／".join("%s＝%s" % (k, sw.KIND_NAMES[k]) for k in sw.KINDS))
+    lines.append(sw.table_doc())
+    lines.append("手の窓は `%s <何を>` で、頼みの文に目的・手順・済んだ目印・済んだ後を書く。細目は skill `session-watch:title-mark`。"
+                 % sw.HAND)
     return "\n".join(lines)
 
 

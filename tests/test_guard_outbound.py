@@ -115,10 +115,10 @@ def test_outbound_番号だけの頼みは値の表で外せる(env):
     (tool(SET_TITLE, session_id="s", title="作り物の作業"), "種類"),
     (tool(SET_TITLE, session_id="s", title="⏳🤖 作り物の作業"), "種類"),
     (tool(SET_TITLE, session_id="s", title="🤖❓"), "作業名が無い"),
-    (tool(SET_TITLE, session_id="s", title="🙋✅ 作り物の相談"), "✅ は付けない"),
-    (tool(CREATE, title="🤖 手: 作り物の設定", prompt="目的 手順 済んだ目印 済んだ後"), "手の窓の題は"),
-    (tool(CREATE, title="🙋⏳ 手:", prompt="目的 手順 済んだ目印 済んだ後"), "何を頼むかが無い"),
-    (tool(CREATE, title="🙋⏳ 手: 作り物の設定", prompt="目的: 作り物の鍵を入れる\n手順: 画面で貼る"), "済んだ目印・済んだ後"),
+    (tool(SET_TITLE, session_id="s", title="✋❓ 作り物の設定"), "❓ は付けない"),
+    (tool(CREATE, title="🤖 手: 作り物の設定", prompt="目的 手順 済んだ目印 済んだ後"), "`手:` は古い形"),
+    (tool(CREATE, title="✋", prompt="目的 手順 済んだ目印 済んだ後"), "作業名が無い"),
+    (tool(CREATE, title="✋ 作り物の設定", prompt="目的: 作り物の鍵を入れる\n手順: 画面で貼る"), "済んだ目印・済んだ後"),
 ])
 def test_outbound_題の形と手の窓の4欄が崩れていれば出す前に止める(env, payload, want):
     why = deny_reason(env, payload)
@@ -129,9 +129,9 @@ def test_outbound_題の形と手の窓の4欄が崩れていれば出す前に�
     tool(SET_TITLE, session_id="s", title="🤖 書く: 作り物の作業"),
     tool(SET_TITLE, session_id="s", title="🙋❓ 作り物の相談"),
     tool(SET_TITLE, session_id="s", title="🤖✅ 作り物の作業"),
-    tool(CREATE, title="🤖⏳ 作り物のレビュー", prompt="作り物の PR を見る"),
+    tool(CREATE, title="🤖💤 作り物のレビュー", prompt="作り物の PR を見る"),
     tool(CREATE, prompt="題の無い窓立て"),
-    tool(CREATE, title="🙋⏳ 手: 作り物の設定",
+    tool(CREATE, title="✋ 作り物の設定",
          prompt="①目的: 作り物 ②手順: 貼る ③済んだ目印: 出る ④済んだ後: 返す"),
 ])
 def test_outbound_決まりの形の題と4欄の揃った手の窓は通す(env, payload):
@@ -141,7 +141,8 @@ def test_outbound_決まりの形の題と4欄の揃った手の窓は通す(env
 def test_outbound_題の形の見分けは_session_watch_の正本を直に呼ぶ(env, tmp_path):
     """正本の title_shape を外すと照らさなくなる＝写しを持っていない。"""
     fake = tmp_path / "session_watch.py"
-    fake.write_text("import re\nHAND_TITLE=re.compile('^手')\nHAND_PARTS=()\n"
+    fake.write_text("HAND='✋'\nHAND_PARTS=()\nKINDS=('✋',)\nKIND_NAMES={'✋': '作り物'}\n"
+                    "def table_doc(): return ''\n"
                     "def title_shape(t): return ['作り物の正本が止めた']\n"
                     "def split_title(t): return (None, None, t)\n", encoding="utf-8")
     why = deny_reason(dict(env, AF_SESSION_WATCH=str(fake)), tool(SET_TITLE, session_id="s", title="🤖 作り物"))
