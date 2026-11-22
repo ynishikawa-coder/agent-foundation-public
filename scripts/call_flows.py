@@ -13,8 +13,8 @@
   file 名（その名の file が plugin の外にも・2 つの plugin にも在る時は path ごと書いた物だけ）か、
   plugin の外の土台の部品（repo の根の dir のうち OUTSIDE_SKIP に無い物・例 public-guard）の道具の path（<dir>/…/<file 名>）。
   部品の名は dir の名。plugin が土台の file を借りる流れも、plugin どうしと同じく絵に要る（拾わないと人の目で漏れる）。
-  使う側の repo の物（値の表・CLAUDE.md・文書と script）を読む流れも拾う（形は using_items の上の注釈）。読む物の名が絵の
-  個別の箱の題の頭。前は土台の道具の流れしか拾わず、core が使う側の値の表と文書・script を読む流れが絵から漏れた。
+  使う側の repo を読む流れも拾う（使う側の repo の在り処を引くか・形は using_items の上の注釈）。読む物の名が絵の
+  個別の箱の題の頭。前は読む物を字の形で 1 つずつ挙げて拾い、決まった path・引数の path を読む流れが絵から漏れた。
   呼ぶ形:
   - .py: 字の値そのものが道具を指す（docstring と式だけの字は除く）・os.path.join／Path の字を繋いだ値・
     隣の plugin の名と並べた path（sibling_plugin_file("docs-kit", "…/check.mjs")）・import の名・interpreter で始まる命令の字。
@@ -118,6 +118,10 @@ def flows(repo: Path) -> dict[tuple[str, str], list[str]]:
         except (OSError, UnicodeDecodeError) as e:   # 黙って飛ばすと、その file の流れを照らさず緑を返す
             raise ValueError(f"{f} が読めず、呼ぶ形を拾えない（{type(e).__name__}: {e}）") from None
         seen = set()
+        for no in locate_calls(f, text):
+            if (no, USING_REPO) not in seen:
+                seen.add((no, USING_REPO))
+                out[(x, USING_REPO)].append(f"{f}:{no} 今の dir を引く")
         for no, piece, kind in pieces(f, text, units):
             if kind == "value":
                 y = borrowed[x].get(piece.strip()) if f.endswith(".py") else None
@@ -137,19 +141,25 @@ def flows(repo: Path) -> dict[tuple[str, str], list[str]]:
     return dict(out)
 
 
-# ── 使う側の repo の物を読む形 ───────────────────────────────────
-# plugin は土台の道具だけでなく、開いた（使う側の）repo の物も読む。読む物ごとに絵の個別の箱が要る（無ければ「絵に無い箱」）。
-# 読む物の名＝絵の箱の題の頭（「（」の前）。拾う形はコードの値そのもの（説明の文は pieces が除く）:
+# ── 使う側の repo を読む形 ───────────────────────────────────────
+# plugin は土台の道具だけでなく、開いた（使う側の）repo も読む（読むだけ・オーナーの決定 2026-11-22 で土台の道具の全体に許す）。
+# 読む物を字の形で 1 つずつ挙げて拾うと、決まった path・引数で渡された path を読む形を漏らす（漏れが 3 回続いた）。
+# なので「使う側の repo の在り処を引くか」で拾う: 在り処を引かずに使う側の repo を読む道は無い。
+#   在り処を引く形（コードの値と呼び出し。説明の文は除く）: 環境変数 CLAUDE_PROJECT_DIR・`git rev-parse --show-toplevel`・
+#   今の dir（Path.cwd()・os.getcwd()・process.cwd()・sh の $PWD／$(pwd)）・hook の入力の "cwd"・
+#   plugin の .json の表に置いた git の pathspec の glob（例 古い形.json の files。表を読む道具が使う側の repo に当てる）。
+#   → 絵の箱「使う側の repo」（題の頭）への流れ。
+# 使う側の repo の中の名前付きの物（値の表・CLAUDE.md）は、その物を指す値でそれぞれの箱への流れにも数える:
 #   - 値の表: 値が config/skill-values.json・値の表の口 skill_values の import（plugin の lib/ の symlink を通して読む）
 #   - CLAUDE.md: 値が CLAUDE.md（開いた repo の根の CLAUDE.md を読む）
-#   - 文書・script: plugin の .json の表に置いた git の pathspec の glob（例 古い形.json の files の *.md・*.sh。
-#     その表を読む道具が使う側の repo の file を当てる）
-# 残る穴: .py・.mjs の中の glob は土台の自分の file を当てる物（copies.py・refs.py）と使う側の repo を当てる物を
-#   字の形で分けられないので拾わない。使う側の repo の物を .py の glob で読む道具を足す時は表（.json）に置く。
+# 残る穴: 在り処を呼ぶ側（人・別の道具）から引数だけで受け取り、自分では在り処を引かない道具は拾わない
+#   （その道具を呼ぶ側が在り処を引く。手で path を渡して読ませる使い方は絵の上では呼ぶ側の流れ）。
 USING_TABLE = "repo ごとの値の表"
 USING_CLAUDE = "repo 固有の CLAUDE.md"
-USING_FILES = "使う側の repo の文書・script"
-USING = (USING_TABLE, USING_CLAUDE, USING_FILES)
+USING_REPO = "使う側の repo"
+USING = (USING_TABLE, USING_CLAUDE, USING_REPO)
+_LOCATE_VALUES = {"CLAUDE_PROJECT_DIR", "--show-toplevel", "cwd"}
+_LOCATE_SH = re.compile(r"CLAUDE_PROJECT_DIR|--show-toplevel|\$PWD\b|\$\{PWD\}|\$\(\s*pwd\s*\)")
 _PATHSPEC_GLOB = re.compile(r"(?::\(exclude\))?[\w./-]*\*[\w./*-]*")
 
 
@@ -161,7 +171,28 @@ def using_items(f: str, piece: str) -> list[str]:
     if w == "CLAUDE.md":
         return [USING_CLAUDE]
     if f.endswith(".json") and _PATHSPEC_GLOB.fullmatch(w):
-        return [USING_FILES]
+        return [USING_REPO]
+    if f.endswith((".py", ".mjs", ".js")) and w in _LOCATE_VALUES:
+        return [USING_REPO]
+    if f.endswith(".sh") and _LOCATE_SH.search(w):
+        return [USING_REPO]
+    return []
+
+
+def locate_calls(f: str, text: str) -> list[int]:
+    """今の dir を引く呼び出し（Path.cwd()・os.getcwd()・process.cwd()）の行。値でなく呼び出しなので using_items と別に拾う。"""
+    if f.endswith(".py"):
+        try:
+            tree = ast.parse(text)
+        except SyntaxError:
+            return []                      # 形の崩れは pieces が照らせないで止める
+        return [n.lineno for n in ast.walk(tree) if isinstance(n, ast.Call)
+                and (n.func.attr if isinstance(n.func, ast.Attribute) else getattr(n.func, "id", "")) in ("cwd", "getcwd")
+                and not n.args]
+    if f.endswith((".mjs", ".js")):
+        code = re.sub(r"/\*.*?\*/", lambda m: "\n" * m.group(0).count("\n"), text, flags=re.S)
+        return [no for no, ln in enumerate(code.splitlines(), 1)
+                if re.search(r"\bprocess\.cwd\(\s*\)", ln.split("//", 1)[0])]
     return []
 
 

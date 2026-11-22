@@ -2,8 +2,9 @@
 絵に箱か矢印が無ければ赤にするか／読めない file を黙って飛ばさず照らせないにするか（注入の試験）。
 
 なぜ在るか: call_flows が土台の道具を呼ぶ流れしか拾わず、core が使う側の repo の値の表と文書・script を読む流れと
-その箱が、レビューの窓が人の目で見つけるまで絵から漏れていた。また読めない file を黙って飛ばし、その file の流れを
-照らさないまま緑を返していた（原因の台帳の行）。
+その箱が、レビューの窓が人の目で見つけるまで絵から漏れていた。読む物を字の形で 1 つずつ挙げて拾う形では、決まった path・
+引数で渡された path を読む流れ（docs-kit・dev-flow）も漏れた（同じ類の 3 回目）。なので使う側の repo の在り処を引く形で拾う。
+また読めない file を黙って飛ばし、その file の流れを照らさないまま緑を返していた（原因の台帳の行）。
 """
 import importlib.util
 from pathlib import Path
@@ -16,7 +17,7 @@ _spec.loader.exec_module(_base)
 put, git, run, picture = _base.put, _base.git, _base.run, _base.picture
 fake = pytest.fixture(_base.fake.__wrapped__ if hasattr(_base.fake, "__wrapped__") else _base.fake)
 
-TABLE, CLAUDE, FILES = "repo ごとの値の表", "repo 固有の CLAUDE.md", "使う側の repo の文書・script"
+TABLE, CLAUDE, FILES = "repo ごとの値の表", "repo 固有の CLAUDE.md", "使う側の repo"
 
 
 @pytest.fixture
@@ -71,3 +72,32 @@ def test_読めない_file_は黙って飛ばさず照らせない(fake, tmp_pat
         res = run(*args, "--repo", str(fake))
         assert res.returncode == 2, (label, res.stdout)
         assert "plugins/alpha/skills/s/SKILL.md が読めず" in res.stdout, res.stdout
+
+
+@pytest.mark.parametrize("rel,text", [
+    ("scripts/l.py", "import os\nROOT = os.environ.get('CLAUDE_PROJECT_DIR')\n"),
+    ("scripts/l.py", "import subprocess\nR = subprocess.run(['git', 'rev-parse', '--show-toplevel'])\n"),
+    ("scripts/l.py", "from pathlib import Path\nR = Path.cwd()\n"),
+    ("scripts/l.py", "import os\nR = os.getcwd()\n"),
+    ("scripts/l.py", "def f(data):\n    return data.get('cwd')\n"),
+    ("scripts/l.mjs", "const r = process.cwd();\n"),
+    ("scripts/l.sh", 'cd "$CLAUDE_PROJECT_DIR"\n'),
+    ("scripts/l.sh", "root=$(git rev-parse --show-toplevel)\n"),
+])
+def test_使う側の_repo_の在り処を引く形を読む流れに数える(fake, rel, text):
+    put(fake, f"plugins/alpha/{rel}", text)
+    git(fake, "add", "-A")
+    res = run("list", "--repo", str(fake))
+    assert f"alpha → {FILES}" in res.stdout, (rel, text, res.stdout)
+
+
+@pytest.mark.parametrize("rel,text", [
+    ("scripts/l.py", '"""CLAUDE_PROJECT_DIR を読む（説明の文）"""\n# os.getcwd() は呼ばない\n'),
+    ("scripts/l.mjs", "// process.cwd() は説明\n/* process.cwd() */\nconst a = 1;\n"),
+    ("scripts/l.sh", "# $CLAUDE_PROJECT_DIR は説明\necho hi\n"),
+])
+def test_説明の文の在り処の名は数えない(fake, rel, text):
+    put(fake, f"plugins/alpha/{rel}", text)
+    git(fake, "add", "-A")
+    res = run("list", "--repo", str(fake))
+    assert f"alpha → {FILES}" not in res.stdout, (rel, res.stdout)
