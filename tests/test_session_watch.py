@@ -198,7 +198,7 @@ def test_題に種類を付けた窓とクラウドでない窓には知らせ�
     assert not sw.titled(sw.Log(untitled))
 
 
-def test_知らせる口は止めず_JSON_で隣に出す():
+def test_知らせる口は止めず_JSON_で隣に出す(tmp_path):
     run = lambda env: subprocess.run([sys.executable, str(SCRIPT), "--remind"], input='{"prompt": "作り物"}',
                                      capture_output=True, text=True, env=env)
     import os
@@ -207,7 +207,7 @@ def test_知らせる口は止めず_JSON_で隣に出す():
     body = json.loads(out.stdout)["hookSpecificOutput"]
     assert body["hookEventName"] == "UserPromptSubmit" and "decision" not in out.stdout
     # 読めない入力は窓を止めず（exit 0）、黙りもしない＝見張りが壊れたと 1 回だけ知らせる
-    tmp = dict(os.environ, AF_SESSION_WATCH_TMP=str(Path(__import__("tempfile").mkdtemp())))
+    tmp = dict(os.environ, AF_SESSION_WATCH_TMP=str(tmp_path / "sw"))
     bad = subprocess.run([sys.executable, str(SCRIPT), "--remind"], input="壊れた", capture_output=True, text=True, env=tmp)
     assert bad.returncode == 0 and "見張りの --remind が壊れて" in json.loads(bad.stdout)["hookSpecificOutput"]["additionalContext"]
     again = subprocess.run([sys.executable, str(SCRIPT), "--remind"], input="壊れた", capture_output=True, text=True, env=tmp)
@@ -335,11 +335,20 @@ def stop_env(tmp_path, **extra):
     return dict({"AF_SESSION_WATCH_TMP": str(tmp_path / "sw")}, **extra)
 
 
-EMPTY_LOG = Path(__import__("tempfile").mkdtemp()) / "empty.jsonl"   # 在るが中身の無い会話ログ（無い会話ログは nolog で知らせる）
-EMPTY_LOG.write_text("", encoding="utf-8")
+_EMPTY = {}   # 試験ごとの在るが中身の無い会話ログ（無い会話ログは nolog で知らせる）。import の時に一時 dir を作らない
 
 
-def stop_data(text, tpath=str(EMPTY_LOG), active=False, sid="s1"):
+@pytest.fixture(autouse=True)
+def _empty_log(tmp_path):
+    path = tmp_path / "empty.jsonl"
+    path.write_text("", encoding="utf-8")
+    _EMPTY["path"] = str(path)
+    yield
+    _EMPTY.pop("path", None)
+
+
+def stop_data(text, tpath=None, active=False, sid="s1"):
+    tpath = _EMPTY["path"] if tpath is None else tpath
     return {"hook_event_name": "Stop", "session_id": sid, "transcript_path": tpath,
             "stop_hook_active": active, "last_assistant_message": text}
 

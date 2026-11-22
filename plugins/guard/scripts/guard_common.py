@@ -174,7 +174,7 @@ class Log:
 
 
 def read_log(path):
-    """会話ログを読む guard の 1 本の口（今は guard だけが使う。session-watch は自前の読み口を持ち、写しが残る＝持ち主は直す窓）。開けない時は OSError をそのまま上げる
+    """会話ログを読む 1 本の口（guard も plugin session-watch も隣に在ればこれで読む）。開けない時は OSError をそのまま上げる
     （読めないを「人の行が無い」と取り違えない）。"""
     log = Log(path)
     with open(path, "rb") as f:
@@ -223,15 +223,23 @@ def text_of(row):
     return ""
 
 
+def has_image(row):
+    """行の中身に画像の塊が在るか（人が画像だけを貼った頼みは文が空でも人の行）。"""
+    msg = row.get("message")
+    c = msg.get("content") if isinstance(msg, dict) else None
+    return isinstance(c, list) and any(isinstance(b, dict) and b.get("type") == "image" for b in c)
+
+
 def is_owner_row(row):
-    """人がタイプした行か（道具の返り・差し戻し〔isMeta〕を除く）。"""
-    return (row.get("type") == "user" and not row.get("isMeta") and "toolUseResult" not in row
-            and bool(text_of(row).strip()))
+    """頼みの形の行か（道具の返り・差し戻し〔isMeta〕を除く。文が在るか画像が在る行。画像だけの頼みも数える）。
+    正本はここ 1 つ（plugin session-watch の is_owner_text も隣に在ればこれを読む）。"""
+    return (isinstance(row, dict) and row.get("type") == "user" and not row.get("isMeta") and "toolUseResult" not in row
+            and (bool(text_of(row).strip()) or has_image(row)))
 
 
 # 人が打った頼みの記録（会話ログの行の origin.kind。Claude Code が頼みを受けた口で付ける＝文の中身では変わらない）。
-# 正本はここ 1 か所（plugin session-watch は seeded_by_record を通してだけこれを読む。人の行の見分け〔is_owner_text〕は
-# session-watch に自前の写しが残る＝持ち主は直す窓）。
+# 正本はここ 1 か所（plugin session-watch は seeded_by_record を通してだけこれを読む。頼みの形の行の見分けも
+# is_owner_row を隣から読む）。
 HUMAN_ORIGINS = ("human", "person")
 # 窓の環境の CLAUDE_CODE_CHILD_SESSION は読まない: 公式の文書（code.claude.com/docs/en/env-vars）では「Claude Code が Bash・
 # hook・status line で起動する子プロセスに付く 1」で、どの窓でも hook の中では 1＝別の窓が立てた窓の見分けにならない。

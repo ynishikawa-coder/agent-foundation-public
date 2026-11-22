@@ -174,18 +174,27 @@ UNREADABLE = "_af_unreadable"   # 読めない行の印（行の位置に置く�
 
 
 def read_rows(path):
-    """会話ログの行の並び。読めない行（JSON として読めない・dict でない）は {UNREADABLE: 行の番号} の印として同じ位置に残す。"""
+    """会話ログの行の並び。読めない行（JSON として読めない・dict でない）は {UNREADABLE: 行の番号} の印として残す。
+    正本は隣の plugin guard の guard_common.read_log（改行〔\\n〕だけで割る・書きかけの最後の行は壊れ行と数えない）。
+    隣が無い・版がずれた時だけ同じ割り方の控えで読む（guard_gap が neighbor の札で名指す）。"""
+    G = neighbor("guard_common")
+    if G is not None and hasattr(G, "read_log"):
+        got = G.read_log(path)
+        return list(got.rows) + [{UNREADABLE: n} for n in got.broken]
+    with open(path, "rb") as f:
+        lines = f.read().split(b"\n")     # splitlines() は U+2028・\r でも割る＝1 行の JSON を割ってしまう
     rows = []
-    with open(path, encoding="utf-8", errors="replace") as f:
-        for n, line in enumerate(f, 1):
-            line = line.strip()
-            if not line:
+    for n, chunk in enumerate(lines, 1):
+        line = chunk.decode("utf-8", "replace").strip()
+        if not line:
+            continue
+        try:
+            row = json.loads(line)
+        except ValueError:
+            if n == len(lines):            # 改行で終わらない最後の行＝書きかけ（壊れ行と数えない）
                 continue
-            try:
-                row = json.loads(line)
-            except ValueError:
-                row = None
-            rows.append(row if isinstance(row, dict) else {UNREADABLE: n})
+            row = None
+        rows.append(row if isinstance(row, dict) else {UNREADABLE: n})
     return rows
 
 
@@ -212,13 +221,19 @@ def seeded_by_record(row):
 
 
 def is_owner_text(row):
-    """頼みの文の行か（道具の返り・見張りの差し戻し〔isMeta〕を除く）。人が打った行も、別の窓・仕組みの知らせの行も含む。"""
+    """頼みの形の行か（道具の返り・見張りの差し戻し〔isMeta〕を除く。文か画像が在る行）。人が打った行も、別の窓・仕組みの
+    知らせの行も含む。正本は隣の plugin guard の guard_common.is_owner_row（写さない）。隣が無い時だけ控えで見る。"""
+    G = neighbor("guard_common")
+    if G is not None and hasattr(G, "is_owner_row"):
+        return bool(G.is_owner_row(row))
     if row.get("type") != "user" or row.get("isMeta") or "toolUseResult" in row:
         return False
-    return bool(text_of(row).strip())
+    c = _content(row)
+    return bool(text_of(row).strip()) or (isinstance(c, list) and any(
+        isinstance(b, dict) and b.get("type") == "image" for b in c))
 
 
-GUARD_NEEDS = ("is_human_row", "seeded_by_record", "values", "table")   # この見張りが隣の guard_common から直に呼ぶ物
+GUARD_NEEDS = ("is_human_row", "is_owner_row", "read_log", "seeded_by_record", "values", "table")   # この見張りが隣の guard_common から直に呼ぶ物
 
 
 def guard_gap():
@@ -303,6 +318,7 @@ class Log(object):
         msg_ask = {}                # assistant の message の id → その message の最初の問いの位置（同じ message の題を前へ）
         turn_start = 0
         began = False               # 窓の最初の頼みを読んだか（最初の頼みは誰が打っても番の始まり）
+        first_read = False          # 最初の頼みの行（要約の行を除く）を読んだか
         for row in rows:
             if UNREADABLE in row:
                 self.unreadable.append(row[UNREADABLE])
@@ -311,7 +327,8 @@ class Log(object):
                 self.events.append(("meta", ""))     # 見張りの差し戻し: ターンは続くが、締めの本文はここから数え直す
                 continue
             if is_owner_text(row):
-                if not self.first_prompt and not row.get("isCompactSummary"):
+                if not first_read and not row.get("isCompactSummary"):
+                    first_read = True       # 画像だけの最初の頼み（文が空）でも、最初の頼みはこの行で決まる
                     self.first_prompt = text_of(row)
                     self.first_seeded = seeded_by_record(row)
                 if starts_turn(row) or not began:
@@ -884,15 +901,17 @@ def remind(data, env=None):
 def remind_title(log, data):
     if titled(log):
         return None
-    if log.first_prompt:
+    gap = guard_gap()   # 頼みの行の記録の正本（seeded_by_record）が隣に無ければ first_seeded は記録でない＝使わない
+    if log.first_prompt and not gap:
         kind = window_kind(log.first_prompt, None, log.first_seeded)
     else:
-        # 頼みの行がまだ無い（最初の頼みを受けた hook）: 記録を読めないので文だけで子の窓と決めない（人の窓の側へ倒す）。
-        # 文が別の窓を指す時だけ、サーバの記録（parent_session_id）で決めさせる。窓の環境の印は読まない（どの窓でも 1）。
-        prompt = str(data.get("prompt") or "")
+        # 頼みの行がまだ無い（最初の頼みを受けた hook）か、記録の正本が読めない: 記録を読めないので文だけで子の窓と決めない
+        # （人の窓の側へ倒す）。文が別の窓を指す時だけ、サーバの記録（parent_session_id）で決めさせる。窓の環境の印は
+        # 読まない（どの窓でも 1）。
+        prompt = log.first_prompt or str(data.get("prompt") or "")
         kind = window_kind(prompt, None, False)
         if kind is None and kind_of(prompt, True) == AI:
-            return REMIND_PARENT
+            return REMIND_PARENT + ((" （記録を読めない訳: %s）" % gap) if gap else "")
     if kind == AI:
         return REMIND_CHILD   # 親が create_session で付けた題は会話ログに無い＝返事の見張りで照らせないので、付け直させる
     which = ("%s（最初の頼みの返し先から）" % kind) if kind else (
