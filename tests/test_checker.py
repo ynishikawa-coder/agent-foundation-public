@@ -32,7 +32,6 @@ green
 - 10 退役・迂回・呼ぶ側: N/A
 - 11 言語ごとの点: N/A
 - 12 既定で止まる: N/A
-- 13 全体の絵: pass（差なし・版 2026-11-19.1）
 
 ## 所見
 - [台帳へ｜整地] 作り物の気づき
@@ -58,7 +57,6 @@ red
 - 10 退役・迂回・呼ぶ側: N/A
 - 11 言語ごとの点: N/A
 - 12 既定で止まる: N/A
-- 13 全体の絵: pass（差なし・版 2026-11-19.1）
 
 ## 所見
 - [止める｜実装] plugins/x.py — 作り物の欠け
@@ -117,15 +115,15 @@ def test_見る点が写す元の一般の観点を全部持つ():
     ]:
         assert word in skill, f"見る点に無い: {word}"
     points = [l.split("|")[1].strip().split(" ")[0] for l in skill.splitlines() if l.startswith("| ") and l.split("|")[1].strip()[:2].strip().isdigit()]
-    assert points == [str(i) for i in range(1, 14)], points
+    assert points == [str(i) for i in range(1, 13)], points
 
 
 # 注入の試験: 判定の `## 点` の欄に誤りをわざと入れ、形の道具が赤にする事を見る。
 # 点の正本は review-pr の SKILL.md の表（道具はそこを直に読む）。
 
 
-def test_点の正本は_skill_の表で_1_から_13():
-    assert sorted(vf.load_points()) == list(range(1, 14))
+def test_点の正本は_skill_の表で_1_から_12():
+    assert sorted(vf.load_points()) == list(range(1, 13))
 
 
 def test_点を_1_つ抜くと赤():
@@ -148,7 +146,7 @@ def test_点の節が無いと赤():
 
 
 def test_表に無い点と重なりと名の違いは赤():
-    assert any("点 14" in e for e in vf.check(GREEN.replace("- 13 全体の絵: pass（差なし・版 2026-11-19.1）", "- 13 全体の絵: pass（差なし・版 2026-11-19.1）\n- 14 作り物: pass")))
+    assert any("点 13" in e for e in vf.check(GREEN.replace("- 12 既定で止まる: N/A", "- 12 既定で止まる: N/A\n- 13 作り物: pass")))
     assert any("2 度" in e for e in vf.check(GREEN.replace("- 2 触った path: pass", "- 2 触った path: pass\n- 2 触った path: pass")))
     assert any("点 4 の名" in e for e in vf.check(GREEN.replace("- 4 回帰:", "- 4 回り:")))
 
