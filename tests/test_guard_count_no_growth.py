@@ -121,3 +121,8 @@ def test_試験は数を出すだけで止めない(tmp_path, monkeypatch, capsy
     (t / "test_b.py").write_text("def test_y():\n    pass\n", encoding="utf-8")
     assert kaku.grow("HEAD") == 0
     assert "試験: 2 file・2 本" in capsys.readouterr().out
+
+
+def test_細目は守りの数も_main_より増えたら赤と書く():
+    from saimoku import 全文 as 細目の全文
+    assert "CI の `grow` は核・振る舞い・細目の量と守りの数（見張り・検査・レビューの点で、安全の守りは除く）が main より増えたら赤（同じ PR で畳む）。" in 細目の全文()
