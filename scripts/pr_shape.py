@@ -36,7 +36,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 BRANCH = re.compile(r"^claude/(\d{8}-[0-9A-Za-z][0-9A-Za-z._-]*)$")
-ROOT_CAUSE = "直し: 足す所を動かして通すだけで済ませず、同じ所へ足す形になった原因を細目 §3「まず構造を疑う」で探して直す"
+ROOT_CAUSE = "直し: 足す所を動かして通すだけで済ませず、意図（並ぶ PR が互いに衝突しない）とのずれから入り、同じ所へ足す形になった原因を細目 §3「まず構造を疑う」で探して直す"
 
 
 def git(root: Path, *args: str) -> str:

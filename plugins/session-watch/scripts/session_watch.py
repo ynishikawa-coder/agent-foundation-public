@@ -110,7 +110,7 @@ def neighbor(name):
 ASK = "AskUserQuestion"
 SET_TITLE_SUFFIX = "set_session_title"
 REMOTE_PREFIX = "mcp__claude-code-remote__"
-ROOT_CAUSE = "直し: 拾われた所を出し直すだけで済ませず、細目 §3「まず構造を疑う」で原因から直す"
+ROOT_CAUSE = "直し: 拾われた所を出し直すだけで済ませず、意図（オーナーが返事を読んで迷わない）とのずれから入り、細目 §3「まず構造を疑う」で原因を探して直す"
 
 AI = "🤖"       # 返し先が別の窓か仕組み
 HUMAN = "🙋"    # 返し先がオーナー（オーナーが話しかける窓）
