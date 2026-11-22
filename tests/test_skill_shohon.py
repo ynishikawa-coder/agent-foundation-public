@@ -83,7 +83,7 @@ def test_文面の後の_1_行は返事の締めを置き換えない():
 def test_register_rule_は核と細目の写しを持たず指す():
     text = read(REGISTER)
     step1 = text[text.index("## Step 1"):text.index("## Step 2")]
-    assert "| 足す物 | 誰が決める |" not in step1, "核 §3 の分け方を表で写している"
+    # 表で写していないかは tests/test_jimoji_dake_de_terasanai.py が表の形で照らす
     assert "核 §3" in step1
     form = next(ln for ln in step1.splitlines() if "誤りが入れない形のどれか" in ln)
     assert "細目 §3「誤りが入れない形」" in form, "誤りが入れない形が正本を指していない"

@@ -198,19 +198,12 @@ def test_形の誤りは止める(mutate, word):
 def test_説明は箱の名と原因と意図を挙げる():
     r = run("explain", DODAI, "p1")
     assert r.returncode == 0, r.stdout
-    for word in ("起きた所", "原因の箱", "構造から来る", "流れ", "原因の箱の意図", "なぜここから起きたか", "【実物が絵どおりか】"):
-        assert word in r.stdout, word
+    # 欄の形と絵の値の結びは tests/test_jimoji_dake_de_terasanai.py が explain で照らす。ここは命令の口が同じ文を出すか
+    assert bp.explain(agreed(), "p1") in r.stdout
 
 
 def test_無い問題は説明しない():
     assert run("explain", DODAI, "無い").returncode == 1
-
-
-def test_review_pr_の点_13_が道具を指す():
-    skill = (ROOT / "plugins" / "checker" / "skills" / "review-pr" / "SKILL.md").read_text(encoding="utf-8")
-    assert "| 13 全体の絵 |" in skill
-    assert "big_picture.py compare" in skill and "docs/全体の絵.json" in skill
-    assert "書いた窓の申告" in skill
 
 
 @pytest.mark.parametrize("mutate", [

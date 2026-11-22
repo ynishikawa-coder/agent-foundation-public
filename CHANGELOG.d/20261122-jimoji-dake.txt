@@ -1,0 +1,1 @@
+- 直した: 決まった字の有無だけを見ていた試験（束A）を形で照らす。締めの 2 行は session_watch の締めの読み方、review-pr の点 1 は整地の型の見出しと根治の段、点 13 は表の行・節・道具の口、全体の絵の説明と型は欄の並びと絵の JSON の値、register-rule の Step 1 は表の行、PR の型の頭は CONTRIBUTING の冒頭の欄の決まり、残りの行は台帳の行の id だけの形で照らす（tests/test_jimoji_dake_de_terasanai.py）。要約の窓の値は試験が手で写さず setup_plugins.py の COMPACT_WINDOW を読む

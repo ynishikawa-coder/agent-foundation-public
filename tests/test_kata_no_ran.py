@@ -168,7 +168,6 @@ def test_手順の文は根治の段で読ませる():
     """型の欄の外で、手順の文が根治の段で読ませる所（文の照らし）。"""
     assert "学びを根治の 5 段（意図・課題・原因・解決・未来＝細目 §3）で" in _read("plugins/dev-flow/skills/verify/SKILL.md")
     r = _read("plugins/checker/skills/review-pr/SKILL.md")
-    assert "PR 本文の整地の `1. 意図`・`2. 課題`" in r
     assert "整地の意図がオーナーの原文の意図と違う・課題に原因（なぜ）が混ざる" in r
     assert "直し: 細目 §3「まず構造を疑う」で、所見の意図とのずれから原因を探す" in r
     assert "守りたかった意図とのずれ（課題）から原因の段へ戻る" in _read("plugins/dev-flow/skills/register-rule/SKILL.md")

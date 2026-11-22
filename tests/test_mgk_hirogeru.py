@@ -95,10 +95,3 @@ def test_説明は起きた所の箱の意図を課題より先に出す():
     assert i < k < c
     at = {b["id"]: b for b in pic["boxes"]}[p["at"][0]]
     assert (at.get("intent") or "まだ聞いていない") in lines[i]
-
-
-def test_絵の型は意図と課題を分けて出す():
-    t = _read("plugins/docs-kit/skills/big-picture/references/template.html")
-    assert '<div class="lab">意図（何のために在るか）</div><p id="intent"></p>' in t
-    assert '<div class="lab">課題（意図と今のずれ）</div><p id="problem"></p>' in t
-    assert "課題（この意図とのずれ＝起きた事）" in t

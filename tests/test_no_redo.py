@@ -31,8 +31,8 @@ def _read(rel):
 
 
 # ── 1. 決まりの今の文（文をそのまま照らす＝消すと赤）──
+# 締めの 2 行（核 §5・細目 §5）は文でなく形で照らす: tests/test_jimoji_dake_de_terasanai.py
 RULES = [
-    ("plugins/core/核.md", "- 最後の 2 行は `AI がこの後やること:`（締める前に動かす）と `あなたがやること:`。"),
     ("plugins/core/核.md", "- AI が立てた 🤖 の窓は済んだら閉じる。"),
     ("plugins/core/核.md", "- 終わったかの判定は書いた窓と別の目が合流の前に 1 回する（見直しも同じ目）。"),
     ("plugins/core/振る舞い.md", "- **後継へ渡す残り** は 1 本の列にせず、1 つずつ持ち主（この窓・直す窓・台帳の行）を付ける。"),
@@ -47,8 +47,6 @@ RULES = [
                             "同じレビューの窓の見直しで付ける）"),
     ("plugins/core/細目/07-完了の4状態.md", "- **判定を頼む** — 書いた窓が PR に 1 つだけレビューの窓を立てて頼み、返しを受けて合流まで運ぶ。"),
     ("plugins/core/細目/07-完了の4状態.md", "red を直したら新しいレビューの窓を立てず、同じレビューの窓へ `send_message` で見直しを頼む。"),
-    ("plugins/core/細目/05-返事の形.md", "- **締めの 2 行** — オーナーが最後だけ読んで、自分の番かが分かる形にする。"),
-    ("plugins/core/細目/05-返事の形.md", "  - `あなたがやること: なし` ／ `あなたがやること: <何を>（問いに答える・手を打つ窓の URL）`"),
     ("plugins/core/細目/08-記録.md", "- **文脈が重い時** — 後継の窓へ移らず、自動の要約に任せてそのまま続ける。"),
     ("plugins/core/細目/04-聞き方.md", "レビュー・調べ・定型の直しの窓と助手は Sonnet（お金・戻せない操作・核に触れるレビューは Opus）。"),
     ("plugins/core/細目/04-聞き方.md", "話題が変われば新しい窓を勧める。"),
@@ -208,13 +206,17 @@ def test_要約の窓を置く(tmp_path, monkeypatch):
     (tmp_path / ".claude" / "settings.json").write_text('{"env": {"TZ": "Asia/Tokyo"}}', encoding="utf-8")
     assert m.compact_window()
     d = json.loads((tmp_path / ".claude" / "settings.json").read_text(encoding="utf-8"))
-    assert d == {"env": {"TZ": "Asia/Tokyo"}, "autoCompactWindow": 200_000}
+    # 値は正本（setup_plugins.py の COMPACT_WINDOW）から読む＝試験に数を手で写さない
+    assert d == {"env": {"TZ": "Asia/Tokyo"}, "autoCompactWindow": m.COMPACT_WINDOW}
 
 
 def test_要約の窓は無い時も置く(tmp_path, monkeypatch):
     monkeypatch.setenv("HOME", str(tmp_path))
-    assert _setup_mod().compact_window()
-    assert json.loads((tmp_path / ".claude" / "settings.json").read_text())["autoCompactWindow"] == 200_000
+    m = _setup_mod()
+    # 注入: 正本の値を替えると書く値も替わる（compact_window の中に数を手で写していれば外れる）
+    monkeypatch.setattr(m, "COMPACT_WINDOW", m.COMPACT_WINDOW + 12_345)
+    assert m.compact_window()
+    assert json.loads((tmp_path / ".claude" / "settings.json").read_text())["autoCompactWindow"] == m.COMPACT_WINDOW
 
 
 def test_人が置いた要約の窓は替えない(tmp_path, monkeypatch):
