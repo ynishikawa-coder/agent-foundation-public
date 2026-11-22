@@ -17,7 +17,8 @@ def test_返し先が別の窓の子窓には親が付けた題を付け直す�
     row = {"type": "user", "message": {"content": "作り物を見て（親窓 session_X の子）"}, "origin": {"kind": "task-notification"}}
     log.write_text(json.dumps(row, ensure_ascii=False) + "\n", encoding="utf-8")
     text = sw.remind({"prompt": "作り物を見て（親窓 session_X の子）", "transcript_path": str(log)}, CLOUD)
-    assert text and "set_session_title" in text and "付け直す" in text
+    assert text and "set_session_title" in text and "表" in text and "に照らして" in text
+    assert "同じ題でよい" not in text            # 親の崩れた題をそのまま写させない（2026-11-22）
 
 
 # ── 返事の中身の差し戻し（平文の問い・中の言葉・時刻・完了の言い切り・題の材料・秘密）──
