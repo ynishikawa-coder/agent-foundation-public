@@ -176,21 +176,82 @@ def test_答えが返ると離席の止めが解ける(env):
     assert not denied(env, bash(DROP))
 
 
+def human(text, ts="2000-01-01T00:00:00Z"):
+    return {"type": "user", "timestamp": ts, "message": {"content": text}}
+
+
+def away_log(env, tmp_path, *before):
+    """離席の印を開いた窓の会話ログ（印は今の長さを記す）。"""
+    tpath = write_log(tmp_path / "t.jsonl", [human("作り物の頼み"), *before])
+    hook(env, "post", ask_result(tpath=tpath))
+    return tpath
+
+
+def append(tpath, *rows, raw=""):
+    with open(tpath, "a", encoding="utf-8") as f:
+        f.write("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in rows) + raw)
+    return tpath
+
+
 def test_オーナーが打てば離席の止めが解ける(env, tmp_path):
-    hook(env, "post", ask_result())
-    later = "2999-01-01T00:00:00.000Z"
-    tpath = write_log(tmp_path / "t.jsonl", [{"type": "user", "timestamp": later, "message": {"content": "戻りました"}}])
+    tpath = away_log(env, tmp_path)
+    assert denied(env, bash(DROP, tpath=tpath))
+    append(tpath, human("戻りました"))
     assert not denied(env, bash(DROP, tpath=tpath))
     assert not denied(env, bash(DROP))     # 窓は閉じた
 
 
 def test_離席の後に人の行が無ければ止めたまま(env, tmp_path):
-    hook(env, "post", ask_result())
-    old = "2000-01-01T09:00:00+09:00"
-    tpath = write_log(tmp_path / "t.jsonl", [
-        {"type": "user", "timestamp": old, "message": {"content": "前の頼み"}},
-        {"type": "user", "timestamp": "2999-01-01T00:00:00Z", "toolUseResult": {}, "message": {"content": "返り"}}])
+    tpath = away_log(env, tmp_path)
+    append(tpath, {"type": "user", "timestamp": "2999-01-01T00:00:00Z", "toolUseResult": {}, "message": {"content": "返り"}})
     assert denied(env, bash(DROP, tpath=tpath))
+
+
+def test_戻った後に大きな出力が続いても戻りを数える(env, tmp_path):
+    """末尾の 200KB だけを読む古い形では、人の行が大きな出力の後ろに埋もれて止め続けた。"""
+    tpath = away_log(env, tmp_path)
+    big = {"type": "user", "toolUseResult": {}, "message": {"content": "作" * 120_000}}
+    append(tpath, human("戻りました"), big, big)
+    assert not denied(env, bash(DROP, tpath=tpath))
+
+
+def test_積まれた入力は時刻が印より前でも位置で戻りと数える(env, tmp_path):
+    """入力が積まれた時刻（印より前）で書かれる行を、時刻で比べる古い形は戻りと数えなかった。"""
+    tpath = away_log(env, tmp_path)
+    append(tpath, human("積んでおいた頼み", ts="2000-01-01T00:00:00Z"))
+    assert not denied(env, bash(DROP, tpath=tpath))
+
+
+@pytest.mark.parametrize("row", [
+    {"type": "user", "origin": {"kind": "task-notification"}, "promptSource": "system",
+     "message": {"content": "<task-notification>作り物の子の窓が終わった</task-notification>"}},
+    {"type": "user", "isCompactSummary": True, "message": {"content": "作り物の要約"}},
+], ids=["子の窓の知らせ", "縮めた要約"])
+def test_人のいない行では離席の止めを解かない(env, tmp_path, row):
+    tpath = away_log(env, tmp_path)
+    append(tpath, dict(row, timestamp="2999-01-01T00:00:00Z"))
+    assert denied(env, bash(DROP, tpath=tpath))
+
+
+def test_印より後の読めない行は止めたまま行の番号を出す(env, tmp_path):
+    tpath = away_log(env, tmp_path)
+    append(tpath, raw="{壊れた行\n")
+    why = deny_reason(env, bash(DROP, tpath=tpath))
+    assert "戻りを確かめられなかった訳" in why and "行の番号: 2" in why, why
+
+
+def test_位置の無い古い印と別の会話ログでは戻りを数えない(env, tmp_path):
+    away = tmp_path / "tmp" / "away"
+    away.mkdir(parents=True)
+    (away / "s1.json").write_text(json.dumps({"since": "2000-01-01T00:00:00Z", "questions": ["作り物"]}), encoding="utf-8")
+    tpath = write_log(tmp_path / "o.jsonl", [human("戻りました", ts="2999-01-01T00:00:00Z")])
+    assert "古い印" in deny_reason(env, bash(DROP, tpath=tpath))
+    mine = away_log(env, tmp_path)
+    other = write_log(tmp_path / "x.jsonl", [human("別の窓の頼み")])
+    assert "違う" in deny_reason(env, bash(DROP, tpath=other))
+    assert denied(env, bash(DROP, tpath=mine))
+    write_log(tmp_path / "t.jsonl", [])                       # 縮んだ会話ログ
+    assert "短い" in deny_reason(env, bash(DROP, tpath=mine))
 
 
 def test_人のいない窓の印があれば離席の止めも台帳も働かない(env):
@@ -389,20 +450,6 @@ def test_作業部屋で積んだ問いも本体の窓の冒頭に出る(env, re
     hook(env, "post", ask_result())
     env["CLAUDE_PROJECT_DIR"] = str(repo)
     assert "作り物の置き場を A と B のどちらにしますか" in hook(env, "start", {"session_id": "s2"})["additionalContext"]
-
-
-def test_時刻は字でなく時刻で比べる(env, tmp_path):
-    """離席の印は UTC（Z）、人の行は +09:00。字で比べると逆になる 2 例。"""
-    away = tmp_path / "tmp" / "away"
-    away.mkdir(parents=True)
-    (away / "s1.json").write_text(json.dumps({"since": "2026-11-11T09:50:00.000000Z", "questions": ["作り物"]}),
-                                  encoding="utf-8")
-    before = write_log(tmp_path / "b.jsonl", [{"type": "user", "timestamp": "2026-11-11T18:00:00+09:00",
-                                               "message": {"content": "離席の前の行"}}])
-    assert denied(env, bash(DROP, tpath=before))      # 字では T18 > T09 だが、時刻では前
-    after = write_log(tmp_path / "a.jsonl", [{"type": "user", "timestamp": "2026-11-11T19:00:00+09:00",
-                                              "message": {"content": "戻りました"}}])
-    assert not denied(env, bash(DROP, tpath=after))   # 時刻で後＝戻った
 
 
 def test_1つの見張りが_import_で壊れても他の見張りは走る(env, tmp_path):
@@ -1000,3 +1047,37 @@ def test_推奨の印の崩れと1つだけ選ばせる問いが両方当たれ�
     assert "[rec]" in why and "1 つ目でない" in why, why
     assert "ask_pick_one_exempt" in why and "細目 §4「推奨の印」" in why, why
     assert why.strip().splitlines()[-1].endswith("細目 §3「まず構造を疑う」で探して直す"), why
+
+
+# ── 読めない台帳を空と取り違えて上書きしない（原因の台帳の行）──
+def _ledger_files(env):
+    return sorted(Path(env["AF_GUARD_STATE"]).rglob("unanswered*"))
+
+
+def _break_ledger(env):
+    hook(env, "post", ask_result())                    # 台帳を作る
+    led = [p for p in _ledger_files(env) if ".broken-" not in p.name][0]
+    led.write_text('{"pending": [壊れた台帳', encoding="utf-8")
+    return led
+
+
+def test_読めない台帳は上書きせず脇へ移して知らせる(env):
+    led = _break_ledger(env)
+    note = hook(env, "post", ask_result(sid="s2")).get("additionalContext", "")
+    aside = [p for p in _ledger_files(env) if ".broken-" in p.name]
+    assert len(aside) == 1 and aside[0].read_text(encoding="utf-8") == '{"pending": [壊れた台帳', aside
+    assert "unanswered-ledger-trouble" in note and aside[0].name in note, note
+    assert json.loads(led.read_text(encoding="utf-8"))["pending"], "新しい台帳に今の問いが積まれる"
+
+
+def test_窓の起動でも読めない台帳は脇へ移して知らせる(env):
+    _break_ledger(env)
+    note = hook(env, "start", {"session_id": "s2"}).get("additionalContext", "")
+    assert ".broken-" in note, note
+    assert [p for p in _ledger_files(env) if ".broken-" in p.name]
+
+
+def test_読めない台帳は命令の口のlistで1を返す(env):
+    _break_ledger(env)
+    r = run_cli(env, "list")
+    assert r.returncode == 1 and "読めない" in r.stderr, r

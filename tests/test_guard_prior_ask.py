@@ -1,4 +1,11 @@
-"""guard の prior_ask: 選択肢の画面を出す前に、この頼みの中で決定の記録と問いの表を引いた跡が無ければ AI だけ止めるか（注入の試験）。"""
+"""guard の prior_ask: 選択肢の画面を出す前に、この窓の文脈（最後に縮めた境より後）と助手の中で決定の記録と問いの表を引いた
+跡が無ければ AI だけ止めるか（注入の試験）。
+
+意図: 問いの前に決定の記録と問いの表を引かせる。
+課題: 引いた後に子の窓の知らせが届く・前の頼みで引いた・助手に引かせた時に、引いたのに問いを止めていた（原因の台帳の行）。
+原因: 「人の行」を origin の欠けで見分けて知らせの行・縮めた要約を人の頼みと数え、その頼みで跡を切っていた。助手のログは
+  見ず、読めない行は黙って捨てていた。
+"""
 import json
 
 import pytest
@@ -34,9 +41,14 @@ def lookup_values(env, tmp_path, **extra):
     env["SKILL_VALUES"] = str(table)
 
 
+BOUNDARY = {"type": "system", "subtype": "compact_boundary", "timestamp": "2026-11-22T01:00:00Z"}
+NOTICE = {"type": "user", "uuid": "n1", "origin": {"kind": "task-notification"}, "promptSource": "system",
+          "message": {"content": "<task-notification>作り物の子の窓が終わった</task-notification>"}}
+SUMMARY = {"type": "user", "uuid": "c1", "isCompactSummary": True, "message": {"content": "作り物の要約"}}
+
 PRIOR_BAD = [
     ("何も引いていない", [use("Read", {"file_path": "/x/作り物.txt"})]),
-    ("引いたのは前の頼みの中だけ", [use("作り物の記録を引く道具", {"q": "会議"}), owner("次の作り物の頼み", "u2")]),
+    ("引いたのは縮めた境より前だけ", [use("作り物の記録を引く道具", {"q": "会議"}), BOUNDARY]),
     ("引く先と違う所を探しただけ", [use("Grep", {"pattern": "会議", "path": "/x/作り物のコード"})]),
     ("前に出した画面は跡に数えない", [use("AskUserQuestion", {"questions": [{"question": "作り物の記録を引く道具"}]})]),
 ]
@@ -54,11 +66,14 @@ PRIOR_GOOD = [
     ("記録を引いた", [use("作り物の記録を引く道具", {"q": "会議の数え方"})]),
     ("問いの表を grep した", [use("Grep", {"pattern": "会議", "path": "/x/問いの表.md"})]),
     ("引いた後に他の道具を使った", [use("作り物の記録を引く道具", {}), use("Read", {"file_path": "/x/a"})]),
+    ("前の頼みで引いた", [use("作り物の記録を引く道具", {"q": "会議"}), owner("次の作り物の頼み", "u2")]),
+    ("引いた後に子の窓の知らせが届いた", [use("作り物の記録を引く道具", {"q": "会議"}), NOTICE]),
+    ("縮めた境より後に引いた", [BOUNDARY, SUMMARY, use("作り物の記録を引く道具", {"q": "会議"})]),
 ]
 
 
 @pytest.mark.parametrize("name,rows", PRIOR_GOOD, ids=[c[0] for c in PRIOR_GOOD])
-def test_prior_ask_この頼みの中で引いた跡があれば通す(env, tmp_path, name, rows):
+def test_prior_ask_この窓の文脈の中で引いた跡があれば通す(env, tmp_path, name, rows):
     lookup_values(env, tmp_path)
     assert deny_reason(env, ask_with(prior_log(tmp_path, *rows))) == ""
 
@@ -91,3 +106,40 @@ def test_prior_ask_引く要の無い問いは値の表で外せ選択肢の画�
     d = tmp_path / "subagents"
     d.mkdir()
     assert deny_reason(env, ask_with(write_log(d / "a.jsonl", [owner("作り物", "u1")]))) == ""
+
+
+def helper(tmp_path, rows, main="p.jsonl"):
+    d = tmp_path / main.rsplit(".", 1)[0] / "subagents"
+    d.mkdir(parents=True, exist_ok=True)
+    return write_log(d / "agent-x.jsonl", rows)
+
+
+def test_prior_ask_助手に引かせた跡も数え_縮めた境より前の助手は数えない(env, tmp_path):
+    lookup_values(env, tmp_path)
+    tpath = prior_log(tmp_path)
+    helper(tmp_path, [dict(use("作り物の記録を引く道具", {"q": "会議"}), timestamp="2026-11-22T02:00:00Z")])
+    assert deny_reason(env, ask_with(tpath)) == ""
+    tpath = prior_log(tmp_path, BOUNDARY)          # 境（01:00）より前に引いた助手は今の文脈に無い
+    helper(tmp_path, [dict(use("作り物の記録を引く道具", {"q": "会議"}), timestamp="2026-11-22T00:30:00Z")])
+    assert "引いた跡が会話ログに無い" in deny_reason(env, ask_with(tpath, sid="s2"))
+
+
+def test_prior_ask_読めない行は黙って捨てず行の番号を止める文に出す(env, tmp_path):
+    lookup_values(env, tmp_path)
+    tpath = prior_log(tmp_path)
+    with open(tpath, "a", encoding="utf-8") as f:
+        f.write('{"type": "assistant", "message": 壊れた行\n')
+    why = deny_reason(env, ask_with(tpath))
+    assert "読めなかった所" in why and "行の番号: 2" in why, why
+    hp = helper(tmp_path, [owner("作り物", "h1")])
+    with open(hp, "a", encoding="utf-8") as f:
+        f.write("壊れた助手の行\n")
+    assert "agent-x.jsonl の 1 行" in deny_reason(env, ask_with(tpath, sid="s2"))
+
+
+def test_prior_ask_知らせの行と要約の行は新しい頼みと数えず上限を数え直さない(env, tmp_path):
+    lookup_values(env, tmp_path)
+    tpath = prior_log(tmp_path)
+    assert deny_reason(env, ask_with(tpath)) and deny_reason(env, ask_with(tpath))
+    tpath = prior_log(tmp_path, NOTICE, SUMMARY)
+    assert deny_reason(env, ask_with(tpath)) == ""           # 人の頼みは u1 のまま＝上限を越えた

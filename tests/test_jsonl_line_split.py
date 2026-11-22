@@ -29,8 +29,8 @@ def test_会話ログの読み口は改行以外の区切り字を含む行を�
             {"type": "assistant", "message": {"content": [{"type": "text", "text": "作り物の返事"}]}}]
     path = write_log(tmp_path / "l.jsonl", rows)
     assert ch in Path(path).read_text(encoding="utf-8")       # 字はエスケープされずにそのまま書かれている
-    assert list(G.iter_rows(path)) == rows
-    assert list(G.iter_rows(path, tail_bytes=10_000)) == rows
+    log = G.read_log(path)
+    assert log.rows == rows and log.broken == []
 
 
 def _splitlines_feeding_json(path):
