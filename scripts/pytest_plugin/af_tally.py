@@ -292,7 +292,7 @@ def unit(it):
     w = getattr(getattr(it, "module", None), "AF_SHARD_WEIGHT", None)
     if w is None:
         return it.nodeid.split("::")[0], 1
-    return it.nodeid, (w(it.nodeid) if callable(w) else w)   # 関数なら試験ごとの重さ（試験の名 → 重さ）
+    return it.nodeid, (w(it) if callable(w) else w)   # 関数なら試験ごとの重さ（集めた試験 → 重さ。名は \u の形に崩れるので名でなく試験を渡す）
 
 
 def assign(items, k):

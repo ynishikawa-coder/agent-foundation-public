@@ -11,11 +11,11 @@ import test_rule_holes as rh   # pytest が集めた同じ module（決まりの
 
 
 
-def AF_SHARD_WEIGHT(nodeid):
+def AF_SHARD_WEIGHT(item):
     """check_all が組に分ける時の試験ごとの重さ。消して回す時間は決まりの file の大きさにほぼ比べる
     （測った値: 8695 バイトで約 200 秒・309 バイトで約 15 秒）。ほかの試験 1 本（測った平均で約 0.18 秒）を 1 として、8 バイトで 1。"""
-    rel = nodeid.rsplit("[", 1)[-1].rstrip("]")
-    return max(1, len((rh.ROOT / rel).read_bytes()) // 8) if rel in rh.RULE_FILES else 1
+    spec = getattr(item, "callspec", None)
+    return max(1, len((rh.ROOT / spec.params["rel"]).read_bytes()) // 8) if spec else 1
 
 
 @pytest.mark.parametrize("rel", rh.RULE_FILES)
