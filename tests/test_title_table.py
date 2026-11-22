@@ -210,5 +210,6 @@ def test_待ちの意味は核と_title_mark_で同じ文():
     skill = Path(sw.__file__).resolve().parent.parent / "skills" / "title-mark" / "SKILL.md"
     assert sw.WAIT_MEANING in _core("核.md")
     assert sw.WAIT_MEANING in skill.read_text(encoding="utf-8")
-    for other in ("`❓`", "`🛑`", "オーナーの答えでなく", "AI が自分で続ける"):
+    for other in ("オーナーの答えでなく", "AI が自分で続ける"):
         assert other in sw.WAIT_MEANING
+    assert "オーナーの答え待ちは `❓`、止まって誰かが手を打たないと動かないのは `🛑`" in skill.read_text(encoding="utf-8")

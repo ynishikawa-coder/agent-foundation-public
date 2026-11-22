@@ -141,7 +141,7 @@ STATE_NAMES = {MOVING: "（無し）", ASKING: "オーナーの答え待ち", WA
 CARD_WAIT = WAITING
 OLD_CARD_WAIT = "⏳"
 # 待ちの意味の文（核 §5 と skill title-mark に同じ文で載せる。写しの一致は試験が照らす）。
-WAIT_MEANING = ('`💤` の待ちは、オーナーの答えでなく、ほかの窓の返事・本流への取り込み・CI など、ほかの何かを待っていて、それが来たら AI が自分で続ける時（オーナーの答え待ちは `❓`、止まって誰かが手を打たないと動かないのは `🛑`）。')
+WAIT_MEANING = ('`💤` の待ちは、オーナーの答えでなく、ほかの窓の返事・本流への取り込み・CI など、ほかの何かを待っていて、それが来たら AI が自分で続ける時。')
 CARD_WORDS = {DONE: "終わった", ASKING: "答えて", CARD_WAIT: "待ち", STOPPED: "止まった"}
 CARDS = tuple(CARD_WORDS)
 VS16 = "\ufe0f"  # 絵の字の後に付きうる見た目の切り替えの字（印の一部として読む）
