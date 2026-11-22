@@ -141,6 +141,31 @@ def test_型は意図などの欄を別々にこの順で持つ():
     assert not bad, bad
 
 
+def 型が並べる欄(unit):
+    """型が欄を並べて書く所（`a｜b｜c` の並び・表の頭の行）から欄の名を全部返す。"""
+    names = []
+    for grp in re.findall(r"`([^`\n]*｜[^`\n]*)`", unit):
+        names += [x.strip() for x in grp.split("｜")]
+    head = next((l for l in unit.splitlines() if l.strip().startswith("|") and not set(l.strip()) <= set("|-: ")), None)
+    if head:
+        names += [re.split(r"[（(]", c)[0].strip() for c in head.strip().strip("|").split("|")]
+    return [n for n in names if n]
+
+
+def test_型が並べる欄は全部_欄の定義に載る():
+    # 欄の定義を手で選んで一部だけ載せると、載せない欄は消しても緑になる（PR #137 のレビューの red）
+    bad = {k["名"]: m for k in 型の欄
+           if (m := [n for n in 型が並べる欄(型の所(_read(k["file"]), k)) if n not in k["欄"]])}
+    assert not bad, bad
+
+
+def test_注入_並べた欄を定義から外すと赤():
+    unit = "欄 `意図｜決めた中身｜原文｜時刻` で書く。"
+    assert [n for n in 型が並べる欄(unit) if n not in ["意図", "決めた中身"]] == ["原文", "時刻"]
+    table = "| 論点 | 意図（何のために） | 持つ窓 |\n|---|---|---|"
+    assert 型が並べる欄(table) == ["論点", "意図", "持つ窓"]
+
+
 def _字だけ残す(unit, name):
     """name の欄を壊し、字は残す（「意図:」→「意図も込みの文:」）。"""
     return re.sub(_始まりの印 + "(" + re.escape(name) + ")" + _終わりの印,
