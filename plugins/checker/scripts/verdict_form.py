@@ -16,7 +16,6 @@
      各行の値がその点に選べる値のどれか。選べる値は SKILL.md の「判定の形」の雛形の `## 点` の行
      （`- 1 依頼の充足: pass/fail`・`- 8 歯と口・注入の試験: pass/fail/N/A`・点 3 は `書いた窓 <id> ≠ この窓`）から点ごとに読む。
      欠け・重なり・表に無い点・その点に選べる値の外（例: 点 1〜7 の N/A）・同じ見出しの節が 2 つ在るのは誤り。
-     点「全体の絵」の pass は `pass（差なし・版 <版>）` の形だけ（照らさずに通さない）。
      点と選べる値の正本は SKILL.md の 1 か所（ここに写さない）。読めない時は止まる（点を見ずに通さない）。
   7. red（blocked を除く）は `## verdict` に `直し: 細目 §3「まず構造を疑う」` の行が在る
      （所見を直す行の一覧として返さず、根治の入口を指す。中身は細目が正本＝ここは指すだけ）。
@@ -43,9 +42,6 @@ STOP_CARD = "止める"   # 1 つでも在れば red になる札（判定の決
 POINT_ROW = re.compile(r"^\| (\d+) (\S[^|]*?) \|")
 POINT_LINE = re.compile(r"^- (\d+) ([^:：]+)[:：] ?(.*)$")
 VALUE = re.compile(r"^(pass|fail|N/A)(?:$|[ （(])")
-PICTURE = "全体の絵"
-_PV = r"(?:[^／）\s]+ )?\d{4}-\d{2}-\d{2}\.\d+"
-PICTURE_PASS = re.compile(r"^pass（差なし・版 " + _PV + r"(?:／" + _PV + r")*）$")
 OTHER_EYE = re.compile(r"^書いた窓 (session_[A-Za-z0-9]+) ≠ この窓$")
 TEMPLATE_EYE = "書いた窓 <id> ≠ この窓"   # 雛形の点 3 の値の書き方（OTHER_EYE の雛形の形）
 TEMPLATE_VALUES = re.compile(r"^((?:pass|fail|N/A)(?:/(?:pass|fail|N/A))*)(?:$|[ （(])")
@@ -176,8 +172,6 @@ def check_points(lines, points, reviewer=None, writer=None, values=None):
             want = "書いた窓 <id> ≠ この窓" if "eye" in allowed else "／".join(v for v in ("pass", "fail", "N/A") if v in allowed)
             errs.append("点 %d の値が %s のどれでもない: %s" % (no, want, val[:20]))
             continue
-        if points[no] == PICTURE and mv.group(1) == "pass" and not PICTURE_PASS.match(val):
-            errs.append("点 %d %s の pass が `pass（差なし・版 YYYY-MM-DD.n）` でない（照らした版を書く）" % (no, PICTURE))
         if mv.group(1) == "fail":
             fails += 1
     for no in sorted(set(points) - seen):

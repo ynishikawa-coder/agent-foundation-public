@@ -11,12 +11,15 @@
 
 読む物（GitHub の REST・公開の repo は鍵なしで読める・GITHUB_TOKEN が在れば付ける）:
   PR（先端の SHA・開いているか・mergeable_state）／base の枝の必須の検査（rules/branches/<base> の required_status_checks。
-  base の枝に無い＝積んだ PR は既定の枝の物。GitHub の無料の版の非公開の repo はこの口が 403 と決まった本文
-  「Upgrade to GitHub Pro or make this repository public …」を返す＝ルールセットを置けない版なので、必須の検査の決まりは
-  「無い」が事実。その時は先端に在る検査を全部、必須と同じに照らす。ほかの 403・401・読めない時は今までどおり止める）／
+  base の枝に無い＝積んだ PR は既定の枝の物）／
   先端の check run と commit status／PR のコメント（同じ先端の判定 `見た先端: <先端12>` が在るか）。
 入ってよい: 開いている・mergeable_state が clean・必須の検査が全部、先端で終わって success（neutral・skipped も GitHub と同じく通す）・
-  同じ先端の判定がまだ無い。どれかが外れたら「まだ」（同じ先端の判定が在れば「済み」）。
+  同じ先端の判定がまだ無い。
+  無料のプランの非公開 repo（GitHub が必須の検査を作らせず rules を 403「Upgrade to GitHub Pro」で返す）だけは、必須の検査の代わりに
+  先端で走った検査が全部終わって緑（1 つも無ければ mergeable_state clean だけ）で通す（オーナーの答え 2026-11-22）。
+  走った検査には、先端の workflow の走り（actions/runs?head_sha=）も入れる（遅い job の check run がまだ作られていない間に、
+  先に終わった速い検査だけで通らないように）。
+  それ以外の 403・必須の検査が空の repo は今までどおり通さない。どれかが外れたら「まだ」（同じ先端の判定が在れば「済み」）。
 exit: 0=入ってよい / 1=まだ・済み（訳を 1 行ずつ）/ 2=読めない（入ってよいと言わない＝まだと同じに扱う）。
 材料を file で受ける口は置かない（窓が書いた材料で関所を通さない）。試験は decide を直に呼ぶ。
 """
@@ -35,8 +38,8 @@ API = "https://api.github.com"
 OK = {"success", "neutral", "skipped"}
 VERDICT = re.compile(r"^\s*レビューした窓\s*[:：]\s*(session_[A-Za-z0-9]+)\s+判定\s*[:：]\s*(green|red)\b", re.M)
 SEEN = re.compile(r"^\s*見た先端\s*[:：]\s*([0-9a-f]{12})\s*$", re.M)
-# GitHub の無料の版の非公開の repo で、ルールセットの口が返す 403 の本文（この字と全く同じ時だけ「決まりが無い」と読む）
-PLAN_LACKS = "Upgrade to GitHub Pro or make this repository public to enable this feature."
+PLAN_NONE = None    # 無料のプランで必須の検査を持てない repo（rules が 403「Upgrade to GitHub Pro」）
+PLAN_403 = "Upgrade to GitHub Pro"
 UNKNOWN_TRIES = 4   # mergeable_state は GitHub が後で数える（unknown の間は少し待って読み直す）
 
 
@@ -68,10 +71,10 @@ def check_states(runs: list, statuses: list) -> dict[str, str]:
 
 
 def workflow_states(wruns: list) -> dict[str, str]:
-    """{"workflow <名>": 状態}。先端の workflow の走り（同じ名は新しい物）。終わっていれば conclusion・まだなら status。"""
+    """{"workflow <名>": 状態}。先端の workflow の走り。同じ名は新しい物を取る（終わっていれば conclusion・まだなら status）。"""
     out: dict[str, tuple[str, str]] = {}
     for r in wruns or []:
-        name = "workflow " + (r.get("name") or r.get("path") or str(r.get("id") or ""))
+        name = "workflow " + (r.get("name") or str(r.get("workflow_id") or ""))
         when = r.get("created_at") or ""
         state = r.get("conclusion") if r.get("status") == "completed" else (r.get("status") or "queued")
         if name not in out or when >= out[name][0]:
@@ -90,13 +93,8 @@ def verdicts_on(comments: list, head: str) -> list[str]:
     return out
 
 
-def decide(pr: dict, required, states: dict[str, str], comments: list) -> tuple[str, list[str]]:
-    """("入ってよい"|"まだ"|"済み", 訳の並び)。材料は全部 GitHub の記録（呼ぶ側が読んで渡す）。
-    required が None＝この版ではルールセットを置けない（必須の検査の決まりが無い）。その時は先端に在る検査を全部照らす。"""
-    if required is None:
-        required = sorted(states)
-        if not required:
-            return "まだ", ["この版（無料の版の非公開の repo）は必須の検査の決まりを置けず、先端に検査も 1 つも無い（何も照らせない所では関所を通さない）"]
+def decide(pr: dict, required: list[str], states: dict[str, str], comments: list) -> tuple[str, list[str]]:
+    """("入ってよい"|"まだ"|"済み", 訳の並び)。材料は全部 GitHub の記録（呼ぶ側が読んで渡す）。"""
     head = ((pr.get("head") or {}).get("sha") or "")
     why: list[str] = []
     if pr.get("state") != "open" or pr.get("merged"):
@@ -108,7 +106,12 @@ def decide(pr: dict, required, states: dict[str, str], comments: list) -> tuple[
                "unstable": "必須でない検査に赤か走り中がある", "draft": "下書きの PR",
                "unknown": "GitHub がまだ数え終えていない（少し後で引き直す）"}.get(ms, "")
         why.append("mergeable_state が %s（clean でない）%s" % (ms, "＝" + say if say else ""))
-    if not required:
+    if required is PLAN_NONE:   # 必須の検査を持てない repo: 走った検査が全部緑
+        required = []
+        for name, st in states.items():
+            if st not in OK:
+                why.append("検査 %s が %s（必須の検査を持てない repo なので走った検査は全部緑を求める）" % (name, st))
+    elif not required:
         why.append("base の枝の必須の検査が読めない（必須の検査が無い所では関所を通さない）")
     for name in required:
         st = states.get(name)
@@ -124,27 +127,6 @@ def decide(pr: dict, required, states: dict[str, str], comments: list) -> tuple[
     return "入ってよい", []
 
 
-def _plan_lacks(e: urllib.error.HTTPError) -> bool:
-    """403 の本文が、この版にはその機能が無いという GitHub の決まった答えか（ほかの 403＝権限が無い等は False）。"""
-    if e.code != 403:
-        return False
-    try:
-        body = json.loads(e.read().decode("utf-8"))
-    except Exception:  # noqa: BLE001  本文が読めない 403 は「機能が無い」と言わない
-        return False
-    return isinstance(body, dict) and body.get("message") == PLAN_LACKS
-
-
-def _rules(repo: str, branch: str, token: str, get=None):
-    """base の枝の必須の検査の名の並び。この版にルールセットが無い時だけ None（ほかの読めない時は例外のまま止める）。"""
-    try:
-        return required_contexts((get or _get)("/repos/%s/rules/branches/%s" % (repo, branch), token))
-    except urllib.error.HTTPError as e:
-        if _plan_lacks(e):
-            return None
-        raise
-
-
 def _get(path: str, token: str):
     url = path if path.startswith("http") else API + path
     hdr = {"Accept": "application/vnd.github+json", "User-Agent": "af-review-gate"}
@@ -158,7 +140,7 @@ def _get(path: str, token: str):
             try:
                 return _get(path, "")
             except urllib.error.HTTPError:
-                raise e from None   # 非公開の repo は鍵なしだと 404。本当の訳（鍵が効かない＝401）を隠さない
+                raise e from None     # 鍵なしの 404（非公開の repo）で、本当の訳（鍵が効かない 401）を隠さない
         raise
 
 
@@ -172,6 +154,16 @@ def _pages(path: str, token: str, key: str = "") -> list:
         if len(items) < 100:
             return out
     raise OSError("%s が 1000 件を越え、全部を読めない" % path)
+
+
+def _rules(repo: str, branch: str, token: str):
+    """必須の検査の名の並び。無料のプランで rules を持てない repo は PLAN_NONE（他の 403 は読めないとして上げる）。"""
+    try:
+        return required_contexts(_get("/repos/%s/rules/branches/%s" % (repo, branch), token))
+    except urllib.error.HTTPError as e:
+        if e.code == 403 and PLAN_403 in (e.read() or b"").decode("utf-8", "replace"):
+            return PLAN_NONE
+        raise
 
 
 def read_facts(repo: str, number: int, token: str, wait=time.sleep):
@@ -191,10 +183,8 @@ def read_facts(repo: str, number: int, token: str, wait=time.sleep):
     statuses = _pages("/repos/%s/commits/%s/statuses" % (repo, head), token)
     comments = _pages("/repos/%s/issues/%d/comments" % (repo, number), token)
     states = check_states(runs, statuses)
-    if required is None:   # 決まりの無い版: 先端の検査だけだと、遅い job の検査がまだ作られていない間に通りうる。
-        # 先端の workflow の走りも全部照らす（走りが終わるまで、その中の job の検査が出揃ったと言わない）
-        wruns = _pages("/repos/%s/actions/runs?head_sha=%s" % (repo, head), token, key="workflow_runs")
-        states.update(workflow_states(wruns))
+    if required is PLAN_NONE:   # 走った検査を全部照らす＝まだ check run を作っていない workflow の走りも入れる
+        states.update(workflow_states(_pages("/repos/%s/actions/runs?head_sha=%s" % (repo, head), token, key="workflow_runs")))
     return pr, required, states, comments
 
 
@@ -216,8 +206,8 @@ def main(argv=None, read=read_facts) -> int:
     for w in why:
         print("✗ " + w)
     if kind == "入ってよい":
-        what = ("必須の検査 " + "・".join(required)) if required is not None else \
-            ("この版は必須の検査の決まりを置けないので先端の検査 " + "・".join(sorted(states)))
+        what = ("必須の検査 %s" % "・".join(required)) if required is not PLAN_NONE else \
+            ("走った検査 %s" % ("・".join(states) or "なし（必須の検査を持てない repo）"))
         print("review_gate: 入ってよい — #%d@%s %s が緑・mergeable_state clean・この先端の判定はまだ無い" % (a.pr, head, what))
         return 0
     print("review_gate: %s — #%d@%s（判定に入らない。書いた窓へ「%s」と訳だけを返す）" % (kind, a.pr, head, kind))
