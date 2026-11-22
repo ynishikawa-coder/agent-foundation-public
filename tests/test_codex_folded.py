@@ -35,8 +35,8 @@ def test_道具と文書が_codex_の道具を指さない():
     files = subprocess.run(["git", "ls-files"], cwd=ROOT, capture_output=True, text=True, check=True).stdout.split()
     hits = []
     for rel in files:
-        if rel.startswith("CHANGELOG.d/") or rel == "tests/test_codex_folded.py":
-            continue
+        if rel.startswith("CHANGELOG.d/") or rel == "tests/test_codex_folded.py" or (ROOT / rel).is_symlink():
+            continue   # symlink は正本（skill-values/ ほか）を読んだ所で照らす
         try:
             text = (ROOT / rel).read_text(encoding="utf-8")
         except (UnicodeDecodeError, IsADirectoryError, FileNotFoundError):
