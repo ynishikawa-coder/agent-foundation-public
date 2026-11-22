@@ -204,6 +204,10 @@ def _content(row):
 
 
 def text_of(row):
+    """行の文（text の塊をつないだ物）。正本は隣の plugin guard の guard_common.text_of。隣が無い時だけ控えで見る。"""
+    G = neighbor("guard_common")
+    if G is not None and hasattr(G, "text_of"):
+        return G.text_of(row)
     c = _content(row)
     if isinstance(c, str):
         return c
@@ -233,7 +237,8 @@ def is_owner_text(row):
         isinstance(b, dict) and b.get("type") == "image" for b in c))
 
 
-GUARD_NEEDS = ("is_human_row", "is_owner_row", "read_log", "seeded_by_record", "values", "table")   # この見張りが隣の guard_common から直に呼ぶ物
+GUARD_NEEDS = ("is_human_row", "is_owner_row", "is_compact_summary", "read_log", "text_of", "seeded_by_record",
+               "values", "table")   # この見張りが隣の guard_common から直に呼ぶ物
 
 
 def guard_gap():
@@ -251,13 +256,21 @@ def guard_gap():
     return None
 
 
+def is_summary(row):
+    """会話を縮めた後の要約の行か。正本は隣の guard_common.is_compact_summary。"""
+    G = neighbor("guard_common")
+    if G is not None and hasattr(G, "is_compact_summary"):
+        return bool(G.is_compact_summary(row))
+    return bool(row.get("isCompactSummary"))
+
+
 def starts_turn(row):
     """番（ターン）を切る行か。正本は隣の plugin guard の guard_common.is_human_row（写さない）。隣が無い・版がずれて無い時は
     頼みの文の行を全部番の切れ目とみなす（guard_gap が check の中で neighbor の札で必ず名指す）。"""
     G = neighbor("guard_common")
     if G is not None and hasattr(G, "is_human_row"):
         return bool(G.is_human_row(row))
-    return is_owner_text(row) and not row.get("isCompactSummary")
+    return is_owner_text(row) and not is_summary(row)
 
 
 def blocks(row):
@@ -327,7 +340,7 @@ class Log(object):
                 self.events.append(("meta", ""))     # 見張りの差し戻し: ターンは続くが、締めの本文はここから数え直す
                 continue
             if is_owner_text(row):
-                if not first_read and not row.get("isCompactSummary"):
+                if not first_read and not is_summary(row):
                     first_read = True       # 画像だけの最初の頼み（文が空）でも、最初の頼みはこの行で決まる
                     self.first_prompt = text_of(row)
                     self.first_seeded = seeded_by_record(row)
