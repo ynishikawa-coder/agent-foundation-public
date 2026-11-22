@@ -157,10 +157,14 @@ def test_試験の口で_patch_が_null_の_file_を名指す(tmp_path):
 
 
 def _pages(book):
-    """{url: (中身, 次の url)} の作り物の GitHub。"""
-    def page(url, tok):
-        return book[url]
-    return page
+    """{url: (中身, 次の url)} の作り物の GitHub（読み口 _get の形＝一覧は次の頁の URL つきの Page）。"""
+    def get(url, tok):
+        data, nxt = book[url]
+        if isinstance(data, list):
+            data = po.Page(data)
+            data.next = nxt
+        return data
+    return get
 
 
 def test_開いている_PR_の一覧は頁を全部辿る(monkeypatch):
@@ -170,7 +174,7 @@ def test_開いている_PR_の一覧は頁を全部辿る(monkeypatch):
     for n in range(1, 102):
         book[f"https://api.github.com/repos/o/r/pulls/{n}/files?per_page=100"] = (
             [{"filename": "core.md" if n == 101 else f"x{n}.md"}], None)
-    monkeypatch.setattr(po, "_page", _pages(book))
+    monkeypatch.setattr(po, "_get", _pages(book))
     assert len(po.open_prs("o/r", "t")) == 101
     # 101 本目（2 頁目）の PR が宣言した file を書き換えている＝前は 1 頁目で切って重ならないと言った
     assert po.claimed(["core.md"], po.open_files("o/r", "t")) == [("#101 b101", "core.md")]
@@ -181,7 +185,7 @@ def test_PR_の_file_が上限に届いたら見ていない_exit_3(monkeypatch,
     files = "https://api.github.com/repos/o/r/pulls/7/files?per_page=100"
     book = {base: ([{"number": 7, "head": {"ref": "b7"}}], None),
             files: ([{"filename": f"f{i}"} for i in range(po.PR_FILES_CAP)], None)}
-    monkeypatch.setattr(po, "_page", _pages(book))
+    monkeypatch.setattr(po, "_get", _pages(book))
     monkeypatch.delenv("GITHUB_ACTIONS", raising=False)
     assert po.main(["--repo", "o/r", "--files", "core.md"]) == 3
     out = capsys.readouterr().out
@@ -189,6 +193,6 @@ def test_PR_の_file_が上限に届いたら見ていない_exit_3(monkeypatch,
 
 
 def test_一覧でない物が返ったら例外(monkeypatch):
-    monkeypatch.setattr(po, "_page", lambda url, tok: ({"message": "Bad credentials"}, None))
+    monkeypatch.setattr(po, "_get", lambda url, tok: {"message": "Bad credentials"})
     with pytest.raises(OSError, match="一覧のはず"):
         po.open_prs("o/r", "t")

@@ -118,27 +118,33 @@ def blind(*sides: dict[str, list[tuple[int, int]]]) -> list[str]:
     return sorted({f for side in sides for f, rs in side.items() if WHOLE in rs})
 
 
-def _page(url: str, token: str):
-    """(中身, 次の頁の URL か None)。GitHub を読むのはここ 1 つ。"""
+class Page(list):
+    """一覧の 1 頁。next は次の頁の URL（GitHub の Link の rel="next"）か None＝この頁で終わり。"""
+    next: str | None = None
+
+
+def _get(url: str, token: str):
+    """GitHub を読むのはここ 1 つ。一覧は Page（次の頁の URL つき）で返す。"""
     req = urllib.request.Request(url, headers={"Accept": "application/vnd.github+json",
                                                "Authorization": f"Bearer {token}", "User-Agent": "af-pr-overlap"})
     with urllib.request.urlopen(req, timeout=30) as r:
         m = re.search(r'<([^>]+)>;\s*rel="next"', r.headers.get("Link") or "")
-        return json.loads(r.read().decode("utf-8")), (m.group(1) if m else None)
-
-
-def _get(url: str, token: str):
-    return _page(url, token)[0]
+        data = json.loads(r.read().decode("utf-8"))
+    if isinstance(data, list):
+        data = Page(data)
+        data.next = m.group(1) if m else None
+    return data
 
 
 def _get_all(url: str, token: str, cap: int | None = None) -> list:
     """一覧の頁を Link の rel="next" で全部辿る（1 頁目だけで切らない）。辿り切れない・GitHub の上限 cap に届いた時は例外。"""
     out: list = []
     for _ in range(PAGES_CAP):
-        data, url = _page(url, token)
+        data = _get(url, token)
         if not isinstance(data, list):
             raise OSError(f"一覧のはずが {type(data).__name__} が返った")
         out += data
+        url = getattr(data, "next", None)
         if not url:
             if cap is not None and len(out) >= cap:
                 raise OSError(f"{len(out)} 件＝GitHub が返す上限 {cap} に届き、全部を読めたか分からない")
