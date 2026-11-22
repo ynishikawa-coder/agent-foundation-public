@@ -35,7 +35,7 @@ def test_字で引いた置き場は残りと数えない(env):  # noqa: F811
                                body=cleanup_body("\n雛形の `〔URL〕` を拾う直し。\n"))) == ""
 
 
-@pytest.mark.parametrize("bad", ["## 3. 解決しない", "## 1. 問題なし", "## 4. 未来の話"])
+@pytest.mark.parametrize("bad", ["## 4. 解決しない", "## 1. 意図なし", "## 5. 未来の話"])
 def test_整地の見出しは名の後に字を足した行を数えない(env, bad):  # noqa: F811
     no = bad.split(".")[0][-1]
     body = re.sub(r"^## %s\. [^\n]+$" % no, bad, cleanup_body(), flags=re.M)
@@ -46,9 +46,9 @@ def test_整地の見出しは名の後に字を足した行を数えない(env,
 
 def test_雛形の見出しの行そのままと名の頭だけの行は通る(env):  # noqa: F811
     body = cleanup_body()
-    assert "## 3. 解決（足す物・畳む物・注入の試験と残る穴）" in body
+    assert "## 4. 解決（足す物・畳む物・注入の試験と残る穴）" in body
     assert deny_reason(env, gh("update_pull_request", pullNumber=1, body=body)) == ""
-    short = body.replace("## 3. 解決（足す物・畳む物・注入の試験と残る穴）", "## 3. 解決")
+    short = body.replace("## 4. 解決（足す物・畳む物・注入の試験と残る穴）", "## 4. 解決")
     assert deny_reason(env, gh("update_pull_request", pullNumber=1, body=short)) == ""
 
 

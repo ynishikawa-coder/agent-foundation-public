@@ -1,5 +1,5 @@
 {
-  "説明": "使う側に残りうる土台の古い形（写し）の一覧。plugin core の起動の hook が、開いた repo にこれが残っていれば名指しで知らせる。「壊れる（1 段目）」の PR が行を足し、使う側が移ったのを `kaku.py olds <各 checkout>` で確かめた「壊れる（2 段目）」の PR が行を消す（CONTRIBUTING.md §8）。files は git の pathspec（試験と変更の記録は経緯や作り物として古い名を持つので :(exclude) で外す）、pattern は Python の正規表現、example は pattern に当たる作り物の 1 行。files に無い拡張子の file（.py・.json 等）と、repo の外の環境の setup script は olds では見えない（環境の setup script は起動の hook が入口の印で見る）。",
+  "説明": "使う側に残りうる土台の古い形（写し）の一覧。plugin core の起動の hook が、開いた repo にこれが残っていれば名指しで知らせる。「壊れる（1 段目）」の PR が行を足し、使う側が移ったのを `kaku.py olds <各 checkout>` で確かめた「壊れる（2 段目）」の PR が行を消す（CONTRIBUTING.md §8）。files は git の pathspec（試験と変更の記録は経緯や作り物として古い名を持つので :(exclude) で外す）、pattern は Python の正規表現、example は pattern に当たる作り物の 1 行。reads は file のどこに当てるか（既定 all＝全部・commands＝動く命令の所〔.md はコードの所＝CommonMark の囲み〔` か ~ が 3 字以上・閉じは同じ字で数以上〕の中と、囲みと決められない形〔閉じの無い囲み・字下げ・<pre>〕。注釈と docstring を除く〕・prose＝書いた欄と札の所〔.md の閉じの在る囲み・注記・引用の中を除く。見出しの印 # で始まる引用は残す〕。読み方の正本は kaku.py の「使う形の読み口」〔old_view・code・md_own〕）。files に無い拡張子の file（.py・.json 等）と、repo の外の環境の setup script は olds では見えない（環境の setup script は起動の hook が入口の印で見る）。",
   "olds": [
     {
       "id": "af-core-frame",
@@ -28,7 +28,8 @@
       ],
       "pattern": "(?sm)plugins?\\s+(?:install|i)\\b(?:[^\\n]|\\\\\\n)*?@agent-foundation(?![\\w.-])|^[ \\t]*(?:export[ \\t]+)?\\w+=[\"']?agent-foundation[\"']?[ \\t]*$|\\A(?!.*setup_plugins\\.py).*?marketplace\\s+add\\s+(?:--?[\\w-]+(?:[ =](?:user|project|local))?\\s+)*[\"']?(?:https://github\\.com/)?ynishikawa-coder/agent-foundation-public(?:\\.git)?(?:#[^\\s\"']*)?[\"']?(?=[\\s;|&)]|$)",
       "fix": "土台の docs/核の届け方.md の setup script の形（目録を足して scripts/setup_plugins.py を呼ぶ）に替える",
-      "example": "claude plugin install core@agent-foundation --scope user || true"
+      "example": "claude plugin install core@agent-foundation --scope user || true",
+      "reads": "commands"
     },
     {
       "id": "no-marketplace-update",
@@ -47,7 +48,8 @@
       ],
       "pattern": "(?s)\\A(?=.*setup_plugins\\.py)(?=.*?marketplace\\s+add\\s+(?:--?[\\w-]+(?:[ =](?:user|project|local))?\\s+)*[\"']?(?:https://github\\.com/)?ynishikawa-coder/agent-foundation-public(?:\\.git)?(?:#[^\\s\"']*)?[\"']?(?=[\\s;|&)]|$))(?!.*marketplace\\s+update\\s+(?:--?[\\w-]+(?:[ =](?:user|project|local))?\\s+)*[\"']?agent-foundation(?![\\w.-]))",
       "fix": "土台の docs/核の届け方.md の setup script の marketplace add の行（add の後に claude plugin marketplace update agent-foundation）に替える",
-      "example": "claude plugin marketplace add ynishikawa-coder/agent-foundation-public --scope user || true; python3 \"$af/scripts/setup_plugins.py\" || true"
+      "example": "claude plugin marketplace add ynishikawa-coder/agent-foundation-public --scope user || true; python3 \"$af/scripts/setup_plugins.py\" || true",
+      "reads": "commands"
     },
     {
       "id": "no-stale-catalog-remove",
@@ -66,7 +68,8 @@
       ],
       "pattern": "(?s)\\A(?=.*setup_plugins\\.py)(?=.*?marketplace\\s+add\\s+(?:--?[\\w-]+(?:[ =](?:user|project|local))?\\s+)*[\"']?(?:https://github\\.com/)?ynishikawa-coder/agent-foundation-public(?:\\.git)?(?:#[^\\s\"']*)?[\"']?(?=[\\s;|&)]|$))(?!.*marketplace\\s+remove\\s+(?:--?[\\w-]+(?:[ =](?:user|project|local))?\\s+)*[\"']?agent-foundation(?![\\w.-]))",
       "fix": "土台の docs/核の届け方.md の setup script の塊（前の目録を外す marketplace remove の行つき・1 行 200 バイト以下）をそのまま貼り替える",
-      "example": "claude plugin marketplace add ynishikawa-coder/agent-foundation-public --scope user || true; claude plugin marketplace update agent-foundation || true; python3 \"$af/scripts/setup_plugins.py\" || true"
+      "example": "claude plugin marketplace add ynishikawa-coder/agent-foundation-public --scope user || true; claude plugin marketplace update agent-foundation || true; python3 \"$af/scripts/setup_plugins.py\" || true",
+      "reads": "commands"
     },
     {
       "id": "stale-remove-substring",
@@ -85,7 +88,8 @@
       ],
       "pattern": "(?s)\\A(?=.*setup_plugins\\.py).*?\\bnot\\s+in\\s+json\\.dumps\\(\\s*s\\s*\\)",
       "fix": "土台の docs/核の届け方.md の setup script の塊（出所を (s.get(\"repo\") or s.get(\"url\"))!=a[2] の一致で比べる形）をそのまま貼り替える。環境の setup script に貼った写しも同じ仕事で貼り替える",
-      "example": "af_old=\"$af_old\"';sys.exit(not(s.get(\"ref\") or a[2] not in json.dumps(s) or not os.path.isfile(m[\"installLocation\"]+\"/\"+a[3])))'  # scripts/setup_plugins.py"
+      "example": "af_old=\"$af_old\"';sys.exit(not(s.get(\"ref\") or a[2] not in json.dumps(s)))'; python3 \"$af/scripts/setup_plugins.py\"",
+      "reads": "commands"
     },
     {
       "id": "atonobin-tag",
@@ -97,7 +101,8 @@
       ],
       "pattern": "[\\[［〔]後の便",
       "fix": "札は [台帳へ｜…] にし、残りは各社の原因の台帳の行にする（土台の 細目.md §3「残りの受け皿は原因の台帳 1 つ」）。札を数える道具が在れば、台帳へ も読む形にする",
-      "example": "- [後の便｜整地] 〜"
+      "example": "- [後の便｜整地] 〜",
+      "reads": "prose"
     },
     {
       "id": "tasu-mado-heading",
@@ -109,7 +114,8 @@
       ],
       "pattern": "(?m)(?:^|[「『【\\[\"'`“])[ \\t#*]*他の窓へ回す",
       "fix": "欄を「## 残り（原因の台帳の行）」にし、残りは原因の台帳に行を入れてから行の題と行き先だけを写す（土台の .github/pull_request_template.md の形）",
-      "example": "## 他の窓へ回す"
+      "example": "## 他の窓へ回す",
+      "reads": "prose"
     },
     {
       "id": "pr-parent-field",

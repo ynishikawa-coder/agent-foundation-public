@@ -8,6 +8,8 @@ PR の枝と main の変更が合わさって初めて壊れる組み合わせ�
 """
 import re
 from pathlib import Path
+import yaml
+from uses import sh_code
 
 ROOT = Path(__file__).resolve().parent.parent
 CI = ROOT / ".github" / "workflows" / "ci.yml"
@@ -25,6 +27,13 @@ def steps(yml: str) -> list[str]:
 def _key(step: str, key: str):
     m = re.search(rf"(?m)^\s+{key}:\s*(.+?)\s*$", step)
     return m.group(1).strip().strip("'\"") if m else None
+
+
+def run_of(step: str) -> str:
+    """step の塊の run の字（| の塊も）から注釈を除いた物。name・env・注釈の字は確かめることにならない。"""
+    first, *rest = step.rstrip().split("\n")
+    doc = yaml.safe_load("\n".join([first] + [ln[8:] if ln.startswith(" " * 8) else ln.strip() for ln in rest])) or {}
+    return sh_code(str(doc.get("run") or "")) if isinstance(doc, dict) else ""
 
 
 def problems(yml: str) -> list[str]:
@@ -48,7 +57,7 @@ def problems(yml: str) -> list[str]:
     else:
         if _key(st[i_pytest], "working-directory") not in (None, "."):
             bad.append("本物の claude の試験が根（合わせた木）の外で回る")
-        verify = [i for i, (s, r) in enumerate(runs) if "${MERGED_SHA}" in s and "parent ${HEAD_SHA}" in s]
+        verify = [i for i, (s, r) in enumerate(runs) if "${MERGED_SHA}" in run_of(s) and "parent ${HEAD_SHA}" in run_of(s)]
         if not verify or verify[0] > i_pytest:
             bad.append("本物の claude の試験の前に、根が PR の枝に main を合わせた commit かを確かめる step が無い")
     return bad

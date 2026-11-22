@@ -11,6 +11,7 @@ from pathlib import Path
 import pytest
 
 from test_guard import env  # noqa: F401  （fixture）
+from uses import py_code
 
 SCRIPTS = Path(__file__).resolve().parent.parent / "plugins" / "guard" / "scripts"
 HELPERS = {"guard", "guard_common"}
@@ -29,7 +30,7 @@ def test_見張りの_file_は全部_HOOKS_を宣言する():
 
 
 def test_入口に見張りの一覧を写さない():
-    text = (SCRIPTS / "guard.py").read_text(encoding="utf-8")
+    text = py_code((SCRIPTS / "guard.py").read_text(encoding="utf-8"))   # 注釈で前の形の名を挙げるのは写しでない
     assert "WATCHERS" not in text and '("irreversible", "check")' not in text
 
 
