@@ -5,7 +5,7 @@
   title    … 窓の題の目印（`<種類><状態> <作業名>`）が決まりどおりか（題だけで決まる形は title_shape。
              guard の outbound が題を付ける口・窓を立てる口でもこれを直に呼ぶ＝題の形の正本）
   close    … 返事の最後が締めの 2 行（`AI がこの後やること: …`／`あなたがやること: …`）か
-  card     … 返事の 1 行目が 4 札（✅終わった・❓答えて・⏳待ち・🛑止まった＝CARD_WORDS・絵と語の組）のどれかで始まるか
+  card     … 返事の 1 行目が 4 札（✅終わった・❓答えて・💤待ち・🛑止まった＝CARD_WORDS・絵と語の組）のどれかで始まるか
              （close と card は、一言で済む返事＝札も締めも無く SHORT_LINES 行以下・このターンに問いを出していない返事を見ない・細目 §5）
   plain    … 答えを求める問いを、選択肢モーダル（AskUserQuestion）でなく平文で書き、AI の今の読みも添えていないか
              （開いた問い＝意味・考え・前提はチャットで聞いてよい。その時は「AI の今の読み」を添える・細目 §4）
@@ -124,7 +124,7 @@ AI = "🤖"       # AI が立てて AI に返す窓
 KINDS = (HUMAN, HAND, AI)
 MOVING = ""     # 状態の印なし: AI が動いている（✋ はオーナーの操作待ち）
 ASKING = "❓"    # オーナーの答え待ち
-WAITING = "💤"   # ほかの窓・合流待ち
+WAITING = "💤"   # ほかの何か（ほかの窓の返事・本流への取り込み・CI）待ち
 STOPPED = "🛑"   # 止まった（外し方は本文）
 DONE = "✅"      # 終わった・後継へ渡した（🙋✅ は AI の手は終わり・閉じるかはオーナー）
 STATES = (ASKING, WAITING, STOPPED, DONE)
@@ -135,11 +135,13 @@ TITLE_TABLE = {
     HAND: (MOVING, DONE),
 }
 KIND_NAMES = {HUMAN: "オーナーと話す窓", HAND: "手の窓（オーナーの操作を頼む窓）", AI: "AI が立てて AI に返す窓"}
-STATE_NAMES = {MOVING: "（無し）", ASKING: "オーナーの答え待ち", WAITING: "ほかの窓・合流待ち",
+STATE_NAMES = {MOVING: "（無し）", ASKING: "オーナーの答え待ち", WAITING: "ほかの何か（ほかの窓の返事・本流への取り込み・CI）待ち",
                STOPPED: "止まった（外し方は本文）", DONE: "終わった（核 §7）・後継へ渡した"}
-# 返事の 1 行目の札（核 §5 の 4 つ）。待ちの札は ⏳（題の状態の 💤 と絵が違う。札を変えるのは核の原則の変更なので、
-# 題の表を組み直した 2026-11-22 には札を変えていない）。
-CARD_WAIT = "⏳"
+# 返事の 1 行目の札（核 §5 の 4 つ）。札と題の状態は同じ絵（オーナーの決定 2026-11-22 23:00 日本時間・前の砂時計の札は畳んだ＝古い形 card-wait-hourglass）。
+CARD_WAIT = WAITING
+OLD_CARD_WAIT = "⏳"
+# 待ちの意味の文（核 §5 と skill title-mark に同じ文で載せる。写しの一致は試験が照らす）。
+WAIT_MEANING = ('`💤` の待ちは、オーナーの答えでなく、ほかの窓の返事・本流への取り込み・CI など、ほかの何かを待っていて、それが来たら AI が自分で続ける時（オーナーの答え待ちは `❓`、止まって誰かが手を打たないと動かないのは `🛑`）。')
 CARD_WORDS = {DONE: "終わった", ASKING: "答えて", CARD_WAIT: "待ち", STOPPED: "止まった"}
 CARDS = tuple(CARD_WORDS)
 VS16 = "\ufe0f"  # 絵の字の後に付きうる見た目の切り替えの字（印の一部として読む）
@@ -829,9 +831,9 @@ def check(log, closing=None, data=None):
     short = bool(lines) and not CARD_LINE.match(lines[0]) and close is None and len(lines) <= SHORT_LINES and not log.turn_asked()
     if lines and not short:
         if not CARD_LINE.match(lines[0]):
-            # 題の状態の 💤 を札に写した形（💤待ち）は札に無い（待ちの札は ⏳待ち）と名指す。
-            old = "（待ちの札は %s%s。%s は題の状態の印）" % (CARD_WAIT, CARD_WORDS[CARD_WAIT], WAITING) \
-                if re.match(r"^[#>*\s]*" + WAITING, lines[0]) else ""
+            # 畳んだ砂時計の待ちの札は今の札（CARD_WAIT）を名指す。
+            old = "（待ちの札は %s%s。%s は畳んだ）" % (CARD_WAIT, CARD_WORDS[CARD_WAIT], OLD_CARD_WAIT) \
+                if re.match(r"^[#>*\s]*" + OLD_CARD_WAIT, lines[0]) else ""
             found.append(("card", "返事の 1 行目が 4 札（%s）で始まらない%s: %s"
                           % ("／".join(c + CARD_WORDS[c] for c in CARDS), old, lines[0][:40])))
         if close is None:
@@ -839,7 +841,7 @@ def check(log, closing=None, data=None):
                           % lines[-1][-60:]))
 
     # 動かしていない AI がこの後やること（核 §5: 締める前に AI が自分で動かす）
-    #   待ちの題（❓ オーナーの答え待ち／💤 ほかの窓・合流待ち／✋ 手の窓）と、この窓で既に動かした手（子窓・見張り）は拾わない。
+    #   待ちの題（❓ オーナーの答え待ち／💤 ほかの何かの待ち／✋ 手の窓）と、この窓で既に動かした手（子窓・見張り）は拾わない。
     if close and not close.startswith("AI がこの後やること: なし"):
         last_title = None
         for k, v in log.events:

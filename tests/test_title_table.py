@@ -5,9 +5,9 @@
 子の窓への知らせは「同じ題でもよい」と言い、親の崩れた題がそのまま残った。
 原因: 前の表は状態が足りず（止まった・ほかの窓の待ち・後継へ渡した の置き場が無い）、題の照らし（split_title・
 title_shape）は 1 文字目しか見ずに 2 文字目の知らない印を作業名として素通りさせた。
-ここでは、広がった印と畳んだ印（題の ⏳・🙋⏳ 手:・札に写した 💤待ち）をわざと入れて、題を付ける口・
+ここでは、広がった印と畳んだ印（題の ⏳・🙋⏳ 手:・砂時計の札 ⏳待ち）をわざと入れて、題を付ける口・
 窓を立てる口・返事の締めのどれもが拒むことを見る。
-返事の 1 行目の札は核の 4 札（⏳待ち を含む）のまま＝題の状態の 💤 と札の ⏳ は絵が違う（オーナーの決定 2026-11-22）。入力は全部作り物。
+返事の 1 行目の待ちの札は題の状態と同じ絵の 💤待ち（オーナーの決定 2026-11-22 23:00 日本時間・前の ⏳待ち は畳んだ）。入力は全部作り物。
 """
 import pytest
 
@@ -52,8 +52,8 @@ def test_表の組み合わせはオーナーの決定どおり():
     assert sw.KINDS == ("🙋", "✋", "🤖")
     assert set(sw.TITLE_TABLE[sw.HUMAN]) == set(sw.TITLE_TABLE[sw.AI]) == {"", "❓", "💤", "🛑", "✅"}
     assert set(sw.TITLE_TABLE[sw.HAND]) == {"", "✅"}
-    assert sw.CARDS == ("✅", "❓", "⏳", "🛑")
-    assert [c + sw.CARD_WORDS[c] for c in sw.CARDS] == ["✅終わった", "❓答えて", "⏳待ち", "🛑止まった"]
+    assert sw.CARDS == ("✅", "❓", "💤", "🛑")
+    assert [c + sw.CARD_WORDS[c] for c in sw.CARDS] == ["✅終わった", "❓答えて", "💤待ち", "🛑止まった"]
 
 
 def test_表に在る組み合わせは全部通り_無い組み合わせは全部拒む():
@@ -76,7 +76,7 @@ def test_表に無い印の題は付ける口でも立てる口でも止まる(e
                     tool(CREATE, title=title, prompt="目的 手順 済んだ目印 済んだ後")):
         why = deny_reason(env, payload)
         assert "決まりの形でない" in why, (title, payload["tool_name"])
-        assert "| `💤` | ほかの窓・合流待ち |" in why        # 直し方に表の正本を出す
+        assert "| `💤` | ほかの何か（ほかの窓の返事・本流への取り込み・CI）待ち |" in why        # 直し方に表の正本を出す
 
 
 @pytest.mark.parametrize("title", BAD_TITLES)
@@ -85,17 +85,17 @@ def test_表に無い印の題のまま締めると見張りが拾う(title):
     assert any(c == "title" for c, _ in sw.check(sw.Log(rs))), title
 
 
-def test_題の状態の絵を札に写した返事は札に無いと拾う():
-    rs = set_last_text(rows("owner_ok.jsonl"), "💤待ち（作り物の窓・今日中）\n作り物を待つ。\n"
+def test_畳んだ砂時計の待ちの札は拾い_今の札を名指す():
+    rs = set_last_text(rows("owner_ok.jsonl"), "⏳待ち（作り物の窓・今日中）\n作り物を待つ。\n"
                        "AI がこの後やること: なし\nあなたがやること: なし。この窓で AI が続けるので、まだ閉じないでください。")
     found = [m for c, m in sw.check(sw.Log(rs)) if c == "card"]
-    assert found and "待ちの札は ⏳待ち" in found[0]
-    ok = set_last_text(rs, rs[-1]["message"]["content"][0]["text"].replace("💤待ち", "⏳待ち"))
+    assert found and "待ちの札は 💤待ち" in found[0]
+    ok = set_last_text(rs, rs[-1]["message"]["content"][0]["text"].replace("⏳待ち", "💤待ち"))
     assert not [c for c, _ in sw.check(sw.Log(ok)) if c == "card"]
 
 
 # 札の絵だけ合って語が表に無い 1 行目（わざと入れる）。絵の 1 文字目だけを見ていた時は全部通った。
-BAD_CARDS = ["❓🟢 進行中", "🛑止めた", "✅一部終わった", "💤", "✅完了", "❓質問"]
+BAD_CARDS = ["❓🟢 進行中", "🛑止めた", "✅一部終わった", "💤", "⏳待ち", "💤待機", "✅完了", "❓質問"]
 
 
 @pytest.mark.parametrize("card", BAD_CARDS)
@@ -105,7 +105,7 @@ def test_札の語が表に無い返事は拾う(card):
     assert [c for c, _ in sw.check(sw.Log(rs)) if c == "card"], card
 
 
-@pytest.mark.parametrize("card", ["✅終わった", "✅ 終わった", "✅終わった（一部）", "❓答えて", "⏳待ち（作り物の窓）", "🛑止まった。"])
+@pytest.mark.parametrize("card", ["✅終わった", "✅ 終わった", "✅終わった（一部）", "❓答えて", "💤待ち（作り物の窓）", "💤 待ち", "🛑止まった。"])
 def test_表の札は通る(card):
     assert sw.CARD_LINE.match(card), card
 
@@ -141,7 +141,7 @@ def test_核の札は見張りの_4_札と同じ():
     "種類（`🙋`・`✋`・`🤖`）と状態の表・決め方は skill `session-watch:title-mark` が正本で、表に無い印と組み合わせは題を付ける口で止まる。",
     "役は作業名に書く。",
     "後継へ移る時は前の窓の最後の返事に後継の URL を書き、題を `✅` にする。",
-    "- **4 札の中身** — `⏳待ち` は誰を・いつまで、`🛑止まった` は理由・外せる人を書く。",
+    "- **4 札の中身** — `💤待ち` は何を・いつまで、`🛑止まった` は理由・外せる人を書く。",
 ])
 def test_細目の窓の題と札の文は表と同じ印(sentence):
     assert sentence in _core("細目")
@@ -150,7 +150,7 @@ def test_細目の窓の題と札の文は表と同じ印(sentence):
 def test_決まりの文に畳んだ印が残らない():
     for name in ("核.md", "細目"):
         text = _core(name)
-        assert "🙋⏳" not in text and "`⏳`＝" not in text and "手: <何を>" not in text and "💤待ち" not in text, name
+        assert "🙋⏳" not in text and "`⏳`＝" not in text and "手: <何を>" not in text and "⏳待ち" not in text, name
 
 
 # ── 使う側に残る砂時計の形を、古い形の照らしが拾う（字の間の空白・手の窓の種類でもすり抜けない）──
@@ -185,11 +185,30 @@ def test_古い形の砂時計は種類との間の空白でも拾う(line):
     assert re.search(row["pattern"], line), line
 
 
-@pytest.mark.parametrize("line", ["⏳待ち（作り物の窓）", "⏳ 待ち", "1 行目は 4 札のどれか: `⏳待ち`"])
-def test_古い形の砂時計は核の待ちの札を拾わない(line):
+def _old(id_):
     import json
-    import re
     from pathlib import Path
     olds = json.loads((Path(sw.__file__).resolve().parents[2] / "core" / "古い形.json").read_text(encoding="utf-8"))["olds"]
-    row = next(r for r in olds if r["id"] == "title-mark-hourglass")
-    assert not re.search(row["pattern"], line), line
+    return next(r for r in olds if r["id"] == id_)
+
+
+@pytest.mark.parametrize("line", ["⏳待ち（作り物の窓）", "⏳ 待ち", "1 行目は 4 札のどれか: `⏳待ち`"])
+def test_古い形の砂時計の待ちの札は札の行が拾い_題の行は拾わない(line):
+    import re
+    assert re.search(_old("card-wait-hourglass")["pattern"], line), line
+    assert not re.search(_old("title-mark-hourglass")["pattern"], line), line
+
+
+@pytest.mark.parametrize("line", ["💤待ち（作り物の窓）", "🤖💤 作り物", "待ちの札は 💤待ち"])
+def test_古い形の札の行は今の札を拾わない(line):
+    import re
+    assert not re.search(_old("card-wait-hourglass")["pattern"], line), line
+
+
+def test_待ちの意味は核と_title_mark_で同じ文():
+    from pathlib import Path
+    skill = Path(sw.__file__).resolve().parent.parent / "skills" / "title-mark" / "SKILL.md"
+    assert sw.WAIT_MEANING in _core("核.md")
+    assert sw.WAIT_MEANING in skill.read_text(encoding="utf-8")
+    for other in ("`❓`", "`🛑`", "オーナーの答えでなく", "AI が自分で続ける"):
+        assert other in sw.WAIT_MEANING
