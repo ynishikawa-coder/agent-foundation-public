@@ -156,7 +156,7 @@ PR_GOOD = [
     ("前の判定を引いた返事", gh("add_issue_comment", issue_number=1,
                               body="> レビューした窓: %s 判定: red\n\n直しました。見直しを頼みます。" % REVIEWER)),
     ("2 行目に判定の語を含む返事", gh("add_issue_comment", issue_number=1, body="直しました。\n判定: red の理由は直りました。\n見直しを頼みます。")),
-    ("整地の 4 欄の揃った本文", gh("create_pull_request", title="作り物", head="b", base="main", body=cleanup_body())),
+    ("整地の欄の揃った本文", gh("create_pull_request", title="作り物", head="b", base="main", body=cleanup_body())),
     ("見出しが ### でも", gh("create_pull_request", title="作り物", head="b", base="main",
                            body=cleanup_body().replace("\n## 1.", "\n### 1.").replace("\n## 5.", "\n### 5."))),
     ("整地の要らない PR は訳つきの 1 行", gh("create_pull_request", title="誤字", head="b", base="main",
