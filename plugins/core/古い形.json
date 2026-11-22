@@ -178,7 +178,8 @@
         ":(exclude)CHANGELOG.md",
         ":(exclude)**/CHANGELOG.md",
         ":(exclude)CHANGELOG.d/**",
-        ":(exclude)**/decision-drift/**"
+        ":(exclude)**/decision-drift/**",
+        ":(exclude)plugins/core/古い形.json"
       ],
       "pattern": "dev-flow:codex(?![\\w-])|\\bcodex_pack\\.py\\b",
       "fix": "その行を消す（Codex を使わない。レビューは別の窓が checker:review-pr でする）",
