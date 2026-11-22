@@ -2,7 +2,7 @@
 symlink を置いた plugin の呼び出しとして拾わないか（注入の試験）。
 
 なぜ在るか: 値の表の読み口を 1 本にした直しで、各 plugin の lib/ に土台の skill-values/ への symlink が置かれた。
-call_flows は file の置き場所で持ち主を決めていたので、共通の口の説明文に出る道具の名（check.mjs・codex_pack.py・kaku.py）を
+call_flows は file の置き場所で持ち主を決めていたので、共通の口の説明文に出る道具の名（check.mjs・kaku.py など）を
 symlink を置いた plugin からの呼び出しと数え、無い流れ 4 本で赤になった。
 """
 import importlib.util
