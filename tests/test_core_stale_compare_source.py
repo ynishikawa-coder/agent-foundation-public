@@ -12,6 +12,7 @@ import subprocess
 
 from test_core_plugin import Foundation, _commit, _git, kaku, run
 from test_setup_plugins import foundation, run as run_entry
+from uses import py_calls, py_code
 
 SETUP_FIX = "update_environment"
 
@@ -43,9 +44,10 @@ def test_setup_の時の_main_の記録が無ければ分からないと名指�
 def test_hook_の時の_main_と比べて起動の時から古いと立てる道が無い():
     """なくす物: start_cause は setup の時の記録だけで「起動の時から古い」を決める（hook の時の main の先端は使わない）。"""
     import inspect
-    src = inspect.getsource(kaku.inject)
-    assert 'bool(f and f["plugins"])' not in src
-    assert "start_cause(" in src
+    import textwrap
+    src = textwrap.dedent(inspect.getsource(kaku.inject))
+    assert 'bool(f and f["plugins"])' not in py_code(src)
+    assert "start_cause" in py_calls(src)                                # docstring・注釈の字でなく、呼ぶ形
 
 
 def test_入口は_setup_の時の_main_の先端を記録に書く(tmp_path):

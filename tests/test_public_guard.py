@@ -18,6 +18,8 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "public-guard"))
 import guard  # noqa: E402
 import patrol  # noqa: E402
+import yaml
+from uses import sh_code
 
 GUARD = ROOT / "public-guard" / "guard.py"
 OK_MAIL = "1+someone@users.noreply.github.com"
@@ -251,9 +253,11 @@ def test_顧客の語は赤の時も出力に出ない(tmp_path):
 
 
 def test_action_は本体を呼ぶ():
-    text = (ROOT / "public-guard" / "action.yml").read_text(encoding="utf-8")
-    assert "github.action_path }}/guard.py" in text
-    assert "fetch-depth: 0" in text
+    steps = [s for s in yaml.safe_load((ROOT / "public-guard" / "action.yml").read_text(encoding="utf-8"))["runs"]["steps"]]
+    calls = [s for s in steps if str((s.get("env") or {}).get("GUARD", "")) == "${{ github.action_path }}/guard.py"
+             and 'python3 "${GUARD}"' in sh_code(str(s.get("run") or ""))]
+    assert calls, "action.yml の step が本体 guard.py を run で呼ばない（注釈・説明の字は呼ぶことにならない）"
+    assert any((s.get("with") or {}).get("fetch-depth") == 0 for s in steps)
 
 
 def test_雛形は_main_の先端で呼び_job_の名が決まっている():
