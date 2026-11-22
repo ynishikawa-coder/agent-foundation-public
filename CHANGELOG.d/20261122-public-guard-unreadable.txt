@@ -1,0 +1,2 @@
+- 直した: 公開の検査（public-guard/guard.py）の「中身 N 個」は中身を読んで照らした物だけを数える。読めずに名指した物（submodule の中身・作業の木から読めない file・git が index の中身を読めない file）は数えず名だけ照らし、全部読めない repo では「照らすファイルが 0」を名指す（exit 3）。中身を読むのは Guard._content 1 つ。
+- 直した: 公開の検査は PR の event（GITHUB_EVENT_PATH）が CI で無い・file が無い・壊れた JSON・形が違う時に {} へ畳まず、PR の題・本文を照らしていない物として名指す（exit 3＝CI では赤）。手元で GITHUB_EVENT_PATH を渡さない時は前のまま（手元の PR の題・本文は別に名指す）。

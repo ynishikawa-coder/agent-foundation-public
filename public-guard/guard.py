@@ -6,8 +6,8 @@
     UTF-8 で読めない字は置き換えて読む（ASCII の鍵の形は照らす）。作業の木で消した追跡のファイルは index の中身を照らす
   - 歴史: 照らす範囲の各 commit で足された行（消しても歴史に残るため。バイナリの差分も字として照らす）
   - 外側: commit の説明・名義（名とメール）と PR の題・本文
-照らしていない物は緑と言わない: 範囲の commit が 0・ファイルが 0・手元で PR の event が無く PR の題・本文を
-照らしていない・顧客の語の照合を飛ばした・submodule の中身、のどれかが在れば、当たり 0 でも exit 3（照らしていない）で
+照らしていない物は緑と言わない: 範囲の commit が 0・中身を読んで照らしたファイルが 0・手元で PR の event が無く PR の題・本文を
+照らしていない・event の file が無い／読めない・顧客の語の照合を飛ばした・submodule や読めない file の中身、のどれかが在れば、当たり 0 でも exit 3（照らしていない）で
 名指す。名指した置かない語の表に語が 0 の時は 1 段目（前の形）: 名指して ✅ とは言わず exit 0（止めない）。
 CI では exit 0 でない物は皆赤。
 照合の前の正規化は normalize() 1 つ（NFKC・書式の字〔幅の無い空白など〕を除く）。語の照合はその上で大文字と小文字を
@@ -294,8 +294,8 @@ class Guard:
     def tracked_files(self):
         """(path, 中身) の並び。追跡のファイル（index）と、まだ git に入れていない新しいファイル（.gitignore の外）。
         中身は作業の木から読み（symlink は指す先の字＝git が入れる中身）、作業の木に無い物（消した）は index の中身を読む。
-        どちらでも読めない物は空として照らした物に数えず、照らしていない物として名指す。
-        UTF-8 で読めないバイトは置き換えて読む（中身を空にしない）。submodule は中身が別の repo なので名だけ照らし、名指す。"""
+        中身を読めなかった物は中身を None で返し（空の字 "" と取り違えない）、訳を照らしていない物に名指す。
+        UTF-8 で読めないバイトは置き換えて読む（中身を空にしない）。submodule は中身が別の repo なので None（名だけ照らす）。"""
         staged = subprocess.run(["git", "ls-files", "-z", "-s"], cwd=self.repo, capture_output=True, check=True).stdout
         index = {}
         for rec in filter(None, staged.split(b"\0")):
@@ -307,30 +307,43 @@ class Guard:
         names = list(index) + [r for r in filter(None, others.decode("utf-8", errors="replace").split("\0"))
                                if r not in index]
         for rel in names:
-            path = self.repo / rel
-            mode, blob = index.get(rel, ("", ""))
-            if mode == "160000":
-                self.unchecked.append(f"中身: submodule {self.place(rel)} の中身（別の repo。名だけ照らした）")
-                yield rel, ""
-            elif path.is_symlink():
+            text, why = self._content(rel, *index.get(rel, ("", "")))
+            if text is None:
+                self.unchecked.append(f"中身: {self.place(rel)}（{why}。名だけ照らした）")
+            yield rel, text
+
+    def _content(self, rel: str, mode: str, blob: str) -> tuple[str | None, str]:
+        """1 つの file の中身を読む 1 か所。(中身, 読めない訳)。読めない時は中身 None と訳。"""
+        path = self.repo / rel
+        if mode == "160000":
+            return None, "submodule の中身は別の repo"
+        try:
+            if path.is_symlink():
                 # git が symlink として入れる中身は指す先の字そのもの。作業の木の今の指す先を照らす（index は古い時がある）
-                yield rel, os.fsdecode(os.readlink(path))
-            elif path.is_file():
-                yield rel, path.read_bytes().decode("utf-8", errors="replace")
-            elif blob:
-                yield rel, self.git("cat-file", "blob", blob)
-            else:
-                # 作業の木で普通の file でも symlink でもなく、index にも中身が無い物（FIFO など）。照らせた物に数えず名指す
-                self.unchecked.append(f"中身: {self.place(rel)}（普通の file でも symlink でもなく、index にも中身が無い）")
-                yield rel, ""
+                return os.fsdecode(os.readlink(path)), ""
+            if path.is_file():
+                return path.read_bytes().decode("utf-8", errors="replace"), ""
+        except OSError as e:
+            return None, f"作業の木から読めない（{e.__class__.__name__}）"
+        if not blob:
+            # 作業の木で普通の file でも symlink でもなく、index にも中身が無い物（FIFO・並べた後に消えた物など）
+            return None, "普通の file でも symlink でもなく、index にも中身が無い"
+        try:
+            return self.git("cat-file", "blob", blob), ""
+        except subprocess.CalledProcessError as e:
+            return None, f"index の中身 {blob[:12]} を git が読めない（exit {e.returncode}）"
 
     def check_files(self) -> list[str]:
+        """名は全部照らし、中身は読めた物だけ照らす。files_n は中身を読んで照らした数（読めずに名指した物は数えない）。"""
         hits = []
         for rel, text in self.tracked_files():
+            if text is None:
+                hits += self.text_hits(self.place(rel), rel, rel)
+                continue
             self.files_n += 1
             hits += self.text_hits(self.place(rel), rel + "\n" + text, rel)
         if not self.files_n:
-            self.unchecked.append("中身: 照らすファイルが 0")
+            self.unchecked.append("中身: 照らすファイルが 0（中身を読んで照らした物が 0）")
         return hits
 
     # 歴史と外側
@@ -495,11 +508,22 @@ def diff_path(spec: str) -> str | None:
     return spec[2:] if spec.startswith("b/") else UNREADABLE_PATH
 
 
-def load_event() -> dict:
+def load_event() -> tuple[dict, str | None]:
+    """(event, 読めない訳)。event を読む 1 か所。無い・読めない・形が違う時は {} と訳を返す（{} を「event が無い所」と
+    取り違えて PR の題・本文を照らさずに緑にしない）。訳が None なのは、読めた時と、手元で GITHUB_EVENT_PATH を渡さない時だけ
+    （手元の PR の題・本文は revs が名指す）。"""
     path = os.environ.get("GITHUB_EVENT_PATH", "")
-    if path and Path(path).is_file():
-        return json.loads(Path(path).read_text(encoding="utf-8"))
-    return {}
+    if not path:
+        return {}, ("CI なのに GITHUB_EVENT_PATH が無い" if in_ci() else None)
+    try:
+        event = json.loads(Path(path).read_bytes().decode("utf-8"))
+    except FileNotFoundError:
+        return {}, f"GITHUB_EVENT_PATH の file {path} が無い"
+    except (OSError, UnicodeDecodeError, ValueError) as e:
+        return {}, f"GITHUB_EVENT_PATH の file {path} を読めない（{e.__class__.__name__}）"
+    if not isinstance(event, dict):
+        return {}, f"GITHUB_EVENT_PATH の file {path} が JSON の object でない"
+    return event, None
 
 
 def words_unchecked(words_file: str | None, words: list[str]) -> list[str]:
@@ -518,7 +542,10 @@ def scan(repo: Path, rev_range: str | None, words_file: str | None, skip: list[s
     # 語が 0 は 1 段目: 名指しは main がして exit 0（前の形は止めない）。exit 3 の unchecked には足さない。
     hits = guard.check_files()
     if not files_only:
-        event = load_event() if event is None else event
+        if event is None:
+            event, why = load_event()
+            if why:
+                guard.unchecked.append(f"外側: PR の題・本文と照らす範囲の元（event を読めない: {why}）")
         revs = guard.revs(rev_range, event)
         hits += guard.check_history(revs) + guard.check_meta(revs, event)
     return sorted(set(hits)), guard.unchecked, guard
