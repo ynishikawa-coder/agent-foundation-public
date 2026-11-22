@@ -38,7 +38,7 @@ repo ごとに違う値は、repo の根（`git rev-parse --show-toplevel`）の
 
 ## 作り方（skip 禁止）
 
-1. **`references/template.html` を読む** = engine（骨格・CSS・描画/ドラッグ/コメント/ズーム/貼り戻しJS）の正本。**CSS と JS は変えない**（オーナー承認済みの動作＝ドラッグ組み替え・#id 固定・貼り戻し）。差し替えるのは **`const SEED`（ツリー本体）／`const PREMISE`（前提ドロワー）／ヘッダー文言／凡例** だけ。
+1. **`references/template.html` を読む** = engine（骨格・CSS・描画/ドラッグ/コメント/ズーム/貼り戻しJS）の正本。**CSS と JS は変えない**（守る動作＝ドラッグ組み替え・#id 固定・貼り戻し。変えるなら PR のレビューを通す）。差し替えるのは **`const SEED`（ツリー本体）／`const PREMISE`（前提ドロワー）／ヘッダー文言／凡例** だけ。
 2. **`const SEED` を題材のツリーに組む**（下の§ノード schema）。root は1つ、背骨は `step:true` の STEP カード、その下に子カードをぶら下げる。**たたき台として8割方組む**（空白キャンバスを渡さない＝オーナーは「直す」方が速い）。
 3. **`const PREMISE` を埋める**（前提＝ステップの外側でずっと効く土台。goal/verify/work/cross の4欄。不要な欄は1項目で薄く）。
 4. **ヘッダー**（`.eyebrow`/`h1`/`.lead`）と **凡例（`.legend`）** を題材に合わせて書き換え（凡例は色→段名の対応。SEED の STEP 色と合わせる）。`.hint`（操作説明）は触らない。

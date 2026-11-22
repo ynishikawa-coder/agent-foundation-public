@@ -541,7 +541,7 @@ def olds_text(scan: dict, project: Path) -> str | None:
     if remove:
         src = f"main（{ref[:12]}）の中身" if ref else "checkout"
         lines += [f"## この repo（{project.name}）に土台の古い形（写し）が残っている — この仕事で消す\n",
-                  f"読んだ物: {src}。写しは土台が変わっても古いまま残り、誰も止めない。土台を直した同じ仕事で使う側も直す決まり（オーナー決定 2026-11-19）なので、"
+                  f"読んだ物: {src}。写しは土台が変わっても古いまま残り、誰も止めない。土台を直した同じ仕事で使う側も直す決まり（CONTRIBUTING「使う側が移る」）なので、"
                   "この repo の手順（CONTRIBUTING・CLAUDE.md）で 1 枝 1 PR を出して消す。頼みの仕事が別なら、その仕事を止めずに並べて出す:\n"]
         lines += [f"- {f}: {r['what']} → {r['fix']}{note}\n" for r, f, note in remove]
     if scan.get("behind"):
@@ -636,7 +636,7 @@ def catalog_source() -> tuple[dict, str | None]:
     if src.get("source") != "github" or str(src.get("repo") or "").lower() != UPSTREAM.lower():
         return {}, (f"- 土台の目録 {MARKET} が土台の repo {UPSTREAM} でない出所（{where}）から入っている（同じ名の fork・別の git）。"
                     "その出所の main を正として古さ・入れ損ねを照らさない＝この窓の核と守りが土台の今の物か分からない。"
-                    "最初にオーナーへ知らせ、setup script を土台の docs/核の届け方.md の形（土台の repo を足す）に直す。\n")
+                    "AI が setup script を土台の docs/核の届け方.md の形（土台の repo を足す）に直す。\n")
     return m, None
 
 
@@ -766,7 +766,7 @@ def _setup_text() -> str | None:
     if installed_sha() is None:  # 別の dir の行の版で古さを決めない＝分からない事をそのまま名指す
         parts.append(f"- この窓に入った plugin core の版が分からない（入った台帳 installed_plugins.json に installPath が"
                      f"この plugin の dir {PLUGIN} と同じ行が無い）。土台の古さを照らしていない＝核と守りが土台の今の物か分からない。"
-                     "最初にオーナーへ知らせ、setup script を土台の docs/核の届け方.md の形に直す。\n")
+                     "AI が setup script を土台の docs/核の届け方.md の形に直す。\n")
     try:
         state, why = setup_record()
     except Unreadable as e:
@@ -789,14 +789,14 @@ def _setup_text() -> str | None:
             if isinstance(p, dict) and (p.get("name") not in have or f"{p.get('name')}@{MARKET}" not in on)]
     if want is None and not any("名簿が読めない" in x for x in parts):
         parts.append("- 入った版の土台の名簿（.claude-plugin/marketplace.json）が目録の clone から読めず、入っていない plugin を照らしていない。"
-                     "最初にオーナーへ知らせ、setup script を土台の docs/核の届け方.md の形に直す。\n")
+                     "AI が setup script を土台の docs/核の届け方.md の形に直す。\n")
     if lack:
         parts.append(f"- 土台の plugin が user scope で入って enabled になっていない: {' '.join(map(str, lack))}。その plugin の決まりと守りの hook がこの窓で効いていない。"
-                     "最初にオーナーへ知らせ、setup script を土台の docs/核の届け方.md の形に直す。\n")
+                     "AI が setup script を土台の docs/核の届け方.md の形に直す。\n")
     state = state or {}
     if state.get("refreshed") is False or state.get("stale"):
         parts.append(f"- 土台の目録を先端へ取り直せず、または名簿の版に揃わずに入った（揃わない plugin: {' '.join(map(str, state.get('stale') or [])) or 'なし'}）。"
-                     "古い決まりと守りの hook で動いている。最初にオーナーへ知らせ、setup script を土台の docs/核の届け方.md の形に直す。\n")
+                     "古い決まりと守りの hook で動いている。AI が setup script を土台の docs/核の届け方.md の形に直す。\n")
     return ("## 土台の入れ方が古い・欠けている\n" + "".join(parts)) if parts else None
 
 
@@ -860,7 +860,7 @@ def inject_text(texts: dict[str, str | None] | None = None) -> str:
         except UNREADABLE as e:
             # 欠けたまま黙って核だけにしない: 窓の起動は止めず、欠けた事を文脈に名指しで出す
             print(f"plugin core: {path.name} が読めない（{e}）", file=sys.stderr)
-            parts.append(f"（毎回差し込む {path} が読めず、差し込まれていない。最初にオーナーへ知らせる）")
+            parts.append(f"（毎回差し込む {path} が読めず、差し込まれていない。土台の plugin を入れ直し、直せない時は返事の締めに 1 行書く）")
     return ("\n\n".join(parts) + "\n\n"
             + "（この核と振る舞いの既定は土台の plugin core が起動時に差し込んだ。"
             + f"返事・問い・手の窓などの形の細目は {SAIMOKU} の中の、核の節と同じ番号で始まる file（例: 03-直すは根治.md）。"
@@ -1123,7 +1123,7 @@ def refresh_failed_text(state: dict) -> str | None:
         return None
     state["refresh_told"] = r.get("at")
     return (f"## 土台の hook を先端へ入れ直せなかった\n入口 scripts/setup_plugins.py が {r.get('code')} で抜けた"
-            f"（{r.get('line') or '訳は出ていない'}）。守りの hook は前の版のまま動く（止めない）。最初にオーナーへ 1 行知らせる。\n")
+            f"（{r.get('line') or '訳は出ていない'}）。守りの hook は前の版のまま動く（止めない）。訳を見て setup script を直し、直せない時は返事の締めに 1 行書く。\n")
 
 
 def _state_path(session: str) -> Path:
