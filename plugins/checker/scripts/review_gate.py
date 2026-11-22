@@ -71,10 +71,14 @@ def check_states(runs: list, statuses: list) -> dict[str, str]:
 
 
 def workflow_states(wruns: list) -> dict[str, str]:
-    """{"workflow <名>": 状態}。先端の workflow の走り。同じ名は新しい物を取る（終わっていれば conclusion・まだなら status）。"""
+    """{"workflow <名> (<event>)": 状態}。先端の workflow の走り。同じ (名, event) は新しい物を取る（走り直し・終わって
+    いれば conclusion・まだなら status）。名が同じでも event が違う走り（pull_request と push）は別の検査として両方照らす
+    （名だけで新しい物を取ると、check run を作る前に赤で終わった古い方が見えず、新しい方の緑だけで通った）。"""
     out: dict[str, tuple[str, str]] = {}
     for r in wruns or []:
         name = "workflow " + (r.get("name") or str(r.get("workflow_id") or ""))
+        if r.get("event"):
+            name += " (%s)" % r["event"]
         when = r.get("created_at") or ""
         state = r.get("conclusion") if r.get("status") == "completed" else (r.get("status") or "queued")
         if name not in out or when >= out[name][0]:
