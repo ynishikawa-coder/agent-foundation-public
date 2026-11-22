@@ -52,7 +52,7 @@ def 画面の問いの文の数(text: str) -> list[str]:
 def test_差し込みの案内は節の名で引いてその節だけ読ませる():
     ctx = kaku.inject_text()
     tail = ctx[ctx.rindex("形の細目は"):]
-    assert "Grep で引き" in tail and "その節だけ Read する" in tail
+    assert "で Grep し、" in tail and "その節だけ Read する" in tail
     assert not re.search(r"Read する）", tail.replace("その節だけ Read する）", "")), "file を丸ごと読ませる案内が残る"
     assert 死んだ名(ctx, kaku.saimoku_text(DIR)) == []
 

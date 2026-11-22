@@ -865,7 +865,7 @@ def inject_text(texts: dict[str, str | None] | None = None) -> str:
             parts.append(f"（毎回差し込む {path} が読めず、差し込まれていない。土台の plugin を入れ直し、直せない時は返事の締めに 1 行書く）")
     return ("\n\n".join(parts) + "\n\n"
             + "（この核と振る舞いの既定は土台の plugin core が起動時に差し込んだ。"
-            + f"形の細目は {SAIMOKU} の file（頭が核の節の番号）。書く時は節の名（例 `{SAIMOKU_EXAMPLE}`）を Grep で引き、"
+            + f"形の細目は {SAIMOKU} の中の、核の節と同じ番号で始まる file。節の名（例 `{SAIMOKU_EXAMPLE}`）で Grep し、"
             + "その節だけ Read する）\n")
 
 
