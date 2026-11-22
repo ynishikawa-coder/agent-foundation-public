@@ -12,8 +12,11 @@
 
   python3 scripts/pr_overlap.py --repo <owner/name> --pr <番号>      # CI（GITHUB_TOKEN で読むだけ）
   python3 scripts/pr_overlap.py --self <patch の JSON> --others <JSON>  # 試験（{pr: {file: patch}} の形）
+  python3 scripts/pr_overlap.py --repo <owner/name> --files <path> ...  # 並べる前・PR を出す前: 触ると宣言した file を
+      開いている PR が書き換えているか（file の単位）。重なれば exit 1＝その窓は並べず、重なる PR が入るのを待つ列にする
+      （振る舞いの既定「並走」）。開いている PR を読めない時は exit 3（重ならないと言わない）。
 
-exit: 0=見た（重なりの有無は文で知らせる・止めない）/ 3=見ていない（材料が無い・他の PR を読めない）。
+exit（--files の外）: 0=見た（重なりの有無は文で知らせる・止めない）/ 3=見ていない（材料が無い・他の PR を読めない）。
   見ていない時を 0 で終えると、知らせを出せなかった job が「重なりは無い」と同じ緑の印に見える。なので 3 で終え、
   GitHub の上では ::warning:: の注記も出す（job は止めない＝ci.yml の job overlap は step を continue-on-error で回す）。
 """
@@ -117,6 +120,39 @@ def on_base_tip(repo: str, base_tip: str, head: str, token: str, cache: dict) ->
     return on_tip(files, cache.get(mb) or {})
 
 
+def claimed(declared: list[str], others: dict[str, list[str]]) -> list[tuple[str, str]]:
+    """触ると宣言した file と、開いている PR の {PR: [file]} が重なる [(PR, file)]（試験の口）。"""
+    want = {f.strip().lstrip("./") for f in declared if f.strip()}
+    return [(pr, f) for pr, fs in sorted(others.items()) for f in fs if f in want]
+
+
+def open_files(repo: str, token: str) -> dict[str, list[str]]:
+    """開いている PR ごとの触った file の名。読めない・多すぎる時は例外（重ならないと言わない）。"""
+    out = {}
+    for p in _get(f"https://api.github.com/repos/{repo}/pulls?state=open&per_page=100", token):
+        files = _get(f"https://api.github.com/repos/{repo}/pulls/{p['number']}/files?per_page=100", token)
+        if len(files) >= 100:
+            raise OSError(f"#{p['number']} の file が 100 を越え、全部を読めない")
+        out[f"#{p['number']} {p['head']['ref']}"] = [f["filename"] for f in files]
+    return out
+
+
+def main_files(repo: str, declared: list[str]) -> int:
+    try:
+        others = open_files(repo, os.environ.get("GITHUB_TOKEN") or "")
+    except Exception as e:  # noqa: BLE001  読めない時は重ならないと言わない（exit 3）
+        return unseen(f"開いている PR を読めない（{e}）")
+    hits = claimed(declared, others)
+    for pr, f in hits:
+        print(f"✗ {pr} が {f} を書き換えている")
+    if hits:
+        print("pr_overlap: 重なる — 同じ file を取る窓は並べず列にする（重なる PR が入ってから main を取り込んで始める）")
+        print("直し: 1 つの file を多くの窓が取り合うなら、分け方を細目 §3「まず構造を疑う」で原因から見直す")
+        return 1
+    print(f"pr_overlap: 重ならない — 宣言した {len(declared)} file を開いている PR {len(others)} 本のどれも書き換えていない")
+    return 0
+
+
 def unseen(why: str) -> int:
     """見ていない事を名指して exit 3（緑の印にしない）。GitHub の上では注記 ::warning:: も出す。"""
     print(f"pr_overlap: 見ていない — {why}（重なる PR が無いとは言えない）")
@@ -131,7 +167,12 @@ def main(argv=None) -> int:
     ap.add_argument("--pr", type=int)
     ap.add_argument("--self", dest="self_json")
     ap.add_argument("--others")
+    ap.add_argument("--files", nargs="+", help="並べる前に触ると宣言する file（--repo と一緒に）")
     a = ap.parse_args(argv)
+    if a.files:
+        if not a.repo:
+            return unseen("--files は --repo <owner/name> と一緒に渡す")
+        return main_files(a.repo, a.files)
     try:
         if a.self_json:
             mine = json.loads(open(a.self_json, encoding="utf-8").read())
