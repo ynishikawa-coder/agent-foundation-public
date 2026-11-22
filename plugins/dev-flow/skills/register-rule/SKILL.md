@@ -59,7 +59,7 @@ grep -rn "<語 1>\|<語 2>" CLAUDE.md .claude/ plugins/ 2>/dev/null
 
 ## Step 4: 量と 1 入 1 出
 
-- **1 つ足したら 1 つ以上畳む**（同じ PR で）。畳んだ物を PR 本文に書く。
+- **1 つ足したら 1 つ以上畳む**（同じ PR で）。畳んだ物を PR 本文に書く。守りの数（guard の見張り・CI の検査・レビューの点。安全の守りは除く）は CI の `kaku.py grow` が main と比べ、増えたら赤。
 - 核・振る舞いの既定は `python3 plugins/core/scripts/kaku.py check` で照らす（土台の中）。使う側の repo の `CLAUDE.md` は、plugin core の起動の hook が開いた時に照らして越えれば知らせる（使う側は kaku.py も数も写さない）。越えるなら常時へ足さず、細目・skill へ移して常時からは指す 1 行にする。
 - skill の description は「何を・いつ使うか」の 1〜2 行。合計は `desc_budget_bytes` で測る。
 
