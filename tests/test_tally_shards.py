@@ -107,3 +107,10 @@ def test_注入_組の1つが結果を書かずに落ちたら赤(tmp_path):
                             "        os._exit(0)\n")
     code, last, out = run(box(tmp_path, files), AF_CHECK_SHARDS="3")
     assert code != 0 and "数える段が止まった" in last, out
+
+
+@pytest.mark.parametrize("val", ["abc", "0", "4 ", "", "-1"])
+def test_注入_組の数に数でない値を渡すと黙って1組で回さず赤(tmp_path, val):
+    files = {f"test_{x}.py": f"def test_{x}():\n    pass\n" for x in "ab"}
+    code, last, out = run(box(tmp_path, files), AF_CHECK_SHARDS=val)
+    assert code != 0 and "AF_CHECK_SHARDS は 1 以上の数で渡す" in last and "組を同時に" not in out, out

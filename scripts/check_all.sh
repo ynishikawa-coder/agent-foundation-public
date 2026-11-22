@@ -42,9 +42,17 @@ fi
 work=$(mktemp -d) || { echo "check_all: 赤 (試験の結果の置き場を作れない) ${at}"; exit 1; }
 trap 'rm -rf "$work"' EXIT
 
-shards=${AF_CHECK_SHARDS:-$(nproc 2>/dev/null || echo 1)}
-[[ "$shards" =~ ^[1-9][0-9]*$ ]] || shards=1
-[ "$shards" -gt 4 ] && [ -z "${AF_CHECK_SHARDS:-}" ] && shards=4
+# 組の数: 人が渡した値は 1 以上の数だけを受け、ほかは黙って 1 組に倒さず止める（分けたつもりで分かれていない、を出さない）。
+# 渡さなければ CPU の数（4 まで・数えられなければ 1 組）。
+if [ -n "${AF_CHECK_SHARDS+x}" ]; then
+  [[ "$AF_CHECK_SHARDS" =~ ^[1-9][0-9]*$ ]] ||
+    { echo "check_all: 赤 (AF_CHECK_SHARDS は 1 以上の数で渡す。渡された値: '${AF_CHECK_SHARDS}') ${at}"; exit 1; }
+  shards=$AF_CHECK_SHARDS
+else
+  shards=$(nproc 2>/dev/null || echo 1)
+  [[ "$shards" =~ ^[1-9][0-9]*$ ]] || shards=1
+  [ "$shards" -gt 4 ] && shards=4
+fi
 echo "== pytest tests/（${shards} 組を同時に）"
 ran=$((ran + 1))
 sel=()
