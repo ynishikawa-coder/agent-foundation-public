@@ -22,17 +22,25 @@
   それ以外の 403・必須の検査が空の repo は今までどおり通さない。どれかが外れたら「まだ」（同じ先端の判定が在れば「済み」）。
 exit: 0=入ってよい / 1=まだ・済み（訳を 1 行ずつ）/ 2=読めない（入ってよいと言わない＝まだと同じに扱う）。
 材料を file で受ける口は置かない（窓が書いた材料で関所を通さない）。試験は decide を直に呼ぶ。
+入口は main の先端の版でしか判定しない（ensure_tip）: skill は窓が立った時の版の dir を指すので、自分の中身が
+main の先端の物と違えば先端の版を取り出してそちらで回し直し、先端を取れなければ exit 2 で止まる（古い決まり・古い不具合で判定しない）。
 """
 from __future__ import annotations
 
 import argparse
+import io
 import json
 import os
 import re
+import shutil
+import subprocess
 import sys
+import tarfile
+import tempfile
 import time
 import urllib.error
 import urllib.request
+from pathlib import Path
 
 API = "https://api.github.com"
 OK = {"success", "neutral", "skipped"}
@@ -219,5 +227,73 @@ def main(argv=None, read=read_facts) -> int:
     return 1
 
 
+MARKET = "agent-foundation"     # 土台の marketplace の取り出し（~/.claude/plugins/marketplaces/<MARKET>）
+TIP_ENV = "AF_REVIEW_GATE_TIP"  # 先端の版へ回し直した印（回し直した先でまだ違えば止まる＝回り続けない）
+ME_IN_REPO = "plugins/checker/scripts/review_gate.py"
+
+
+def _git(market: Path, *args: str, binary: bool = False):
+    r = subprocess.run(["git", "-C", str(market), *args], capture_output=True, timeout=60)
+    if r.returncode:
+        raise RuntimeError("git %s: %s" % (args[0], r.stderr.decode("utf-8", "replace").strip()[:200]))
+    return r.stdout if binary else r.stdout.decode("utf-8", "replace").strip()
+
+
+def ensure_tip(me: Path, argv: list[str], env=None) -> int | None:
+    """自分が main の先端の版なら None（そのまま回す）。違えば先端の版へ exec し、取れなければ 2 を返す（止まる）。
+
+    意図: レビューの関所はいつも main の先端の決まりで判定する（依頼に「先に fetch して」と書かせない）。
+    課題: レビューの窓が立った時の版の関所が main の守りの決まりを読めず 403 で止まった（先端では直っていた）。
+    原因: skill は窓が立った時の plugin の dir を指し、hook と違って先端の版へ寄せる入口が無かった。
+    """
+    env = dict(os.environ if env is None else env)
+    market = Path(env.get("HOME") or Path.home()) / ".claude" / "plugins" / "marketplaces" / MARKET
+    try:
+        if not (market / ".git").exists():
+            raise RuntimeError("土台の取り出し %s が無い" % market)
+        line = _git(market, "ls-remote", "--quiet", "origin", "refs/heads/main")
+        if not line:
+            raise RuntimeError("origin に main が無い")
+        tip = line.split()[0]
+        if subprocess.run(["git", "-C", str(market), "cat-file", "-e", tip + "^{commit}"],
+                          capture_output=True).returncode:
+            _git(market, "fetch", "-q", "origin", "main")
+        tip_blob = _git(market, "rev-parse", "%s:%s" % (tip, ME_IN_REPO))
+        my_blob = _git(market, "hash-object", str(me))
+        if my_blob == tip_blob:
+            return None
+        if env.get(TIP_ENV):
+            raise RuntimeError("先端 %s の版へ回し直した後もまだ中身が違う" % env[TIP_ENV][:12])
+        base = Path(env.get("HOME") or Path.home()) / ".claude" / "af-foundation" / "checker-tip"
+        dest = base / tip[:12]
+        if not ((dest / ME_IN_REPO).exists() and _git(market, "hash-object", str(dest / ME_IN_REPO)) == tip_blob):
+            base.mkdir(parents=True, exist_ok=True)
+            tmp = Path(tempfile.mkdtemp(dir=base, prefix=".tmp-"))
+            data = _git(market, "archive", "--format=tar", tip, "plugins/checker", binary=True)
+            with tarfile.open(fileobj=io.BytesIO(data)) as t:
+                t.extractall(tmp, filter="data")
+            if _git(market, "hash-object", str(tmp / ME_IN_REPO)) != tip_blob:
+                raise RuntimeError("取り出した先端の版の中身が先端と合わない")
+            try:
+                if dest.exists():
+                    shutil.rmtree(dest)
+                tmp.rename(dest)
+            except OSError:   # 同時に別の窓が置いた・消せない時は今取り出した物で回す
+                dest = tmp
+    except Exception as e:  # noqa: BLE001  先端を取れない時は古い版で判定しない（exit 2＝まだと同じに扱う）
+        print("review_gate: 読めない — main の先端の版を取れない（%s）。古い版で関所を通さない" % e)
+        print("直し: 土台の取り出し（~/.claude/plugins/marketplaces/%s）が origin の main を読めるようにして回し直す" % MARKET)
+        return 2
+    print("review_gate: この版は main の先端 %s と違う — 先端の版で回す" % tip[:12], flush=True)
+    env[TIP_ENV] = tip
+    env["CLAUDE_PLUGIN_ROOT"] = str(dest / "plugins" / "checker")
+    target = dest / ME_IN_REPO
+    os.execve(sys.executable, [sys.executable, str(target), *argv], env)
+    return 2  # 届かない
+
+
 if __name__ == "__main__":
+    _stop = ensure_tip(Path(__file__).resolve(), sys.argv[1:])
+    if _stop is not None:
+        sys.exit(_stop)
     sys.exit(main())
