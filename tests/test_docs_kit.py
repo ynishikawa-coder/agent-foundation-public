@@ -18,7 +18,7 @@ SKILLS = PLUGIN / "skills"
 DATA = Path(__file__).resolve().parent / "docs_kit"
 QA = SKILLS / "qa-html"
 CHECK = QA / "check.mjs"
-NAMES = {"blueprint", "compose-message", "make-deck", "mindmap", "pdf-read", "qa-html", "theory-mock"}
+NAMES = {"big-picture", "blueprint", "compose-message", "make-deck", "mindmap", "pdf-read", "qa-html", "theory-mock"}
 NODE = shutil.which("node")
 needs_node = pytest.mark.skipif(not NODE, reason="node が無い（qa-html の検査は node で動く）")
 
@@ -44,7 +44,7 @@ def test_plugin_json_が読めて名前が合う():
     assert data.get("description")
 
 
-def test_skills_は_7_本で余りが無い():
+def test_skills_は_8_本で余りが無い():
     dirs = {p.name for p in SKILLS.iterdir() if p.is_dir()}
     assert dirs == NAMES
 

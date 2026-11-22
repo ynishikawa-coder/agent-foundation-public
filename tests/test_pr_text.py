@@ -81,6 +81,8 @@ def verdict_comment(judged="green", head="0123456789ab", fail=None, stop=False, 
     rows = []
     for no, name in sorted(points.items()):
         val = "書いた窓 %s ≠ この窓" % WRITER if no == 3 else ("fail" if no == fail else "pass")
+        if val == "pass" and name == verdict_form.PICTURE:                         # 全体の絵の pass は照らした版を書く形だけ
+            val = "pass（差なし・版 2026-11-19.1）"
         rows.append("- %d %s: %s" % (no, name, val))
     first = line1 or "レビューした窓: %s 判定: %s" % (REVIEWER, judged)
     fix = [verdict_form.ROOT_CAUSE] if judged == "red" else []
@@ -93,9 +95,9 @@ def verdict_comment(judged="green", head="0123456789ab", fail=None, stop=False, 
 
 def cleanup_body(extra=""):
     return ("書いた窓: %s\njob: 20261119-fake\n触る path: a.py\n検査: check_all: 緑 (1 本)\n\n"
-            "## 何をどう変えたか\n作り物の直し。\n\n## 整地（根治の 4 段）\n\n## 1. 問題\n作り物の問題。\n\n"
-            "## 2. 原因と同じ原因の他の問題\n**原因**: 作り物。\n\n## 3. 解決（足す物・畳む物・注入の試験と残る穴）\n**足す物**: 作り物。\n\n"
-            "## 4. 未来\n作り物の未来。\n%s" % (WRITER, extra))
+            "## 何をどう変えたか\n作り物の直し。\n\n## 整地（根治の段）\n\n## 1. 意図\n作り物の意図。\n\n## 2. 課題\n作り物の課題。\n\n"
+            "## 3. 原因と同じ原因の他の問題\n**原因**: 作り物。\n\n## 4. 解決（足す物・畳む物・注入の試験と残る穴）\n**足す物**: 作り物。\n\n"
+            "## 5. 未来\n作り物の未来。\n%s" % (WRITER, extra))
 
 
 PR_BAD = [
@@ -115,19 +117,22 @@ PR_BAD = [
     ("### Verdict の見出し", gh("add_issue_comment", issue_number=1,
                                 body="再レビューです。\n\n### Verdict\ngreen\n"), "[verdict]", "1 行目"),
     ("整地の欄が無い", gh("create_pull_request", title="作り物", head="b", base="main",
-                         body="job: x\n\n## 何をどう変えたか\n作り物。\n"), "[cleanup]", "1. 問題"),
+                         body="job: x\n\n## 何をどう変えたか\n作り物。\n"), "[cleanup]", "1. 意図"),
     ("整地の見出しが古い名", gh("create_pull_request", title="作り物", head="b", base="main",
-                              body=cleanup_body().replace("## 2. 原因と同じ原因の他の問題", "## 2. 同じ原因から起きている他の問題")),
-     "[cleanup]", "2. 原因と同じ原因の他の問題"),
+                              body=cleanup_body().replace("## 3. 原因と同じ原因の他の問題", "## 3. 同じ原因から起きている他の問題")),
+     "[cleanup]", "3. 原因と同じ原因の他の問題"),
+    ("整地が古い 4 段の見出し", gh("create_pull_request", title="作り物", head="b", base="main",
+                                body=cleanup_body().replace("## 1. 意図\n作り物の意図。\n\n## 2. 課題\n作り物の課題。", "## 1. 問題\n作り物の問題。")),
+     "[cleanup]", "1. 意図"),
     ("雛形の〔…〕が残る", gh("update_pull_request", pullNumber=1,
-                            body=cleanup_body("\n〔直した後、同じ問題と 2 欄の他の問題が起きない姿〕\n")), "[cleanup]", "〔…〕"),
+                            body=cleanup_body("\n〔直した後、1 欄の意図が果たされ、同じ課題と 3 欄の他の問題が起きない姿〕\n")), "[cleanup]", "〔…〕"),
     ("不要の訳が無い", gh("create_pull_request", title="作り物", head="b", base="main", body="## 何をどう変えたか\n誤字。\n整地: 不要\n"),
-     "[cleanup]", "1. 問題"),
+     "[cleanup]", "1. 意図"),
     ("不要の訳が雛形のまま", gh("create_pull_request", title="作り物", head="b", base="main",
-                              body="## 何をどう変えたか\n誤字。\n整地: 不要（<なぜ要らないか>）\n"), "[cleanup]", "1. 問題"),
+                              body="## 何をどう変えたか\n誤字。\n整地: 不要（<なぜ要らないか>）\n"), "[cleanup]", "1. 意図"),
     ("見出しが注記の中だけ", gh("create_pull_request", title="作り物", head="b", base="main",
-                              body="## 何をどう変えたか\n作り物。\n<!--\n## 1. 問題\n## 2. 原因と同じ原因の他の問題\n## 3. 解決\n## 4. 未来\n"
-                                   "整地: 不要（作り物）\n-->\n"), "[cleanup]", "1. 問題"),
+                              body="## 何をどう変えたか\n作り物。\n<!--\n## 1. 意図\n## 2. 課題\n## 3. 原因と同じ原因の他の問題\n## 4. 解決\n## 5. 未来\n"
+                                   "整地: 不要（作り物）\n-->\n"), "[cleanup]", "1. 意図"),
     ("本文に窓の id がそのまま", gh("create_pull_request", title="作り物", head="b", base="main",
                                   body=cleanup_body("\n- 残り — 直す窓 %s\n" % STRANGER)), "[words]", STRANGER),
     ("題に窓の id", gh("update_pull_request", pullNumber=1, title="作り物 %s の続き" % STRANGER), "[words]", "PR の題"),
@@ -151,9 +156,9 @@ PR_GOOD = [
     ("前の判定を引いた返事", gh("add_issue_comment", issue_number=1,
                               body="> レビューした窓: %s 判定: red\n\n直しました。見直しを頼みます。" % REVIEWER)),
     ("2 行目に判定の語を含む返事", gh("add_issue_comment", issue_number=1, body="直しました。\n判定: red の理由は直りました。\n見直しを頼みます。")),
-    ("整地の 4 欄の揃った本文", gh("create_pull_request", title="作り物", head="b", base="main", body=cleanup_body())),
+    ("整地の欄の揃った本文", gh("create_pull_request", title="作り物", head="b", base="main", body=cleanup_body())),
     ("見出しが ### でも", gh("create_pull_request", title="作り物", head="b", base="main",
-                           body=cleanup_body().replace("\n## 1.", "\n### 1.").replace("\n## 4.", "\n### 4."))),
+                           body=cleanup_body().replace("\n## 1.", "\n### 1.").replace("\n## 5.", "\n### 5."))),
     ("整地の要らない PR は訳つきの 1 行", gh("create_pull_request", title="誤字", head="b", base="main",
                                           body="## 何をどう変えたか\n誤字だけ。\n\n整地: 不要（振る舞いを変えない誤字の直しだけ）\n")),
     ("題だけの書き替え", gh("update_pull_request", pullNumber=1, title="作り物の題")),
@@ -181,10 +186,10 @@ def test_pr_text_道具の名は_MCP_の_server_の名を問わず末尾で見�
 def test_pr_text_整地の見出しは雛形を直に読む(env, tmp_path):
     """雛形の見出しを替えると、照らす見出しも替わる（ここに見出しを写していない）。"""
     tpl = tmp_path / "整地受領証.template.md"
-    tpl.write_text(CLEANUP_TPL.read_text(encoding="utf-8").replace("## 4. 未来", "## 4. 作り物の新しい欄"), encoding="utf-8")
+    tpl.write_text(CLEANUP_TPL.read_text(encoding="utf-8").replace("## 5. 未来", "## 5. 作り物の新しい欄"), encoding="utf-8")
     env["AF_CLEANUP_TEMPLATE"] = str(tpl)
     why = deny_reason(env, gh("create_pull_request", title="作り物", head="b", base="main", body=cleanup_body()))
-    assert "4. 作り物の新しい欄" in why
+    assert "5. 作り物の新しい欄" in why
     env["AF_CLEANUP_TEMPLATE"] = str(tmp_path / "無い.md")
     why = deny_reason(env, gh("create_pull_request", title="作り物", head="b", base="main", body=cleanup_body()))
     assert "整地の雛形" in why and "見つからず" in why
