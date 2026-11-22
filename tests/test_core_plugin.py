@@ -906,3 +906,21 @@ def test_増え方の照らしは検査の入口から回る():
     ci = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
     check_job = ci.split("public-guard:")[0]
     assert "fetch-depth: 0" in check_job, "CI の check が origin/main を取らず、比べる元が無くなる"
+
+
+def test_オーナーへ確かめる事は通し番号と中身で並べ_出さない番号は節の番号と窓の_id():
+    """「番号は出さない」だけの形に核 §2 を戻す・細目 §4 の「番号で並べる」を消す・細目 §2 と重ねると赤（決定 2026-11-22「番号振って」）。"""
+    s2 = _節((PLUGIN / "核.md").read_text(encoding="utf-8"), 2)
+    for word in ["初めて読む人が分かる言葉と物の本当の名で書き", "例え話にせず具体の意味を添える",
+                 "決まりの言葉・AI 同士の呼び名・節の番号・窓の id は出さず", "確かめる事を並べたら通し番号＋中身"]:
+        assert word in s2, f"核 §2 に無い: {word}"
+    assert "呼び名・番号は出さない" not in s2, "核 §2 が番号を一律に出さない形に戻った"
+    s4d = _節(細目の全文(), 4)
+    for word in ["**番号で並べる**", "オーナーへ確かめる事を並べる時は通し番号を振り", "同じ行に中身（物の名と何を確かめるか）を書く",
+                 "番号で返してよく", "返った番号は中身に戻して使う", "他の窓へも中身で渡す"]:
+        assert word in s4d, f"細目 §4 に無い: {word}"
+    s2d = _節(細目の全文(), 2)
+    assert "番号" not in s2d, "番号の形が細目 §2 と §4 に重なった（§4 の「番号で並べる」1 か所にする）"
+    assert "窓の中だけの呼び名は、初めて出す所で括弧の注を付ける" in s2d
+    rules = (ROOT / "plugins" / "guard" / "skills" / "guard-rules" / "SKILL.md").read_text(encoding="utf-8")
+    assert "オーナーが番号で返した答え（「1 は残す」）を他の窓へ渡す時も、番号を中身に戻して渡す" in rules
