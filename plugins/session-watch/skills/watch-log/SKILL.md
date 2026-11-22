@@ -5,7 +5,7 @@ description: 会話ログ（transcript の JSONL）を手で点検にかけ、�
 
 # 会話ログの点検
 
-点検は会話ログだけを読む（環境の値・外の台帳・`get_session` の返りを見ない）。手で回す: `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/session_watch.py" <transcript.jsonl>`。拾った物を 1 行ずつ出し、拾えば exit 1（最後の行で細目 §3「まず構造を疑う」 を指す）。知らない印・読めないログは exit 2 で止まる（拾う物なしの緑に化けない）。拾われた物は下の直し方で出し直すだけで済ませず、細目 §3「まず構造を疑う」で原因から直す。
+点検は会話ログだけを読む（環境の値・外の台帳・`get_session` の返りを見ない）。手で回す: `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/session_watch.py" <transcript.jsonl>`。拾った物を 1 行ずつ出し、拾えば exit 1（最後の行で細目 §3「まず構造を疑う」 を指す）。知らない印・読めないログは exit 2 で止まる（拾う物なしの緑に化けない）。拾われた物は下の直し方で出し直すだけで済ませず、返事の形が守る意図とのずれから入り、細目 §3「まず構造を疑う」で原因を探して直す。
 
 `title`（今の題で直せる物）・`card`・`close`・`plain`・`inner`・`time`・`done`・`secret`・`neighbor` は、Stop の hook（`session_watch.py --stop`）も同じ見張りで見て、崩れていれば次の頼みの時に UserPromptSubmit の hook（`--remind`）が隣へ知らせる（差し戻さない＝`decision: block` を出さない・返事はそのまま届き書き直さない・次の返事から合わせる）。知らせの文に直し方と誤った時の外し方を出す。誤って当たる行は値の表 `config/skill-values.json` の `session-watch.watch-log.reply_exempt`（行に当てる正規表現の並び・`inner`・`time`・`done` で見ない）に、中の言葉の字は `guard.ask_term_allow` に足す（PR とレビューを通す）。「問いを出す前に ❓ を付けていない」は過ぎた事で今は直せないので知らせない。ほかの札（`idk`・`unanswered`・`rest`・`hand`）は手で回す点検と知らせるだけ。`neighbor` は AI には直せないので窓ごとに 1 回だけ知らせる。
 

@@ -15,7 +15,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 RULESET = ROOT / ".github/rulesets/main.json"
 ENV = "rulesets"
-FIX = "直し: 赤の訳を 1 つずつ潰さず、細目 §3「まず構造を疑う」で原因から直す"
+FIX = "直し: 赤の訳を 1 つずつ潰さず、意図（main の守りが決まりどおり掛かる）とのずれから入り、細目 §3「まず構造を疑う」で原因を探して直す"
 
 
 def env_problem(env: dict, policies: dict | None) -> str | None:

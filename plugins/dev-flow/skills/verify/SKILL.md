@@ -64,7 +64,8 @@ repo ごとに違う値は、repo の根（`git rev-parse --show-toplevel`）の
 ```markdown
 # Goal Completion Report — <タスク名>
 ## Goal Status: Completed / Partially Completed / Stopped / Failed
-## Completed Criteria / Unmet Criteria（未達は何が・なぜ）
+## 意図（このゴールが何のために在るか・頼みの原文から）
+## Completed Criteria / Unmet Criteria（未達は 課題＝意図とのずれ／原因 を別の行に）
 ## 設計と実物の差分
 ## Verification Results（Check｜Status｜真実源｜記録の所在）
 ## Unverified Items（確かめられなかった物と理由・無ければ「なし」）
@@ -72,7 +73,7 @@ repo ごとに違う値は、repo の根（`git rev-parse --show-toplevel`）の
 ## オーナーの業務がどう変わったか（真の完了条件）
 ```
 
-置き場は表の `report_place`。締めは核 §5 の 2 行（AI がこの後やること／あなたがやること）。Stopped / Failed の時は、学びを表の `learning_record` へ（無ければ各社の原因の台帳の行にする＝細目 §3・核 §8。返事の中だけに置かない）。
+置き場は表の `report_place`。締めは核 §5 の 2 行（AI がこの後やること／あなたがやること）。Stopped / Failed の時は、学びを根治の 5 段（意図・課題・原因・解決・未来＝細目 §3）で表の `learning_record` へ（無ければ各社の原因の台帳の行にする＝核 §8。返事の中だけに置かない）。
 
 ## やりがちな間違い
 

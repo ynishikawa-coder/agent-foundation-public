@@ -1,9 +1,11 @@
 """scripts/call_flows.py: 説明の文（docstring・注釈・人への文・手順の文で名を挙げるだけ）の中の道具の名を流れに数えず、
 実際に呼ぶ・import する・実行する形だけを拾うか（注入の試験）。
 
-なぜ在るか: call_flows は file の各行を字で探し、名が在れば呼んだと数えていた。core の refs.py の docstring が guard の
-values_keys.py を「同じ exit の約束」と書くだけで core → guard、guard の values_keys.py の docstring が core の道具を挙げるだけで
-guard → core が「絵に無い流れ」で赤になり、絵に偽の流れを足すか、注釈の言い方を替えて逃げる圧になった。
+意図: 実際の呼び出しだけを流れと数え、説明の文に名が出るだけの物を流れにしない（絵に偽の流れを足させない）。
+課題: core の refs.py の docstring が guard の values_keys.py を「同じ exit の約束」と書くだけで core → guard、
+guard の values_keys.py の docstring が core の道具を挙げるだけで guard → core が「絵に無い流れ」で赤になり、
+絵に偽の流れを足すか、注釈の言い方を替えて逃げる圧になった。
+原因: call_flows は file の各行を字で探し、名が在れば呼んだと数えていた。
 """
 import importlib.util
 from pathlib import Path

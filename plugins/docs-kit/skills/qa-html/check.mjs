@@ -63,7 +63,7 @@ export function loadWhy(text = readFileSync(SKILL_MD, "utf8")) {
   if (!Object.keys(why).length) throw new Error(`なぜ聞くかの決まった文の表が読めない: ${SKILL_MD}`);
   return why;
 }
-const ROOT_CAUSE = "  直し: 赤の行を 1 つずつ潰さず、細目 §3「まず構造を疑う」で原因（問いの元の表・前提の写し方）から直す";
+const ROOT_CAUSE = "  直し: 赤の行を 1 つずつ潰さず、意図（相手が前提を読んで迷わず答えられる）とのずれから入り、細目 §3「まず構造を疑う」で原因（問いの元の表・前提の写し方）を探して直す";
 
 export const RULES = {
   "limits": {
@@ -1058,7 +1058,7 @@ export function checkPage(page, { valuesPath = null, valuesStarts = [], values =
 //   値の表に命令が無く --prior も無ければ何も見ない（今までどおり）。
 // ── 答えの形（qa-html/2）。型の JS（references/template.html の payload）が作る形の正本。配る口・貼り戻しの道具はこれで照らす。
 export const ANSWER_FORM = "qa-html/2";
-const ANSWER_ROOT_CAUSE = "  直し: 赤の行を 1 つずつ潰さず、細目 §3「まず構造を疑う」で原因（答えを作る・受ける道具が形を写していないか）から直す";
+const ANSWER_ROOT_CAUSE = "  直し: 赤の行を 1 つずつ潰さず、意図（答えが機械で欠けなく戻る）とのずれから入り、細目 §3「まず構造を疑う」で原因（答えを作る・受ける道具が形を写していないか）を探して直す";
 export const ANSWER_KEYS = ["form", "title", "version", "receipt", "answered_at", "answers", "labels", "supp", "free"];
 const ANSWER_KEY_RE = /^[A-Za-z0-9_]+$/;
 const isObj = (v) => v !== null && typeof v === "object" && !Array.isArray(v);

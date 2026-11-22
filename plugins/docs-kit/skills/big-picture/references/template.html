@@ -75,7 +75,8 @@ ul.plist{margin:0;padding-left:1.2em}
   <p class="lead">箱を押すと右に「何か」「記録にある理由（AI が書いた文）」「オーナーの意図」が出る。赤い点の箱は、意図をまだ聞いていない所。</p>
 </header>
 <div class="must">
-  <div><div class="lab">解決したい問題</div><p id="problem"></p></div>
+  <div><div class="lab">意図（何のために在るか）</div><p id="intent"></p></div>
+  <div><div class="lab">課題（意図と今のずれ）</div><p id="problem"></p></div>
   <div><div class="lab">完成像</div><p id="goal"></p></div>
 </div>
 <div class="bar" id="legend"></div>
@@ -111,7 +112,7 @@ const stage=$('stage'),side=$('side'),table=$('table'),pick=$('pick');
 const m=PIC.meta;
 $('title').textContent=m.title;document.title=m.title;
 $('meta').textContent=(m.kind==='合意'?`合意した版 ${m.version}（${m.agreed.by} ${m.agreed.date}・${m.agreed.record}）`:`実物の絵（${m.drawn_from} から ${m.drawn_by}）`);
-$('problem').textContent=m.problem;$('goal').textContent=m.goal;
+$('intent').textContent=m.intent||'まだ聞いていない。設計の初めに AI が問う所。';$('problem').textContent=m.problem;$('goal').textContent=m.goal;
 $('legend').innerHTML=Object.values(KC).map(c=>`<span><span class="sw" style="border-color:var(${c[0]});background:var(${c[1]})"></span>${c[2]}</span>`).join('')+'<span>点線の枠＝共通／個別の境</span>';
 $('tabs').innerHTML=Object.entries(TABS).map(([k,t])=>`<button role="tab" data-v="${k}" aria-selected="false">${t}</button>`).join('');
 pick.innerHTML=P.map(p=>`<option value="${esc(p.id)}">${esc(p.title)}</option>`).join('');
@@ -133,7 +134,7 @@ function svg(tab){const T=(PIC.tabs||{})[tab]||{};const bs=PIC.boxes.filter(b=>b
 function boxSide(id){const b=B[id];const ps=probsAt(id);const p=P.find(x=>x.id===st.p);
  const intent=`<div class="intent ${b.intent?'asked':'none'}"><div class="lab">オーナーの意図</div><p>${esc(b.intent||'まだ聞いていない。設計の初めに AI が問う所。')}</p></div>`;
  let html=`<h2>${esc(b.t)}</h2><div><div class="lab">何か</div><p>${esc(b.what)}</p></div><div><div class="lab">記録にある理由（AI が書いた文）</div><p>${esc(b.why)}</p></div><div class="lab">境: ${esc(b.side)}${b.role?'・人が'+esc(b.role)+'所':''}</div>`;
- if(st.layer==='explain'&&p&&p.cause===id){html+=`<div class="pair">${intent}<div class="why"><div class="lab">なぜここから起きたか（${p.origin==='構造'?'構造から来る':'単発'}）</div><p>${esc(p.why_here)}</p></div></div>`}else html+=intent;
+ if(st.layer==='explain'&&p&&p.cause===id){html+=`<div class="pair">${intent}<div class="why"><div class="lab">なぜここから起きたか（${p.origin==='構造'?'構造から来る':'単発'}）</div><p>${esc(p.why_here)}</p></div></div>`}else if(st.layer==='explain'&&p&&p.at.includes(id)){html+=`<div class="pair">${intent}<div class="why"><div class="lab">課題（この意図とのずれ＝起きた事）</div><p>${esc(p.title)}</p></div></div>`}else html+=intent;
  if(ps.length)html+=`<div><div class="lab">この箱で起きた問題（${ps.length} 件）</div><ul class="plist">${ps.map(x=>`<li>${esc(x.date)} ${esc(x.title)}（${x.cause===id?'原因':'起きた所'}・${esc(x.origin)}）</li>`).join('')}</ul></div>`;
  return html}
 function show(id){stage.querySelectorAll('g.node').forEach(g=>g.classList.toggle('sel',g.dataset.id===id));side.innerHTML=boxSide(id)}
