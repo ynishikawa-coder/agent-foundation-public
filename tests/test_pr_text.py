@@ -290,8 +290,10 @@ def test_pr_text_判定の材料は_PR_から引き_引けなければ止め_先
     assert deny_reason(env, p) == ""
     _fake_gh(env, head="fedcba9876543210" + "0" * 24)             # 見た後に push があった
     assert "[verdict]" in deny_reason(env, p) and "先端" in deny_reason(env, p)
-    _fake_gh(env, writer=REVIEWER)                                 # 書いた窓が自分の PR に判定を付けた
+    _fake_gh(env, commits=[REVIEWER])                              # 書いた窓（commit の記録）が自分の PR に判定を付けた
     assert "[verdict]" in deny_reason(env, p)
+    _fake_gh(env, writer=REVIEWER)                                 # 本文の写しだけが出す窓を名指す（記録とずれた写し）＝読まない
+    assert deny_reason(env, p) == ""
     _fake_gh(env, writer="")                                       # PR 本文に書いた窓が無い（写しが無くても記録で照らす）
     assert deny_reason(env, p) == ""
     _fake_gh(env, commits=[None])                                  # commit に書き手の記録が無い（本文の写しだけでは決めない）

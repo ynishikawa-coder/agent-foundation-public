@@ -89,12 +89,6 @@ def test_注入_Claude_Session_の無い_PR_は赤(tmp_path):
     assert code == 1 and "Claude-Session" in out, out
 
 
-def test_注入_本文に書いた窓が無い_形でないは赤(tmp_path):
-    repo, head = repo_with(tmp_path, [A])
-    assert run(repo, head, "job: x\n")[0] == 1
-    assert run(repo, head, body("<session id>"))[0] == 1
-
-
 def test_main_より前の_commit_の窓は見ない(tmp_path):
     """分かれ目より前（main の上）の Claude-Session は PR の書いた窓でない。"""
     r = tmp_path / "r"
