@@ -6,6 +6,7 @@ import subprocess
 
 import pytest
 from uses import sh_code, yaml_on, yaml_runs
+from saimoku import 全文 as 細目の全文
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 
@@ -15,7 +16,7 @@ def _read(rel):
 
 
 def test_付いていないrepoはpushで付けて打ち_拒まれた時だけ原文を添えて人へ回す():
-    t = _read("plugins/core/細目.md")
+    t = 細目の全文()
     assert "repo が付いていなければ `add_repo`（push）で付けて打ち" in t
     assert "打って拒まれた時だけ拒みの原文を添えて人へ回す。" in t
 
@@ -43,7 +44,7 @@ def test_書き戻しは鍵が無いと止まりPRでは回らない(monkeypatch
 
 
 def test_AIの道具で打てる手は自分で打ち_人にしか打てない手だけ手の窓で頼む():
-    t = _read("plugins/core/細目.md")
+    t = 細目の全文()
     assert "push・PR・合流・調べる・見張る・Notion や Drive への書き込み）は自分で打つ。" in t
     assert "人にしか打てない手（許し・アカウントと支払い・PC やスマホにしか無い物・社外への go・他社のオーナーへの連絡）だけ" in t
 

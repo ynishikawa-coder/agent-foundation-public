@@ -7,13 +7,14 @@
 """
 import pathlib
 import re
+from saimoku import 全文 as 細目の全文
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 RULE = "土台の plugin どうしの借りの流れは、書いた窓が土台の絵の版を上げて足す。"
 
 
 def _節7():
-    text = (ROOT / "plugins/core/細目.md").read_text(encoding="utf-8")
+    text = 細目の全文()
     m = re.search(r"^## 7\..*?(?=^## )", text, re.S | re.M)
     assert m, "細目に §7 が無い"
     return m.group(0)

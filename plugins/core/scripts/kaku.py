@@ -3,7 +3,7 @@
 
 使い方:
   python3 kaku.py inject              SessionStart の hook が呼ぶ。核（同じ plugin の 核.md）と振る舞いの既定
-                                      （振る舞い.md）を窓の文脈へいつも差し込み、形の細目（細目.md）の在り処を知らせる。使う側に残った写し・古い形は名指しで知らせる:
+                                      （振る舞い.md）を窓の文脈へいつも差し込み、形の細目（細目/ の節ごとの file）の在り処を知らせる。使う側に残った写し・古い形は名指しで知らせる:
                                       開いた repo の古い形（古い形.json の一覧・核の写しの枠など）／CLAUDE.md の量の上限越え／
                                       古い形の setup script（土台の入口 scripts/setup_plugins.py を通っていない）／入っていない plugin。
                                       あわせて、窓の最初の 1 回だけ、入った土台が main の先端と同じかを見て窓ごとに覚える。古ければ、
@@ -35,7 +35,11 @@ from pathlib import Path
 PLUGIN = Path(__file__).resolve().parent.parent
 KAKU = PLUGIN / "核.md"
 FURUMAI = PLUGIN / "振る舞い.md"
-SAIMOKU = PLUGIN / "細目.md"
+# 形の細目は節ごとの file（細目/<番号>-<名>.md）。並ぶ PR が 1 枚の大きな file を取り合って衝突しないよう、節を別の file に割る。
+# 名の順に "\n" でつないだ物が細目の全文（saimoku_text・量を照らす grow・refs の約束が同じこれを読む）。
+SAIMOKU = PLUGIN / "細目"
+# 割る前の 1 枚の名。比べる元（main）がまだ割る前の形の時だけ読む（土台の中の移り目・割った形が main に入れば読まれない）。
+SAIMOKU_ONE_FILE = "細目.md"
 OLDS = PLUGIN / "古い形.json"
 FRAME_BEGIN = "<!-- AF-CORE:BEGIN"
 # 越えた時の最後の行（中身は細目 §3 が正本＝ここは指すだけ）
@@ -684,6 +688,21 @@ def guarded() -> tuple[Path, ...]:
     return (*injected(), SAIMOKU)
 
 
+def saimoku_files(d: Path | None = None) -> list[Path]:
+    """形の細目の節ごとの file（名の順）。"""
+    return sorted((d or SAIMOKU).glob("*.md"))
+
+
+def saimoku_text(d: Path | None = None) -> str:
+    """形の細目の全文（節ごとの file を名の順に空の行 1 つでつなぐ＝割る前の 1 枚と一字違わず同じ）。"""
+    return "\n".join(f.read_text(encoding="utf-8") for f in saimoku_files(d))
+
+
+def read_guarded(path: Path) -> str:
+    """増やさない物の 1 つの今の中身（dir なら中の file をつないだ全文）。"""
+    return saimoku_text(path) if path.is_dir() else path.read_text(encoding="utf-8")
+
+
 def inject_text() -> str:
     head, *rest = injected()
     parts = [head.read_text(encoding="utf-8").rstrip("\n")]
@@ -696,7 +715,8 @@ def inject_text() -> str:
             parts.append(f"（毎回差し込む {path} が読めず、差し込まれていない。最初にオーナーへ知らせる）")
     return ("\n\n".join(parts) + "\n\n"
             + "（この核と振る舞いの既定は土台の plugin core が起動時に差し込んだ。"
-            + f"返事・問い・手の窓などの形の細目は {SAIMOKU} の同じ番号の節。その形を書く時に Read する）\n")
+            + f"返事・問い・手の窓などの形の細目は {SAIMOKU} の中の、核の節と同じ番号で始まる file（例: 03-直すは根治.md）。"
+            + "その形を書く時に Read する）\n")
 
 
 # ── 土台の新しさ（入っている物と main の先端を比べる） ──
@@ -1029,22 +1049,38 @@ GROW_FIX = "直し: 足すなら同じ変更で同じだけ畳む（重複を細
 
 
 def base_text(ref: str, path: Path) -> str:
-    """git の ref の時の中身。読めない（ref が無い・その時に file が無い）時は OSError で止める。"""
+    """git の ref の時の中身（dir なら中の .md を名の順につないだ全文＝read_guarded と同じ読み方）。
+    細目の dir が ref に無く、割る前の 1 枚（細目.md）が在れば、その 1 枚を読む（同じ量を比べる）。
+    読めない（ref が無い・その時に file が無い）時は OSError で止める。"""
     top = subprocess.run(["git", "rev-parse", "--show-toplevel"], cwd=path.parent, capture_output=True, text=True)
     if top.returncode != 0:
         raise OSError(f"git の外: {top.stderr.strip()}")
     rel = path.resolve().relative_to(Path(top.stdout.strip()).resolve()).as_posix()
-    r = subprocess.run(["git", "show", f"{ref}:{rel}"], cwd=path.parent, capture_output=True)
-    if r.returncode != 0:
-        raise OSError(f"{ref}:{rel} が読めない: {r.stderr.decode('utf-8', 'replace').strip()}")
-    return r.stdout.decode("utf-8")
+
+    def show(r_: str) -> str:
+        r = subprocess.run(["git", "show", f"{ref}:{r_}"], cwd=path.parent, capture_output=True)
+        if r.returncode != 0:
+            raise OSError(f"{ref}:{r_} が読めない: {r.stderr.decode('utf-8', 'replace').strip()}")
+        return r.stdout.decode("utf-8")
+
+    if not path.is_dir():
+        return show(rel)
+    ls = subprocess.run(["git", "-c", "core.quotepath=off", "ls-tree", "--name-only", f"{ref}:{rel}"],
+                        cwd=path.parent, capture_output=True)
+    names = sorted(n for n in ls.stdout.decode("utf-8").splitlines() if n.endswith(".md")) if ls.returncode == 0 else []
+    if names:
+        return "\n".join(show(f"{rel}/{n}") for n in names)
+    if path == SAIMOKU:
+        parent = rel.rpartition("/")[0]
+        return show(f"{parent}/{SAIMOKU_ONE_FILE}" if parent else SAIMOKU_ONE_FILE)
+    raise OSError(f"{ref}:{rel} に .md が無い")
 
 
 def grow(ref: str) -> int:
     bad = []
     for path in guarded():
         try:
-            now = size(path.read_text(encoding="utf-8"))
+            now = size(read_guarded(path))
             before = size(base_text(ref, path))
         except UNREADABLE as e:
             # 比べる元が無い時に黙って緑にしない（既定で止める）
