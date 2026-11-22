@@ -1,0 +1,2 @@
+- 直した: `scripts/pr_shape.py` が、git が分かれ目の試験の file を読めない・symlink の指す先が無い・作業の木の file が読めない時に「無い」＝試験 0 本と数えず、path と訳を名指して照らせない（exit 2）で止める。中身を読むのは `_blob` 1 つ。消した試験の file の構文が読めない時も名指す。
+- 直した: `scripts/pr_overlap.py` が、GitHub が patch を付けない file（バイナリ・大きすぎる差分・名の変更だけ）を空の差分と見ず、file の全部を書き換えた物と見て名指す。開いている PR の一覧と PR の file の一覧は頁を全部辿り（100 本目より後の PR を落とさない）、GitHub が全部を返さない量（compare の 300 file・PR の 3000 file）に届いたら見ていない（exit 3）と言う。

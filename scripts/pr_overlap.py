@@ -9,6 +9,9 @@
 物差し: PR ごとの差分の行番号は、その PR の分かれ目（merge base）の main の行番号で、違う時期に切った PR どうしでは
   物差しが違う。なので各 PR の範囲を、分かれ目から base の枝の今の先端までの差分で今の先端の行番号へ写してから比べる
   （写す所が書き換えられた行は、書き換えた後の範囲の全部へ広げる＝見落とす側に倒さない）。比べる PR は同じ base の枝の物だけ。
+読めない物を「無い」に畳まない: GitHub が patch を付けない file（バイナリ・大きすぎる差分・名の変更だけ）は、行が分からない＝
+  file の全部を書き換えた物と見て名指す（空の差分と見て重ならないと言わない）。開いている PR の一覧と PR の file の一覧は
+  頁を全部辿って読み（1 頁目だけで切らない）、GitHub が全部を返さない量（compare の 300 file 等）に届いたら見ていないと言う。
 
   python3 scripts/pr_overlap.py --repo <owner/name> --pr <番号>      # CI（GITHUB_TOKEN で読むだけ）
   python3 scripts/pr_overlap.py --self <patch の JSON> --others <JSON>  # 試験（{pr: {file: patch}} の形）
@@ -32,9 +35,16 @@ import urllib.request
 CONTEXT = 3
 UNSEEN = 3  # 見ていない（緑に数えない）
 HUNK = re.compile(r"^@@ -(\d+)(?:,(\d+))? \+\d+(?:,\d+)? @@", re.M)
+WHOLE = (1, 10**9)  # patch が無く行が分からない file の範囲＝file の全部
+COMPARE_CAP = 300   # GitHub の compare が返す file の数の上限（届いたら全部を返していない）
+PR_FILES_CAP = 3000  # GitHub の PR の file の一覧が返す数の上限
+PAGES_CAP = 100
 
 
-def ranges(patch: str) -> list[tuple[int, int]]:
+def ranges(patch: str | None) -> list[tuple[int, int]]:
+    """patch の塊の main の側の行の範囲。patch が無い（None）時は行が分からない＝file の全部（WHOLE）。"""
+    if patch is None:
+        return [WHOLE]
     out = []
     for m in HUNK.finditer(patch or ""):
         start, n = int(m.group(1)), int(m.group(2) if m.group(2) is not None else 1)
@@ -53,8 +63,11 @@ def _hunks(patch: str) -> list[tuple[int, int, int, int]]:
 
 
 def carry(span: tuple[int, int], patch: str | None) -> tuple[int, int]:
-    """分かれ目の行番号の範囲 span を、分かれ目→今の先端の差分 patch で今の先端の行番号へ写す（patch が無ければそのまま）。
-    書き換えられた行に掛かる所は、書き換えた後の範囲の全部へ広げる。"""
+    """分かれ目の行番号の範囲 span を、分かれ目→今の先端の差分 patch で今の先端の行番号へ写す。
+    patch が "" ならそのまま。書き換えられた行に掛かる所は、書き換えた後の範囲の全部へ広げる。
+    patch が None（先端の側で書き換えたが行が分からない）・span が全部なら、写せない＝file の全部。"""
+    if patch is None or span == WHOLE:
+        return WHOLE
     if not patch:
         return span
     hunks = _hunks(patch)
@@ -94,22 +107,57 @@ def overlaps(mine: dict[str, str], others: dict[str, dict[str, str]]) -> list[tu
                            {pr: {f: ranges(p) for f, p in fs.items()} for pr, fs in others.items()})
 
 
-def on_tip(files: dict[str, str], to_tip: dict[str, str]) -> dict[str, list[tuple[int, int]]]:
-    """PR の {file: patch（分かれ目から）} を、今の先端の行番号の {file: [範囲]} へ写す。"""
-    return {f: [carry(r, to_tip.get(f)) for r in ranges(p)] for f, p in files.items()}
+def on_tip(files: dict[str, str | None], to_tip: dict[str, str | None]) -> dict[str, list[tuple[int, int]]]:
+    """PR の {file: patch（分かれ目から）} を、今の先端の行番号の {file: [範囲]} へ写す
+    （先端の側で触っていない file は "" ＝そのまま。触ったが patch が無い file は None＝全部）。"""
+    return {f: [carry(r, to_tip.get(f, "")) for r in ranges(p)] for f, p in files.items()}
 
 
-def _get(url: str, token: str):
+def blind(*sides: dict[str, list[tuple[int, int]]]) -> list[str]:
+    """patch が無く行が分からない＝全部と見た file の名（知らせの中で名指す）。"""
+    return sorted({f for side in sides for f, rs in side.items() if WHOLE in rs})
+
+
+def _page(url: str, token: str):
+    """(中身, 次の頁の URL か None)。GitHub を読むのはここ 1 つ。"""
     req = urllib.request.Request(url, headers={"Accept": "application/vnd.github+json",
                                                "Authorization": f"Bearer {token}", "User-Agent": "af-pr-overlap"})
     with urllib.request.urlopen(req, timeout=30) as r:
-        return json.loads(r.read().decode("utf-8"))
+        m = re.search(r'<([^>]+)>;\s*rel="next"', r.headers.get("Link") or "")
+        return json.loads(r.read().decode("utf-8")), (m.group(1) if m else None)
 
 
-def compare(repo: str, base: str, head: str, token: str) -> tuple[str, dict[str, str]]:
-    """(分かれ目の commit, {file: patch（分かれ目から head まで）})。"""
+def _get(url: str, token: str):
+    return _page(url, token)[0]
+
+
+def _get_all(url: str, token: str, cap: int | None = None) -> list:
+    """一覧の頁を Link の rel="next" で全部辿る（1 頁目だけで切らない）。辿り切れない・GitHub の上限 cap に届いた時は例外。"""
+    out: list = []
+    for _ in range(PAGES_CAP):
+        data, url = _page(url, token)
+        if not isinstance(data, list):
+            raise OSError(f"一覧のはずが {type(data).__name__} が返った")
+        out += data
+        if not url:
+            if cap is not None and len(out) >= cap:
+                raise OSError(f"{len(out)} 件＝GitHub が返す上限 {cap} に届き、全部を読めたか分からない")
+            return out
+    raise OSError(f"{PAGES_CAP} 頁を辿っても一覧が終わらない")
+
+
+def _patch(r: dict) -> str | None:
+    """compare の file の patch。GitHub が付けない（バイナリ・大きすぎる・名の変更だけ）時は None＝行が分からない。"""
+    return r.get("patch") or None
+
+
+def compare(repo: str, base: str, head: str, token: str) -> tuple[str, dict[str, str | None]]:
+    """(分かれ目の commit, {file: patch（分かれ目から head まで）。patch が無い file は None})。"""
     c = _get(f"https://api.github.com/repos/{repo}/compare/{base}...{head}", token)
-    return c["merge_base_commit"]["sha"], {r["filename"]: r.get("patch") or "" for r in c.get("files") or []}
+    files = c.get("files") or []
+    if len(files) >= COMPARE_CAP:
+        raise OSError(f"{base[:12]}...{head[:12]} の差分の file が {len(files)}＝compare の上限 {COMPARE_CAP} に届き、全部を読めない")
+    return c["merge_base_commit"]["sha"], {r["filename"]: _patch(r) for r in files}
 
 
 def on_base_tip(repo: str, base_tip: str, head: str, token: str, cache: dict) -> dict[str, list[tuple[int, int]]]:
@@ -127,14 +175,22 @@ def claimed(declared: list[str], others: dict[str, list[str]]) -> list[tuple[str
 
 
 def open_files(repo: str, token: str) -> dict[str, list[str]]:
-    """開いている PR ごとの触った file の名。読めない・多すぎる時は例外（重ならないと言わない）。"""
+    """開いている PR ごとの触った file の名（PR の一覧も file の一覧も頁を全部辿る）。
+    読めない・GitHub の上限に届いた時は例外（重ならないと言わない）。"""
     out = {}
-    for p in _get(f"https://api.github.com/repos/{repo}/pulls?state=open&per_page=100", token):
-        files = _get(f"https://api.github.com/repos/{repo}/pulls/{p['number']}/files?per_page=100", token)
-        if len(files) >= 100:
-            raise OSError(f"#{p['number']} の file が 100 を越え、全部を読めない")
+    for p in open_prs(repo, token):
+        try:
+            files = _get_all(f"https://api.github.com/repos/{repo}/pulls/{p['number']}/files?per_page=100", token,
+                             cap=PR_FILES_CAP)
+        except OSError as e:
+            raise OSError(f"#{p['number']} の file の一覧: {e}") from None
         out[f"#{p['number']} {p['head']['ref']}"] = [f["filename"] for f in files]
     return out
+
+
+def open_prs(repo: str, token: str) -> list:
+    """開いている PR の全部（頁を全部辿る。100 本を越えても黙って落とさない）。"""
+    return _get_all(f"https://api.github.com/repos/{repo}/pulls?state=open&per_page=100", token)
 
 
 def main_files(repo: str, declared: list[str]) -> int:
@@ -186,14 +242,22 @@ def main(argv=None) -> int:
             tip = _get(f"https://api.github.com/repos/{a.repo}/branches/{base}", token)["commit"]["sha"]
             cache: dict = {}
             mine_r = on_base_tip(a.repo, tip, me["head"]["sha"], token, cache)
-            opened = _get(f"https://api.github.com/repos/{a.repo}/pulls?state=open&per_page=100", token)
+            opened = open_prs(a.repo, token)
             others_r = {f"#{p['number']}": on_base_tip(a.repo, tip, p["head"]["sha"], token, cache)
                         for p in opened if p["number"] != a.pr and (p.get("base") or {}).get("ref") == base}
     except Exception as e:  # noqa: BLE001  知らせる道具が壊れても PR は止めない（見ていない事を exit 3 で名指す）
         return unseen(f"他の PR を読めない（{e}）")
-    hits = overlaps(mine, others) if a.self_json else overlaps_ranges(mine_r, others_r)
+    if a.self_json:   # 試験の口: patch が null の file は行が分からない＝全部
+        mine_r = {f: ranges(p) for f, p in mine.items()}
+        others_r = {pr: {f: ranges(p) for f, p in fs.items()} for pr, fs in others.items()}
+    hits = overlaps_ranges(mine_r, others_r)
     for pr, f, (s, e) in hits:
-        print(f"⚠ {pr} も {f} の {s}〜{e} 行の辺りを書き換えている（同じ節の本当の重なり）")
+        where = "全部" if (s, e) == WHOLE else f"{s}〜{e} 行の辺り"
+        print(f"⚠ {pr} も {f} の {where}を書き換えている（同じ節の本当の重なり）")
+    unknown = blind(mine_r, *others_r.values())
+    if unknown:
+        print("pr_overlap: patch が無く行が分からない file は、全部を書き換えた物と見た（重ならないとは言わない）: "
+              + "・".join(unknown))
     if hits:
         print("pr_overlap: 知らせ — 重なる PR の書いた窓と親の窓で、どちらを先に入れて後の方が取り込み直すかを今決める"
               "（合流の時に初めて衝突に気づかない）。止めはしない")

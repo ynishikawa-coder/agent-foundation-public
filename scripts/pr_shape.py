@@ -88,11 +88,6 @@ def fresh_main(root: Path, ref: str = "main") -> str:
     return tip
 
 
-def show(root: Path, ref: str, path: str) -> str | None:
-    r = subprocess.run(["git", "show", f"{ref}:{path}"], cwd=root, capture_output=True, text=True)
-    return r.stdout if r.returncode == 0 else None
-
-
 def check(root: Path, branch: str, base: str) -> list[str]:
     errs: list[str] = []
     m = BRANCH.match(branch)
@@ -154,22 +149,43 @@ def tests_shape(src: str) -> dict[str, int]:
 
 
 def _blob(root: Path, ref: str, path: str, hops: int = 8) -> str | None:
-    """ref の path の中身（symlink は指す先を ref の木の中で辿った中身）。無ければ None。"""
+    """ref の木の path の中身（symlink は指す先を ref の木の中で辿った中身）。中身を読むのはここ 1 つ。
+    None は git が「ref の木に path が無い」と答えた時だけ。git が読めない・指す先が木に無い・辿り切れない・
+    UTF-8 で読めない時は OSError で名指す（読めない物を「無い」「試験 0 本」に畳まない）。"""
+    start = path
     for _ in range(hops):
-        r = subprocess.run(["git", "ls-tree", ref, "--", path], cwd=root, capture_output=True, text=True)
-        meta = r.stdout.split("\t", 1)[0].split() if r.returncode == 0 else []
+        meta = git(root, "ls-tree", ref, "--", path).split("\t", 1)[0].split()
         if not meta:
-            return None
-        body = show(root, ref, path)
-        if meta[0] != "120000" or body is None:
+            if path == start:
+                return None
+            raise OSError(f"{ref[:12]} の {start}: symlink の指す先 {path} が木に無い")
+        r = subprocess.run(["git", "cat-file", "blob", f"{ref}:{path}"], cwd=root, capture_output=True)
+        if r.returncode != 0:
+            raise OSError(f"{ref[:12]} の {path} の中身を git が読めない（{r.stderr.decode('utf-8', 'replace').strip()}）")
+        try:
+            body = r.stdout.decode("utf-8")
+        except UnicodeDecodeError:
+            raise OSError(f"{ref[:12]} の {path} が UTF-8 で読めない") from None
+        if meta[0] != "120000":
             return body
         path = posixpath.normpath(posixpath.join(posixpath.dirname(path), body.strip()))
-    return None
+    raise OSError(f"{ref[:12]} の {start}: symlink を {hops} 回辿っても中身に着かない")
+
+
+def _before(root: Path, mb: str, path: str) -> str:
+    """分かれ目に在るはずの path（git が変えた・消した・名を変えたと言う物）の中身。無ければ OSError（空と見ない）。"""
+    body = _blob(root, mb, path)
+    if body is None:
+        raise OSError(f"{path}: git は変えた・消したと言うのに、分かれ目 {mb[:12]} の木に無い")
+    return body
 
 
 def _now(root: Path, path: str) -> str:
-    p = root / path
-    return p.read_text(encoding="utf-8") if p.is_file() else ""  # symlink は指す先の中身
+    """作業の木の path の中身（symlink は指す先の中身）。無い・読めない・UTF-8 でない時は OSError（空と見ない）。"""
+    try:
+        return (root / path).read_bytes().decode("utf-8")
+    except (OSError, UnicodeDecodeError) as e:
+        raise OSError(f"作業の木の {path} を読めない（{e.__class__.__name__}）") from None
 
 
 def grown_test_files(root: Path, mb: str, rows_nr: list[list[str]]) -> list[str]:
@@ -191,8 +207,9 @@ def grown_test_files(root: Path, mb: str, rows_nr: list[list[str]]) -> list[str]
     gone = {p[-1]: None for st, *p in rows_nr if st == "D" and TEST_PATH.match(p[-1]) and p[-1] not in moved_from}
     for g in gone:
         try:
-            gone[g] = tests_shape(_blob(root, mb, g) or "")
-        except ValueError:
+            gone[g] = tests_shape(_before(root, mb, g))
+        except ValueError as e:
+            errs.append(f"{g}（消した試験の file）: 試験の名を読めない（{e}）。どこへ移したかを照らせない")
             gone[g] = {}
     for st, *paths in rows_nr:
         path = paths[-1]
@@ -209,7 +226,7 @@ def grown_test_files(root: Path, mb: str, rows_nr: list[list[str]]) -> list[str]
         moved = before_paths != [path]
         label = f"{path}（元は {'・'.join(before_paths)}）" if moved else path
         try:
-            shapes = [tests_shape(_blob(root, mb, b) or "") for b in before_paths]
+            shapes = [tests_shape(_before(root, mb, b)) for b in before_paths]
             after = tests_shape(_now(root, path))
         except ValueError as e:
             errs.append(f"{label}: 試験の数を照らせない（{e}）。直してから照らす")
