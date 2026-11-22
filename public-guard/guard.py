@@ -293,7 +293,8 @@ class Guard:
     # 中身
     def tracked_files(self):
         """(path, 中身) の並び。追跡のファイル（index）と、まだ git に入れていない新しいファイル（.gitignore の外）。
-        中身は作業の木から読み、作業の木に無い・普通のファイルでない物（消した・symlink）は index の中身を読む。
+        中身は作業の木から読み（symlink は指す先の字＝git が入れる中身）、作業の木に無い物（消した）は index の中身を読む。
+        どちらでも読めない物は空として照らした物に数えず、照らしていない物として名指す。
         UTF-8 で読めないバイトは置き換えて読む（中身を空にしない）。submodule は中身が別の repo なので名だけ照らし、名指す。"""
         staged = subprocess.run(["git", "ls-files", "-z", "-s"], cwd=self.repo, capture_output=True, check=True).stdout
         index = {}
@@ -311,11 +312,16 @@ class Guard:
             if mode == "160000":
                 self.unchecked.append(f"中身: submodule {self.place(rel)} の中身（別の repo。名だけ照らした）")
                 yield rel, ""
-            elif path.is_file() and not path.is_symlink():
+            elif path.is_symlink():
+                # git が symlink として入れる中身は指す先の字そのもの。作業の木の今の指す先を照らす（index は古い時がある）
+                yield rel, os.fsdecode(os.readlink(path))
+            elif path.is_file():
                 yield rel, path.read_bytes().decode("utf-8", errors="replace")
             elif blob:
                 yield rel, self.git("cat-file", "blob", blob)
             else:
+                # 作業の木で普通の file でも symlink でもなく、index にも中身が無い物（FIFO など）。照らせた物に数えず名指す
+                self.unchecked.append(f"中身: {self.place(rel)}（普通の file でも symlink でもなく、index にも中身が無い）")
                 yield rel, ""
 
     def check_files(self) -> list[str]:

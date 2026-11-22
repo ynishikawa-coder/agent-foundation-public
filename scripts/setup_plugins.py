@@ -91,23 +91,39 @@ def claude(*args: str) -> subprocess.CompletedProcess | None:
 
 
 def listed() -> dict[str, str | None]:
-    """{plugin の id: 読まれる dir（installPath）}（`claude plugin list --json` の user scope で enabled の物）。"""
+    """{plugin の id: 読まれる dir（installPath）}（`claude plugin list --json` の user scope で enabled の物）。
+    claude を呼べない・失敗した・答えが読めない時は ValueError（「1 本も入っていない」と読まない）。"""
     r = claude("plugin", "list", "--json")
+    if r is None:
+        raise ValueError("claude plugin list を呼べない")
+    if r.returncode != 0:
+        why = (r.stderr or "").strip().splitlines()
+        raise ValueError(f"claude plugin list が {r.returncode} で失敗した" + (f": {why[-1]}" if why else ""))
     try:
-        rows = json.loads(r.stdout) if r and r.returncode == 0 else []
-    except ValueError:
-        rows = []
+        rows = json.loads(r.stdout)
+    except ValueError as e:
+        raise ValueError(f"claude plugin list の答えが JSON として読めない: {e}") from None
+    if not isinstance(rows, list):
+        raise ValueError(f"claude plugin list の答えの形が list でない（{type(rows).__name__}）")
     return {x.get("id"): x.get("installPath") for x in rows if isinstance(x, dict) and x.get("scope") == "user" and x.get("enabled")}
 
 
 def catalog_entry(market: str) -> dict:
-    """目録の登録（known_marketplaces.json の行）。無ければ {}。"""
+    """目録の登録（known_marketplaces.json の行）。file か行が無ければ {}。在るのに読めない・形が違う時は
+    ValueError（「登録が無い」と読んで clone の外の入口のまま入れない）。"""
+    path = home() / "plugins" / "known_marketplaces.json"
     try:
-        rows = json.loads((home() / "plugins" / "known_marketplaces.json").read_text(encoding="utf-8"))
-    except (OSError, ValueError):
+        rows = json.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
         return {}
-    m = rows.get(market) if isinstance(rows, dict) else None
-    return m if isinstance(m, dict) else {}
+    except (OSError, ValueError) as e:
+        raise ValueError(f"{path} が読めない: {type(e).__name__}: {e}") from None
+    if not isinstance(rows, dict):
+        raise ValueError(f"{path} の形が dict でない（{type(rows).__name__}）")
+    m = rows.get(market)
+    if m is not None and not isinstance(m, dict):
+        raise ValueError(f"{path} の目録 {market} の行の形が dict でない（{type(m).__name__}）")
+    return m or {}
 
 
 def root_is_clone(market: str) -> bool:
@@ -138,14 +154,20 @@ def installed_shas(market: str, where: dict[str, str | None]) -> dict[str, str |
     """{plugin の名: 入った commit}（Claude Code が入れた時に書く台帳 ~/.claude/plugins/installed_plugins.json から）。
 
     読むのは installPath が、その plugin の読まれる dir（where＝`claude plugin list` の installPath）と同じ行だけ。
-    合う行が無ければ None（＝分からない）。最初の行・別の dir の行（project scope・前に別の所へ入った）の版で揃いを決めない。"""
+    合う行が無ければ None（＝分からない）。最初の行・別の dir の行（project scope・前に別の所へ入った）の版で揃いを決めない。
+    台帳が無ければ {}。在るのに読めない・形が違う時は ValueError（どの plugin の版も「分からない」と取り違えない）。"""
+    path = home() / "plugins" / "installed_plugins.json"
     try:
-        table = json.loads((home() / "plugins" / "installed_plugins.json").read_text(encoding="utf-8"))
-        rows = table.get("plugins") or {}
-    except (OSError, ValueError, AttributeError):
+        table = json.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
         return {}
+    except (OSError, ValueError) as e:
+        raise ValueError(f"入った台帳 {path} が読めない: {type(e).__name__}: {e}") from None
+    rows = table.get("plugins", {}) if isinstance(table, dict) else None
+    if not isinstance(rows, dict):
+        raise ValueError(f"入った台帳 {path} の plugins の形が dict でない")
     out = {}
-    for key, row in rows.items() if isinstance(rows, dict) else []:
+    for key, row in rows.items():
         name, _, m = str(key).partition("@")
         if m != market:
             continue
@@ -158,10 +180,14 @@ def installed_shas(market: str, where: dict[str, str | None]) -> dict[str, str |
 def main_tip(market: str | None = None) -> str | None:
     """目録が追う枝（source の ref＝`marketplace add <repo>#<枝>`。無ければ main）の先端を、目録の clone の出所へ直に聞く
     （取り直した clone の HEAD でなく出所の今の先端）。正本は kaku.source_ref・source_tip（起動の hook と同じ比べ方）。
-    読めない・入口が目録の clone の外で回った時は None（起動の hook は「分からない」と名指す）。"""
+    入口が目録の clone の外で回った時と、手元の dir・file から入れた目録（kaku.LOCAL_SOURCES＝出所が無く起動の hook も比べない）は None。
+    出所に聞けない時は kaku.Incomparable（main が訳を名指す）。"""
     if market is not None and not root_is_clone(market):
         return None
     entry = catalog_entry(market) if market is not None else {}
+    src = entry.get("source") if isinstance(entry.get("source"), dict) else {}
+    if src.get("source") in kaku.LOCAL_SOURCES:
+        return None
     return kaku.source_tip(str(ROOT), kaku.source_ref(entry))
 
 
@@ -223,10 +249,14 @@ def main() -> int:
         # setup の時の main の先端は、入れる物を決める取り直しの直後に読む（入れ終わった後に読むと、その間の
         # push で記録が入れた物より新しくなり、正しい setup を「古い物を入れた」と取り違える）。取り直しと読む間に
         # push が入って食い違えば、1 度だけ取り直して揃える。
-        at_setup = main_tip(market)
-        if fresh and at_setup and at_setup != catalog_head(market):
-            fresh = refresh(market)
+        tip_why = None
+        try:
             at_setup = main_tip(market)
+            if fresh and at_setup and at_setup != catalog_head(market):
+                fresh = refresh(market)
+                at_setup = main_tip(market)
+        except kaku.Incomparable as e:  # 聞けなかった事を「記録が無い」に溶かさず名指す（記録は None＝起動の hook が「分からない」）
+            at_setup, tip_why = None, str(e)
         market, names = catalog()  # 取り直した名簿を読み直す
     except ValueError as e:
         notice(f"土台の plugin を入れられなかった: {e}。核と守りの hook がこの窓で効いていない。最初にオーナーへ知らせる。")
@@ -235,12 +265,19 @@ def main() -> int:
     for n in names:
         claude("plugin", "install", f"{n}@{market}", "--scope", "user")
         claude("plugin", "update", f"{n}@{market}")  # 前の setup で入った古い物を名簿の版へ追いつかせる
-    where = listed()
-    lack = [n for n in names if f"{n}@{market}" not in where]
-    tip, shas = catalog_head(market), installed_shas(market, where)
-    stale = [n for n in names if n not in lack and (not tip or shas.get(n) != tip)]
-    unknown = [n for n in stale if shas.get(n) is None]
     bad = []
+    tip = catalog_head(market)
+    try:
+        where = listed()
+        lack = [n for n in names if f"{n}@{market}" not in where]
+        shas = installed_shas(market, where)
+        stale = [n for n in names if n not in lack and (not tip or shas.get(n) != tip)]
+        unknown = [n for n in stale if shas.get(n) is None]
+    except ValueError as e:  # 入ったか・版を照らせない: 全部を「揃っていない」に置き（起動の hook が知らせる）、訳を名指す
+        lack, stale, unknown = [], list(names), []
+        bad.append(f"土台の plugin が入ったか・どの版かを照らせない（{e}）")
+    if tip_why:
+        bad.append(f"setup の時の main の先端を出所へ聞けなかった（{tip_why}）")
     if not compact_window():
         bad.append("~/.claude/settings.json に autoCompactWindow を置けなかった（文脈が大きいまま走り費用が膨らむ）")
     if not fresh:
