@@ -16,6 +16,7 @@ from pathlib import Path
 
 import pytest
 
+import needs
 from test_guard import env  # noqa: F401  （env は fixture）
 from test_guard_context_stop import over_log, stop_hook
 
@@ -146,16 +147,32 @@ BP_DIR = ROOT / "plugins" / "docs-kit" / "skills" / "blueprint"
     ("{id:'s12',kind:'calc'", "{id:'s12',kind:'calcu'", "p1/s12: kind が表"),
     ("mode:'current',", "mode:'curent',", "META.mode が版の表"),
 ])
-def test_Blueprint_の表に無い値は_selftest_が_NG(tmp_path, capsys, old, new, named):
-    bp =_load(BP_DIR / "scripts" / "check_blueprint.py", "check_blueprint_cv")
-    if bp.find_chrome() is None:
-        pytest.skip("headless の Chromium が無い")
+def test_Blueprint_の表に無い値は_selftest_が_NG(tmp_path, old, new, named):
+    """枠の selftest を実ブラウザ（node の playwright）で動かし、検査の道具と同じ #selftest の字を読む。
+    道具の Chrome の --dump-dom は CI の Chromium で DOM を返さない事がある（道具の起こし方の試験は test_docs_kit が持つ）。"""
+    node = needs.node_playwright()
     src = (BP_DIR / "references" / "template.html").read_text(encoding="utf-8")
     assert src.count(old) == 1, old
-    page = tmp_path / "bp.html"
-    page.write_text(src.replace(old, new), encoding="utf-8")
-    assert bp.check(str(page)) == 1
-    out = capsys.readouterr().out
-    assert named in out, out
-    page.write_text(src, encoding="utf-8")
-    assert bp.check(str(page)) == 0, capsys.readouterr().out
+    script = tmp_path / "run.cjs"
+    script.write_text("""
+const { chromium } = require('playwright');
+(async () => {
+  const b = await chromium.launch();   // ブラウザの file が在るのに起こせなければ赤（needs.node_playwright が file を見た）
+  const pg = await b.newPage();
+  await pg.goto(process.argv[2] + '?selftest');
+  await pg.waitForSelector('#selftest', { state: 'attached', timeout: 60000 });
+  console.log(JSON.stringify(await pg.textContent('#selftest')));
+  await b.close();
+})().catch((e) => { console.error(e); process.exit(1); });
+""", encoding="utf-8")
+
+    def selftest(text):
+        page = tmp_path / "bp.html"
+        page.write_text(text, encoding="utf-8")
+        r = subprocess.run([node, str(script), page.as_uri()], capture_output=True, text=True, timeout=180)
+        assert r.returncode == 0, r.stderr
+        return json.loads(r.stdout).strip()
+
+    bad = selftest(src.replace(old, new))
+    assert not bad.startswith("SELFTEST OK") and named in bad, bad
+    assert selftest(src).startswith("SELFTEST OK")
