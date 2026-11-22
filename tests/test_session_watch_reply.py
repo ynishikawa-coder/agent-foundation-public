@@ -17,7 +17,8 @@ def test_返し先が別の窓の子窓には親が付けた題を付け直す�
     row = {"type": "user", "message": {"content": "作り物を見て（親窓 session_X の子）"}, "origin": {"kind": "task-notification"}}
     log.write_text(json.dumps(row, ensure_ascii=False) + "\n", encoding="utf-8")
     text = sw.remind({"prompt": "作り物を見て（親窓 session_X の子）", "transcript_path": str(log)}, CLOUD)
-    assert text and "set_session_title" in text and "付け直す" in text
+    assert text and "set_session_title" in text and "表" in text and "に照らして" in text
+    assert "同じ題でよい" not in text            # 親の崩れた題をそのまま写させない（2026-11-22）
 
 
 # ── 返事の中身の差し戻し（平文の問い・中の言葉・時刻・完了の言い切り・題の材料・秘密）──
@@ -45,7 +46,7 @@ FAKE_KEY = "gh" + "p_" + "A1b2C3d4" * 5
 
 @pytest.mark.parametrize("bad, code", [
     # 1. 平文の問い（選択肢の画面を使わずに本文で聞く）
-    (owner_reply("作り物の置き場を A と B のどちらにしますか？", card="⏳待ち（オーナーの答え）"), "plain"),
+    (owner_reply("作り物の置き場を A と B のどちらにしますか？", card="💤待ち（オーナーの答え）"), "plain"),
     ("❓答えて\n作り物の置き場はどちらがよいですか\nAI がこの後やること: なし\nあなたがやること: 答える。これが済むまで置き場の直しに進めません。",
      "plain"),
     # 2. 返事の本文の中の言葉
@@ -103,7 +104,7 @@ GOOD_REPLIES = [
     owner_reply("作り物を直した。", "「ほぼ終わった」と書く返事を差し戻すようにした。"),
     owner_reply("作り物を直した。", "外すはずしの手は値の表に置いた。"),
     "🛑止まった\n鍵が無いので止めた。たぶん鍵を足せば通る。\nAI がこの後やること: なし\nあなたがやること: 鍵を足す。これが済むまで試験に進めません。",
-    "⏳待ち（レビューの窓・今日中）\nほぼ終わった。残りはレビューの判定だけ。\nAI がこの後やること: 判定を受けて直す（この窓）\nあなたがやること: なし。この窓はまだ閉じないでください。",
+    "💤待ち（レビューの窓・今日中）\nほぼ終わった。残りはレビューの判定だけ。\nAI がこの後やること: 判定を受けて直す（この窓）\nあなたがやること: なし。この窓はまだ閉じないでください。",
     # 開いた問いは AI の今の読みを添えれば平文でよい／締めの「なし」は問いにしない
     owner_reply("この言葉はどの意味で使いましたか。", "AI の今の読み: 置き場の意味。", card="❓答えて"),
     owner_reply("どちらでも動く形にした。"),

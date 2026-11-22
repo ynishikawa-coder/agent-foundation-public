@@ -1,9 +1,9 @@
-"""手の窓（作業名が `手:` の窓）の種類は返し先によらず 🙋 で、決まりの文と見張りが同じ 1 つの正本を読むかを見る。
+"""手の窓（種類 ✋ の窓）の種類は返し先によらず ✋ で、決まりの文と見張りが同じ 1 つの正本を読むかを見る。
 
-意図: 手の窓の種類（🙋）を、決まりと見張りが同じに決め、差し戻しが行き来しないようにする。
+意図: 手の窓の種類（2026-11-22 から ✋）を、決まりと見張りが同じに決め、知らせが行き来しないようにする。
 課題: 親窓が手の窓を立てる頼みに（親窓 … の子）と書くと、
-Stop の見張りが 🙋 を 🤖 へ替えろと毎回差し戻し、🤖 に替えると今度は title_shape が 🙋 へ戻せと差し戻した。
-原因: 決まり（skill title-mark）が「（親窓 session_… の子）と書いた窓は 🤖」と「手の窓は 🙋⏳ 手:」を別々に書き、
+Stop の見張りが 🙋 を 🤖 へ替えろと毎回知らせ、🤖 に替えると今度は title_shape が 🙋 へ戻せと止めた。
+原因: 決まり（skill title-mark）が「（親窓 session_… の子）と書いた窓は 🤖」と「手の窓は 🙋⏳ 手:」（今は種類 ✋）を別々に書き、
 見張り（session_watch.py）も返し先だけで種類を決めていた。
 """
 import importlib.util
@@ -23,7 +23,7 @@ spec.loader.exec_module(sw)
 
 CHILD = "作り物の手を頼む（親窓 session_PARENT01 の子）。"
 TO_WINDOW = "作り物の手を頼む（返し先=session_PARENT01）。"
-HAND_REPLY = ("⏳ 待ち\n目的: 作り物の設定を入れる\n手順: 作り物の画面で作り物の値を入れる\n"
+HAND_REPLY = ("💤待ち\n目的: 作り物の設定を入れる\n手順: 作り物の画面で作り物の値を入れる\n"
               "済んだ目印: 作り物の画面に値が出る\n済んだ後: 頼んだ窓へ返す\n"
               "AI がこの後やること: 済んだ目印を確かめて頼んだ窓へ返す\n"
               "あなたがやること: 上の手順。これが済むまで 作り物の続き に進めません")
@@ -56,33 +56,33 @@ INNER_REPLY = HAND_REPLY.replace("作り物の値を入れる", "直し_0020 の
 
 def test_親窓の子と書いた手の窓は_中の言葉を_Stop_が差し戻す(tmp_path):
     """手の窓の相手はオーナー＝中の言葉の照らしを飛ばさない（ai_window が window_kind を読む）。"""
-    why = stop_reason(tmp_path, CHILD, "🙋⏳ 手: 作り物の設定", INNER_REPLY)
+    why = stop_reason(tmp_path, CHILD, "✋ 作り物の設定", INNER_REPLY)
     assert why and "- inner:" in why
 
 
 def test_手の窓でない子の窓は_中の言葉を照らさない(tmp_path):
     """返し先が別の窓の窓（🤖）は人への文でないので中の言葉を見ない（今までどおり）。"""
-    why = stop_reason(tmp_path, CHILD, "🤖⏳ 作り物の作業", INNER_REPLY)
+    why = stop_reason(tmp_path, CHILD, "🤖💤 作り物の作業", INNER_REPLY)
     assert not why or "- inner:" not in why
 
 
 def test_親窓の子と書いた手の窓が_人の印_なら_Stop_は通す(tmp_path):
-    assert stop_reason(tmp_path, CHILD, "🙋⏳ 手: 作り物の設定") is None
+    assert stop_reason(tmp_path, CHILD, "✋ 作り物の設定") is None
 
 
 def test_返し先が窓の手の窓も_人の印_なら_Stop_は通す(tmp_path):
-    assert stop_reason(tmp_path, TO_WINDOW, "🙋⏳ 手: 作り物の設定") is None
+    assert stop_reason(tmp_path, TO_WINDOW, "✋ 作り物の設定") is None
 
 
 def test_手の窓にわざと_AI_の印_を付けると_Stop_が差し戻す(tmp_path):
-    why = stop_reason(tmp_path, CHILD, "🤖⏳ 手: 作り物の設定")
-    assert why and "手の窓の題は `🙋⏳ 手: <何を>`" in why
+    why = stop_reason(tmp_path, CHILD, "🤖 手: 作り物の設定")
+    assert why and "手の窓は種類 ✋ で `✋ <何を>` と書く" in why
     assert "🤖 へ" not in why and "この窓の種類は 🤖" not in why   # 逆向き（🤖 へ替えろ）の差し戻しを出さない
 
 
 def test_種類の正本は手の窓を返し先より先に見る():
-    assert sw.window_kind(CHILD, "🙋⏳ 手: 作り物") == sw.HUMAN
-    assert sw.window_kind(CHILD, "🤖⏳ 手: 作り物") == sw.HUMAN
+    assert sw.window_kind(CHILD, "✋ 作り物") == sw.HAND
+    assert sw.window_kind(CHILD, "✋✅ 作り物") == sw.HAND
     assert sw.window_kind(CHILD, "🤖 作り物の作業", seeded=True) == sw.AI
     assert sw.window_kind("返し先=オーナー", None) == sw.HUMAN
     assert sw.window_kind("作り物を直して", None) is None
@@ -99,9 +99,14 @@ def test_決まりの文は見張りの正本と同じ文():
 
 def test_細目は手の窓の種類を書き正本を指す():
     text = DETAIL.read_text(encoding="utf-8")
-    assert ("種類は `🙋`＝オーナー／`🤖`＝別の窓か仕組み（手の窓は返し先によらず `🙋`・"
-            "決め方は skill `session-watch:title-mark`）。") in text
+    # 文の写しを留めず、細目の「窓の題」の行が種類を表の正本（TITLE_TABLE）どおりに並べ skill を指すかを照らす
+    line = next(l for l in text.splitlines() if l.startswith("- **窓の題**"))
+    for kind in sw.TITLE_TABLE:
+        assert f"`{kind}`" in line, kind
+    assert "skill `session-watch:title-mark`" in line
 
 
-def test_細目は手の窓の作業名の形を書く():
-    assert "役は作業名に書く（手の窓は `手: <何を>`）。" in DETAIL.read_text(encoding="utf-8")
+def test_細目は手の窓を種類で書き作業名の印を持たない():
+    text = DETAIL.read_text(encoding="utf-8")
+    assert "題 `✋ <何を>` の窓を立てて頼む（済んだら `✋✅`）。" in text
+    assert "手: <何を>" not in text
