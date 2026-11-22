@@ -306,7 +306,7 @@ def _local_check(tmp_path, ci_text):
     e = box_env()
     p = subprocess.run(["bash", str(box / "scripts" / "checks" / "public_guard.sh")], capture_output=True, text=True,
                        env=e, timeout=60)
-    args = [json.loads(ln[5:]) for ln in p.stdout.splitlines() if ln.startswith("ARGS=")]
+    args = [json.loads(ln[5:]) for ln in p.stdout.split("\n") if ln.startswith("ARGS=")]
     return p.returncode, (args[0] if args else None), p.stdout + p.stderr
 
 
