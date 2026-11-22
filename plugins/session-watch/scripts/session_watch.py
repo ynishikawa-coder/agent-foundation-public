@@ -793,7 +793,7 @@ def check(log, closing=None, data=None):
                 title = v
             elif k == "ask":
                 in_turn = i >= len(log.events) - len(log.turn)
-                # 手の窓（✋）は状態に ❓ を持たない（無し＝オーナーの操作待ち。済んだかも選択肢の画面で聞く・細目 §4）
+                # 手の窓（✋）は状態に ❓ を持たない（無し＝オーナーの操作待ち。済んだ目印を先に確かめ、確かめられない所だけ選択肢の画面で聞く・細目 §4）
                 if in_turn and split_title(title)[1] != ASKING and split_title(title)[0] != HAND:
                     found.append(("title", ASK_BEFORE + " %s にしていない（題: %s）" % (ASKING, title or "（無し）")))
         pending, closed_any = ask_state(log)

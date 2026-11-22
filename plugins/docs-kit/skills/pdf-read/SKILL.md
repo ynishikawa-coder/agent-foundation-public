@@ -43,7 +43,7 @@ description: PDF 完璧読取＝実務 PDF（集計表・請求書・帳票な�
 
 **二層分担の要点（芯）**: engine は **headless で crop 供給と契約（Observation）まで**、**実 Vision 裏取りはこの skill 層の仕事**。headless CLI 単独では position_readback を指定しても oracle（目）が無い＝指定を記録するだけで `pf_unverified` を残す（honest fallback＝目が無ければ位置は裏取れない、と正直に落とす）。
 
-engine 置き場: engine を持つ製品の repo の中の engine の dir。どの repo か・engine の module の名は下の §repo ごとの値 の鍵 `engine_source`・`engine_module` に在る（無い・空なら人に聞く）。以下 `<engine>` はその module の名。本物の置き場は製品の repo＝作業中の repo に写しを置かない。repo の中の dir はその repo の CLAUDE.md が正本。
+engine 置き場: engine を持つ製品の repo の中の engine の dir。どの repo か・engine の module の名は下の §repo ごとの値 の鍵 `engine_source`・`engine_module` に在る（無い・空なら `list_repos` と repo の grep で engine を持つ repo を探し、見つからなければ 🛑 にして原因の台帳の行にする）。以下 `<engine>` はその module の名。本物の置き場は製品の repo＝作業中の repo に写しを置かない。repo の中の dir はその repo の CLAUDE.md が正本。
 
 **受け取り方**（読む前に 1 回）:
 - `add_repo`（その製品の repo・read）で付け、返ってきた clone の命令で作業場所の外（例 `/home/user/<製品の repo>`）へ clone する。以下 `<engine の親>` は clone の中の engine の dir の親。
@@ -55,8 +55,8 @@ repo の根（`git rev-parse --show-toplevel`）の `config/skill-values.json` �
 
 | 鍵 | 使う所 | 無い時の既定 |
 |---|---|---|
-| `engine_source` | engine を持つ製品の repo | 無し＝人に聞く |
-| `engine_module` | engine の module の名（以下 `<engine>`） | 無し＝人に聞く |
+| `engine_source` | engine を持つ製品の repo | 無し＝上の探し方 |
+| `engine_module` | engine の module の名（以下 `<engine>`） | 無し＝上の探し方 |
 
 ## 手順
 
