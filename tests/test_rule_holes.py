@@ -6,13 +6,14 @@
 原因: 決まりの試験が「語がどこかに在るか」の照らしだった。
 ここでは核と細目の文を 1 つずつ消し、決まりの試験（引数を取らない試験の関数）を回して、どれかが赤になるかを見る。
 
-- 赤にならない文は、tests/data/試験で守らない文.txt に載せた物だけ（知らない穴＝新しく足した文・書き換えた文は赤）。
+- 赤にならない文は、tests/data/試験で守らない文/ に 1 件 1 file で載せた物だけ（知らない穴＝新しく足した文・書き換えた文は赤）。
   新しい決まりの文を足したら、その文を照らす試験を同じ PR で足す（文をそのまま照らすのが一番強い）。
 - 表の文が試験で守られるようになった・文が無くなった時は、表から消す（古い穴の行を残さない）。
 """
 import collections
 import contextlib
 import functools
+import hashlib
 import io
 import importlib.util
 import inspect
@@ -22,8 +23,11 @@ import re
 import pytest
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
-RULE_FILES = ["plugins/core/核.md", "plugins/core/振る舞い.md", "plugins/core/細目.md"]
-TABLE = ROOT / "tests" / "data" / "試験で守らない文.txt"
+# 細目は節ごとの file（plugins/core/細目/）。文は file ごとに消して回す。
+RULE_FILES = ["plugins/core/核.md", "plugins/core/振る舞い.md",
+              *sorted(p.relative_to(ROOT).as_posix() for p in (ROOT / "plugins" / "core" / "細目").glob("*.md"))]
+# 1 件 1 file（名は中身の sha1 の頭 12 字）。全部の PR が 1 枚の末尾へ足すと互いに衝突するので、行を 1 file に集めない。
+TABLE = ROOT / "tests" / "data" / "試験で守らない文"
 _read = pathlib.Path.read_text
 _rglob_real = pathlib.Path.rglob
 _rglob_cache = {}
@@ -191,13 +195,18 @@ def 穴(rel, text=None, only=None):
     return holes
 
 
-def 表():
+def 表の名(rel, s):
+    """表の 1 件の file の名（中身 `<path><TAB><文>` の sha1 の頭 12 字）。"""
+    return hashlib.sha1(f"{rel}\t{s}".encode("utf-8")).hexdigest()[:12] + ".txt"
+
+
+def 表(table=None):
     out = set()
-    for ln in _read(TABLE, encoding="utf-8").splitlines():
-        if ln.strip() and not ln.startswith("#"):
-            rel, s = ln.split("\t", 1)
-            out.add((rel, s))
+    for p in sorted((table or TABLE).glob("*.txt")):
+        rel, s = _read(p, encoding="utf-8").rstrip("\n").split("\t", 1)
+        out.add((rel, s))
     return out
+
 
 
 @functools.lru_cache(maxsize=1)
@@ -208,7 +217,7 @@ def 今の穴():
 def test_核と細目の文は消すと試験が赤になるか_守らない文の表に在る():
     new = sorted(今の穴() - 表())
     assert not new, ("この文を消しても試験が赤にならない（文を照らす試験を足す。足せない訳がある時だけ "
-                     "tests/data/試験で守らない文.txt に載せる）:\n" + "\n".join(f"{r}\t{s}" for r, s in new)
+                     "tests/data/試験で守らない文/ に 1 件 1 file で載せる・名は 表の名）:\n" + "\n".join(f"{r}\t{s}" for r, s in new)
                      + "\n照らしから外れた試験（元の文で通らない・用意できない fixture）:\n"
                      + "\n".join(f"{k}: {v}" for k, v in sorted(外れた.items())))
 
@@ -221,7 +230,7 @@ def test_守らない文の表に古い行を残さない():
 
 def test_文を足しても照らす試験が無ければ穴に出て_照らした文を消せば赤():
     """注入の試験: 新しい決まりの文を足すと穴に出る。並走の文（PR #30 の穴の場所）は消すと試験が拒む。"""
-    rel = "plugins/core/細目.md"
+    rel = "plugins/core/細目/04-聞き方.md"
     text = _read(ROOT / rel, encoding="utf-8")
     added = text.replace("## 4. ", "- 作り物の新しい決まり。誰も照らしていない。\n\n## 4. ", 1)
     new = {"- 作り物の新しい決まり。", "誰も照らしていない。"}

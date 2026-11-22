@@ -18,10 +18,13 @@
            赤: 名（引いた文）が土台に無い／番号と名が今の節と合わない／番号だけで指す（--numbers で番号だけを許す＝土台の中の指し）
            ／在らない番号。
 文書の名（ALIASES）: 核・細目・振る舞い・CONTRIBUTING・PR の型。skill は `skill:<plugin>:<名>`。
-<文書> は `細目.md`・`` `plugins/core/細目.md` `` のような file の名・path でもよい（略の名は長い語の中に当てない）。
+<文書> は `振る舞い.md`・`` `plugins/core/核.md` `` のような file の名・path でもよい（略の名は長い語の中に当てない）。
+細目は節ごとの file の dir（plugins/core/細目/）で、つないだ全文を 1 つの文書（鍵 plugins/core/細目）として読む。
+節の file の path（plugins/core/細目/03-直すは根治.md）でも指せる。割る前の名（`細目.md`・`plugins/core/細目.md`）も
+同じ文書として受ける（壊れる 1 段目＝使う側の指しが移るまで）。
 土台の dir: repo の形（.claude-plugin/ が在る dir）なら repo の文書全部。入れた形（plugin の cache）なら入った版の
 plugin の dir と、repo の根の文書（CONTRIBUTING・PR の型）は目録の clone の入った版の commit から読む。どちらの形でも
-鍵は repo の相対 path（plugins/core/細目.md）にそろえる。読めなかった文書は "unread" に名指し、それを指す文は
+鍵は repo の相対 path（plugins/core/核.md）にそろえる。読めなかった文書は "unread" に名指し、それを指す文は
 外れに数えず「照らせない」にする（--root で repo の取り出しを渡せば全部照らせる）。
 
 exit（土台の道具の 0/1/2 の約束・kaku.py olds・copies.py・values_keys.py と同じ）:
@@ -41,7 +44,7 @@ HERE = Path(__file__).resolve().parent
 PLUGIN = HERE.parent
 ALIASES = {
     "核": "plugins/core/核.md",
-    "細目": "plugins/core/細目.md",
+    "細目": "plugins/core/細目",
     "振る舞い": "plugins/core/振る舞い.md",
     "CONTRIBUTING": "CONTRIBUTING.md",
     "PR の型": ".github/pull_request_template.md",
@@ -53,6 +56,8 @@ _DOC = (r"`?(?P<path>[\w./-]*[\w-]\.md)`?"
         r"|(?<![\u4e00-\u9fff々])(?P<alias>" + "|".join(map(re.escape, sorted(ALIASES, key=len, reverse=True))) + r")"
         r"|(?P<skill>skill:[\w-]+:[\w-]+)")
 _REF = re.compile(r"(?:" + _DOC + r")\s*(?:§\s*(?P<no>\d+)\s*)?(?:「(?P<name>[^」\n]+)」)?")
+# 割る前の 1 枚の細目の名（壊れる 1 段目: 使う側の指しが移るまで、今の細目の文書として受ける）
+OLD_DOCS = {"細目.md": ALIASES["細目"], "plugins/core/細目.md": ALIASES["細目"]}
 MIN_QUOTE = 4   # 名でない引きは、これより短いと文書のどこかに当たるだけで合ってしまう（「の」）
 
 
@@ -81,11 +86,15 @@ def parse(text: str) -> dict:
     return {"sections": sections, "names": names}
 
 
-def _canon(root: Path) -> dict[str, Path]:
-    """repo の形: {repo の相対 path: file}（文書と guard の見張りの .py）。"""
+def _canon(root: Path) -> dict[str, str]:
+    """repo の形: {repo の相対 path: 中身}（文書と guard の見張りの .py）。細目の dir は節の file をつないだ全文（kaku.saimoku_text）。"""
     files = [root / p for p in ALIASES.values()] + sorted(root.glob("plugins/*/skills/*/SKILL.md")) \
         + sorted(root.glob("plugins/guard/scripts/*.py"))
-    return {f.relative_to(root).as_posix(): f for f in files if f.is_file()}
+    return {f.relative_to(root).as_posix(): _doc_text(f) for f in files if f.is_file() or f.is_dir()}
+
+
+def _doc_text(f: Path) -> str:
+    return _kaku().saimoku_text(f) if f.is_dir() else f.read_text(encoding="utf-8")
 
 
 def _installed() -> tuple[str, dict[str, str], list[str]]:
@@ -101,10 +110,10 @@ def _installed() -> tuple[str, dict[str, str], list[str]]:
         dirs = {d.name: d / PLUGIN.name for d in PLUGIN.parent.parent.iterdir() if (d / PLUGIN.name).is_dir()}
     texts = {}
     for name, d in dirs.items():
-        for f in [d / n for n in ("核.md", "細目.md", "振る舞い.md")] + sorted(d.glob("skills/*/SKILL.md")) \
+        for f in [d / n for n in ("核.md", "細目", "振る舞い.md")] + sorted(d.glob("skills/*/SKILL.md")) \
                 + (sorted(d.glob("scripts/*.py")) if name == "guard" else []):
-            if f.is_file():
-                texts[f"plugins/{name}/{f.relative_to(d).as_posix()}"] = f.read_text(encoding="utf-8")
+            if f.is_file() or f.is_dir():
+                texts[f"plugins/{name}/{f.relative_to(d).as_posix()}"] = _doc_text(f)
     m, _ = kaku.catalog_source()
     loc, sha = m.get("installLocation"), (rows.get("core") or {}).get("gitCommitSha")
     missing = []
@@ -138,11 +147,11 @@ def contract(root: Path | None = None) -> dict:
     if root is None and (PLUGIN.parent.parent / ".claude-plugin").is_dir():
         root = PLUGIN.parent.parent
     if root is not None:
-        base, missing = str(root), [r for r in ALIASES.values() if not (root / r).is_file()]
-        texts = {k: f.read_text(encoding="utf-8") for k, f in _canon(root).items()}
+        base, missing = str(root), [r for r in ALIASES.values() if not (root / r).exists()]
+        texts = _canon(root)
     else:
         base, texts, missing = _installed()
-    docs = {k: v for k, v in texts.items() if k.endswith(".md")}
+    docs = {k: v for k, v in texts.items() if k.endswith(".md") or k == ALIASES["細目"]}
     if not docs:
         raise OSError(f"土台の文書が 1 つも読めない（{base}）。--root で土台の dir を渡す")
     hk, hk_bad = hooks(texts)
@@ -158,6 +167,8 @@ def _want(doc: str) -> str:
         _, plugin, name = doc.split(":")
         return f"plugins/{plugin}/skills/{name}/SKILL.md"
     doc = doc.lstrip("./")
+    if doc in OLD_DOCS or doc.startswith(ALIASES["細目"] + "/"):
+        return ALIASES["細目"]                              # 割る前の名・節の file の path は細目の文書
     by_name = [p for p in ALIASES.values() if p.rsplit("/", 1)[-1] == doc]
     return by_name[0] if len(by_name) == 1 else doc
 
@@ -259,9 +270,11 @@ def main(argv=None) -> int:
     k.add_argument("files", nargs="+", type=Path)
     k.add_argument("--numbers", action="store_true", help="番号だけの指しを許す（土台の中の指し）。番号が在るかは照らす")
     a = ap.parse_args(argv)
+    sys.path.insert(0, str(HERE))
+    import kaku
     try:
         c = contract(a.root)
-    except (OSError, UnicodeDecodeError, ValueError, SyntaxError) as e:
+    except (OSError, UnicodeDecodeError, ValueError, SyntaxError, kaku.Unreadable) as e:  # 入った台帳が読めない時も名指す
         print(f"refs: 照らせない — {e}")
         return 2
     if a.cmd == "list":

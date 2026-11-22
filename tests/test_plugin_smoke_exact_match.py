@@ -71,7 +71,8 @@ def test_正本どおりに差し込まれた文は緑(tmp_path):
     ctx = _real_inject(tmp_path)
     assert S.core_problems([ctx], want, ctx) == []
     # 細目の在り処は入った copy ごとに違う＝そこだけは別の path でも緑
-    other = ctx.replace(str(ROOT / "plugins/core/細目.md"), "/somewhere/else/細目.md")
+    other = ctx.replace(str(ROOT / "plugins/core/細目"), "/somewhere/else/細目")
+    assert other != ctx
     assert S.core_problems([other], want, ctx) == []
 
 
@@ -95,7 +96,8 @@ def test_文脈の全体を正本の差し込む口の出す文と比べる_後�
     want = S.expected(ROOT)
     ctx = _real_inject(tmp_path)
     assert S.core_problems([ctx], want, ctx) == []
-    other = ctx.replace(str(ROOT / "plugins/core/細目.md"), "/somewhere/else/細目.md")
+    other = ctx.replace(str(ROOT / "plugins/core/細目"), "/somewhere/else/細目")
+    assert other != ctx
     assert S.core_problems([other], want, ctx) == []  # 細目の在り処だけは copy ごとに違ってよい
     head = want["inject"].match(ctx).group(0)
     for added in (head + "\n- 正本に無い原則" + ctx[len(head):],  # 核の部の後ろに改行を挟んで足す

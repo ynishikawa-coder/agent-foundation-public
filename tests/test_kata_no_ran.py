@@ -30,7 +30,7 @@ _終わりの印 = r"(?=[:：（(／/`]|\*\*|[ \t]*[|｜]|[ \t]*$)"
 
 def 根治の段():
     """細目 §3「根治の 5 段」の段の名を順に返す（型の欄の名と順の正本）。"""
-    s = _read("plugins/core/細目.md")
+    s = _read("plugins/core/細目/03-直すは根治.md")
     head = s.index("- **根治の 5 段**")
     names = []
     for line in s[head:].splitlines()[1:]:
@@ -174,4 +174,4 @@ def test_手順の文は根治の段で読ませる():
     assert "守りたかった意図とのずれ（課題）から原因の段へ戻る" in _read("plugins/dev-flow/skills/register-rule/SKILL.md")
     assert "pack.md の目的・起点ゴール（意図）のどれとどうずれるか（課題）を書き" in _read("plugins/dev-flow/skills/codex/SKILL.md")
     assert "困りごとを出発点にせず意図から書く。" in _read("plugins/dev-flow/skills/spec-doc/SKILL.md")
-    assert "検査の赤も、検査が守る意図とのずれから入る。" in _read("plugins/core/細目.md")
+    assert "検査の赤も、検査が守る意図とのずれから入る。" in _read("plugins/core/細目/03-直すは根治.md")

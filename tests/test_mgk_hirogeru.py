@@ -11,6 +11,7 @@ import pathlib
 import re
 
 import pytest
+from saimoku import 全文 as 細目の全文
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 P = ROOT / "plugins"

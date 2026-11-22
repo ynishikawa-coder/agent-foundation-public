@@ -1,0 +1,1 @@
+plugins/core/細目/06-時刻は日本時間.md	- 容器の時計は、各 repo が自分の `.claude/settings.json` の env に `TZ=Asia/Tokyo` を置いてそろえる。

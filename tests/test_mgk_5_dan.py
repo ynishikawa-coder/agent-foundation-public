@@ -7,6 +7,7 @@
 原因: 「問題」の語が評価を含み、意図・起きた事・原因を 1 つの段に混ぜる形だった。
 """
 import pathlib
+from saimoku import 全文 as 細目の全文
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 CORE = ROOT / "plugins" / "core"
@@ -34,7 +35,7 @@ SAIMOKU_3 = [
 
 
 def test_細目の根治の段は意図と課題を持ち_課題はなぜを原因へ送る():
-    s3 = _節((CORE / "細目.md").read_text(encoding="utf-8"), 3)
+    s3 = _節(細目の全文(), 3)
     missing = [s for s in SAIMOKU_3 if s not in s3]
     assert not missing, f"細目 §3 の根治の 5 段に無い文: {missing}"
 
