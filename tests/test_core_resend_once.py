@@ -15,7 +15,7 @@ def test_核の本文が変わらない土台の変更では核を送り直さ�
     f.install()
     f.hook("inject")
     for i in range(5):
-        _commit(f.work, {f"plugins/guard/x{i}.py": "x\n"}, f"守りを変える {i}")
+        _commit(f.work, {f"plugins/guard/x{i}.py": "x\n"}, f"急ぎの安全: 守りを変える {i}")
         assert f.hook("fresh") == "", i
     again = f.hook("inject", source="compact")
     assert again.count("# 振る舞いの核") == 1 and again.count("# 振る舞いの既定") == 1
@@ -59,6 +59,7 @@ def _moved(monkeypatch, tip):
     monkeypatch.setattr(kaku, "freshness", lambda: {"installed": "a" * 40, "main": tip, "ref": "main",
                                                     "shas": {"core": "a" * 40}, "plugins": ["guard"]})
     monkeypatch.setattr(kaku, "moved_since", lambda base, t: ["guard"])
+    monkeypatch.setattr(kaku, "urgent_since", lambda base, t: ["急ぎの安全: 守りを変える"])
 
 
 def test_核の本文が変わらない時に裏の入れ直しが壊れても_fresh_は落ちず名指す(box, monkeypatch, capsys):
