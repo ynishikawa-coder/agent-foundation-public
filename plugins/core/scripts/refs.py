@@ -97,8 +97,8 @@ def _doc_text(f: Path) -> str:
     return _kaku().saimoku_text(f) if f.is_dir() else f.read_text(encoding="utf-8")
 
 
-def _installed() -> tuple[str, dict[str, str], list[str]]:
-    """入れた形（cache/<目録>/<plugin>/<版>/）: (読んだ所, {repo と同じ相対 path: 中身}, 読めなかった文書)。
+def _installed() -> tuple[str, dict[str, str], dict[str, str]]:
+    """入れた形（cache/<目録>/<plugin>/<版>/）: (読んだ所, {repo と同じ相対 path: 中身}, {読めなかった文書: 訳})。
     鍵は repo の形と同じ path（plugins/<plugin>/…）にそろえる（入れた形の path を約束に出さない＝使う側の指しは
     どちらの形でも同じ名で合う）。plugin の dir は入った台帳の今読まれる行（kaku.current_row）、無ければこの core と同じ版。
     repo の根の文書（CONTRIBUTING・PR の型）は plugin に入らないので、目録の clone から入った版の commit の物を読む。"""
@@ -108,21 +108,28 @@ def _installed() -> tuple[str, dict[str, str], list[str]]:
     dirs = {n: Path(str(r["installPath"])) for n, r in rows.items() if r.get("installPath")}
     if not dirs:
         dirs = {d.name: d / PLUGIN.name for d in PLUGIN.parent.parent.iterdir() if (d / PLUGIN.name).is_dir()}
-    texts = {}
+    texts, missing = {}, {}
     for name, d in dirs.items():
         for f in [d / n for n in ("核.md", "細目", "振る舞い.md")] + sorted(d.glob("skills/*/SKILL.md")) \
                 + (sorted(d.glob("scripts/*.py")) if name == "guard" else []):
             if f.is_file() or f.is_dir():
                 texts[f"plugins/{name}/{f.relative_to(d).as_posix()}"] = _doc_text(f)
-    m, _ = kaku.catalog_source()
+    # core の文書は入った版の dir に必ず在る物: 欠けを「指しが外れた」でなく「照らせない」と名指す（黙って外れに数えない）
+    core = dirs.get("core")
+    for rel in (r for r in ALIASES.values() if r.startswith("plugins/core/")):
+        if rel not in texts:
+            missing[rel] = f"入った版の dir に無い（{core}）" if core else "入った core の dir が分からない"
+    m, other = kaku.catalog_source()
     loc, sha = m.get("installLocation"), (rows.get("core") or {}).get("gitCommitSha")
-    missing = []
     for rel in (r for r in ALIASES.values() if not r.startswith("plugins/")):
-        got = kaku._git(str(loc), "show", f"{sha}:{rel}", timeout=10) if loc and sha else None
-        if got is None:
-            missing.append(rel)
-        else:
-            texts[rel] = got
+        if not (loc and sha):
+            missing[rel] = ("土台の GitHub から入れていない（" + other.strip().splitlines()[0] + "）" if other
+                            else "目録の clone か入った版が分からない（手元の dir から入れた形）")
+            continue
+        try:
+            texts[rel] = kaku._git_run(str(loc), "show", f"{sha}:{rel}", timeout=10)
+        except kaku.GitFailed as e:
+            missing[rel] = f"目録の clone から入った版 {sha[:12]} の物を読めない — {e}"
     return str(PLUGIN.parent), texts, missing
 
 
@@ -147,7 +154,7 @@ def contract(root: Path | None = None) -> dict:
     if root is None and (PLUGIN.parent.parent / ".claude-plugin").is_dir():
         root = PLUGIN.parent.parent
     if root is not None:
-        base, missing = str(root), [r for r in ALIASES.values() if not (root / r).exists()]
+        base, missing = str(root), {r: f"土台の dir（{root}）に無い" for r in ALIASES.values() if not (root / r).exists()}
         texts = _canon(root)
     else:
         base, texts, missing = _installed()
@@ -155,8 +162,8 @@ def contract(root: Path | None = None) -> dict:
     if not docs:
         raise OSError(f"土台の文書が 1 つも読めない（{base}）。--root で土台の dir を渡す")
     hk, hk_bad = hooks(texts)
-    return {"root": base, "docs": {k: parse(v) for k, v in docs.items()}, "hooks": hk, "unread": missing + hk_bad,
-            "_texts": docs}
+    return {"root": base, "docs": {k: parse(v) for k, v in docs.items()}, "hooks": hk, "unread": [*missing, *hk_bad],
+            "unread_why": dict(missing), "_texts": docs}
 
 
 def _want(doc: str) -> str:
@@ -235,7 +242,9 @@ def check_all(c: dict, text: str, numbers_ok: bool = False) -> tuple[list, list]
             if key is None:
                 want = _want(doc)
                 if want in c.get("unread", []):
-                    unread.append((lno, f"{doc} の指しを照らせない（{want} がこの形の土台で読めない＝照らした数に入れない）"))
+                    why = (c.get("unread_why") or {}).get(want)
+                    unread.append((lno, f"{doc} の指しを照らせない（{want} がこの形の土台で読めない"
+                                        + (f": {why}" if why else "") + "＝照らした数に入れない）"))
                 elif doc in ALIASES or doc.startswith("skill:") or want in ALIASES.values() or want.startswith("plugins/"):
                     bad.append((lno, f"{doc} が土台に無い（読んだ土台: {c['root']}）"))
                 continue                                   # 土台の外の .md は照らさない
