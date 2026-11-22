@@ -167,7 +167,7 @@ def test_表が無い_鍵が無い_空なら問題なし(tmp_path):
 
 
 def test_repo_自身の欄と注は照らさない(tmp_path):
-    r = make_repo(tmp_path, {"_readme": "注", "説明": "x", "gate": {"terms": []},
+    r = make_repo(tmp_path, {"_readme": "注", "repo_sections": ["説明", "gate", "javis"], "説明": "x", "gate": {"terms": []},
                              "javis": {"x": {"y": 1}}, "docs-kit": {"_readme": "注", "qa-html": {"_note": 1}}})
     assert sv("check", cwd=r).returncode == 0
 

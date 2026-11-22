@@ -6,7 +6,8 @@
 
 知っている鍵の正本（写さない・ここで並べない）: 値の表の 1 本の口 lib/skill_values.py と鍵の一覧 lib/schema.json
 （＝土台の skill-values/ の正本への symlink）。照らしも同じ口の check を呼ぶ: 土台の欄（plugin の名と common）の
-知らない鍵・畳んだ鍵（retired・理由と直し方つき）・型の違う値を名指す。repo 自身の欄と `_` で始まる注は見ない。
+知らない鍵・畳んだ鍵（retired・理由と直し方つき）・型の違う値・知らない頂の欄を名指す。repo 自身の欄（頂の repo_sections に
+名を並べた欄）の中身と `_` で始まる注は見ない。
 SKILL.md の「repo ごとの値」の表と鍵の一覧のずれは土台の試験（tests/test_skill_values.py）が両向きに照らす。
 
   values_keys.py [<skill-values.json>]  … 問題の鍵を並べる（使う側の CI・手元で回す口）
@@ -69,7 +70,7 @@ def _load(text):
 def _say(keys, where):
     return ("値の表 %s に、土台が読まない鍵が在る（土台が畳んだ・名を変えた鍵か、書き違い・型の違う値）。読まれずに黙って効かない:\n%s\n"
             "直し方: 消すか、今の名の鍵へ移す（今の鍵の一覧の正本は土台の skill-values/schema.json・各 skill の SKILL.md の「repo ごとの値」の表と同じ）。"
-            "repo が自分で持つ値なら、土台の plugin の名と common の外の頭へ移す。この repo の PR で直す（skill `guard:guard-rules`）。"
+            "repo が自分で持つ値なら、土台の plugin の名と common の外の頭へ移し、その頭の名を頂の repo_sections に足す。この repo の PR で直す（skill `guard:guard-rules`）。"
             "土台の道具が今も読む鍵なのに一覧に無いだけなら、値の表は直さず、土台の repo で skill-values/schema.json とその skill の SKILL.md の表に行を足す PR を出す。"
             "古い鍵が残った訳（土台を直した仕事が使う側の値の表まで届かなかった等）は、細目「まず構造を疑う」で原因から直す。"
             % (where, "\n".join("  - " + k for k in keys)))

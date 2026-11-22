@@ -104,7 +104,7 @@ def test_公開の鍵は形の違う行でも公開の照らしを黙って外�
     """安全の守り: public_repos_extra の形の違う行は値の表の照らしが落とすが、公開の照らしは外さない。"""
     table = tmp_path / "values.json"
     env["SKILL_VALUES"] = str(table)
-    p = gh("add_issue_comment", issue_number=1, body="連絡は %s へ" % MAIL, repo="far-public")
+    p = gh("add_issue_comment", issue_number=1, body="連絡は %s へ" % MAIL, repo="far-mirror")
     table.write_text(json.dumps({"guard": {"public_repos_extra": ["^fake-owner/"]}}), encoding="utf-8")
     assert "[public]" in deny_reason(env, p)
     table.write_text(json.dumps({"guard": {"public_repos_extra": ["^fake-owner/far$"]}}), encoding="utf-8")
@@ -144,14 +144,14 @@ def test_run_の塊の中の_uses_の行は呼び口と見ない():
     assert not P.calls_public_guard(whole(wf), F) and W.deny_words_files(whole(wf), F) == []
 
 
-@pytest.mark.parametrize("rows", [["^fake-owner/far-public$", "^other/"], ["^other/", "^fake-owner/far-public$"],
-                                  ["^fake-owner/far-public$", 3]])
+@pytest.mark.parametrize("rows", [["^fake-owner/far-mirror$", "^other/"], ["^other/", "^fake-owner/far-mirror$"],
+                                  ["^fake-owner/far-mirror$", 3]])
 def test_形の違う行が混じっても同じ並びの正しい行は効く_公開(env, tmp_path, rows):  # noqa: F811
     """注入: 形の違う行を 1 つ混ぜる → 値の表の照らしが鍵ごと落としても、正しい行の repo の公開の照らしは外れない。"""
     table = tmp_path / "values.json"
     env["SKILL_VALUES"] = str(table)
     table.write_text(json.dumps({"guard": {"public_repos_extra": rows}}), encoding="utf-8")
-    p = gh("add_issue_comment", issue_number=1, body="連絡は %s へ" % MAIL, repo="far-public")
+    p = gh("add_issue_comment", issue_number=1, body="連絡は %s へ" % MAIL, repo="far-mirror")
     assert "[public]" in deny_reason(env, p)
 
 

@@ -4,7 +4,9 @@
 見る事:
   1. 1 行目 `レビューした窓: <session id> 判定: green|red`
   2. 2 行目 `見た先端: <SHA の先頭 12 文字>`
-  3. `## verdict` の次の行が green／red／red（blocked: …）で、1 行目の判定と合う
+  3. `## verdict` の次の行が、SKILL.md の「判定の形」の雛形の `## verdict` の次の行（`green / red / red（blocked: <…>）`）に
+     並べた形のどれか 1 つと字どおり合い、1 行目の判定と合う。blocked を付けてよい判定も雛形が決める（今は red だけ）。
+     雛形に無い形（`green（blocked: …）`・`yellow` など）は誤り（照らしを飛ばす道にしない）。形の正本は雛形の 1 か所
   4. `## 所見` の各行の札 `- [止める|台帳へ|直った｜<段>] …`。`[止める｜…]` か点の fail が 1 つでも在れば red、無ければ green
   5. 別の目: 書いた窓（--writer）のどれかとレビューした窓が同じなら形の誤り（自分の PR に判定を付けない）。
      --writer は PR の commit の `Claude-Session:` の窓の全部を `,` で並べて渡す（同じ plugin の scripts/pr_writer.py --writers が出す。
@@ -35,9 +37,8 @@ from pathlib import Path
 
 SKILL = Path(__file__).resolve().parent.parent / "skills" / "review-pr" / "SKILL.md"
 
-LINE1 = re.compile(r"^レビューした窓: (session_[A-Za-z0-9]+) 判定: (green|red)$")
+LINE1 = re.compile(r"^レビューした窓: (session_[A-Za-z0-9]+) 判定: (\S+)$")   # 判定の字は雛形の verdict の形の判定と照らす
 LINE2 = re.compile(r"^見た先端: ([0-9a-f]{12})$")
-VERDICT = re.compile(r"^(green|red)(?:（blocked: .+）)?$")
 STOP_CARD = "止める"   # 1 つでも在れば red になる札（判定の決まりの軸。名は SKILL.md の札の並びに在ることを load_cards が確かめる）
 POINT_ROW = re.compile(r"^\| (\d+) (\S[^|]*?) \|")
 POINT_LINE = re.compile(r"^- (\d+) ([^:：]+)[:：] ?(.*)$")
@@ -111,6 +112,37 @@ def load_cards(path=SKILL):
     raise ValueError("判定の形の札と段が読めない: %s" % path)
 
 
+BLOCKED_HOLE = re.compile(r"（blocked: <[^>]+>）$")
+
+
+def load_verdicts(path=SKILL):
+    """「判定の形」の雛形の `## verdict` の次の行（` / ` で並べた形）から [(判定, blocked か)]。
+    `<…>` の置き場は「何か 1 行」として読む。読めなければ例外（黙って既定の形で通さない）。"""
+    lines = [ln.strip() for ln in Path(path).read_text(encoding="utf-8").splitlines()]
+    try:
+        row = lines[lines.index("## verdict") + 1]
+    except (ValueError, IndexError):
+        raise ValueError("判定の形の雛形の `## verdict` が読めない: %s" % path)
+    out = []
+    for form in [f.strip() for f in row.split(" / ")]:
+        blocked = bool(BLOCKED_HOLE.search(form))
+        word = BLOCKED_HOLE.sub("", form)
+        if not re.fullmatch(r"[a-z]+", word):
+            raise ValueError("判定の形の雛形の verdict の形が読めない: %s" % form[:30])
+        out.append((word, blocked))
+    if not out:
+        raise ValueError("判定の形の雛形の verdict に形が無い: %s" % path)
+    return out
+
+
+def verdict_of(line, verdicts):
+    """`## verdict` の次の行を雛形の形に照らし (判定, blocked か) か None（雛形に無い形）。"""
+    for w, b in verdicts:
+        if (not b and line == w) or (b and re.fullmatch(r"%s（blocked: .+）" % re.escape(w), line)):
+            return w, b
+    return None
+
+
 def card_re(cards, steps):
     return re.compile(r"^- [\[［](%s)[｜|](%s)[\]］] \S" % ("|".join(map(re.escape, cards)), "|".join(map(re.escape, steps))))
 
@@ -179,7 +211,9 @@ def check_points(lines, points, reviewer=None, writer=None, values=None):
     return errs, fails
 
 
-def check(text, writer=None, head=None, points=None, cards=None, values=None, poster=None):
+def check(text, writer=None, head=None, points=None, cards=None, values=None, poster=None, verdicts=None):
+    if verdicts is None:
+        verdicts = load_verdicts()
     if points is None:
         points = load_points()
     if values is None:
@@ -197,6 +231,10 @@ def check(text, writer=None, head=None, points=None, cards=None, values=None, po
     if not m2:
         errs.append("2 行目が `見た先端: <SHA12>` でない")
     reviewer, judged = (m1.group(1), m1.group(2)) if m1 else (None, None)
+    words = list(dict.fromkeys(w for w, _ in verdicts))
+    if judged and judged not in words:
+        errs.append("1 行目の判定 %s が判定の形の雛形の %s のどれでもない" % (judged[:20], "／".join(words)))
+        judged = None
     if poster:
         # 名乗りの字は写し。判定を出す窓の本物の id（記録）と照らし、別の目はその本物の id で見る
         if reviewer and reviewer != poster:
@@ -214,11 +252,12 @@ def check(text, writer=None, head=None, points=None, cards=None, values=None, po
 
     verdict = section(lines, "verdict")
     body = [ln.strip() for ln in (verdict or []) if ln.strip()]
-    mv = VERDICT.match(body[0]) if body else None
+    mv = verdict_of(body[0], verdicts) if body else None
     if not mv:
-        errs.append("`## verdict` の次の行が green／red／red（blocked: …）でない")
-    elif judged and mv.group(1) != judged:
-        errs.append("1 行目の判定 %s と `## verdict` の %s が違う" % (judged, mv.group(1)))
+        shapes = "／".join(w + ("（blocked: …）" if b else "") for w, b in verdicts)
+        errs.append("`## verdict` の次の行が判定の形の雛形の %s のどれでもない: %s" % (shapes, (body[0] if body else "")[:30]))
+    elif judged and mv[0] != judged:
+        errs.append("1 行目の判定 %s と `## verdict` の %s が違う" % (judged, mv[0]))
 
     findings = section(lines, "所見")
     if findings is None:
@@ -237,7 +276,7 @@ def check(text, writer=None, head=None, points=None, cards=None, values=None, po
     perrs, fails = check_points(lines, points, reviewer=reviewer, writer=writer, values=values)
     errs.extend(perrs)
     want = "red" if stops or fails else "green"
-    blocked = bool(mv and "blocked" in body[0])
+    blocked = bool(mv and mv[1])
     if judged == "red" and not blocked and not any(ln.startswith(ROOT_CAUSE) for ln in body[1:]):
         errs.append("red なのに `## verdict` に `%s` の行が無い（指摘を 1 つずつ手直しで返さない）" % ROOT_CAUSE)
     if judged and not blocked and judged != want:

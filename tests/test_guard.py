@@ -976,17 +976,17 @@ def test_答え済みの問いはAIが台帳から降ろせ次の窓に出ない
     assert listed.returncode == 0, listed.stderr
     key = listed.stdout.split("\t")[0]
     assert run_cli(env, "drop", key).returncode == 2           # 訳の無い降ろしは受けない
-    p = run_cli(env, "drop", key, "--why", "この窓の頼みで答えが出ていた")
+    p = run_cli(env, "drop", key, "--why", "答え済み", "この窓の頼みで答えが出ていた")
     assert p.returncode == 0 and "降ろした" in p.stdout, p.stdout + p.stderr
     assert hook(env, "start", {"session_id": "s3"}) == {}
-    assert run_cli(env, "drop", "nokey", "--why", "x").returncode == 1
+    assert run_cli(env, "drop", "nokey", "--why", "要らない").returncode == 1
 
 
 def test_降ろしの口は知らない印で止まる(env):
     hook(env, "post", ask_result())
     key = run_cli(env, "list").stdout.split("\t")[0]
-    for args in (("drop", key, "--force", "--why", "x"), ("drop", key, "--why", "x", "--why", "y"),
-                 ("drop", key, "--why", "x", "--force"), ("list", "--all")):
+    for args in (("drop", key, "--force", "--why", "要らない"), ("drop", key, "--why", "要らない", "--why", "答え済み"),
+                 ("drop", key, "--why", "要らない", "--force"), ("list", "--all")):
         p = run_cli(env, *args)
         assert p.returncode == 2, args
     assert key in run_cli(env, "list").stdout                         # 止まった間に降ろしていない
@@ -1006,7 +1006,7 @@ def test_言い直した問いに答えが返っても元の問いは機械で�
     again = hook(env, "start", {"session_id": "s3"}).get("additionalContext", "")
     assert "作り物の置き場を A と B のどちらにしますか" in again and "言い直した問いに答えが" in again
     key = run_cli(env, "list").stdout.split("\t")[0]
-    assert run_cli(env, "drop", key, "--why", "言い直した問いに答えが返った").returncode == 0
+    assert run_cli(env, "drop", key, "--why", "言い直した").returncode == 0
     assert hook(env, "start", {"session_id": "s4"}) == {}
 
 

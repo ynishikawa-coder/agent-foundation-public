@@ -12,7 +12,7 @@
     - 台帳に残る問いを、今の窓の流れの中で扱うよう渡す: 答え済み・もう要らない問いは降ろす（drop の口）、
       今の頼みと関わる問いだけを前提を 1〜2 文添えて出し直す（問いの文は言い直してよい・選択肢の中身は変えない）、
       関わらない問いは冒頭で画面に出さず締めの 1 行で知らせる。
-  drop（命令: python3 unanswered.py drop <key>... --why <一言>／list）
+  drop（命令: python3 unanswered.py drop <key>... --why <答え済み|要らない|言い直した> [<一言>]／list）
     - AI が答え済み・もう要らないと見た問いを台帳から降ろす（降ろした控えは dropped_recent に残る）。
     - 台帳に残る問いは全部渡す（頭の N 件で切らない。出し直す問いが 4 を越えたら 4 問ずつ続けて出させる）。
     - 台帳の寿命は最後に出てから LEDGER_TTL_HOURS（古い問いが毎回鳴らない。1 時間答えの無い問いは親の窓が知らせる）。
@@ -272,8 +272,10 @@ def close_answered(data, pairs):
     return closed
 
 
-def drop(data, keys, why):
-    """AI が答え済み・もう要らないと見た問いを降ろす。戻り値＝降ろした問いの並び。"""
+def drop(data, keys, why, note=""):
+    """AI が答え済み・もう要らないと見た問いを降ろす。why は DROP_WHY の鍵だけ（知らない訳は ValueError）。戻り値＝降ろした問いの並び。"""
+    if why not in DROP_WHY:
+        raise ValueError("降ろす訳の表に無い: %s" % why)
     want = {str(k).strip() for k in keys if str(k).strip()}
     keep, gone = [], []
     for p in data.get("pending", []):
@@ -284,7 +286,7 @@ def drop(data, keys, why):
     now = G.now_utc()
     data["pending"] = keep
     data["dropped_recent"] = (list(data.get("dropped_recent") or [])
-                              + [{"key": p.get("key"), "question": p.get("question"), "why": why, "dropped_at": now}
+                              + [{"key": p.get("key"), "question": p.get("question"), "why": why, "note": note, "dropped_at": now}
                                  for p in gone])[-ANSWERED_KEEP:]
     return gone
 
@@ -464,7 +466,7 @@ def resurface(data, vals):
                   "    %s" % DROP_CMD,
                   "- 今の頼みと関わる問い → 出す前にチャットで前提（何の件で・なぜまだ答えが要るか）を 1〜2 文書き、"
                   "AskUserQuestion で出し直す。問いの文は今の流れに合わせて短く言い直してよい。言い直した問いに答えが"
-                  "返ったら、元の問いを上の drop で降ろす（言い直した問いを機械は元の問いと結ばない）。"
+                  "返ったら、元の問いを上の drop で `--why 言い直した` を付けて降ろす（言い直した問いを機械は元の問いと結ばない）。"
                   "出す問いが %d を越えたら %d 問ずつ続けて出す（どの問いも飛ばさない）。" % (ASK_BATCH, ASK_BATCH),
                   "- 今の頼みと関わらない問い → この窓の最初に画面で出さない。返事の締めの「あなたがやること」に 1 行"
                   "（何の件の問いが残っているか）で知らせ、オーナーが求めた時に出す。",
@@ -482,7 +484,20 @@ LIST_MARK = {"live": "",
              "expired": "[寿命切れ・次の窓の冒頭で知らせて降ろす] ",
              "broken": "[文面が無い・次の窓の冒頭で知らせて降ろす] ",
              "moved": "[寿命切れ・人のいない窓が控えへ移した・次の人のいる窓で知らせる] "}
-DROP_CMD = 'python3 "%s" drop <key> --why "<答え済み・要らない訳を一言>"' % os.path.abspath(__file__)
+# 降ろす訳の閉じた表（正本はここ 1 か所）。--why の 1 語目はこのどれかと字どおり合う時だけ通す（自由な文で降ろさない）。
+# 後ろに一言（何で答えが出たか等）を添えてよい
+DROP_WHY = {
+    "答え済み": "今の頼み・会話・決定の記録で答えが出ている",
+    "要らない": "もう要らない問い（頼みが変わった・事が済んだ）",
+    "言い直した": "言い直して出し直した問いに答えが返った（元の問いを降ろす）",
+}
+DROP_CMD = 'python3 "%s" drop <key> --why <%s> [<一言>]' % (os.path.abspath(__file__), "|".join(DROP_WHY))
+
+
+def drop_why(why):
+    """--why の文を (訳, 一言) に分ける。1 語目が DROP_WHY に無ければ None（知らない訳で降ろさない）。"""
+    head, _, note = (why or "").strip().partition(" ")
+    return (head, note.strip()) if head in DROP_WHY else None
 
 
 def cli(argv):
@@ -490,7 +505,7 @@ def cli(argv):
     payload = {"cwd": os.getcwd()}
     vals = G.values(payload)
     path = ledger_path(vals, payload)
-    usage = "使い方: unanswered.py drop <key>... --why 文 ／ unanswered.py list\n"
+    usage = "使い方: unanswered.py drop <key>... --why <%s> [<一言>] ／ unanswered.py list\n" % "|".join(DROP_WHY)
     if not argv or argv[0] not in ("drop", "list") or (argv[0] == "list" and argv[1:]):
         sys.stderr.write(usage)
         return 2
@@ -514,10 +529,15 @@ def cli(argv):
         sys.stderr.write("知らない印: %s\n%s" % (" ".join(bad), usage))
         return 2
     if not args or not why:
-        sys.stderr.write("drop には key と --why（答え済み・要らない訳）が要る\n")
+        sys.stderr.write("drop には key と --why（%s）が要る\n" % "・".join(DROP_WHY))
+        return 2
+    parsed = drop_why(why)
+    if parsed is None:
+        sys.stderr.write("--why の 1 語目 %s は降ろす訳の表に無い。表: %s\n%s" % (
+            why.split()[0][:20], "／".join("%s＝%s" % kv for kv in DROP_WHY.items()), usage))
         return 2
     gone = []
-    ok = update_ledger(path, lambda d: gone.extend(drop(d, args, why[:200])))
+    ok = update_ledger(path, lambda d: gone.extend(drop(d, args, parsed[0], parsed[1][:200])))
     if not ok:
         sys.stderr.write("台帳に書けなかった: %s\n" % (path or "(置き場を決められず)"))
         return 1

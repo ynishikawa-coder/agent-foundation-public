@@ -208,7 +208,9 @@ steps:[
    ================================================================ */
 const SELFTEST=/[?&]selftest\b/.test(location.search);
 const DUMP=/[?&]dump\b/.test(location.search);
+const MODES=['current','design'];   /* 版の閉じた表。表に無い META.mode は selftest が NG（黙って現状版に倒さない） */
 const MODE=META.mode==='design'?'design':'current';
+const KINDS=['table','calc'];       /* 段の kind の閉じた表 */
 const MODE_LABEL={current:'現状版（本番コードから）',design:'設計版（要件・決定から）'}[MODE];
 const FATE_TEXT={keep:'保存される',lost:'消える',calc:'その場で計算',gap:'未定'};
 const LIST_ID='holes',LIST_T='穴・未定の一覧';
@@ -248,7 +250,7 @@ function stepHTML(s){
 function storeShown(){return typeof STORE==='object'&&STORE&&(!blank(STORE.tree)||(STORE.shelves||[]).length)}
 function storeHTML(){
   const note=STORE.note||'';STORE._holes=holeMarks(note+(STORE.intro||''));
-  const f=FATE_TEXT[STORE.fate]?STORE.fate:'keep';
+  const f=FATE_TEXT[STORE.fate]?STORE.fate:'gap';   /* 表に無い札は「保存される」に倒さず未定で描く（selftest が NG） */
   return `${STORE.intro?`<p class="intro">${STORE.intro}</p>`:''}<div class="split">
 <div class="tree">${STORE.tree||''}</div>
 <div class="steps">${(STORE.shelves||[]).length?`<details class="st tbl" open><summary><span class="num">棚</span><span class="sm"><span class="t">${STORE.name||'棚'}</span><span class="d">${STORE.d||''}</span></span><span class="pill ${f}">${FATE_TEXT[f]}</span><span class="chev">›</span></summary>
@@ -351,8 +353,13 @@ function selftest(){
   try{render(errs)}catch(e){errs.push('(描画): '+(e&&e.message||e))}
   const stepIds=new Set(),tabIds=new Set(['store',LIST_ID]);let n=0;
   TABS.forEach(tb=>{if(tabIds.has(tb.id))errs.push(tb.id+': タブ id が重複');tabIds.add(tb.id)});
+  const known=f=>Object.prototype.hasOwnProperty.call(FATE_TEXT,f);
+  if(!MODES.includes(META.mode))errs.push('META.mode が版の表（'+MODES.join('・')+'）に無い: '+META.mode);
+  if(storeShown()&&!known(STORE.fate))errs.push('store: 札（fate）が札の表（'+Object.keys(FATE_TEXT).join('・')+'）に無い: '+STORE.fate);
   TABS.forEach(tb=>(tb.steps||[]).forEach(s=>{n++;const at=tb.id+'/'+s.id;
     if(stepIds.has(s.id))errs.push(at+': 段 id が重複');stepIds.add(s.id);
+    if(!known(s.fate))errs.push(at+': 札（fate）が札の表（'+Object.keys(FATE_TEXT).join('・')+'）に無い: '+s.fate);
+    if(!KINDS.includes(s.kind))errs.push(at+': kind が表（'+KINDS.join('・')+'）に無い: '+s.kind);
     (s._holes||[]).forEach(h=>{if(!(h in HOLES))errs.push(at+': HOLES に無い穴番号 '+h)});
     if(MODE==='current'){
       if(blank(s.basis))errs.push(at+': 現状版で根拠（basis）が空');

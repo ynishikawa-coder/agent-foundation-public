@@ -15,7 +15,9 @@
 照らし（schema.json の鍵の一覧で）:
   - 土台の plugin の欄（schema の sections）の中の、知らない skill・知らない鍵・畳んだ鍵（retired）・型の違う値を、
     表の中の場所で名指しする。名が _ で始まる鍵は注として読まない。
-  - 土台の plugin の名でも common でもない頂の欄（例: その repo 自身の skill の欄）は照らさない。
+  - 頂の欄は閉じた表: 土台の欄（schema の sections）・`_` で始まる注・その repo 自身の欄の名の並び（頂の鍵 repo_sections）の
+    どれか。どれでもない頂の欄（`gaurd` のような打ち間違い・名を書き忘れた repo 自身の欄）は「知らない頂の欄」と名指す
+    （黙って repo 自身の物と見て照らしを飛ばさない）。repo 自身の欄の中身は照らさない。
   - 鍵が無い・値が空（""・[]・{}・null）は「既定で動く」で、問題ではない。
 
 使い方:
@@ -424,13 +426,32 @@ def check_section(table, plugin, skill=None):
     return _check_keys(where, node, specs, retired)
 
 
+OWN_KEY = "repo_sections"   # 頂の鍵: その repo 自身の欄の名の並び（土台は中身を照らさない）
+
+
+def own_sections(table):
+    """(repo 自身の欄の名の組, 問題の並び)。repo_sections は文字列の並びで、土台の欄の名・注の名を持たない。"""
+    raw = table.get(OWN_KEY)
+    if raw is None:
+        return set(), []
+    if not isinstance(raw, list) or not all(isinstance(x, str) and x for x in raw):
+        return set(), ["%s の型が違う（repo 自身の欄の名の並び〔文字列の並び〕で書く）" % OWN_KEY]
+    clash = [x for x in raw if x in schema()["sections"] or x.startswith("_") or x == OWN_KEY]
+    out = ["%s の %s は土台の欄・注・この鍵の名と同じ（repo 自身の欄にできない）" % (OWN_KEY, "・".join(clash))] if clash else []
+    return {x for x in raw if x not in clash}, out
+
+
 def check(table):
-    """表全体を照らした問題の並び（土台の欄だけ）。"""
+    """表全体を照らした問題の並び（土台の欄と頂の欄の閉じた表）。"""
     sections = schema()["sections"]
     retired = schema().get("retired") or {}
-    out = []
+    own, out = own_sections(table)
     for plugin, node in table.items():
-        if str(plugin).startswith("_") or plugin not in sections:
+        if str(plugin).startswith("_") or plugin == OWN_KEY or plugin in own:
+            continue
+        if plugin not in sections:
+            out.append("%s は知らない頂の欄（効かない）。頂の欄: 土台の欄 %s・その repo 自身の欄（頂の %s に名を並べる）"
+                       % (plugin, "・".join(sections), OWN_KEY))
             continue
         sec = sections[plugin]
         if "keys" in sec:

@@ -26,7 +26,30 @@ def env(tmp_path):
               "TMPDIR": str(tmp_path / "scratch"),
               # 判定を出す窓の本物の id の記録（harness が窓の環境に置く cse_<x>）。試験はレビューの窓に固定する
               "CLAUDE_CODE_REMOTE_SESSION_ID": "cse_" + REVIEWER[len("session_"):]})
+    _visibility_gh(e)
     return e
+
+
+# 作り物の repo の GitHub の見え方（visibility）。表に無い repo は gh が答えない（引けない＝公開として照らす）
+# far-mirror は GitHub では非公開だが、値の表 public_repos_extra で公開として照らす repo（例: 公開の写しへ流す元）
+VISIBILITY = {"fake-owner/fake-private": "private", "fake-owner/far-mirror": "private", "fake-owner/gh-public": "public",
+              "fake-owner/gh-internal": "internal"}
+
+
+def _visibility_case():
+    return "".join('*"repos/%s --jq .visibility"*) echo %s; exit 0 ;; ' % (r, v) for r, v in VISIBILITY.items()) + \
+        '*"--jq .visibility"*) echo "Not Found" >&2; exit 1 ;; '
+
+
+def _visibility_gh(env):
+    """repo の見え方だけを答える作り物の gh を PATH の頭に置く（実の GitHub へは出ない）。"""
+    bindir = Path(env["CLAUDE_PROJECT_DIR"]).parent / "fakebin"
+    bindir.mkdir(exist_ok=True)
+    gh_path = bindir / "gh"
+    gh_path.write_text('#!/bin/sh\ncase "$*" in %s*) echo "作り物の gh は答えない" >&2; exit 1 ;; esac\n' % _visibility_case(),
+                       encoding="utf-8")
+    gh_path.chmod(0o755)
+    env["PATH"] = str(bindir) + os.pathsep + env.get("PATH", "")
 
 
 def deny_reason(env, payload):
@@ -66,7 +89,7 @@ def _fake_gh(env, head=FAKE_HEAD, writer=WRITER, fail=False, commits=None, total
                               ensure_ascii=False).replace("\\", "\\\\") + "\\n" for c in commits)
     total = len(commits) if total is None else total
     gh_path.write_text("#!/bin/sh\n" + ("echo 'not found' >&2; exit 1\n" if fail else
-                       'case "$*" in *"/commits"*) printf \'%s\' ;; *) printf \'%%s\\n%%s\\n%%s\' \'%s\' \'%s\' \'%s\' ;; esac\n'
+                       'case "$*" in ' + _visibility_case().replace("%", "%%") + '*"/commits"*) printf \'%s\' ;; *) printf \'%%s\\n%%s\\n%%s\' \'%s\' \'%s\' \'%s\' ;; esac\n'
                        % (msgs, head, total, body)), encoding="utf-8")
     gh_path.chmod(0o755)
     env["PATH"] = str(bindir) + os.pathsep + env.get("PATH", "")
@@ -266,9 +289,9 @@ def test_pr_text_公開の_repo_で検査が見つからない時も止める(en
 def test_pr_text_手元に取り出しの無い公開の_repo_は値の表で足せる(env, tmp_path):
     table = tmp_path / "values.json"
     env["SKILL_VALUES"] = str(table)
-    p = gh("add_issue_comment", issue_number=1, body="連絡は %s へ" % MAIL, repo="far-public")
+    p = gh("add_issue_comment", issue_number=1, body="連絡は %s へ" % MAIL, repo="far-mirror")
     assert deny_reason(env, p) == ""
-    table.write_text(json.dumps({"guard": {"public_repos_extra": ["^fake-owner/far-public$"]}}), encoding="utf-8")
+    table.write_text(json.dumps({"guard": {"public_repos_extra": ["^fake-owner/far-mirror$"]}}), encoding="utf-8")
     assert "[public]" in deny_reason(env, p)
 
 

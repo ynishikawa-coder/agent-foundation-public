@@ -207,6 +207,9 @@ def is_owner_row(row):
 # 人が打った頼みの記録（会話ログの行の origin.kind。Claude Code が頼みを受けた口で付ける＝文の中身では変わらない）。
 # 正本はここ 1 か所（plugin session-watch も隣の正本としてこれを直に読む＝写さない）。
 HUMAN_ORIGINS = ("human", "person")
+# 別の窓・仕組みから来た頼みの記録（create_session の最初の頼み・send_message・知らせ）。人の印と合わせて閉じた表にする:
+# どちらにも無い印（打ち間違い・Claude Code が足した知らない印）は子の窓とも人の窓とも決めず、もう 1 つの記録 promptSource で決める
+SEEDED_ORIGINS = ("task-notification", "peer")
 # 窓の環境の CLAUDE_CODE_CHILD_SESSION は読まない: 公式の文書（code.claude.com/docs/en/env-vars）では「Claude Code が Bash・
 # hook・status line で起動する子プロセスに付く 1」で、どの窓でも hook の中では 1＝別の窓が立てた窓の見分けにならない。
 # 頼みの行がまだ無い時の見分けは、サーバの記録（get_session の parent_session_id）を AI に読ませる（session-watch の知らせ）。
@@ -214,14 +217,18 @@ HUMAN_ORIGINS = ("human", "person")
 
 def seeded_by_record(row):
     """頼みの行が、人が打った物でなく別の窓・仕組みから来た事を、記録が示すか（子の窓の見分けの記録の正本）。
-    記録: 頼みの行の origin.kind が人の物でない（別の窓の create_session・send_message・知らせ等）か promptSource が system。
+    記録: 頼みの行の origin.kind が SEEDED_ORIGINS（別の窓の create_session・send_message・知らせ）か、印が無い・
+    表（HUMAN_ORIGINS・SEEDED_ORIGINS）に無い時は promptSource が system。人の印なら人の窓。
     行が無い・記録が無い・読めない時は False（文だけで子の窓と決めない＝人の窓の側へ倒す）。"""
     if not isinstance(row, dict):
         return False
     origin = row.get("origin")
-    if isinstance(origin, dict) and isinstance(origin.get("kind"), str) and origin["kind"]:
-        return origin["kind"] not in HUMAN_ORIGINS
-    return row.get("promptSource") == "system"
+    kind = origin.get("kind") if isinstance(origin, dict) else None
+    if kind in HUMAN_ORIGINS:
+        return False
+    if kind in SEEDED_ORIGINS:
+        return True
+    return row.get("promptSource") == "system"   # 印が無い・表に無い印は、もう 1 つの記録で決める（無ければ人の窓の側）
 
 
 def first_owner_row(path):

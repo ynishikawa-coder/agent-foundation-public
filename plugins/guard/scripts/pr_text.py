@@ -20,13 +20,15 @@ AI が自分で回すか、出した後に CI やレビューが拾うだけだ�
             コメントがレビューの判定（どの行かに `レビューした窓: … 判定: green|red` が揃うか、verdict の見出しが在る）なら、checker の
             `scripts/verdict_form.py` をそのまま呼ぶ。赤なら止める。道具が見つからない・壊れた時も止める
   cleanup … PR の本文（本文を渡す時だけ）に、dev-flow の preimpl-cleanup の `整地受領証.template.md` の 4 つの見出し
-            （`## 1.`〜`## 4.`。見出しの名は雛形から読む）が全部在り、雛形の `〔…〕` が残っていない事。整地の要らない PR
-            （振る舞いを変えない: 誤字・記録だけ・版だけ等）は本文に `整地: 不要（<訳>）` の 1 行を書く（訳はレビューが照らす）
+            （`## 1.`〜`## 4.`。見出しの名は雛形から読み、行の全体が名の頭か雛形の行そのまま）が全部在り、雛形の `〔…〕`
+            （長さを問わない）が残っていない事。整地の要らない PR（振る舞いを変えない: 誤字・記録だけ・版だけ等）は本文に
+            行の全体が `整地: 不要（<訳>）` の 1 行を書く（値は「不要」だけ・訳は置き場の字でない・訳の中身はレビューが照らす）
   words   … PR の題・本文に、窓の id（`session_01…`）がそのまま出ていない事。本文の頭の欄の塊（1 行目から最初の空行まで）の
             窓の id を書く欄（書いた窓＝commit の記録と照らす写し。畳んだ親窓の欄も 2 段目までは）・コードの囲み・`…` の字・URL の中は
             数えない（job・検査 等の欄や、頭の塊の外で同じ字で始まる行は数える。親窓は照らせない写しなので PR の型に置かない＝
             窓の親はサーバの記録 get_session を読む）
-  public  … 公開の repo（窓の repo の取り出しの workflow が action public-guard を呼ぶ／値の表 public_repos_extra）なら、
+  public  … 公開の repo（窓の repo の取り出しの workflow が action public-guard を呼ぶ／値の表 public_repos_extra／GitHub の
+            visibility が private・internal と言い切れない＝public・知らない値・引けない）なら、
             題・本文を `public-guard/guard.py --text` に渡す（呼び口の見分けと置かない語の表は workflow の読み手
             public-guard/workflow_reader.py が正本: PR・push で走る job の step の呼び口だけを数え、語の表は全部の呼び口の with: の
             deny-words-file の和）。当たれば止める。
@@ -64,11 +66,14 @@ CLEANUP_TEMPLATE = ("dev-flow", os.path.join("skills", "preimpl-cleanup", "整�
 
 # 判定の形の印（review-pr の形）: 名乗りの欄と判定が 1 行に揃う行（どの行でも・`:` の全角半角を問わない）か、verdict の見出し
 # （# の数・大小文字を問わない）。引用（行頭の `>`）の中は、前の判定を引いた返事なので数えない。
-VERDICT_LINE = re.compile(r"^[ \t]*レビューした窓\s*[:：].*判定\s*[:：]\s*(?:green|red)\b", re.M | re.I)
+# 判定の字は問わない（green・red の外の字の判定も判定として形の道具に渡し、雛形に無い判定として拒ませる＝照らしの外へ逃がさない）
+VERDICT_LINE = re.compile(r"^[ \t]*レビューした窓\s*[:：].*判定\s*[:：]", re.M | re.I)
 VERDICT_HEAD = re.compile(r"^[ \t]*#{1,6}\s*verdict\s*$", re.M | re.I)
-NOT_NEEDED = re.compile(r"^\s*(?:[-*]\s*)?\**整地\**\s*[:：]\s*(?:不要|要らない)\s*[（(]\s*(?![<＜〔])\S[^)）]*[)）]", re.M)
+# 整地の要らない PR の 1 行: 行の全体が `整地: 不要（<訳>）`（値は「不要」だけ・訳は置き場の字〔<…>・〔…〕・…〕でない字）。
+# 行の頭だけが合う行（`整地: 不要（…）だが…`）や、別の値（要らない・不要かも 等）は数えない
+NOT_NEEDED = re.compile(r"^[ \t]*(?:[-*][ \t]*)?整地[ \t]*[:：][ \t]*不要[ \t]*（(?![ \t]*[<＜〔…])[^（）\n]*[^\s（）…][^（）\n]*）[ \t]*$", re.M)
 TEMPLATE_HEAD = re.compile(r"^## (\d+)\. (.+?)\s*$", re.M)
-PLACEHOLDER = re.compile(r"〔[^〕\n]{4,}〕")
+PLACEHOLDER = re.compile(r"〔[^〕\n]+〕")   # 雛形の置き場の字は長さを問わない（〔URL〕・〔所在〕の短い物も拾う）
 HEAD_FIELD = re.compile(r"^\s*(?:書いた窓|親窓)\s*[:：]")   # 窓の id を書く頭の欄（本文の頭の塊の中だけ数えない）。
 # 親窓は畳んだ欄（照らせない写し）。使う側の PR の型に残る間は古い本文も通す（壊れる 1 段目・古い形 pr-parent-field）
 SESSION_ID = re.compile(r"(?<![A-Za-z0-9_/])session_0[A-Za-z0-9]{15,}")
@@ -280,11 +285,23 @@ def template_parts(path):
     """雛形から (見出しの並び [(番号, 名)], 置き場の字の並び)。読めなければ例外。"""
     with open(path, encoding="utf-8") as f:
         text = f.read()
-    heads = [(no, name.split("（")[0].strip()) for no, name in TEMPLATE_HEAD.findall(text)]
+    heads = [(no, name.strip()) for no, name in TEMPLATE_HEAD.findall(text)]
     if not heads:
         raise ValueError("整地の雛形に `## N. ` の見出しが無い: %s" % path)
+    # 長い置き場は頭の 14 字（書きかけで後ろを消した置き場も拾う）・短い置き場（〔URL〕など）は閉じの 〕 まで丸ごと
     holders = sorted({m.group(0)[:14] for m in PLACEHOLDER.finditer(COMMENT.sub("", text))})
     return heads, holders
+
+
+def short_head(name):
+    """雛形の見出しの名の頭（`解決（足す物・…）` → `解決`）。"""
+    return name.split("（")[0].strip()
+
+
+def head_line(no, name):
+    """整地の見出しの行の式: 行の全体が `#… [<番号>.] <名の頭>` か `#… [<番号>.] <雛形の名そのまま>`（前方一致にしない）。"""
+    names = sorted({re.escape(short_head(name)), re.escape(name)})
+    return re.compile(r"^#{1,6}[ \t]*(?:%s\.[ \t]*)?(?:%s)[ \t]*$" % (no, "|".join(names)), re.M)
 
 
 def check_cleanup(body, repo, data, vals):
@@ -302,13 +319,14 @@ def check_cleanup(body, repo, data, vals):
     except (OSError, ValueError) as e:
         return ["整地の雛形が読めない: %s" % e]
     out = []
-    lack = [("%s. %s" % (no, name)) for no, name in heads
-            if not re.search(r"^#{1,6}\s*(?:%s\.\s*)?%s" % (no, re.escape(name)), body, re.M)]
+    lack = [("%s. %s" % (no, short_head(name))) for no, name in heads if not head_line(no, name).search(body)]
     if lack:
-        out.append("整地の見出しが無い: %s（雛形の見出し %d つ）" % ("・".join(lack), len(heads)))
-    left = [h for h in holders if h in body]
+        out.append("整地の見出しが無い: %s（雛形の見出し %d つ。見出しの行は `## <番号>. <名>` か雛形の行そのまま＝"
+                   "名の後に字を足した行は数えない）" % ("・".join(lack), len(heads)))
+    prose = INLINE.sub(" ", body)                       # `〔…〕` と字で引いた所（説明）は残った置き場と数えない
+    left = [h for h in holders if h in prose]
     if left:
-        out.append("整地の雛形の `〔…〕` が残っている: %s" % "・".join(h + "…" for h in left[:3]))
+        out.append("整地の雛形の `〔…〕` が残っている: %s" % "・".join(h if h.endswith("〕") else h + "…" for h in left[:3]))
     return out
 
 
@@ -389,9 +407,28 @@ def _checkout_of(repo, data):
     return top if top and github_repo(url).lower() == repo.lower() else ""
 
 
+# GitHub の repo の見え方（visibility）の閉じた表。非公開と言い切れる値だけが「公開でない」。それ以外（public・知らない値・
+# 引けない）は公開として照らす（公開の照らしを黙って外さない＝安全の守り）
+NOT_PUBLIC = ("private", "internal")
+
+
+def github_visibility(repo):
+    """GitHub が答える repo の visibility（`public`・`private`・`internal`）か ""（引けない・知らない形）。"""
+    if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repo or ""):
+        return ""
+    try:
+        p = _gh(["repos/%s" % repo, "--jq", ".visibility"])
+    except (OSError, subprocess.SubprocessError):
+        return ""
+    v = p.stdout.strip() if p.returncode == 0 else ""
+    return v if v in ("public",) + NOT_PUBLIC else ""
+
+
 def public_target(repo, data, vals):
     """(公開か, 取り出しの根, 置かない語の表の path の並び)。取り出しの workflow の全部を読み手で読み、数える呼び口
-    （PR・push で走り、job と step の if: が字どおりの false でない）が 1 つでも在れば公開。語の表は数える呼び口の全部の和。"""
+    （PR・push で走り、job と step の if: が字どおりの false でない）が 1 つでも在れば公開。語の表は数える呼び口の全部の和。
+    呼び口で公開と決まらない時（取り出しが窓に無い・呼び口の無い repo）は、値の表 public_repos_extra を見て、なお決まらなければ
+    GitHub の visibility を引く: private・internal と言い切れる時だけ公開でない。引けない・知らない値は公開として照らす。"""
     top = _checkout_of(repo, data)
     if top:
         reader, found, words, public = None, None, [], False
@@ -411,6 +448,8 @@ def public_target(repo, data, vals):
         if public:
             return True, top, words
     if repo and _public_extra(repo, data, vals):
+        return True, top, []
+    if repo and github_visibility(repo) not in NOT_PUBLIC:
         return True, top, []
     return False, top, []
 

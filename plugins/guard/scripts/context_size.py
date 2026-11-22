@@ -1,7 +1,8 @@
 """窓の文脈（会話の長さ）の見張り。PostToolUse で目安を越えた最初の 1 回だけ知らせ、Stop で引き継ぐまで AI の締めを差し戻す。
 
 決まり: 文脈の目安は値の表の context_limit（既定 30 万 token）の 1 本。越えたら
-  - 人のいる窓: 区切りの良い所で引き継ぎを書き、後継の窓へ替える（後継は返し先を継ぐ）。
+  - 人のいる窓: 区切りの良い所で引き継ぎを書き、後継の窓へ替える。後継へ渡す返し先は、この窓の最初の頼みの行の記録から
+    読んだ値を文に示す（AI の覚えや前の文から写させない＝return_of）。
   - 返し先が別の窓の子の窓・人のいない窓（値の表の unattended_env が真）: 今の段を終え、引き継ぎを書いて止まる。
 
 測り方: 会話ログの最新の assistant の入力の総量（input + cache_read + cache_creation）＝今の文脈の大きさ。
@@ -31,17 +32,38 @@ MSG_HUMAN = (
     "この窓の文脈が目安（{limit:,} token）を越えました（知らせはこの 1 回だけ）。"
     "区切りの良い所で引き継ぎを書き、後継の窓へ替えてください（今の作業を途中で投げ出す必要はありません）。"
     "引き継ぐまで、返事を締めるたびに差し戻されます。"
-    "後継の窓は返し先を継ぎます（オーナーへ返す窓の後継は、オーナーへ返す窓のまま）。\n"
+    "{succ}\n"
     "</context-watchdog>"
 )
 MSG_UNATTENDED = (
     "<context-watchdog>\n"
     "この窓の文脈が目安（{limit:,} token）を越えました（知らせはこの 1 回だけ）。"
     "別の窓へ返す窓か人のいない窓なので、今の段を終えたら引き継ぎを書いて止まってください（次の段へ進まない）。"
-    "引き継ぐまで、返事を締めるたびに差し戻されます。\n"
+    "引き継ぐまで、返事を締めるたびに差し戻されます。{succ}\n"
     "</context-watchdog>"
 )
 
+
+def return_of(tpath):
+    """この窓の返し先の字（`返し先=session_…`）か ""（オーナーへ返す窓）。後継へ渡す値は AI の覚えや前の文から写させず、
+    この窓の最初の頼みの行（記録）から読む: 記録が別の窓から来た印（guard_common.seeded_by_record）で、文に返し先が在る時だけ。"""
+    try:
+        row = G.first_owner_row(tpath)
+    except Exception:  # noqa: BLE001
+        return ""
+    if not row or not G.seeded_by_record(row):
+        return ""
+    m = G.RETURN_TO_WINDOW.search(G.text_of(row))
+    return re.sub(r"\s+", "", m.group(0)).replace("＝", "=").replace("：", "=").replace(":", "=") if m else ""
+
+
+def successor_line(tpath):
+    """後継へ渡す返し先の 1 文（記録から読んだ値をそのまま示す）。"""
+    ret = return_of(tpath)
+    if ret:
+        return ("後継の頼みの文には、返し先を `%s` と書いてください（この窓の最初の頼みの行の記録から読んだ値。"
+                "覚えや前の文から写し直さない）。" % ret)
+    return ("この窓はオーナーへ返す窓なので、後継もオーナーへ返す窓のままです（後継の頼みの文に別の窓の返し先を書かない）。")
 
 
 # この見張りが回る出来事と関数（guard.py がこの宣言を読んで回す＝入口の一覧に足さない）
@@ -90,7 +112,7 @@ def check(data, vals):
     except OSError:
         return ""     # 印を残せない時は知らせない（毎回鳴るより黙る方を選ぶ）
     msg = MSG_UNATTENDED if unattended(tpath, vals) else MSG_HUMAN
-    return msg.format(limit=limit)
+    return msg.format(limit=limit, succ=successor_line(tpath))
 
 
 # ── Stop: 目安を越えた後も引き継がずに締める AI を差し戻す ──
@@ -167,10 +189,10 @@ def stop(data, vals):
         return ""
     if unattended(tpath, vals):
         how = ("別の窓へ返す窓か人のいない窓なので、今の段を終え、引き継ぎ（済んだ事・残り・次の一手・返し先）を書いて"
-               "返し先の窓へ送り、止まる（次の段へ進まない）。")
+               "返し先の窓へ送り、止まる（次の段へ進まない）。" + successor_line(tpath))
     else:
-        how = ("区切りの良い所で引き継ぎ（済んだ事・残り・次の一手・返し先）を書き、後継の窓を立ててそれを渡す（後継は"
-               "返し先を継ぐ）。この返事では、後継の窓へ替えた事と、続きをどの窓で見ればよいかをオーナーに書く。")
+        how = ("区切りの良い所で引き継ぎ（済んだ事・残り・次の一手・返し先）を書き、後継の窓を立ててそれを渡す。"
+               + successor_line(tpath) + "この返事では、後継の窓へ替えた事と、続きをどの窓で見ればよいかをオーナーに書く。")
     return "\n".join([
         "[guard] この窓の文脈が目安（%s token）を越えた後、まだ引き継いでいないので、締めを差し戻した（オーナー同意 "
         "2026-11-19・止めたのは AI の締めだけ・人の操作は止めていない）。" % format(limit, ","),
