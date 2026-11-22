@@ -1,0 +1,14 @@
+{
+  "_説明": "振り返り・直しの型ごとの欄の定義（tests/test_mgk_hirogeru.py が読む 1 つの正本）。型は file の中の 1 つの所（始まりの行の正規表現と、行／塊＝空の行かコードの囲いまで／節＝次の見出しかコードの囲いまで）。欄は「欄の始まりの印の後に名が在り、すぐ欄の終わりの印が続く」所。欄の並びのうち根治の段の名（意図・課題・原因・解決・未来）は細目 §3 の 5 段の順に並べる。",
+  "型": [
+    {"名": "verify の完了報告", "file": "plugins/dev-flow/skills/verify/SKILL.md", "始まり": "^# Goal Completion Report", "幅": "塊", "欄": ["意図", "課題", "原因"]},
+    {"名": "review-pr の所見の雛形", "file": "plugins/checker/skills/review-pr/SKILL.md", "始まり": "^- \\[止める", "幅": "行", "欄": ["意図", "課題"]},
+    {"名": "register-rule の根治の形", "file": "plugins/dev-flow/skills/register-rule/SKILL.md", "始まり": "^止める物かを決めたら", "幅": "節", "欄": ["意図", "誤りが入れない形のどれか", "注入の試験"]},
+    {"名": "register-rule の出力", "file": "plugins/dev-flow/skills/register-rule/SKILL.md", "始まり": "^Step 1 止める物か", "幅": "塊", "欄": ["意図", "形", "注入の試験"]},
+    {"名": "codex の戻りの所見", "file": "plugins/dev-flow/skills/codex/SKILL.md", "始まり": "^## 所見（採否つき）", "幅": "節", "欄": ["意図", "課題"]},
+    {"名": "design-mode の論点の表", "file": "plugins/dev-flow/skills/design-mode/SKILL.md", "始まり": "^\\s*\\| 論点 \\|", "幅": "行", "欄": ["論点", "意図", "状態"]},
+    {"名": "spec-doc の 00 宣言", "file": "plugins/dev-flow/skills/spec-doc/SKILL.md", "始まり": "^1\\. \\*\\*00 プロダクト宣言\\*\\*", "幅": "行", "欄": ["意図", "課題"]},
+    {"名": "細目の原因の台帳", "file": "plugins/core/細目.md", "始まり": "^- \\*\\*原因の台帳\\*\\*", "幅": "行", "欄": ["意図", "課題", "原因", "行き先"]},
+    {"名": "細目の決定の記録", "file": "plugins/core/細目.md", "始まり": "^- \\*\\*決めた事\\*\\*", "幅": "行", "欄": ["意図", "決めた中身"]}
+  ]
+}

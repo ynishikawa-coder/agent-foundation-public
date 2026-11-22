@@ -66,52 +66,136 @@ def test_CONTRIBUTING_の赤と_red_は意図とのずれから入る():
 
 
 # ── 型の欄 ────────────────────────────────────────────────────
+# 型ごとの欄の定義は tests/data/型の欄.json 1 つ。根治の段の名と順は細目 §3 の「根治の 5 段」から引く。
+# 照らすのは決まった字の有無でなく欄の形: 欄の始まりの印（行の頭・見出し・箇条・太字・`|`・`｜`・`／`・`/`・`—`・丸数字・`）の後に
+# 名が在り、すぐ欄の終わりの印（`:`・`：`・`（`・太字の閉じ・`|`・`｜`・`／`・`/`・`・行の終わり）が続く所を欄と見る。
+
+型の欄 = json.loads(_read("tests/data/型の欄.json"))["型"]
+_始まりの印 = r"(?:^[ \t]*(?:#+[ \t]*|[-*][ \t]*|\d+\.[ \t]*)?(?:\*\*|`)?|[|｜／/—`①②③④⑤⑥⑦⑧⑨⑩][ \t]*|\*\*)"
+_終わりの印 = r"(?=[:：（(／/`]|\*\*|[ \t]*[|｜]|[ \t]*$)"
 
 
-def test_完了報告は意図の欄を持ち_未達は課題と原因を分ける():
-    v = _read("plugins/dev-flow/skills/verify/SKILL.md")
-    assert "## 意図（このゴールが何のために在るか・頼みの原文から）" in v
-    assert "（未達は 課題＝意図とのずれ／原因 を別の行に）" in v
-    assert "学びを根治の 5 段（意図・課題・原因・解決・未来＝細目 §3）で" in v
+def 根治の段():
+    """細目 §3「根治の 5 段」の段の名を順に返す（型の欄の名と順の正本）。"""
+    s = _read("plugins/core/細目.md")
+    head = s.index("- **根治の 5 段**")
+    names = []
+    for line in s[head:].splitlines()[1:]:
+        m = re.match(r"^  - \*\*(.+?)\*\* — ", line)
+        if not m:
+            break
+        names.append(m.group(1))
+    return names
 
 
-def test_レビューの所見は外れた意図と課題を書き_整地の意図を照らす():
+def 型の所(text, kata):
+    """file の中の型の所（始まりの行から、幅の終わりまで）を返す。無ければ None。"""
+    lines = text.splitlines()
+    for n, line in enumerate(lines):
+        if re.search(kata["始まり"], line):
+            out = [line]
+            if kata["幅"] != "行":
+                for nxt in lines[n + 1:]:
+                    if nxt.startswith("```") or (kata["幅"] == "塊" and not nxt.strip()) or \
+                       (kata["幅"] == "節" and re.match(r"^#+\s", nxt)):
+                        break
+                    out.append(nxt)
+            return "\n".join(out)
+    return None
+
+
+def 欄の位置(unit, name):
+    """name が欄として在る最初の位置（字だけ在って欄でない物は数えない）。無ければ -1。"""
+    m = re.search(_始まりの印 + "(" + re.escape(name) + ")" + _終わりの印, unit, re.M)
+    return m.start(1) if m else -1
+
+
+def 欄の外れ(unit, names):
+    """欄が別々に・この順で在るかを照らし、外れを返す（空なら合う）。"""
+    if unit is None:
+        return ["型の所が見つからない"]
+    pos = {n: 欄の位置(unit, n) for n in names}
+    bad = [f"欄が無い: {n}" for n, p in pos.items() if p < 0]
+    seen = [pos[n] for n in names if pos[n] >= 0]
+    if not bad and seen != sorted(seen):
+        bad.append("欄の順が違う: " + " → ".join(sorted(names, key=pos.get)))
+    return bad
+
+
+def _ids(k):
+    return k["名"]
+
+
+def test_型の欄の段の名と順は細目の根治の段に沿う():
+    dan = 根治の段()
+    assert dan[:3] == ["意図", "課題", "原因"], dan
+    for k in 型の欄:
+        steps = [n for n in k["欄"] if n in dan]
+        assert steps, k["名"]
+        assert steps == sorted(steps, key=dan.index), k["名"]
+
+
+@pytest.mark.parametrize("kata", 型の欄, ids=_ids)
+def test_型は意図などの欄を別々にこの順で持つ(kata):
+    assert 欄の外れ(型の所(_read(kata["file"]), kata), kata["欄"]) == []
+
+
+def _字だけ残す(unit, name):
+    """name の欄を壊し、字は残す（「意図:」→「意図も込みの文:」）。"""
+    return re.sub(_始まりの印 + "(" + re.escape(name) + ")" + _終わりの印,
+                  lambda m: m.group(0) + "も込みの文", unit, flags=re.M)
+
+
+def _言い回しを変える(unit, names):
+    """欄の名を除く言葉を全部言い換える（欄の名と区切りの印は残す）。"""
+    keep = []
+
+    def _守る(m):
+        keep.append(m.group(0))
+        return f"\0{len(keep) - 1}\0"
+
+    pat = _始まりの印 + "(?:" + "|".join(map(re.escape, names)) + ")" + _終わりの印
+    out = re.sub(r"[ぁ-んァ-ヶ一-龠ー]+", "言い換え", re.sub(pat, _守る, unit, flags=re.M))
+    return re.sub(r"\0(\d+)\0", lambda m: keep[int(m.group(1))], out)
+
+
+@pytest.mark.parametrize("kata", 型の欄, ids=_ids)
+def test_注入_欄を消して字だけ残すと赤_言い回しを変えても欄が残れば緑(kata):
+    unit = 型の所(_read(kata["file"]), kata)
+    for name in kata["欄"]:
+        broken = _字だけ残す(unit, name)
+        assert name in broken
+        assert f"欄が無い: {name}" in 欄の外れ(broken, kata["欄"]), (kata["名"], name)
+    reworded = _言い回しを変える(unit, kata["欄"])
+    assert reworded != unit, kata["名"]
+    assert 欄の外れ(reworded, kata["欄"]) == [], kata["名"]
+
+
+@pytest.mark.parametrize("kata", 型の欄, ids=_ids)
+def test_注入_欄の順を入れ替えると赤(kata):
+    unit = 型の所(_read(kata["file"]), kata)
+    a, b = kata["欄"][0], kata["欄"][-1]
+    pa, pb = 欄の位置(unit, a), 欄の位置(unit, b)
+    swapped = unit[:pa] + b + unit[pa + len(a):pb] + a + unit[pb + len(b):]
+    assert any(x.startswith("欄の順が違う") for x in 欄の外れ(swapped, kata["欄"])), kata["名"]
+
+
+def test_注入_型の所が無いと赤():
+    assert 欄の外れ(None, ["意図"]) == ["型の所が見つからない"]
+    assert 欄の外れ("意図と課題と原因を 1 つの欄に書く:", ["意図", "課題", "原因"])
+
+
+def test_手順の文は根治の段で読ませる():
+    """型の欄の外で、手順の文が根治の段で読ませる所（文の照らし）。"""
+    assert "学びを根治の 5 段（意図・課題・原因・解決・未来＝細目 §3）で" in _read("plugins/dev-flow/skills/verify/SKILL.md")
     r = _read("plugins/checker/skills/review-pr/SKILL.md")
-    assert "- [止める｜実装] path:関数 — 意図: その所が何のために在るか／課題: 意図とのずれ" in r
     assert "PR 本文の整地の `1. 意図`・`2. 課題`" in r
     assert "整地の意図がオーナーの原文の意図と違う・課題に原因（なぜ）が混ざる" in r
     assert "直し: 細目 §3「まず構造を疑う」で、所見の意図とのずれから原因を探す" in r
-
-
-def test_規律を足す時は意図を独り立ちで書く():
-    rr = _read("plugins/dev-flow/skills/register-rule/SKILL.md")
-    assert "- **意図** — その規律が何のために在るか（誰の何を守るか）を、起きた事・原因と混ぜずに 1 文。" in rr
-    assert "意図: <何のために在るか 1 文> ／ 形:" in rr
-    assert "守りたかった意図とのずれ（課題）から原因の段へ戻る" in rr
-
-
-def test_codex_の戻りは_pack_の目的とのずれで書く():
-    c = _read("plugins/dev-flow/skills/codex/SKILL.md")
-    assert "pack.md の目的・起点ゴール（意図）のどれとどうずれるか（課題）を書き" in c
-    assert "— ずれ：<pack の目的・起点ゴールのどれと> / 該当：" in c
-
-
-def test_論点の表は意図の列を持つ():
-    d = _read("plugins/dev-flow/skills/design-mode/SKILL.md")
-    assert "| 論点 | 意図（何のために決めるか） | 状態（決まった／未決／前提待ち） |" in d
-
-
-def test_プロダクト宣言は意図から書く():
-    s = _read("plugins/dev-flow/skills/spec-doc/SKILL.md")
-    assert "② 意図（本来どうありたいか） ③ 課題（意図と今のずれ・なぜは書かない）" in s
-    assert "困りごとを出発点にせず意図から書く。" in s
-
-
-def test_細目の台帳と決定と入口は意図を分ける():
-    s = _read("plugins/core/細目.md")
-    assert "原因と同じ原因の他の問題を 1 つ 1 行にし（意図・課題・原因は別の欄）、行き先を付ける:" in s
-    assert "オーナーが決めた事は各社の決定の記録に、意図と決めた中身を分け、原文と時刻つきで書く。" in s
-    assert "検査の赤も、検査が守る意図とのずれから入る。" in s
+    assert "守りたかった意図とのずれ（課題）から原因の段へ戻る" in _read("plugins/dev-flow/skills/register-rule/SKILL.md")
+    assert "pack.md の目的・起点ゴール（意図）のどれとどうずれるか（課題）を書き" in _read("plugins/dev-flow/skills/codex/SKILL.md")
+    assert "困りごとを出発点にせず意図から書く。" in _read("plugins/dev-flow/skills/spec-doc/SKILL.md")
+    assert "検査の赤も、検査が守る意図とのずれから入る。" in _read("plugins/core/細目.md")
 
 
 # ── 全体の絵 ───────────────────────────────────────────────────
