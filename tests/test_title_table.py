@@ -91,6 +91,28 @@ def test_畳んだ待ちの札で始めた返事は札の表に無いと拾う()
     assert not [c for c, _ in sw.check(sw.Log(ok)) if c == "card"]
 
 
+# 札の絵だけ合って語が表に無い 1 行目（わざと入れる）。絵の 1 文字目だけを見ていた時は全部通った。
+BAD_CARDS = ["❓🟢 進行中", "🛑止めた", "✅一部終わった", "💤", "✅完了", "❓質問"]
+
+
+@pytest.mark.parametrize("card", BAD_CARDS)
+def test_札の語が表に無い返事は拾う(card):
+    rs = set_last_text(rows("owner_ok.jsonl"), card + "\n作り物の本文。\n"
+                       "AI がこの後やること: なし\nあなたがやること: なし。この窓で AI が続けるので、まだ閉じないでください。")
+    assert [c for c, _ in sw.check(sw.Log(rs)) if c == "card"], card
+
+
+@pytest.mark.parametrize("card", ["✅終わった", "✅ 終わった", "✅終わった（一部）", "❓答えて", "💤待ち（作り物の窓）", "🛑止まった。"])
+def test_表の札は通る(card):
+    assert sw.CARD_LINE.match(card), card
+
+
+def test_親が立てた窓への知らせも表に照らさせ_親の題を写させない():
+    for text in (sw.REMIND_PARENT, sw.REMIND_CHILD):
+        assert "親の題を写さない" in text and "💤" in text
+        assert "付け直す" not in text
+
+
 def test_skill_の表は正本の表の写しと同じ():
     from pathlib import Path
     skill = Path(sw.__file__).resolve().parent.parent / "skills" / "title-mark" / "SKILL.md"
@@ -104,14 +126,13 @@ def _core(name):
 
 
 def test_核の札は題の状態と同じ絵の_4_つ():
-    line = "- 1 行目は 4 札のどれか: %s（題の状態と同じ絵）。" % "／".join("`%s%s`" % (c, sw.CARD_WORDS[c]) for c in sw.CARDS)
+    line = "- 1 行目は 4 札のどれか: %s。" % "／".join("`%s%s`" % (c, sw.CARD_WORDS[c]) for c in sw.CARDS)
     assert line in _core("核.md")
 
 
 @pytest.mark.parametrize("sentence", [
     "- **窓の題** — 形は `<種類><状態> <作業名>`。",
-    "状態は `❓`＝オーナーの答え待ち／`💤`＝ほかの窓・合流待ち／`🛑`＝止まった／`✅`＝終わった・後継へ渡した／無し＝動いている。",
-    "種類ごとに付けてよい状態の表は skill `session-watch:title-mark` で、表に無い印と組み合わせは題を付ける口で止まる。",
+    "種類（`🙋`・`✋`・`🤖`）と状態の表・決め方は skill `session-watch:title-mark` が正本で、表に無い印と組み合わせは題を付ける口で止まる。",
     "役は作業名に書く。",
     "後継へ移る時は前の窓の最後の返事に後継の URL を書き、題を `✅` にする。",
     "- **4 札の中身** — `💤待ち` は誰を・いつまで、`🛑止まった` は理由・外せる人を書く。",
@@ -124,3 +145,14 @@ def test_決まりの文に畳んだ印が残らない():
     for name in ("核.md", "細目.md"):
         text = _core(name)
         assert "⏳" not in text and "🙋⏳" not in text and "手: <何を>" not in text, name
+
+
+# ── 使う側に残る砂時計の形を、古い形の照らしが拾う（字の間の空白・手の窓の種類でもすり抜けない）──
+@pytest.mark.parametrize("line", ["⏳ 待ち（作り物の窓）", "⏳待ち", "✋⏳ 作り物の設定", "🙋⏳ 手: 作り物", "🤖️⏳ 作り物"])
+def test_古い形の砂時計は空白や手の窓の種類でも拾う(line):
+    import json
+    import re
+    from pathlib import Path
+    olds = json.loads((Path(sw.__file__).resolve().parents[2] / "core" / "古い形.json").read_text(encoding="utf-8"))["olds"]
+    row = next(r for r in olds if r["id"] == "title-mark-hourglass")
+    assert re.search(row["pattern"], line), line
