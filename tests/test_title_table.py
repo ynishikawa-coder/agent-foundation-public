@@ -156,3 +156,24 @@ def test_古い形の砂時計は空白や手の窓の種類でも拾う(line):
     olds = json.loads((Path(sw.__file__).resolve().parents[2] / "core" / "古い形.json").read_text(encoding="utf-8"))["olds"]
     row = next(r for r in olds if r["id"] == "title-mark-hourglass")
     assert re.search(row["pattern"], line), line
+
+
+# ── 種類と状態の印の間に空白を入れても、表に無い印や続けて書くべき印を作業名として通さない ──
+@pytest.mark.parametrize("title", ["🤖 🟢 作り物", "🤖 ⏳ 作り物", "🙋 ⏳ 手: 作り物", "🙋 🟡 作り物", "🤖 ✅ 作り物", "✋ ❓ 作り物"])
+def test_空白で区切った状態の印を拒む(title):
+    assert sw.title_shape(title), title
+
+
+@pytest.mark.parametrize("title", ["🤖✅ 作り物", "🙋 作り物", "✋ 作り物を開く", "🤖 「作り物」の直し", "🤖 2 本目"])
+def test_作業名の頭が文字なら通す(title):
+    assert sw.title_shape(title) == [], title
+
+
+@pytest.mark.parametrize("line", ["🤖 ⏳ 作り物", "🙋 ⏳ 手: 作り物", "✋ ⏳ 作り物"])
+def test_古い形の砂時計は種類との間の空白でも拾う(line):
+    import json
+    import re
+    from pathlib import Path
+    olds = json.loads((Path(sw.__file__).resolve().parents[2] / "core" / "古い形.json").read_text(encoding="utf-8"))["olds"]
+    row = next(r for r in olds if r["id"] == "title-mark-hourglass")
+    assert re.search(row["pattern"], line), line

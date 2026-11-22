@@ -430,6 +430,14 @@ def title_shape(title):
                            % (kind, odd, states, HAND, title))
         else:
             out.append("印と作業名の間に空白が無い（`<種類><状態> <作業名>`）（題: %s）" % title)
+    elif name and _is_mark(name[0]):
+        # 空白の後の作業名の頭に印の字＝空白で区切った状態の印（`🤖 🟢 x`・`🤖 ⏳ x`）。作業名の字として通さない。
+        odd = "".join(c for c in name.split()[0] if _is_mark(c)) or name[0]
+        if not mark and odd.rstrip(VS16) in STATES:
+            out.append("%s と状態「%s」の間に空白を入れない（`<種類><状態> <作業名>`）（題: %s）" % (kind, odd, title))
+        else:
+            out.append("作業名の頭の「%s」は状態の表に無い（状態は %s。⏳ は畳んだ＝待ちは 💤、手の窓は種類 %s。印は種類の直後に続けて 1 つだけ）（題: %s）"
+                       % (odd, states, HAND, title))
     if not name:
         out.append("題に作業名が無い（題: %s）" % title)
     if (mark or MOVING) not in TITLE_TABLE[kind]:

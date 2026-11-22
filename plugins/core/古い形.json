@@ -191,7 +191,7 @@
         ":(exclude)CHANGELOG.d/**",
         ":(exclude)**/古い形.json"
       ],
-      "pattern": "[🙋🤖✋]\\ufe0f?⏳|⏳\\s*待ち",
+      "pattern": "[🙋🤖✋]\\ufe0f?\\s*⏳|⏳\\s*待ち",
       "fix": "表の写しを置かず skill `session-watch:title-mark`（表の正本は session-watch の TITLE_TABLE）を名で指す。手の窓は `✋ <何を>`、待ちの札は `💤待ち`",
       "example": "| 手の窓（🙋⏳） | 人の手が要る窓 |"
     }
