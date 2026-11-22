@@ -28,6 +28,9 @@ RULE_FILES = ["plugins/core/核.md", "plugins/core/振る舞い.md",
               *sorted(p.relative_to(ROOT).as_posix() for p in (ROOT / "plugins" / "core" / "細目").glob("*.md"))]
 # 1 件 1 file（名は中身の sha1 の頭 12 字）。全部の PR が 1 枚の末尾へ足すと互いに衝突するので、行を 1 file に集めない。
 TABLE = ROOT / "tests" / "data" / "試験で守らない文"
+# check_all が組に分ける時の重さ（この file の試験 1 本が他の試験の何本分か）。重さを持つ file の試験は 1 本ずつ別の組へ分ける。
+# 決まりの file ごとの照らしは tests/test_rule_holes_by_file.py（決まりの file ごとに 1 本＝組に散らして同時に回す）。
+AF_SHARD_WEIGHT = 300
 _read = pathlib.Path.read_text
 _rglob_real = pathlib.Path.rglob
 _rglob_cache = {}
@@ -113,6 +116,53 @@ def _回す(f, args):
         f(**kw)
 
 
+# 決まりの file を読みうる試験（その関数か、関数が呼ぶ同じ file の関数・file の頭の値に、決まりの file の名か置き場の名が在る）。
+# 決まりの試験を探す時はこの試験だけを回す（全部の試験を回すと数分かかる）。名の無い読み方で読む試験を見落とすと、
+# その試験が照らす文が穴に出て赤になる（緑に倒れない）。
+# 文を消して回す側の file（決まりの試験に数えない＝回すと自分を回し直す）
+_照らす側 = {"test_rule_holes.py", "test_rule_holes_by_file.py"}
+_読みうる = re.compile(r"plugins/core|\"core\"|核|振る舞い|細目")
+
+
+def _読みうる試験(src):
+    """試験の file の中身 src の試験の関数のうち、決まりの file を読みうる物の名の集まり。"""
+    import ast
+    tree = ast.parse(src)
+    body = {}
+    head = []
+    for n in tree.body:
+        if isinstance(n, (ast.FunctionDef, ast.ClassDef)):
+            body[n.name] = n
+        else:
+            head.append(n)
+    names_of = {k: {x.id for x in ast.walk(v) if isinstance(x, ast.Name)} | {x.attr for x in ast.walk(v) if isinstance(x, ast.Attribute)}
+                for k, v in body.items()}
+    def 名が在る(n):   # 中身に名が在るか、中で名指す repo の file（tests/data/*.json など）の中身に名が在る
+        if _読みうる.search(ast.get_source_segment(src, n) or ""):
+            return True
+        for c in ast.walk(n):
+            if isinstance(c, ast.Constant) and isinstance(c.value, str) and "/" in c.value and "\n" not in c.value:
+                f = ROOT / c.value
+                with contextlib.suppress(OSError, ValueError):
+                    if f.is_file() and _読みうる.search(_read(f, encoding="utf-8", errors="replace")):
+                        return True
+        return False
+
+    hit = {k for k, v in body.items() if 名が在る(v)}
+    for n in head:   # file の頭の値（ROOT / "plugins" / "core"・名を持つ data の file など）に名があれば、その値を使う関数も読みうる
+        if 名が在る(n):
+            hit |= {k for k, v in names_of.items()
+                    if {x.id for x in ast.walk(n) if isinstance(x, ast.Name) and isinstance(x.ctx, ast.Store)} & v}
+    changed = True
+    while changed:   # 読みうる関数を呼ぶ関数も読みうる
+        changed = False
+        for k, v in names_of.items():
+            if k not in hit and v & hit:
+                hit.add(k)
+                changed = True
+    return {k for k in hit if k.startswith("test_")}
+
+
 @functools.lru_cache(maxsize=1)
 def _決まりの試験():
     """{決まりの file: その file を読む試験の (関数, 引数) の並び}。読むかは 1 回回して見る。
@@ -128,13 +178,15 @@ def _決まりの試験():
         return _read(self, *a, **k)
 
     for p in sorted((ROOT / "tests").glob("test_*.py")):
-        if p.name == pathlib.Path(__file__).name:
+        src = _read(p, encoding="utf-8")
+        if p.name in _照らす側 or not _読みうる.search(src):
             continue
+        hit = _読みうる試験(src)
         spec = importlib.util.spec_from_file_location("_rule_holes_" + p.stem, p)
         m = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(m)
         for name, f in sorted(vars(m).items()):
-            if not (name.startswith("test_") and inspect.isfunction(f)):
+            if not (name.startswith("test_") and inspect.isfunction(f)) or name not in hit:
                 continue
             calls = _呼び方(f)
             if calls is None:
@@ -207,25 +259,6 @@ def 表(table=None):
         out.add((rel, s))
     return out
 
-
-
-@functools.lru_cache(maxsize=1)
-def 今の穴():
-    return {(rel, s) for rel in RULE_FILES for s in 穴(rel)}
-
-
-def test_核と細目の文は消すと試験が赤になるか_守らない文の表に在る():
-    new = sorted(今の穴() - 表())
-    assert not new, ("この文を消しても試験が赤にならない（文を照らす試験を足す。足せない訳がある時だけ "
-                     "tests/data/試験で守らない文/ に 1 件 1 file で載せる・名は 表の名）:\n" + "\n".join(f"{r}\t{s}" for r, s in new)
-                     + "\n照らしから外れた試験（元の文で通らない・用意できない fixture）:\n"
-                     + "\n".join(f"{k}: {v}" for k, v in sorted(外れた.items())))
-
-
-def test_守らない文の表に古い行を残さない():
-    stale = sorted(表() - 今の穴())
-    assert not stale, ("表の文が無くなったか、試験で守られるようになった（表から消す）:\n"
-                       + "\n".join(f"{r}\t{s}" for r, s in stale))
 
 
 def test_文を足しても照らす試験が無ければ穴に出て_照らした文を消せば赤():

@@ -200,6 +200,52 @@
       "pattern": "(?m)^(?!.*public-guard: 形の見本).*(?:03-1234-(?:5678)|090(?:12345678)|taro\\.yamada@(?:gmail)\\.com|〒100-(?:0001)|notion\\.so/(?:abc123))",
       "fix": "その file の形の見本の行に印 public-guard: 形の見本 を書く（印の行の個人の情報の形だけが外れる。秘密の形は印の行でも照らす）",
       "example": "連絡先 taro.yamada@gmail.com"
+    },
+    {
+      "id": "title-mark-hourglass",
+      "what": "窓の題の印の古い形（題の砂時計〔U+23F3〕の状態・手の窓の `手:` の作業名）。2026-11-22 に種類 3 つ（🙋・✋・🤖）×状態（無し・❓・💤・🛑・✅）の表へ替え、砂時計は題から無くした（手の窓は種類 ✋、ほかの何かの待ちは 💤）。返事の札の砂時計は行 card-wait-hourglass が拾う",
+      "files": [
+        "*.md",
+        "*.py",
+        "*.sh",
+        "*.json",
+        "*.yml",
+        "*.yaml",
+        "*.txt",
+        ":(exclude)tests/**",
+        ":(exclude)**/tests/**",
+        ":(exclude)**/test_*.py",
+        ":(exclude)CHANGELOG.md",
+        ":(exclude)**/CHANGELOG.md",
+        ":(exclude)CHANGELOG.d/**",
+        ":(exclude)**/古い形.json"
+      ],
+      "pattern": "[🙋🤖✋]\\ufe0f?\\s*⏳",
+      "fix": "表の写しを置かず skill `session-watch:title-mark`（表の正本は session-watch の TITLE_TABLE）を名で指す。手の窓は `✋ <何を>`",
+      "example": "| 手の窓（🙋⏳） | 人の手が要る窓 |"
+    },
+    {
+      "id": "card-wait-hourglass",
+      "what": "返事の 1 行目の待ちの札の古い形（砂時計〔U+23F3〕の `⏳待ち`）。2026-11-22 23:00 日本時間のオーナーの決定で、札を窓の題の状態と同じ絵の `💤待ち` に替えた（待ち＝オーナーの答えでなく、ほかの窓の返事・本流への取り込み・CI など、ほかの何かを待っていて、それが来たら AI が自分で続ける時）",
+      "files": [
+        "*.md",
+        "*.py",
+        "*.sh",
+        "*.json",
+        "*.yml",
+        "*.yaml",
+        "*.txt",
+        ":(exclude)tests/**",
+        ":(exclude)**/tests/**",
+        ":(exclude)**/test_*.py",
+        ":(exclude)CHANGELOG.md",
+        ":(exclude)**/CHANGELOG.md",
+        ":(exclude)CHANGELOG.d/**",
+        ":(exclude)**/古い形.json"
+      ],
+      "pattern": "⏳\\ufe0f?\\s*待ち",
+      "fix": "札は `💤待ち` にする（札の並びと意味の正本は核 §5・見張りは session-watch の CARD_WORDS）。札の写しを置かず核を名で指す",
+      "example": "返事の 1 行目は ⏳待ち（作り物の窓）"
     }
   ]
 }

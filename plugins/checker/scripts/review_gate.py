@@ -17,6 +17,8 @@
   同じ先端の判定がまだ無い。
   無料のプランの非公開 repo（GitHub が必須の検査を作らせず rules を 403「Upgrade to GitHub Pro」で返す）だけは、必須の検査の代わりに
   先端で走った検査が全部終わって緑（1 つも無ければ mergeable_state clean だけ）で通す（オーナーの答え 2026-11-22）。
+  走った検査には、先端の workflow の走り（actions/runs?head_sha=）も入れる（遅い job の check run がまだ作られていない間に、
+  先に終わった速い検査だけで通らないように）。
   それ以外の 403・必須の検査が空の repo は今までどおり通さない。どれかが外れたら「まだ」（同じ先端の判定が在れば「済み」）。
 exit: 0=入ってよい / 1=まだ・済み（訳を 1 行ずつ）/ 2=読めない（入ってよいと言わない＝まだと同じに扱う）。
 材料を file で受ける口は置かない（窓が書いた材料で関所を通さない）。試験は decide を直に呼ぶ。
@@ -65,6 +67,22 @@ def check_states(runs: list, statuses: list) -> dict[str, str]:
         name = s.get("context") or ""
         if name and name not in out:
             out[name] = (s.get("updated_at") or "", s.get("state") or "")
+    return {k: v[1] for k, v in out.items()}
+
+
+def workflow_states(wruns: list) -> dict[str, str]:
+    """{"workflow <名> (<event>)": 状態}。先端の workflow の走り。同じ (名, event) は新しい物を取る（走り直し・終わって
+    いれば conclusion・まだなら status）。名が同じでも event が違う走り（pull_request と push）は別の検査として両方照らす
+    （名だけで新しい物を取ると、check run を作る前に赤で終わった古い方が見えず、新しい方の緑だけで通った）。"""
+    out: dict[str, tuple[str, str]] = {}
+    for r in wruns or []:
+        name = "workflow " + (r.get("name") or str(r.get("workflow_id") or ""))
+        if r.get("event"):
+            name += " (%s)" % r["event"]
+        when = r.get("created_at") or ""
+        state = r.get("conclusion") if r.get("status") == "completed" else (r.get("status") or "queued")
+        if name not in out or when >= out[name][0]:
+            out[name] = (when, state or "")
     return {k: v[1] for k, v in out.items()}
 
 
@@ -123,7 +141,10 @@ def _get(path: str, token: str):
             return json.loads(r.read().decode("utf-8"))
     except urllib.error.HTTPError as e:
         if token and e.code == 401:   # 窓の環境の鍵がこの repo に効かない時は、公開の repo を鍵なしで読む
-            return _get(path, "")
+            try:
+                return _get(path, "")
+            except urllib.error.HTTPError:
+                raise e from None     # 鍵なしの 404（非公開の repo）で、本当の訳（鍵が効かない 401）を隠さない
         raise
 
 
@@ -165,7 +186,10 @@ def read_facts(repo: str, number: int, token: str, wait=time.sleep):
     runs = _pages("/repos/%s/commits/%s/check-runs" % (repo, head), token, key="check_runs")
     statuses = _pages("/repos/%s/commits/%s/statuses" % (repo, head), token)
     comments = _pages("/repos/%s/issues/%d/comments" % (repo, number), token)
-    return pr, required, check_states(runs, statuses), comments
+    states = check_states(runs, statuses)
+    if required is PLAN_NONE:   # 走った検査を全部照らす＝まだ check run を作っていない workflow の走りも入れる
+        states.update(workflow_states(_pages("/repos/%s/actions/runs?head_sha=%s" % (repo, head), token, key="workflow_runs")))
+    return pr, required, states, comments
 
 
 def main(argv=None, read=read_facts) -> int:

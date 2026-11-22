@@ -128,7 +128,7 @@ def test_知らせの行は番を切らない():
 
 
 def test_手の窓は返した後に知らせが届いても返した跡を見つける():
-    title = "🙋⏳ 手: 作り物の設定"
+    title = "✋ 作り物の設定"
     done = "✅ 終わった\n設定を確かめて返した。\nAI がこの後やること: なし\nあなたがやること: なし"
     rows = [human("作り物の設定を頼む（返し先=オーナー）"), tool(TITLE, {"title": title}, "t0"), result("t0"),
             tool(SEND, {"session_id": "session_X", "message": "済んだ"}, "s1"), result("s1"),
