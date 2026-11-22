@@ -91,8 +91,15 @@ def test_注入_review_pr_が呼ぶ道具は全部_plugin_の中に在る():
     calls = re.findall(r"python3\s+\"?([^\s\"`]+\.py)", s)
     assert calls, "review-pr の SKILL.md に道具の呼び出しが無い"
     for c in calls:
-        assert c.startswith("${CLAUDE_PLUGIN_ROOT}/"), "plugin の外の道具を呼んでいる（使う側の repo に無い）: " + c
-        assert (plugin / c.split("/", 1)[1]).is_file(), c
+        # 自分の plugin は ${CLAUDE_PLUGIN_ROOT}/…、入った別の plugin は根を <名>/… と置く（どちらも使う側に入っている）。
+        head, rest = c.split("/", 1)
+        if head == "${CLAUDE_PLUGIN_ROOT}":
+            root = plugin
+        else:
+            assert re.fullmatch(r"<[a-z-]+>", head), "plugin の外の道具を呼んでいる（使う側の repo に無い）: " + c
+            root = ROOT / "plugins" / head[1:-1]
+            assert (root / ".claude-plugin" / "plugin.json").is_file(), "配らない plugin の道具を呼んでいる: " + c
+        assert (root / rest).is_file(), c
 
 
 def test_注入_PR_の_commit_を全部引けなければ判定を通さない(env):

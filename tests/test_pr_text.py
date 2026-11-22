@@ -104,6 +104,8 @@ def verdict_comment(judged="green", head="0123456789ab", fail=None, stop=False, 
     rows = []
     for no, name in sorted(points.items()):
         val = "書いた窓 %s ≠ この窓" % WRITER if no == 3 else ("fail" if no == fail else "pass")
+        if val == "pass" and name == verdict_form.PICTURE:                         # 全体の絵の pass は照らした版を書く形だけ
+            val = "pass（差なし・版 2026-11-19.1）"
         rows.append("- %d %s: %s" % (no, name, val))
     first = line1 or "レビューした窓: %s 判定: %s" % (REVIEWER, judged)
     fix = [verdict_form.ROOT_CAUSE] if judged == "red" else []
