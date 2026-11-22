@@ -128,6 +128,29 @@
       "example": "親窓: <session id>"
     },
     {
+      "id": "pr-head-record-fields",
+      "what": "PR の型の頭の `書いた窓:`・`検査:` の欄（記録＝commit の Claude-Session: と CI・スモークの結果の手の写しで、直しの commit を足した窓が書き直さずに記録とずれる）",
+      "files": [
+        ".github/pull_request_template.md"
+      ],
+      "pattern": "^(?:書いた窓|検査)\\s*[:：]",
+      "fix": "PR の型から `書いた窓:`・`検査:` の行を消し、頭は `job:` だけにする。書いた窓は plugins/checker/scripts/pr_writer.py --writers（commit の記録）、検査は CI の job check かスモークの記録を読む。走らせた命令は本文の「検証」に書く",
+      "example": "書いた窓: <session id>"
+    },
+    {
+      "id": "merge-allow-reads-pr-head",
+      "what": "合流を通す許しの文（自動の許可の判定の allow）が、PR 本文の頭の `検査:`・`書いた窓:` の写しを合流の条件に名指す（型の頭が job だけの PR では、合流役の merge が自動の判定に止められる）",
+      "files": [
+        "*.json",
+        ":(exclude)tests/**",
+        ":(exclude)**/tests/**",
+        ":(exclude)plugins/core/古い形.json"
+      ],
+      "pattern": "PR body's `検査:`|PR's `書いた窓:`",
+      "fix": "許しの文はオーナーだけが直す（窓は書けない）。条件を記録だけにする: 本文の `検査:` の行の代わりに `## 検証` の節が在る・required checks（PR で検査を回さない repo では合流役の窓が回したスモーク）、`書いた窓:` の代わりに PR の commit 全部の `Claude-Session:` と照らす。置き換える文を PR 本文の「オーナーの手」に置き、手の窓で頼む",
+      "example": "the PR body's `検査:` line green, and a review whose sid differs from the PR's `書いた窓:`"
+    },
+    {
       "id": "values-pattern-partial",
       "what": "値の表 guard の全体に当てる鍵（irreversible_tools_extra・qa_page_exempt・ask_term_allow・outbound_secret_allow・ask_prior_lookup）の正規表現が ^ で始まり $ で終わらない前の形（1 段目の間は前の読み方＝相手の一部に当てる。delete は undelete_item も止め、\\bGrep\\b.*問いの表 は Bash の echo にも当たる。2 段目で受けを畳むと全体の形の行だけが効く）",
       "files": [

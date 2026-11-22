@@ -5,7 +5,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/guard.py\" pre"
+            "command": "f=\"$HOME/.claude/plugins/marketplaces/agent-foundation/plugins/core/scripts/hook_run.py\"; [ -f \"$f\" ] || f=; python3 ${f:+\"$f\"} \"${CLAUDE_PLUGIN_ROOT}/scripts/guard.py\" pre"
           }
         ]
       }
@@ -15,7 +15,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/guard.py\" post"
+            "command": "f=\"$HOME/.claude/plugins/marketplaces/agent-foundation/plugins/core/scripts/hook_run.py\"; [ -f \"$f\" ] || f=; python3 ${f:+\"$f\"} \"${CLAUDE_PLUGIN_ROOT}/scripts/guard.py\" post"
           }
         ]
       }
@@ -25,7 +25,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/guard.py\" start"
+            "command": "f=\"$HOME/.claude/plugins/marketplaces/agent-foundation/plugins/core/scripts/hook_run.py\"; [ -f \"$f\" ] || f=; python3 ${f:+\"$f\"} \"${CLAUDE_PLUGIN_ROOT}/scripts/guard.py\" start"
           }
         ]
       }

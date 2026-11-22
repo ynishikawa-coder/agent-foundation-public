@@ -291,6 +291,19 @@ def run_hook(command: str, root: Path, payload: dict, env) -> subprocess.Complet
                           text=True, timeout=60)
 
 
+def box_env(home: Path, proj: Path) -> dict:
+    """鍵なしの窓の環境（入れて起動する試験の 1 か所）。窓の外の設定・鍵を持ち込まない。
+    API の行き先は閉じた口（呼べば落ちる＝お金はかからない）。"""
+    env = {"HOME": str(home), "PATH": os.environ.get("PATH", ""), "LANG": "C.UTF-8",
+           "ANTHROPIC_API_KEY": "sk-ant-smoke-dummy", "ANTHROPIC_BASE_URL": "http://127.0.0.1:9",
+           "CLAUDE_PROJECT_DIR": str(proj), "DISABLE_AUTOUPDATER": "1"}
+    for k in ("HTTPS_PROXY", "HTTP_PROXY", "NO_PROXY", "https_proxy", "http_proxy", "no_proxy",
+              "SSL_CERT_FILE", "NODE_EXTRA_CA_CERTS", "GIT_SSL_CAINFO", "REQUESTS_CA_BUNDLE"):
+        if k in os.environ:
+            env[k] = os.environ[k]
+    return env
+
+
 def smoke(source: str, repo: Path, expect_sha: str | None) -> list[str]:
     want = expected(repo)
     bad: list[str] = []
@@ -298,14 +311,7 @@ def smoke(source: str, repo: Path, expect_sha: str | None) -> list[str]:
         home, proj = Path(tmp) / "home", Path(tmp) / "proj"
         home.mkdir()
         proj.mkdir()
-        # 窓の外の設定・鍵を持ち込まない。API の行き先は閉じた口（呼べば落ちる＝お金はかからない）。
-        env = {"HOME": str(home), "PATH": os.environ.get("PATH", ""), "LANG": "C.UTF-8",
-               "ANTHROPIC_API_KEY": "sk-ant-smoke-dummy", "ANTHROPIC_BASE_URL": "http://127.0.0.1:9",
-               "CLAUDE_PROJECT_DIR": str(proj), "DISABLE_AUTOUPDATER": "1"}
-        for k in ("HTTPS_PROXY", "HTTP_PROXY", "NO_PROXY", "https_proxy", "http_proxy", "no_proxy",
-                  "SSL_CERT_FILE", "NODE_EXTRA_CA_CERTS", "GIT_SSL_CAINFO", "REQUESTS_CA_BUNDLE"):
-            if k in os.environ:
-                env[k] = os.environ[k]
+        env = box_env(home, proj)
 
         # 1. 使う側の setup script そのもの（docs/核の届け方.md の塊を、目録の repo だけ試す物に替えて、set -e の下で回す）。
         script = script_for(setup_block(repo), source)
