@@ -51,7 +51,7 @@ HAND_CLOSE = "\nAI がこの後やること: なし\nあなたがやること: �
 
 
 def hand_done(with_send):
-    rs = set_title(rows("owner_ok.jsonl"), "🙋 作り物の続き", "🙋⏳ 手: 作り物の設定")
+    rs = set_title(rows("owner_ok.jsonl"), "🙋 作り物の続き", "✋✅ 作り物の設定")
     rs = set_last_text(rs, "✅終わった\n済んだ目印（画面の「保存しました」）を確かめ、頼んだ窓へ返した。" + HAND_CLOSE)
     if with_send:
         send = {"type": "assistant", "message": {"role": "assistant", "content": [
