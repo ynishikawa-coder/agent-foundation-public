@@ -9,6 +9,7 @@ from pathlib import Path
 
 import pytest
 from entry_box import box_env, copy_entry
+from uses import sh_code
 
 ROOT = Path(__file__).resolve().parent.parent
 PLUGIN = ROOT / "plugins" / "core"
@@ -20,9 +21,16 @@ spec.loader.exec_module(kaku)
 LIMITS = kaku.LIMITS
 
 
+def used_text(rel, text):
+    """古い言い回しを探す所（使う形の所）: .md は自分の文（囲み・注記・引用の中を除く。# で始まる引用は書く行として残す）・
+    .py は注釈と docstring を除いたコード・.mjs は注釈を除いた字・.html は注記を除いた字・.json は字のまま。注釈や引用で
+    古い名を挙げて経緯を説明するのは残りでない。読み方の正本は kaku.own（写さない）。"""
+    return kaku.own(str(rel), text)
+
+
 def old_words_left(olds):
-    """土台の文（.md .py .json .mjs .html・試験と .git を除く）に残る古い言い回しを「path: 語」で返す。
-    変更の記録は CHANGELOG.d/ の .txt（経緯として古い語を持つ）なので、拡張子で外れる＝file 名で除かない。"""
+    """土台の文（.md .py .json .mjs .html・試験と .git を除く）の使う形の所（used_text）に残る古い言い回しを
+    「path: 語」で返す。変更の記録は CHANGELOG.d/ の .txt（経緯として古い語を持つ）なので、拡張子で外れる＝file 名で除かない。"""
     hits = []
     for p in sorted(ROOT.rglob("*")):
         rel = p.relative_to(ROOT)
@@ -32,7 +40,7 @@ def old_words_left(olds):
                 rel.parts[0] == "skill-values" or "lib" in rel.parts):
             continue
         if p.is_file() and p.suffix in {".md", ".py", ".json", ".mjs", ".html"}:
-            text = p.read_text(encoding="utf-8")
+            text = used_text(rel, p.read_text(encoding="utf-8"))
             hits += [f"{rel}: {o}" for o in olds if o in text]
     return hits
 
@@ -93,11 +101,29 @@ def test_写しの枠が在る_repo_にも正本の核を差し込み_枠を名�
     assert "古い形（写し）が残っている" in ctx and "CLAUDE.md: CLAUDE.md の核の写しの枠" in ctx
 
 
+def example_files(r):
+    """古い形の行の例を置く (相対 path, 中身) の組: files の照らす形ごとに 1 つ（glob の * を字に替えた path）。.md で命令を
+    読む行（reads=commands）は、使う側が命令を書く形（コードの囲み）に例を置く。"""
+    out = []
+    for spec in r["files"]:
+        if spec.startswith(":("):
+            continue
+        rel = spec.replace("**/", "x/").replace("*", "x")
+        md = rel.endswith((".md", ".markdown"))
+        out.append((rel, "```bash\n%s\n```\n" % r["example"] if md and r.get("reads") == "commands" else r["example"]))
+    return out
+
+
 def test_古い形の一覧の行は形が揃い_例が自分の形に当たる():
+    """例を本物の照らし口（kaku.old_hit＝行の reads の読み方を通す）で、行の照らす file の形ごとに当てる。読み方を変えて
+    例が当たらなくなれば赤（字の形だけで照らすと、読み方が見つける力を失っても緑のまま）。"""
     rows = kaku.olds_table()
     assert {r["id"] for r in rows} >= {"af-core-frame", "plugin-name-copy"}
     for r in rows:
-        assert r["re"].search(r["example"]), f"{r['id']} の例が形に当たらない（見つける力が無い）"
+        files = example_files(r)
+        assert files, f"{r['id']} に照らす file の形が無い"
+        for rel, text in files:
+            assert kaku.old_hit(r, rel, text), f"{r['id']} の例が {rel} で形に当たらない（見つける力が無い）"
 
 
 @pytest.mark.parametrize("line", [
@@ -285,28 +311,25 @@ def _節(text, n):
     return text[a:] if b < 0 else text[a:b]
 
 
-def test_核の根治は問題_原因_解決_未来の_4_段で_未来は試験の段でない():
+def test_核の根治は意図_課題_原因_解決_未来の_5_段で_未来は試験の段でない():
     kaku_text = (PLUGIN / "核.md").read_text(encoding="utf-8")
     s3 = _節(kaku_text, 3)
-    assert "問題→原因→解決→未来" in s3
+    assert "意図→課題→原因→解決→未来" in s3
     assert "仕組み・設計）が悪い前提" in s3 and "別の目の助手" in s3
     s3d = _節((PLUGIN / "細目.md").read_text(encoding="utf-8"), 3)
-    assert "同じ問題と同じ原因の他の問題が起きない状態" in s3d, "細目 §3 の未来が直した後の姿でない"
-    for word in ["**問題**", "**原因**", "**同じ原因の他の問題**", "**解決**", "**未来**",
+    assert "意図が果たされ、同じ課題と同じ原因の他の問題が起きない状態" in s3d, "細目 §3 の未来が直した後の姿でない"
+    for word in ["**意図**", "**課題**", "**原因**", "**同じ原因の他の問題**", "**解決**", "**未来**",
                  "無理・無駄・重複", "聞かせ方", "混じって", "試験を足す段ではない"]:
         assert word in s3d, f"細目 §3 に無い: {word}"
 
 
-def test_MGkm_は根治の_4_段の呼び名で説明の頼みにも_4_段で答える():
-    assert "問題→原因→解決→未来（MGkm）" in _節((PLUGIN / "核.md").read_text(encoding="utf-8"), 3), "核 §3 に MGkm が無い"
+def test_MGK_は根治の_5_段の呼び名で説明の頼みにも_5_段で答える():
+    assert "意図→課題→原因→解決→未来" in _節((PLUGIN / "核.md").read_text(encoding="utf-8"), 3), "核 §3 に 5 段が無い"
     s3d = _節((PLUGIN / "細目.md").read_text(encoding="utf-8"), 3)
-    assert "**呼び名 MGkm**" in s3d, "細目 §3 に MGkm の呼び名が無い"
-    line = next(l for l in s3d.splitlines() if "呼び名 MGkm" in l)
-    for word in ["問題 Mondai", "原因 Genin", "解決 Kaiketsu", "未来 Mirai"]:
-        assert word in line, f"MGkm の行に無い: {word}"
-    line = next(l for l in (PLUGIN / "振る舞い.md").read_text(encoding="utf-8").splitlines() if "**MGkm**" in l)
-    for word in ["説明", "4 段の見出しで答える"]:
-        assert word in line, f"振る舞いの既定の MGkm の行に無い: {word}"
+    assert "（呼び名 MGK。" in s3d, "細目 §3 に MGK の呼び名が無い"
+    line = next(l for l in (PLUGIN / "振る舞い.md").read_text(encoding="utf-8").splitlines() if "**MGK**" in l)
+    for word in ["説明", "根治の 5 段の見出しで答える"]:
+        assert word in line, f"振る舞いの既定の MGK の行に無い: {word}"
 
 
 def test_問いは選ぶ問いと開いた問いに分け_分からないを置き_言葉を混ぜない():
@@ -549,7 +572,7 @@ def test_挙げた原因は全部台帳に行き先つきで持ち_全部済む�
     ("plugins/dev-flow/skills/spec-doc/SKILL.md", "4. **右サイズを提示**"),
     ("plugins/dev-flow/skills/spec-doc/SKILL.md", "部分にする正当な理由"),
     ("plugins/dev-flow/skills/preimpl-cleanup/SKILL.md", "`[後片付け]`（"),
-    ("plugins/dev-flow/skills/preimpl-cleanup/SKILL.md", "6. **同梱の片付けの返し**"),
+    ("plugins/dev-flow/skills/preimpl-cleanup/SKILL.md", "**同梱の片付けの返し**"),
     ("plugins/dev-flow/skills/preimpl-cleanup/整地受領証.template.md", "**畳む物**"),
     ("plugins/dev-flow/skills/preimpl-cleanup/整地受領証.template.md", "**残る穴**"),
 ]
@@ -647,7 +670,7 @@ FURUMAI_WORDS = {  # 既定の要の語: 振る舞い.md だけに在り、細�
     "逃げ場": ["「できれば」「間に合わなければ後で」と書かない"],
     "呼び出し": ["2 回で打ち方を変えるか止める"],
     "一覧": ["削らない・選ばない"],
-    "MGkm": ["「MGkm して」と言ったら"],
+    "MGK": ["「MGK して」と言ったら"],
 }
 
 
@@ -849,8 +872,8 @@ def test_差し込む物を足すと増え方の照らしもそれを見る(monk
 
 def test_増え方の照らしは検査の入口から回る():
     assert kaku.injected() == (kaku.KAKU, kaku.FURUMAI)
-    sh = (ROOT / "scripts" / "checks" / "kaku_growth.sh").read_text(encoding="utf-8")
-    assert "kaku.py grow --base" in sh and "origin/main" in sh
+    sh = sh_code((ROOT / "scripts" / "checks" / "kaku_growth.sh").read_text(encoding="utf-8"))   # 注釈の字は回すことにならない
+    assert "kaku.py grow --base" in sh and "pr_shape.py --print-main" in sh   # 比べる元は出所の今の main（前は注釈の origin/main の字で緑だった）
     ci = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
     check_job = ci.split("public-guard:")[0]
     assert "fetch-depth: 0" in check_job, "CI の check が origin/main を取らず、比べる元が無くなる"
