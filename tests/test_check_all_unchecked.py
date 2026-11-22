@@ -123,7 +123,8 @@ def test_注入_印の無い試験が_conftest_と同じ理由の文で飛んで
 def test_この_repo_の飛ばす理由は_待ち_か_部品の名を書く():
     """tests/ の skip のうち前提の file を待つ物は tests/waits.py の wait_for で書く（check_all が印の path を照らす）。"""
     text = (ROOT / "tests" / "test_call_flows.py").read_text(encoding="utf-8")
-    assert 'wait_for(PICTURE' in text and 'PICTURE = "docs/全体の絵.json"' in text
+    # 合意した全体の絵は入った＝待たずに直に照らす（待つ物の表の行も畳んだ）。手で飛ばす形を戻さない。
+    assert "skip(" not in text and "wait_for(" not in text
     assert "がまだ無い" not in (ROOT / "tests" / "test_plugins_list.py").read_text(encoding="utf-8")
 
 

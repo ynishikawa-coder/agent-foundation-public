@@ -12,7 +12,7 @@
     {
       "name": "docs-kit",
       "source": "./plugins/docs-kit",
-      "description": "blueprint・compose-message・make-deck・mindmap・pdf-read・qa-html・theory-mock"
+      "description": "big-picture・blueprint・compose-message・make-deck・mindmap・pdf-read・qa-html・theory-mock"
     },
     {
       "name": "dev-flow",
