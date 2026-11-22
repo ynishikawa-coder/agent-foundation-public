@@ -298,11 +298,11 @@ def test_核の根治は意図_課題_原因_解決_未来の_5_段で_未来は
 
 
 def test_MGK_は根治の_5_段の呼び名で説明の頼みにも_5_段で答える():
-    assert "意図→課題→原因→解決→未来（MGK）" in _節((PLUGIN / "核.md").read_text(encoding="utf-8"), 3), "核 §3 に MGK が無い"
+    assert "意図→課題→原因→解決→未来" in _節((PLUGIN / "核.md").read_text(encoding="utf-8"), 3), "核 §3 に 5 段が無い"
     s3d = _節((PLUGIN / "細目.md").read_text(encoding="utf-8"), 3)
-    assert "**呼び名 MGK**" in s3d, "細目 §3 に MGK の呼び名が無い"
+    assert "（呼び名 MGK。" in s3d, "細目 §3 に MGK の呼び名が無い"
     line = next(l for l in (PLUGIN / "振る舞い.md").read_text(encoding="utf-8").splitlines() if "**MGK**" in l)
-    for word in ["説明", "意図・課題・原因・解決・未来の 5 段の見出しで答える"]:
+    for word in ["説明", "根治の 5 段の見出しで答える"]:
         assert word in line, f"振る舞いの既定の MGK の行に無い: {word}"
 
 
