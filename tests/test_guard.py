@@ -55,9 +55,9 @@ def bash(cmd, sid="s1", cwd="", tpath=""):
 
 
 # ── hook の配線 ──
-def test_hooks_json_が4つの出来事で入口を回す():
+def test_hooks_json_が3つの出来事で入口を回し_Stop_で差し戻す口を持たない():
     data = json.loads((PLUGIN / "hooks" / "hooks.json").read_text(encoding="utf-8"))["hooks"]
-    want = {"PreToolUse": "pre", "PostToolUse": "post", "SessionStart": "start", "Stop": "stop"}
+    want = {"PreToolUse": "pre", "PostToolUse": "post", "SessionStart": "start"}
     assert set(data) == set(want)
     for event, arg in want.items():
         cmd = data[event][0]["hooks"][0]["command"]
@@ -65,7 +65,7 @@ def test_hooks_json_が4つの出来事で入口を回す():
 
 
 def test_壊れた入力では何も出さず通す(env):
-    for event in ("pre", "post", "start", "stop"):
+    for event in ("pre", "post", "start"):
         p = subprocess.run([sys.executable, str(GUARD), event], input="こわれた", capture_output=True, text=True, env=env)
         assert p.returncode == 0 and p.stdout.strip() == ""
 
@@ -254,51 +254,6 @@ def test_作業場と変更の無い作業部屋の掃除は離席中でも通�
     assert not denied(env, bash("rm -rf " + str(wt), cwd=str(repo)))
     (wt / "未記録.txt").write_text("x", encoding="utf-8")
     assert denied(env, bash("rm -rf " + str(wt), cwd=str(repo)))
-
-
-# ── context_size（文脈の量）──
-def usage_log(tmp_path, tokens, first="作り物の頼み", origin=None):
-    head = {"type": "user", "message": {"content": first}}
-    if origin:
-        head["origin"] = {"kind": origin}       # 頼みの行の記録（人が打ったか・別の窓から来たか）
-    return write_log(tmp_path / "ctx.jsonl", [
-        head,
-        {"type": "assistant", "message": {"usage": {"input_tokens": 10, "cache_read_input_tokens": tokens - 10,
-                                                    "cache_creation_input_tokens": 0}, "content": []}}])
-
-
-def post_tool(tpath, sid="s1"):
-    return {"tool_name": "Read", "session_id": sid, "transcript_path": tpath, "tool_response": {}}
-
-
-def test_文脈が目安の手前なら黙る(env, tmp_path):
-    assert hook(env, "post", post_tool(usage_log(tmp_path, 299_999))) == {}
-
-
-def test_文脈が目安を越えた最初の1回だけ知らせる(env, tmp_path):
-    tpath = usage_log(tmp_path, 300_000)
-    note = hook(env, "post", post_tool(tpath)).get("additionalContext", "")
-    assert "<context-watchdog>" in note and "後継の窓へ替えて" in note
-    assert hook(env, "post", post_tool(tpath)) == {}
-
-
-def test_子の窓には止まる側の知らせを出す(env, tmp_path):
-    tpath = usage_log(tmp_path, 400_000, first="あなたは書く窓です（親窓 session_ABC123 の子）。", origin="task-notification")
-    assert "引き継ぎを書いて止まって" in hook(env, "post", post_tool(tpath))["additionalContext"]
-
-
-def test_文脈の目安は値の表で変えられる(env, tmp_path):
-    table = tmp_path / "values.json"
-    table.write_text(json.dumps({"guard": {"context_limit": 1000}}), encoding="utf-8")
-    env["SKILL_VALUES"] = str(table)
-    assert "1,000 token" in hook(env, "post", post_tool(usage_log(tmp_path, 1500)))["additionalContext"]
-
-
-def test_助手の中では文脈を見ない(env, tmp_path):
-    d = tmp_path / "subagents"
-    d.mkdir()
-    tpath = write_log(d / "a.jsonl", [{"type": "assistant", "message": {"usage": {"input_tokens": 999_999}}}])
-    assert hook(env, "post", post_tool(tpath)) == {}
 
 
 def _age_ledger(tmp_path, keys=None):

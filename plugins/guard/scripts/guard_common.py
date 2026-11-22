@@ -24,12 +24,6 @@ import af_place as P  # noqa: E402  土台の在り処探しの 1 本の口（�
 
 DEFAULTS = SV.defaults("guard")
 
-# 窓の種類の決まり（session-watch の title-mark と同じ線）: 最初の頼みの文の返し先が別の窓なら子の窓（文脈の知らせだけが読む）。
-# 文の返し先は手で書いた写しなので、最初の頼みの行の記録（人が打った頼みでない＝seeded_by_record）と合う時だけ数える。
-RETURN_TO_WINDOW = re.compile(r"返し先\s*[=＝:：]\s*session_[A-Za-z0-9]+")
-CHILD_OF = re.compile(r"（親窓\s*session_[A-Za-z0-9]+\s*の子）")
-
-
 GUARD_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
@@ -96,7 +90,7 @@ def patterns(vals, key, flags=0):
 
 def tool_sig(block):
     """道具の呼び出し 1 つの当てる相手: 道具の名・空白 1 つ・入力の JSON（鍵の順に並べた 1 行）。
-    値の表 guard.ask_prior_lookup・context_handoff の当てる相手の正本（schema.json の against と同じ形）。"""
+    値の表 guard.ask_prior_lookup の当てる相手の正本（schema.json の against と同じ形）。"""
     try:
         body = json.dumps(block.get("input") or {}, ensure_ascii=False, sort_keys=True)
     except (TypeError, ValueError):
@@ -237,17 +231,3 @@ def first_owner_row(path):
 def first_owner_text(path):
     row = first_owner_row(path)
     return text_of(row) if row else ""
-
-
-def is_child_prompt(text, seeded=False):
-    """子の窓か。頼みの文の返し先（写し）が別の窓を指し、かつ頼みの行の記録が人の打った物でない時だけ。
-    オーナーが引き継ぎの文を貼った窓（記録は人）は、文に親窓や返し先が在っても子の窓にしない。"""
-    if not seeded:
-        return False
-    return bool(RETURN_TO_WINDOW.search(text or "") or CHILD_OF.search(text or ""))
-
-
-def is_child_log(path):
-    """会話ログの最初の頼みの行で子の窓かを決める（文と記録の両方を読む）。"""
-    row = first_owner_row(path)
-    return bool(row) and is_child_prompt(text_of(row), seeded_by_record(row))

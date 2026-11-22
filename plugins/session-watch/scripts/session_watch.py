@@ -4,8 +4,7 @@
 拾う物（どれも会話ログの中だけで決まる＝外の台帳・get_session の返りを見ない。値の表で外す形だけ読む）:
   title    … 窓の題の目印（`<種類><状態> <作業名>`）が決まりどおりか（題だけで決まる形は title_shape。
              guard の outbound が題を付ける口・窓を立てる口でもこれを直に呼ぶ＝題の形の正本）
-  close    … 返事の最後が締めの 2 行（`AI がこの後やること: …`／`あなたがやること: …`）か。あなたがやることが「なし」なら窓を閉じてよいかを、
-             「なし」でなければ「これが済むまで <何> に進めません」を書いているか
+  close    … 返事の最後が締めの 2 行（`AI がこの後やること: …`／`あなたがやること: …`）か
   card     … 返事の 1 行目が 4 札（✅❓⏳🛑）のどれかで始まるか
              （close と card は、一言で済む返事＝札も締めも無く SHORT_LINES 行以下・このターンに問いを出していない返事を見ない・細目 §5）
   plain    … 答えを求める問いを、選択肢モーダル（AskUserQuestion）でなく平文で書き、AI の今の読みも添えていないか
@@ -35,14 +34,14 @@
 
 使い方:
   python3 session_watch.py <transcript.jsonl>  … 拾った物を 1 行ずつ出す（拾えば exit 1）
-  python3 session_watch.py --remind            … UserPromptSubmit の hook。クラウドの窓で、まだ題に種類（🙋／🤖）を
-                                                 付けていなければ、付けるよう AI に知らせる文を隣に出す。前の返事の
-                                                 あなたがやることに人の手の手順を直に書いていれば、手の窓で頼むよう
-                                                 知らせる（どちらも止めない）
-  python3 session_watch.py --stop              … Stop の hook。AI が返事を締めようとした時、STOP_CODES の札（題の印〔今の題で
-                                                 直せる物・会話ログに題が無い時も〕・1 行目の札・締めの 2 行・平文の問い・中の言葉・
-                                                 時刻・完了の言い切り・秘密）が崩れていれば、AI だけを差し戻して書き直させる
-                                                 （decision=block。人の操作は止めない。同じターンで STOP_MAX 回まで）
+  python3 session_watch.py --remind            … UserPromptSubmit の hook。前の返事の形の知らせ（--stop が置いた物）を
+                                                 隣に出す。クラウドの窓で、まだ題に種類（🙋／🤖）を付けていなければ、付けるよう
+                                                 AI に知らせる。前の返事のあなたがやることに人の手の手順を直に書いていれば、
+                                                 手の窓で頼むよう知らせる（どれも止めない）
+  python3 session_watch.py --stop              … Stop の hook。届いた返事の STOP_CODES の札（題の印〔今の題で直せる物・会話ログに
+                                                 題が無い時も〕・1 行目の札・締めの 2 行・平文の問い・中の言葉・時刻・完了の言い切り・
+                                                 秘密）の崩れを、次の頼みの時に知らせる物として置くだけ（差し戻さない・書き直させない・
+                                                 exit 0 で何も出さない＝返事はそのまま届く）
 読めない・壊れた記録は黙って通す。
 """
 import json
@@ -124,10 +123,8 @@ CHILD_OF = re.compile(r"（親窓\s*session_[A-Za-z0-9]+\s*の子）")
 # 締めの 2 行の型（ここ 1 か所）。前後の ` と ** は許す。
 CLOSE_AI = re.compile(r"^[`*]*AI がこの後やること: ?\S")
 CLOSE_OWNER = re.compile(r"^[`*]*あなたがやること: ?\S")
-# あなたがやることの中身: なし→窓を閉じてよいか／ある→済むまで何に進めないか。
+# あなたがやることが「なし」（人の手の手順・平文の問いの見分けで使う）。
 OWNER_NONE = re.compile(r"^[`*]*あなたがやること: ?なし")
-CLOSE_OK = ("閉じて大丈夫", "閉じないで")
-BLOCKS = "済むまで"
 
 # 平文の問いの型: 末尾が ？／❓ 札で始まる／最後 2 行に問いの言い回し（条件つきの頼みは除く）。
 QEND = re.compile(r"[？?]\s*[)）」』*_`]*\s*$")
@@ -664,12 +661,6 @@ def check(log, closing=None, data=None):
         if close is None:
             found.append(("close", "返事の最後が締めの 2 行（`AI がこの後やること: …`／`あなたがやること: …`）でない: %s"
                           % lines[-1][-60:]))
-        else:
-            owner = close.splitlines()[-1]
-            if OWNER_NONE.match(owner) and not any(w in owner for w in CLOSE_OK):
-                found.append(("close", "あなたがやることが「なし」なのに、この窓を閉じてよいか（閉じて大丈夫／まだ閉じないで）を書いていない"))
-            if not OWNER_NONE.match(owner) and BLOCKS not in owner:
-                found.append(("close", "あなたがやることがあるのに、「これが済むまで <何> に進めません」を書いていない"))
 
     # 動かしていない AI がこの後やること（核 §5: 締める前に AI が自分で動かす）
     #   待ちの題（❓ オーナーの答え待ち／⏳ 手待ち・子の返し待ち）と、この窓で既に動かした手（子窓・見張り）は拾わない。
@@ -777,13 +768,15 @@ def titled(log):
 
 
 def remind(data, env=None):
-    """出す文（str）か None。クラウドの窓（題の道具を持つ窓）で、まだ種類の印を付けていない時だけ。"""
+    """出す文（str）か None。前の返事の形の知らせ（Stop の hook が置いた物・1 回だけ出す）と、クラウドの窓（題の道具を
+    持つ窓）でまだ種類の印を付けていない時の知らせ。"""
     env = os.environ if env is None else env
-    if str(env.get("CLAUDE_CODE_REMOTE", "")).lower() != "true":
-        return None
-    path = data.get("transcript_path") or ""
-    log = Log(read_rows(path)) if path and os.path.exists(path) else Log([])
-    out = [t for t in (remind_title(log, data), remind_hand(log)) if t]
+    out = [take_note(env, data.get("session_id"))]
+    if str(env.get("CLAUDE_CODE_REMOTE", "")).lower() == "true":
+        path = data.get("transcript_path") or ""
+        log = Log(read_rows(path)) if path and os.path.exists(path) else Log([])
+        out += [remind_title(log, data), remind_hand(log)]
+    out = [t for t in out if t]
     return "\n".join(out) if out else None
 
 
@@ -825,15 +818,13 @@ def hook_remind(stdin):
     return 0
 
 
-# ── 差し戻す（Stop の hook・止まるのは AI だけ）────────────────
+# ── 知らせる（Stop の hook が置き、次の頼みの時に UserPromptSubmit の hook が出す・差し戻さない）────────────────
 STOP_CODES = ("title", "card", "close", "plain", "inner", "time", "done", "secret", "neighbor")
-#   差し戻す札（核 §1・§2・§4・§5・§6・§7 の、AI が読み飛ばすとそのまま人に届く所）。ほか（idk・unanswered・rest・hand）は
-#   手で回す点検と知らせるだけ。neighbor（隣の正本が見つからない）は窓ごとに 1 回だけ差し戻す（AI には直せない＝回さない）。
-STOP_MAX = 2                              # 同じターンで差し戻す回数の上限（越えたら通して届ける＝窓が回り続けない）
-STOP_OFF = "AF_SESSION_WATCH_STOP"        # 0／false で差し戻しを切る（見張りが壊れた時の逃げ道・人の手でだけ設定する）
-STOP_HEAD = ("[session-watch] 返事の形が崩れているので、まだ届けていない。下を直して、返事を頭から全部書き直す"
-             "（道具を打ったら、その後に書いた本文が届く返事になる）。形の正本は核 §4・§5（細目 §5）・skill "
-             "`session-watch:title-mark`。")
+#   知らせる札（核 §1・§2・§4・§5・§6・§7 の、AI が読み飛ばすとそのまま人に届く所）。ほか（idk・unanswered・rest・hand）は
+#   手で回す点検だけ。neighbor（隣の正本が見つからない）は窓ごとに 1 回だけ知らせる（AI には直せない）。
+#   返事は差し戻さない（書き直しは同じ返事を 2 度書く無駄になる＝届いた返事はそのまま・次の返事から合わせる）。
+NOTE_HEAD = ("[session-watch] 前の返事の形が崩れていた（返事は届いている・書き直さない・差し戻していない）。次の返事から下を合わせる。"
+             "形の正本は核 §4・§5（細目 §5）・skill `session-watch:title-mark`。")
 STOP_HOW = {
     "plain": "選ぶ問いは選択肢の画面で聞く（「分からない」も置く・推奨の印は作り方の分かれ道だけ）。意味・考え・前提を問う開いた問いは"
              "「AI の今の読み」を添えて書く。調べれば決まる事は AI が決めて進める（細目 §4）。",
@@ -842,14 +833,14 @@ STOP_HOW = {
     "time": "時刻は「YYYY-MM-DD HH:MM 日本時間」で書く（UTC の時刻は 9 時間足す）。記録をそのまま見せる時はコードの囲みに入れる（核 §6）。",
     "done": "確かめた事だけを言い切る。確かめ切れていない所があれば 1 行目を「一部」「止めた」の形にし、何が残るかを書く（核 §7）。"
             "人の言葉を引くだけなら「」で囲む。",
-    "secret": "鍵・トークンの値を返事から消し、在り処（環境の値の名・設定の場所）だけを書く。出てしまった鍵は人に作り直しを頼む（核 §1）。",
+    "secret": "鍵・トークンの値を以後の返事に出さず、在り処（環境の値の名・設定の場所）だけを書く。出てしまった鍵は人に作り直しを頼む（核 §1）。",
     "neighbor": "上の行が名指す原因を直す: 値の表の読めない形なら、その形を直す PR を出すか、あなたがやることに書く。隣の正本が"
                 "見つからないなら、土台の plugin guard と市場の写し（公開の検査）を入れ直す（docs/核の届け方.md）。読めない形は捨てて"
                 "照らし続けているので、他の札は効いている。この知らせは窓ごとに 1 回だけ。",
 }
-STOP_FOOT = ("誤って差し戻した時（引いた言葉・記録の写しに当たった等）: 当たる行の形を値の表 config/skill-values.json の "
+STOP_FOOT = ("誤って当たった時（引いた言葉・記録の写しに当たった等）: 当たる行の形を値の表 config/skill-values.json の "
              "session-watch.watch-log.reply_exempt（行に当てる正規表現の並び）に、中の言葉の字は guard.ask_term_allow に足す（PR とレビューを"
-             "通す）。見張りが壊れた時だけ環境変数 %s=0 で切る。" % STOP_OFF)
+             "通す）。")
 
 
 def stop_tmp(env):
@@ -857,33 +848,36 @@ def stop_tmp(env):
     return env.get("AF_SESSION_WATCH_TMP") or os.path.join(tempfile.gettempdir(), "af-session-watch")
 
 
-def _count(env, sid, reset):
-    """この窓の今のターンで差し戻した回数を 1 つ進めて返す（stop_hook_active が偽＝新しい締めなら 0 から）。"""
-    d = stop_tmp(env)
+def _note_path(env, sid):
     name = "".join(c for c in str(sid or "nosid") if c.isalnum() or c in "-_")[:120] or "nosid"
-    path = os.path.join(d, name + ".stop")
-    n = 0
-    if not reset:
-        try:
-            with open(path, encoding="utf-8") as f:
-                n = int(f.read().strip() or 0)
-        except (OSError, ValueError):
-            n = 0
-    n += 1
+    return os.path.join(stop_tmp(env), name + ".note")
+
+
+def put_note(env, sid, text):
+    """次の頼みの時に出す知らせを置く（前の知らせは新しい物に替える＝溜めない）。置けなければ黙る。"""
     try:
-        os.makedirs(d, exist_ok=True)
-        with open(path, "w", encoding="utf-8") as f:
-            f.write(str(n))
+        os.makedirs(stop_tmp(env), exist_ok=True)
+        with open(_note_path(env, sid), "w", encoding="utf-8") as f:
+            f.write(text)
     except OSError:
         pass
-    return n
+
+
+def take_note(env, sid):
+    """置いた知らせを 1 回だけ取り出す（取り出したら消す）。無ければ None。"""
+    path = _note_path(env, sid)
+    try:
+        with open(path, encoding="utf-8") as f:
+            text = f.read()
+        os.remove(path)
+    except OSError:
+        return None
+    return text or None
 
 
 def stop(data, env=None):
-    """差し戻す理由（str）か None。今の返事（last_assistant_message・無ければ会話ログの締め）の形を見る。"""
+    """知らせる文（str）か None。今の返事（last_assistant_message・無ければ会話ログの締め）の形を見る。"""
     env = os.environ if env is None else env
-    if str(env.get(STOP_OFF, "")).strip().lower() in ("0", "false", "off", "no"):
-        return None
     path = data.get("transcript_path") or ""
     log = Log(read_rows(path)) if path and os.path.exists(path) else Log([])
     if str(env.get("CLAUDE_CODE_REMOTE", "")).lower() == "true":
@@ -895,10 +889,7 @@ def stop(data, env=None):
         found = [(c, m) for c, m in found if c != "neighbor"]
     if not found:
         return None
-    if _count(env, data.get("session_id"), reset=not data.get("stop_hook_active")) > STOP_MAX:
-        sys.stderr.write("[session-watch] 差し戻しが %d 回を越えたので通す\n" % STOP_MAX)
-        return None
-    out = [STOP_HEAD] + ["- %s: %s" % (c, m) for c, m in found]
+    out = [NOTE_HEAD] + ["- %s: %s" % (c, m) for c, m in found]
     hows = [c for c in dict.fromkeys(c for c, _ in found) if c in STOP_HOW]
     if hows:
         out.append("直し方:")
@@ -924,13 +915,15 @@ def _seen(env, sid, what):
 
 
 def hook_stop(stdin):
+    """崩れを次の頼みの時の知らせとして置くだけ。何も出さない（decision=block で差し戻さない＝返事を書き直させない）。"""
     try:
         data = json.loads(stdin.read() or "{}")
-        reason = stop(data if isinstance(data, dict) else {})
+        data = data if isinstance(data, dict) else {}
+        note = stop(data)
+        if note:
+            put_note(os.environ, data.get("session_id"), note)
     except Exception:          # noqa: BLE001  見張りの故障で窓を止めない
         return 0
-    if reason:
-        print(json.dumps({"decision": "block", "reason": reason}, ensure_ascii=False))
     return 0
 
 

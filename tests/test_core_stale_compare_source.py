@@ -19,12 +19,12 @@ SETUP_FIX = "update_environment"
 # ── 起動の時の古さ: setup の時の main と比べる ──
 
 def test_setup_が古い物を入れた窓には_setup_script_を直せと言う(tmp_path):
-    """注入 (b): setup の時の main の先端は進んでいたのに、setup は 1 つ前を入れた → 直してから引き継ぐ知らせ。"""
+    """注入 (b): setup の時の main の先端は進んでいたのに、setup は 1 つ前を入れた → setup script を直す知らせ（窓は続ける）。"""
     f = Foundation(tmp_path)
     tip = _commit(f.work, {"plugins/guard/x.py": "x\n"}, "守りを変える")
     f.install(main_at_setup=tip)
     text = f.hook("inject")
-    assert "土台が古いまま立った窓 — setup script を直して" in text and SETUP_FIX in text and tip[:12] in text
+    assert "土台が古いまま立った窓 — setup script を直し、窓はそのまま続ける" in text and SETUP_FIX in text and tip[:12] in text
     assert f.hook("fresh") == ""                            # 起動の知らせが扱う（二重に出さない）
 
 

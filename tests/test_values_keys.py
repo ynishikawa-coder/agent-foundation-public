@@ -57,7 +57,7 @@ def _named(problems, path):
     "common": {"glossary": {"作り物の語": "意味"}, "save_dir": "/tmp/x"},
     "dev-flow": {"preimpl-cleanup": {"record": "PR 本文", "ledger": "1 行ずつ"}, "codex": {"clients": {"作り物": {"paths": []}}}},
     "docs-kit": {"qa-html": {"customer": {"check_cmd": "作り物"}}, "pdf-read": {"engine_source": "作り物"}},
-    "guard": {"context_limit": 1000, "_readme": "注"},
+    "guard": {"ask_question_max_chars": 30, "_readme": "注"},
     "作り物の repo の頭": {"何でも": "repo が自分で持つ所は見ない"},
 }
 
@@ -117,9 +117,9 @@ def test_values_keys_AI_が知らない鍵を書くと止める(env):
 def test_values_keys_知らない鍵を残したままの編集は止め_減らす編集は通す(env):
     proj = Path(env["CLAUDE_PROJECT_DIR"])
     (proj / "config").mkdir()
-    old = {"guard": {"context_limit": 1, "古い鍵 1": 1, "古い鍵 2": 2}}
+    old = {"guard": {"ask_question_max_chars": 1, "古い鍵 1": 1, "古い鍵 2": 2}}
     (proj / "config" / "skill-values.json").write_text(json.dumps(old, ensure_ascii=False, indent=1), encoding="utf-8")
-    keep = _vk_write(env, None, tool="Edit", old_string='"context_limit": 1', new_string='"context_limit": 2')
+    keep = _vk_write(env, None, tool="Edit", old_string='"ask_question_max_chars": 1', new_string='"ask_question_max_chars": 2')
     keep["tool_input"].pop("content")
     assert denied(env, keep)
     drop = _vk_write(env, None, tool="Edit", old_string='"古い鍵 1": 1,', new_string="")
@@ -217,7 +217,6 @@ def test_values_keys_道具のコードが読む鍵は全部_SKILL_の表に在�
 
 @pytest.mark.parametrize("rel, code", [
     ("plugins/dev-flow/skills/spec-doc/seal.py", 'x = values.get("zz_new_key")'),
-    ("plugins/guard/scripts/context_size.py", 'x = vals.get("zz_ctx")'),
     ("plugins/docs-kit/skills/qa-html/check.mjs", 'const x = company["zz_lead"];'),
     ("plugins/docs-kit/skills/qa-html/check.mjs", "const x = company?.zz_lead;"),
 ])

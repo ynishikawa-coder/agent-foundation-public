@@ -176,7 +176,7 @@ def test_repo_自身の欄と注は照らさない(tmp_path):
     ({"dev-flow": {"register-rule": {"agents_table": []}}}, "dev-flow.register-rule.agents_table は畳んだ鍵"),
     ({"dev-flow": {"codex": {"pack_dri": "x"}}}, "dev-flow.codex.pack_dri は知らない鍵"),
     ({"docs-kit": {"qa-htm": {}}}, "docs-kit.qa-htm は知らない skill の欄"),
-    ({"guard": {"context_limit": "300000"}}, "guard.context_limit の型が違う"),
+    ({"guard": {"ask_question_max_chars": "60"}}, "guard.ask_question_max_chars の型が違う"),
     ({"guard": {"context_limt": 1}}, "guard.context_limt は知らない鍵"),
     ({"docs-kit": {"qa-html": {"customer": {"check_cmmd": "x"}}}}, "docs-kit.qa-html.customer.check_cmmd は知らない鍵"),
     ({"common": {"save_dir": ["a"]}}, "common.save_dir の型が違う"),
@@ -199,15 +199,15 @@ def test_壊れた表は名指しする(tmp_path):
 
 
 def test_探し方は_values_と_SKILL_VALUES_と起点の順(tmp_path):
-    r = make_repo(tmp_path, {"guard": {"context_limit": 5}})
+    r = make_repo(tmp_path, {"guard": {"ask_question_max_chars": 5}})
     other = tmp_path / "other.json"
-    other.write_text(json.dumps({"guard": {"context_limit": 7}}), encoding="utf-8")
-    get = lambda *a, **kw: sv("get", "guard", "context_limit", *a, **kw).stdout.strip()  # noqa: E731
+    other.write_text(json.dumps({"guard": {"ask_question_max_chars": 7}}), encoding="utf-8")
+    get = lambda *a, **kw: sv("get", "guard", "ask_question_max_chars", *a, **kw).stdout.strip()  # noqa: E731
     assert get(cwd=r / "sub") == "5"                                           # 今の dir から上へ（repo の根で止まる）
     assert get(cwd=tmp_path, env=clean_env(CLAUDE_PROJECT_DIR=str(r))) == "5"  # 窓の repo
     assert get(cwd=r, env=clean_env(SKILL_VALUES=str(other))) == "7"
     assert get("--values", str(other), cwd=r) == "7"
-    missing = sv("get", "guard", "context_limit", "--values", str(tmp_path / "nai.json"), cwd=r)
+    missing = sv("get", "guard", "ask_question_max_chars", "--values", str(tmp_path / "nai.json"), cwd=r)
     assert missing.returncode == 2 and "表の file が無い" in missing.stderr     # 渡した path が無いのを黙って既定にしない
 
 
@@ -281,12 +281,12 @@ def test_guard_は起動の時に表全体を名指しで知らせる(tmp_path):
 
 
 def test_guard_は正しい表なら黙る(tmp_path):
-    r = make_repo(tmp_path, {"guard": {"context_limit": 1000}})
+    r = make_repo(tmp_path, {"guard": {"ask_question_max_chars": 1000}})
     assert guard_start(r, tmp_path) == ""
 
 
 def test_guard_は問題の鍵だけ既定で動き守りを止めない(tmp_path, monkeypatch):
-    r = make_repo(tmp_path, {"guard": {"context_limit": "多い", "ask_question_max_chars": 30, "nazo": 1}})
+    r = make_repo(tmp_path, {"guard": {"ask_question_max_sentences": "多い", "ask_question_max_chars": 30, "nazo": 1}})
     monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(r))
     monkeypatch.delenv("SKILL_VALUES", raising=False)
     monkeypatch.setattr(sys, "dont_write_bytecode", True)   # plugin の置き場に __pycache__ を作らない
@@ -296,6 +296,6 @@ def test_guard_は問題の鍵だけ既定で動き守りを止めない(tmp_pat
         v = G.values({})
     finally:
         sys.path.remove(str(GUARD.parent))
-    assert v["context_limit"] == SCHEMA["sections"]["guard"]["keys"]["context_limit"]["default"]
+    assert v["ask_question_max_sentences"] == SCHEMA["sections"]["guard"]["keys"]["ask_question_max_sentences"]["default"]
     assert v["ask_question_max_chars"] == 30
     assert "nazo" not in v
