@@ -170,7 +170,8 @@ def iter_rows(path, tail_bytes=0):
                 raw = raw.split(b"\n", 1)[1]
         else:
             raw = f.read()
-    for line in raw.decode("utf-8", "replace").splitlines():
+    # 1 行 1 件の JSON は改行（\n）だけで割る。splitlines() は U+2028 などでも割り、その字を含む行を壊れ行として捨てる
+    for line in raw.decode("utf-8", "replace").split("\n"):
         line = line.strip()
         if not line:
             continue
