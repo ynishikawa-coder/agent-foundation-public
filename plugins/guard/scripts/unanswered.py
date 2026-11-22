@@ -33,7 +33,8 @@
   時間切れの印つきでも一部だけ答えが返る返りがある）。
 子の窓も問う窓（オーナーへ直に問う）として同じに扱う。値の表の unattended_env が真の窓だけ働かない。
 台帳の天井: 台帳は消せば消える（会話ログと違い追記だけではない）。台帳は思い出すための物で、通すための物ではない。
-壊れた時は全部黙って通す（答えを引き出すための層で、仕事を止める価値は無い）。
+壊れた時: 仕事は止めないが黙りもしない。読めない台帳は空と取り違えず（上書きで問いを消さない）、<台帳>.broken-<時刻> へ
+  移して新しく始め、移した事と置き場を隣の文・冒頭の文・命令の出力に出す。書けない時も訳を出す（update_ledger の戻り値）。
 """
 from __future__ import annotations
 
@@ -175,13 +176,19 @@ def _trim_expired(recent):
     return done[-ANSWERED_KEEP:] + [e for e in recent if _unnotified(e)]
 
 
+class LedgerBroken(Exception):
+    """台帳が在るのに読めない（JSON でない・形が違う・開けない）。空の台帳と取り違えない（上書きで問いを消さない）。"""
+
+
 def _parse(raw):
+    if not raw.strip():
+        return _empty()
     try:
-        d = json.loads(raw) if raw.strip() else _empty()
-    except ValueError:
-        return _empty()
+        d = json.loads(raw)
+    except ValueError as e:
+        raise LedgerBroken("JSON として読めない（%s）" % e) from None
     if not isinstance(d, dict):
-        return _empty()
+        raise LedgerBroken("中身が dict でない（%s）" % type(d).__name__)
     for k in ("pending", "answered_recent", "dropped_recent", "expired_recent"):
         if not isinstance(d.get(k), list):
             d[k] = []
@@ -191,20 +198,29 @@ def _parse(raw):
 
 
 def read_ledger(path):
-    if not path or not os.path.isfile(path):
+    """台帳の dict。無ければ空。在るのに読めなければ LedgerBroken（空と取り違えない）。"""
+    if not path or not os.path.lexists(path):
         return _empty()
     try:
         with open(path, encoding="utf-8") as f:
             return _parse(f.read())
-    except OSError:
-        return _empty()
+    except (OSError, UnicodeDecodeError) as e:
+        raise LedgerBroken("開けない（%s）" % e.__class__.__name__) from None
+
+
+def _set_aside(path):
+    """読めない台帳を <台帳>.broken-<時刻> へ移す（消さない・上書きしない）。移した先の path。"""
+    dest = "%s.broken-%s-%d" % (path, G.now_utc().replace(":", "").replace(".", ""), os.getpid())
+    os.replace(path, dest)
+    return dest
 
 
 def update_ledger(path, fn):
     """鍵（<台帳>.lock）の中で 読む→fn で直す→書く を 1 回でする（同じ機械の 2 つの窓が同時に積んでも消えない）。
-    書けなければ False。fn は台帳の dict を直に直す。"""
+    戻り値は (書けたか, 人に見せる知らせ)。知らせは書けなかった訳か、読めない台帳を脇へ移して新しく始めた事
+    （読めない台帳を空で上書きしない＝積んだ問いを黙って消さない）。fn は台帳の dict を直に直す。"""
     if not path:
-        return False
+        return False, "台帳の置き場を決められず、書けなかった"
     try:
         os.makedirs(os.path.dirname(path), exist_ok=True)
         with open(path + ".lock", "a+") as lock:
@@ -213,16 +229,23 @@ def update_ledger(path, fn):
                 fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
             except ImportError:      # 鍵の無い OS では鍵なしで進む
                 pass
-            data = read_ledger(path)
+            note = ""
+            try:
+                data = read_ledger(path)
+            except LedgerBroken as e:
+                dest = _set_aside(path)
+                data = _empty()
+                note = ("台帳 %s が読めなかった（%s）ので、消さずに %s へ移し、新しい台帳で続けた。移した台帳に"
+                        "積んであった問いはこの知らせからは出せない＝中身を開いて、要る問いを出し直す" % (path, e, dest))
             fn(data)
             data["updated_at"] = G.now_utc()
             tmp = "%s.%d.tmp" % (path, os.getpid())
             with open(tmp, "w", encoding="utf-8") as f:
                 json.dump(data, f, ensure_ascii=False, indent=1)
             os.replace(tmp, path)
-        return True
-    except Exception:
-        return False
+        return True, note
+    except Exception as e:
+        return False, "台帳 %s に書けなかった（%s: %s）" % (path, e.__class__.__name__, e)
 
 
 def carry(data, items, session_id):
@@ -320,18 +343,30 @@ def away_path(session_id):
     return os.path.join(G.tmp_dir("away"), sid + ".json") if sid else ""
 
 
-def open_away(session_id, items):
+def open_away(session_id, items, tpath=""):
+    """離席の印を開く。会話ログの今の長さ（バイト）を記す＝戻りはこの位置より後の人の行で数える（時刻では比べない）。
+    もう開いていれば、前の問いの控えを残して位置を今に進める（今また答えが返らなかった＝今も席を外している）。
+    書きかけの印を残さない（一時ファイルから置き換える）。(印の path, 書けなかった訳)。"""
     p = away_path(session_id)
     if not p or not items:
-        return ""
+        return "", ("" if p else "窓の id が無く、離席の印を置けなかった")
+    try:
+        pos = os.path.getsize(tpath) if tpath else None
+    except OSError:
+        pos = None                # 位置を記せない印は、答えが返るまで戻りを数えない（irreversible が止め続ける）
+    prev = read_away(session_id) or {}
+    qs = [q for q in prev.get("questions") or [] if isinstance(q, str)]
+    qs += [q for q in (i.get("question", "")[:120] for i in items) if q not in qs]
+    tmp = "%s.%d.tmp" % (p, os.getpid())
     try:
         os.makedirs(os.path.dirname(p), exist_ok=True)
-        with open(p, "w", encoding="utf-8") as f:
-            json.dump({"since": G.now_utc(), "session_id": session_id,
-                       "questions": [i.get("question", "")[:120] for i in items]}, f, ensure_ascii=False)
-        return p
-    except OSError:
-        return ""
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump({"since": G.now_utc(), "session_id": session_id, "log": tpath, "log_pos": pos,
+                       "questions": qs}, f, ensure_ascii=False)
+        os.replace(tmp, p)
+        return p, ""
+    except OSError as e:
+        return "", "離席の印 %s を書けなかった（%s）" % (p, e.__class__.__name__)
 
 
 def close_away(session_id):
@@ -344,16 +379,19 @@ def close_away(session_id):
 
 
 def read_away(session_id):
-    """開いていれば中身、閉じていれば None（在席中はここで終わる＝stat 1 回）。"""
+    """開いていれば中身、閉じていれば None（在席中はここで終わる＝stat 1 回）。
+    在るのに読めない印は閉じたと取り違えない＝{"broken": 訳} を返す（irreversible は止め続け、訳を文に出す）。"""
     p = away_path(session_id)
-    if not p or not os.path.isfile(p):
+    if not p or not os.path.lexists(p):
         return None
     try:
         with open(p, encoding="utf-8") as f:
             d = json.load(f)
-        return d if isinstance(d, dict) else None
-    except Exception:
-        return None
+    except (OSError, ValueError) as e:
+        return {"broken": "離席の印 %s が読めない（%s）" % (p, e.__class__.__name__), "questions": []}
+    if not isinstance(d, dict):
+        return {"broken": "離席の印 %s の中身が dict でない" % p, "questions": []}
+    return d
 
 
 # ── hook の口 ──
@@ -380,16 +418,20 @@ def capture(data, vals):
         return ""
     session_id = str(data.get("session_id") or "")
     path = ledger_path(vals, data)
+    note = ""
     if unanswered or pairs:
-        update_ledger(path, lambda d: (close_answered(d, pairs), carry(d, unanswered, session_id)))
+        _ok, note = update_ledger(path, lambda d: (close_answered(d, pairs), carry(d, unanswered, session_id)))
     if pairs:
         close_away(session_id)
     elif unanswered:
-        open_away(session_id, unanswered)
+        _p, away_note = open_away(session_id, unanswered, tpath)
+        if away_note:     # 印が無いと戻せない操作を止められない＝黙らない
+            note = "；".join(n for n in (note, away_note + "。戻せない操作を機械が止められないので、答えが返るまで自分で行わない") if n)
+    tail = "\n<unanswered-ledger-trouble>%s</unanswered-ledger-trouble>" % note if note else ""
     if not unanswered:
-        return ""
+        return tail.strip()
     stems = " / ".join("「%s」" % i["question"][:48] for i in unanswered)
-    return REMINDER.format(n=len(unanswered), stems=stems, ttl=LEDGER_TTL_HOURS, ledger=path or "(置き場を決められず)")
+    return REMINDER.format(n=len(unanswered), stems=stems, ttl=LEDGER_TTL_HOURS, ledger=path or "(置き場を決められず)") + tail
 
 
 def _lines_for(n, it, with_key=True):
@@ -410,9 +452,12 @@ def _lines_for(n, it, with_key=True):
 
 def _quiet_retire(path):
     """人のいない窓: 寿命切れ・文面の無い行を、知らせずに控えへ移す（知らせは次の人のいる窓）。台帳が無ければ作らない。"""
-    if not path or not os.path.isfile(path):
+    if not path or not os.path.lexists(path):
         return
-    old = [p for p in read_ledger(path).get("pending", []) if row_state(p) not in (None, "live")]
+    try:
+        old = [p for p in read_ledger(path).get("pending", []) if row_state(p) not in (None, "live")]
+    except LedgerBroken:
+        return      # 読めない台帳は人のいない窓では触らない（次の人のいる窓の resurface が脇へ移して知らせる）
     keys = {p.get("key") for p in old if p.get("key")}
     keyless = sum(1 for p in old if not p.get("key"))
     if old:
@@ -432,7 +477,11 @@ def resurface(data, vals):
     if G.unattended_by_env(vals):
         _quiet_retire(path)
         return ""
-    ledger = read_ledger(path)
+    try:
+        ledger = read_ledger(path)
+    except LedgerBroken:
+        _ok, note = update_ledger(path, lambda d: None)     # 脇へ移して知らせる（移せなければ書けなかった訳）
+        return "<unanswered-question-carryover>\n%s\n</unanswered-question-carryover>" % note
     rows = [p for p in ledger.get("pending", []) if row_state(p)]
     items = [p for p in rows if row_state(p) == "live"]
     gone = [p for p in rows if row_state(p) != "live"]
@@ -452,8 +501,11 @@ def resurface(data, vals):
         keys = {p.get("key") for p in gone if p.get("key")}
         keyless = sum(1 for p in gone if not p.get("key"))
         marks = [(e.get("key"), e.get("expired_at")) for e in moved]
-        if not update_ledger(path, lambda d: retire(d, keys, notified=True, notified_marks=marks, keyless=keyless)):
-            lines.append("（台帳を書けず、降ろせませんでした。次の窓でもう一度知らせます）")
+        ok, note = update_ledger(path, lambda d: retire(d, keys, notified=True, notified_marks=marks, keyless=keyless))
+        if not ok:
+            lines.append("（台帳を書けず、降ろせませんでした。次の窓でもう一度知らせます。訳: %s）" % note)
+        elif note:
+            lines.append("（%s）" % note)
         lines += ["降ろした問いの控え: 台帳 %s の expired_recent" % path]
         if not items:
             lines.append(ROOT_CAUSE)     # 寿命切れだけの時も、答えが返らなかった原因へ向ける
@@ -495,7 +547,11 @@ def cli(argv):
         sys.stderr.write(usage)
         return 2
     if argv[0] == "list":
-        ledger = read_ledger(path)
+        try:
+            ledger = read_ledger(path)
+        except LedgerBroken as e:
+            sys.stderr.write("台帳 %s が読めない（%s）。drop を打てば脇へ移して新しく始める\n" % (path, e))
+            return 1
         for p in ledger.get("pending", []):
             if row_state(p):
                 print("%s\t%s%s" % (p.get("key", ""), LIST_MARK[row_state(p)], p.get("question", "")))
@@ -517,9 +573,10 @@ def cli(argv):
         sys.stderr.write("drop には key と --why（答え済み・要らない訳）が要る\n")
         return 2
     gone = []
-    ok = update_ledger(path, lambda d: gone.extend(drop(d, args, why[:200])))
+    ok, note = update_ledger(path, lambda d: gone.extend(drop(d, args, why[:200])))
+    if note:
+        sys.stderr.write(note + "\n")
     if not ok:
-        sys.stderr.write("台帳に書けなかった: %s\n" % (path or "(置き場を決められず)"))
         return 1
     missing = sorted(set(args) - {p.get("key") for p in gone})
     for p in gone:

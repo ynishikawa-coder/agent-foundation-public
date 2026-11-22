@@ -130,9 +130,6 @@ def state_dir(vals, payload=None):
     return d
 
 
-GUARD_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-
-
 def now_utc():
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
 
@@ -158,29 +155,62 @@ def parse_ts(text):
 
 
 # ── 会話ログ（transcript の JSONL）──
-def iter_rows(path, tail_bytes=0):
-    """1 行ずつ dict で返す（壊れ行は飛ばす）。tail_bytes>0 なら末尾だけ読む。"""
+class Log:
+    """会話ログを頭から全部読んだ物（末尾だけ読まない＝大きな出力の後ろに人の行が埋もれても落とさない）。
+    rows: 読めた行（dict）／pos: 各行の頭のバイト位置／broken: 読めなかった行の番号（1 始まり）／
+    partial: 改行で終わらず JSON として読めない最後の行（書きかけ）が在るか／size: 読んだバイト数。
+    読めない行は黙って捨てない＝使う側は broken を見て、判定に要る所なら止める側に倒し、行の番号を文に出す。"""
+
+    __slots__ = ("path", "rows", "pos", "broken", "partial", "broken_pos", "size")
+
+    def __init__(self, path):
+        self.path, self.rows, self.pos, self.broken, self.partial, self.broken_pos = path, [], [], [], False, []
+        self.size = 0
+
+    def after(self, offset):
+        """offset（バイト位置）から後に書かれた行と、その範囲の読めなかった行の番号。"""
+        rows = [r for r, p in zip(self.rows, self.pos) if p >= offset]
+        return rows, [n for n, p in self.broken_pos if p >= offset]
+
+
+def read_log(path):
+    """会話ログを読む guard の 1 本の口（今は guard だけが使う。session-watch は自前の読み口を持ち、写しが残る＝持ち主は直す窓）。開けない時は OSError をそのまま上げる
+    （読めないを「人の行が無い」と取り違えない）。"""
+    log = Log(path)
     with open(path, "rb") as f:
-        if tail_bytes:
-            f.seek(0, os.SEEK_END)
-            size = f.tell()
-            f.seek(max(0, size - tail_bytes))
-            raw = f.read()
-            if size > tail_bytes and b"\n" in raw:
-                raw = raw.split(b"\n", 1)[1]
-        else:
-            raw = f.read()
-    # 1 行 1 件の JSON は改行（\n）だけで割る。splitlines() は U+2028 などでも割り、その字を含む行を壊れ行として捨てる
-    for line in raw.decode("utf-8", "replace").split("\n"):
-        line = line.strip()
-        if not line:
+        raw = f.read()
+    log.size = len(raw)
+    off = 0
+    lines = raw.split(b"\n")      # 1 行 1 件の JSON は改行（\n）だけで割る（splitlines() は U+2028 などでも割る）
+    for n, chunk in enumerate(lines, 1):
+        here, off = off, off + len(chunk) + 1
+        text = chunk.decode("utf-8", "replace").strip()
+        if not text:
             continue
         try:
-            row = json.loads(line)
+            row = json.loads(text)
         except ValueError:
+            if n == len(lines):            # 改行で終わらない最後の行＝書きかけ（壊れ行と数えない）
+                log.partial = True
+            else:
+                log.broken.append(n)
+                log.broken_pos.append((n, here))
             continue
-        if isinstance(row, dict):
-            yield row
+        if not isinstance(row, dict):
+            log.broken.append(n)
+            log.broken_pos.append((n, here))
+            continue
+        log.rows.append(row)
+        log.pos.append(here)
+    return log
+
+
+def broken_note(path, numbers, limit=8):
+    """読めなかった行を人に見せる 1 文（行の番号は頭の limit 個）。"""
+    if not numbers:
+        return ""
+    shown = "・".join(str(n) for n in numbers[:limit]) + (" ほか %d 行" % (len(numbers) - limit) if len(numbers) > limit else "")
+    return "会話ログ %s の %d 行が JSON として読めなかった（行の番号: %s）" % (path, len(numbers), shown)
 
 
 def text_of(row):
@@ -200,7 +230,8 @@ def is_owner_row(row):
 
 
 # 人が打った頼みの記録（会話ログの行の origin.kind。Claude Code が頼みを受けた口で付ける＝文の中身では変わらない）。
-# 正本はここ 1 か所（plugin session-watch も隣の正本としてこれを直に読む＝写さない）。
+# 正本はここ 1 か所（plugin session-watch は seeded_by_record を通してだけこれを読む。人の行の見分け〔is_owner_text〕は
+# session-watch に自前の写しが残る＝持ち主は直す窓）。
 HUMAN_ORIGINS = ("human", "person")
 # 窓の環境の CLAUDE_CODE_CHILD_SESSION は読まない: 公式の文書（code.claude.com/docs/en/env-vars）では「Claude Code が Bash・
 # hook・status line で起動する子プロセスに付く 1」で、どの窓でも hook の中では 1＝別の窓が立てた窓の見分けにならない。
@@ -219,16 +250,35 @@ def seeded_by_record(row):
     return row.get("promptSource") == "system"
 
 
-def first_owner_row(path):
-    try:
-        for row in iter_rows(path):
-            if is_owner_row(row):
-                return row
-    except Exception:
-        return None
-    return None
+def is_compact_summary(row):
+    """会話を縮めた後の続きの行（人の行の形だが、Claude Code が書く要約）。"""
+    return bool(isinstance(row, dict) and row.get("isCompactSummary"))
 
 
-def first_owner_text(path):
-    row = first_owner_row(path)
-    return text_of(row) if row else ""
+def is_compact_boundary(row):
+    """会話を縮めた境の行（これより前の中身は文脈から外れている）。"""
+    return isinstance(row, dict) and row.get("type") == "system" and row.get("subtype") == "compact_boundary"
+
+
+# 人が Esc で止めた時に Claude Code が書く印の行（人の行の形だが、人が打った頼みではない）。字は Claude Code が決める定まった文
+INTERRUPT_MARK = re.compile(r"^\[Request interrupted by user(?: for tool use)?\]$")
+
+
+def is_interrupt_mark(row):
+    """人が止めた時に Claude Code が書く中断の印の行か（新しい頼みではない）。"""
+    return isinstance(row, dict) and bool(INTERRUPT_MARK.match(text_of(row).strip()))
+
+
+def is_human_row(row):
+    """人がタイプした頼みの行か（正本はこの 1 つ）。知らせ・別の窓の頼み（seeded_by_record）・縮めた後の要約・中断の印は
+    人の行でない。頼みを切る・オーナーが戻ったかを見る所は、どれもこれで見る（形だけの is_owner_row で番を切らない）。"""
+    return (is_owner_row(row) and not seeded_by_record(row) and not is_compact_summary(row)
+            and not is_interrupt_mark(row))
+
+
+def last_human_index(rows):
+    """最後の人の行の位置（無ければ -1）。人の頼みの番の頭。"""
+    for i in range(len(rows) - 1, -1, -1):
+        if is_human_row(rows[i]):
+            return i
+    return -1

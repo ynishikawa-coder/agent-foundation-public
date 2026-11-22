@@ -176,20 +176,34 @@ def test_答えが返ると離席の止めが解ける(env):
     assert not denied(env, bash(DROP))
 
 
+def human(text, ts="2000-01-01T00:00:00Z"):
+    return {"type": "user", "timestamp": ts, "message": {"content": text}}
+
+
+def away_log(env, tmp_path, *before):
+    """離席の印を開いた窓の会話ログ（印は今の長さを記す）。"""
+    tpath = write_log(tmp_path / "t.jsonl", [human("作り物の頼み"), *before])
+    hook(env, "post", ask_result(tpath=tpath))
+    return tpath
+
+
+def append(tpath, *rows, raw=""):
+    with open(tpath, "a", encoding="utf-8") as f:
+        f.write("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in rows) + raw)
+    return tpath
+
+
 def test_オーナーが打てば離席の止めが解ける(env, tmp_path):
-    hook(env, "post", ask_result())
-    later = "2999-01-01T00:00:00.000Z"
-    tpath = write_log(tmp_path / "t.jsonl", [{"type": "user", "timestamp": later, "message": {"content": "戻りました"}}])
+    tpath = away_log(env, tmp_path)
+    assert denied(env, bash(DROP, tpath=tpath))
+    append(tpath, human("戻りました"))
     assert not denied(env, bash(DROP, tpath=tpath))
     assert not denied(env, bash(DROP))     # 窓は閉じた
 
 
 def test_離席の後に人の行が無ければ止めたまま(env, tmp_path):
-    hook(env, "post", ask_result())
-    old = "2000-01-01T09:00:00+09:00"
-    tpath = write_log(tmp_path / "t.jsonl", [
-        {"type": "user", "timestamp": old, "message": {"content": "前の頼み"}},
-        {"type": "user", "timestamp": "2999-01-01T00:00:00Z", "toolUseResult": {}, "message": {"content": "返り"}}])
+    tpath = away_log(env, tmp_path)
+    append(tpath, {"type": "user", "timestamp": "2999-01-01T00:00:00Z", "toolUseResult": {}, "message": {"content": "返り"}})
     assert denied(env, bash(DROP, tpath=tpath))
 
 
@@ -389,20 +403,6 @@ def test_作業部屋で積んだ問いも本体の窓の冒頭に出る(env, re
     hook(env, "post", ask_result())
     env["CLAUDE_PROJECT_DIR"] = str(repo)
     assert "作り物の置き場を A と B のどちらにしますか" in hook(env, "start", {"session_id": "s2"})["additionalContext"]
-
-
-def test_時刻は字でなく時刻で比べる(env, tmp_path):
-    """離席の印は UTC（Z）、人の行は +09:00。字で比べると逆になる 2 例。"""
-    away = tmp_path / "tmp" / "away"
-    away.mkdir(parents=True)
-    (away / "s1.json").write_text(json.dumps({"since": "2026-11-11T09:50:00.000000Z", "questions": ["作り物"]}),
-                                  encoding="utf-8")
-    before = write_log(tmp_path / "b.jsonl", [{"type": "user", "timestamp": "2026-11-11T18:00:00+09:00",
-                                               "message": {"content": "離席の前の行"}}])
-    assert denied(env, bash(DROP, tpath=before))      # 字では T18 > T09 だが、時刻では前
-    after = write_log(tmp_path / "a.jsonl", [{"type": "user", "timestamp": "2026-11-11T19:00:00+09:00",
-                                              "message": {"content": "戻りました"}}])
-    assert not denied(env, bash(DROP, tpath=after))   # 時刻で後＝戻った
 
 
 def test_1つの見張りが_import_で壊れても他の見張りは走る(env, tmp_path):

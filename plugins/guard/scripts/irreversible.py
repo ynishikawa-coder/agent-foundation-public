@@ -1,7 +1,11 @@
 """PreToolUse — 問いが答えのないまま閉じ、オーナーが席を外している間、戻せない操作を止める。
 
 窓は狭い: 止まるのは ①この窓（セッション）で問いが答えのないまま閉じ ②まだオーナーが戻っていない 間だけ。
-  答えが 1 つでも返れば閉じる。オーナーが何か打てば閉じる（会話ログの人の行で判定）。持ち越した問いは窓を開けない。
+  答えが 1 つでも返れば閉じる。オーナーが何か打てば閉じる（離席の印に記した会話ログのバイト位置より後に、人が打った行
+  〔guard_common.is_human_row: 子の窓の知らせ・記録から差した頼み・縮めた要約は人に数えない〕が在るかで判定する。時刻では
+  比べない＝入力が積まれてから書かれた行も位置で数え、後に続く大きな出力にも埋もれない）。位置の無い古い印・別の会話ログ・
+  縮んだ会話ログ・読めない離席の印〔書きかけ・dict でない〕は戻りを確かめられないので止め続け（読めない印を「印が無い＝在席」と
+  取り違えない）、印より後の読めない行はその番号を止める文に出す。持ち越した問いは窓を開けない。
 
 止めるのは 4 つだけ: DB の破棄・メールの送信・Notion の物理削除・git で戻せない再帰の削除（rm -r）。
   強制 push・main への push・本番への出荷・sudo は、オーナーが居ても居なくても settings の permissions.deny の受け持ち（ここでは重ねない）。
@@ -38,7 +42,6 @@ _TOOLS = [
     (r"^mcp__[\w-]+__(?:send_?(?:e?mail|draft)|sendEmail|sendDraft)$", "メールの送信"),
     (r"^mcp__[\w-]+__API-delete-a-block$", "Notion の物理削除"),
 ]
-TAIL_BYTES = 200_000
 _REDIRECT = re.compile(r"(?:\d*(?:>>|>|<)&?|&>>?)\s*\S+")
 _SPLIT = re.compile(r"&&|\|\||;|\n|\||&")
 
@@ -222,20 +225,25 @@ def match(tool_name, tool_input, cwd, vals):
     return ""
 
 
-def owner_returned_since(tpath, since):
-    """離席の印より後に、人がタイプした行があるか（席に戻ったか）。判定できなければ False。"""
-    t0 = G.parse_ts(since)
-    if t0 is None or not tpath or not os.path.isfile(tpath):
-        return False
+def owner_returned(tpath, win):
+    """(離席の印より後に人が打った行が在るか, 読めなかった事の文の並び)。確かめられなければ (False, 訳)。"""
+    if win.get("broken"):
+        return False, [win["broken"] + "ので、戻ったかを確かめられない"]
+    log_path, pos = win.get("log"), win.get("log_pos")
+    if not isinstance(pos, int) or isinstance(pos, bool) or pos < 0 or not log_path:
+        return False, ["離席の印に会話ログの位置が無い（古い印）ので、戻ったかを確かめられない"]
+    if not tpath or os.path.realpath(tpath) != os.path.realpath(str(log_path)):
+        return False, ["離席の印の会話ログ %s と今の会話ログ %s が違うので、戻ったかを確かめられない" % (log_path, tpath or "(無し)")]
     try:
-        for row in G.iter_rows(tpath, TAIL_BYTES):
-            if G.is_owner_row(row):
-                ts = G.parse_ts(row.get("timestamp"))
-                if ts is not None and ts > t0:
-                    return True
-    except Exception:
-        return False
-    return False
+        log = G.read_log(tpath)
+    except OSError as e:
+        return False, ["会話ログ %s を開けなかった（%s）" % (tpath, e.__class__.__name__)]
+    if log.size < pos:
+        return False, ["会話ログ %s が離席の印の時より短い（%d < %d バイト）ので、戻ったかを確かめられない" % (tpath, log.size, pos)]
+    rows, broken = log.after(pos)
+    if any(G.is_human_row(r) for r in rows):
+        return True, []
+    return False, [G.broken_note(tpath, broken)] if broken else []
 
 
 def check(data, vals):
@@ -250,7 +258,8 @@ def check(data, vals):
     why = match(data.get("tool_name"), data.get("tool_input") or {}, cwd, vals)
     if not why:
         return ""
-    if owner_returned_since(str(data.get("transcript_path") or ""), win.get("since")):
+    back, notes = owner_returned(str(data.get("transcript_path") or ""), win)
+    if back:
         UQ.close_away(session_id)
         return ""
     qs = win.get("questions") or []
@@ -262,6 +271,7 @@ def check(data, vals):
         "答えを聞けないまま閉じた問いが %d 件あり、オーナーは席を外しているとみなしています。"
         "その間は戻せない操作（%s）を行いません。\n"
         "閉じた問い: %s\n"
+        "%s"
         "進め方: ①戻せる作業を先に進める ②この操作が要るなら AskUserQuestion で同じ問いを出し直し、"
         "答えが返ってから行う（答えが返るか、オーナーが何か打てば、この止めは自動で解けます）。"
-    ) % (len(qs), why, stems)
+    ) % (len(qs), why, stems, "".join("戻りを確かめられなかった訳: %s\n" % n for n in notes))
