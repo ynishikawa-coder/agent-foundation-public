@@ -27,6 +27,7 @@ exit: inject と fresh は何が起きても 0（窓の起動も人の作業も�
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -833,12 +834,19 @@ def read_guarded(path: Path) -> str:
     return saimoku_text(path) if path.is_dir() else path.read_text(encoding="utf-8")
 
 
-def inject_text() -> str:
+def inject_text(texts: dict[str, str | None] | None = None) -> str:
+    """毎回差し込む物の本文。texts（名→本文）を渡すと、在る名はその本文で差し込む（起動の時から古い窓に先端の本文を
+    1 枚だけ差し込む＝入っている古い本文と先端の本文の 2 枚を並べない）。"""
+    texts = texts or {}
+
+    def read(path: Path) -> str:
+        return texts.get(path.name) or path.read_text(encoding="utf-8")
+
     head, *rest = injected()
-    parts = [head.read_text(encoding="utf-8").rstrip("\n")]
+    parts = [read(head).rstrip("\n")]
     for path in rest:
         try:
-            parts.append(path.read_text(encoding="utf-8").rstrip("\n"))
+            parts.append(read(path).rstrip("\n"))
         except UNREADABLE as e:
             # 欠けたまま黙って核だけにしない: 窓の起動は止めず、欠けた事を文脈に名指しで出す
             print(f"plugin core: {path.name} が読めない（{e}）", file=sys.stderr)
@@ -1159,23 +1167,65 @@ CONTINUE = ("窓は立て直さず・引き継がず・閉じず、そのまま�
             "守りの hook は裏で先端の版を入れ直し、済んだ後の呼び出しから先端の版で動く（hook の足し・外しと skill は次に立つ窓から）。\n")
 
 
-def tip_core_text(f: dict) -> str:
-    """main の先端の核と振る舞いの既定の今の本文（入れた時の目録の clone から読む）。差し込まれた物と同じなら 1 行だけ。"""
+def tip_texts(main: str) -> dict[str, str | None]:
+    """main の先端の核と振る舞いの既定の本文（名→本文・読めない物は None）。入れた時の目録の clone から読む。
+    空の本文も None（読めない）と読む＝差し込む本文（effective_texts）と送った本文の印（core_digests）の選び方を揃える。"""
     loc = catalog_source()[0].get("installLocation")
-    parts = []
+    return {path.name: ((_git(loc, "show", f"{main}:plugins/core/{path.name}") if loc else None) or None)
+            for path in injected()}
+
+
+def unreadable_tip_text(texts: dict[str, str | None] | None) -> str:
+    """起動の時に先端で読めなかった file の名指し（入っている版の本文で差し込んだ事を file ごとに 1 回言う）。"""
+    return "".join(f"（main の先端の {name} を読めなかった。入っている版の本文で差し込んだ）\n"
+                   for name, text in (texts or {}).items() if text is None)
+
+
+def installed_texts() -> dict[str, str | None]:
+    """この窓に入っている核と振る舞いの既定の本文（名→本文・読めない物は None）。"""
+    out = {}
     for path in injected():
-        new = _git(loc, "show", f"{f['main']}:plugins/core/{path.name}") if loc else None
         try:
-            now = path.read_text(encoding="utf-8")
+            out[path.name] = path.read_text(encoding="utf-8")
         except UNREADABLE:
-            now = None
-        if new is None:
-            parts.append(f"（main の先端の {path.name} を読めなかった。起動の時に差し込まれた物で続ける）")
-        elif now is not None and new.strip() == now.strip():
-            parts.append(f"（main の先端の {path.name} は差し込まれた物と同じ）")
-        else:
-            parts.append(f"### main の先端の {path.name}（{f['main'][:12]}）\n" + new.rstrip("\n"))
-    return "\n\n".join(parts) + "\n"
+            out[path.name] = None
+    return out
+
+
+def core_digests(texts: dict[str, str | None]) -> dict[str, str | None]:
+    """差し込んだ本文の印（名→印）。窓が今読んでいる核と同じかを、送った本文そのもので比べる（版の印や plugin の動きでは比べない）。"""
+    return {name: (hashlib.sha256(text.strip().encode("utf-8")).hexdigest() if text is not None else None)
+            for name, text in texts.items()}
+
+
+def effective_texts(texts: dict[str, str | None] | None) -> dict[str, str | None]:
+    """差し込む本文（名→本文）。先端の本文が在ればそれ、読めない物は入っている版の本文（inject_text と同じ選び方）。"""
+    texts = texts or {}
+    return {name: texts.get(name) or text for name, text in installed_texts().items()}
+
+
+TIP_UNREADABLE = "先端で読めなかった"
+
+
+def seen_digests(texts: dict[str, str | None] | None) -> dict[str, str | None]:
+    """窓が読んだ本文の印（名→印）。先端の本文を渡した時、先端で読めなかった物は「読めなかった」と持つ
+    （入っている版の本文で差し込み、読めなかった事は差し込みの時に 1 回名指した＝fresh で名指し直さない）。"""
+    seen = core_digests(effective_texts(texts))
+    if texts is not None:
+        seen.update({name: TIP_UNREADABLE for name, text in texts.items() if text is None})
+    return seen
+
+
+def changed_core_text(main: str, new: dict[str, str | None], had: dict[str, str | None]) -> str:
+    """窓が今読んでいる本文の印（had）から変わった物だけの全文。同じ物は送らない（同じ核を何枚も文脈に積まない）。"""
+    parts = []
+    now = core_digests(new)
+    for name, text in new.items():
+        if text is None and had.get(name) != TIP_UNREADABLE:  # 読めない事は 1 回だけ名指す
+            parts.append(f"（main の先端の {name} を読めなかった。今読んでいる物で続ける）")
+        elif text is not None and had.get(name) != now[name]:
+            parts.append(f"### main の先端の {name}（{main[:12]}）\n" + text.rstrip("\n"))
+    return "\n\n".join(parts) + "\n" if parts else ""
 
 
 def stale_at_start_text(f: dict) -> str:
@@ -1191,7 +1241,7 @@ def stale_at_start_text(f: dict) -> str:
             "claude-code-remote の get_environment → update_environment（直せる環境の時）。\n"
             "2. 直せない時（他のアカウントの環境・道具が無い）は、UTC の環境なら連絡板の issue で setup script の直しを頼み、"
             "オーナーへ「守りが古い形で動いている」と 1 行知らせる。\n"
-            + CONTINUE + tip_core_text(f))
+            + START_CONTINUE)
 
 
 def unknown_at_start_text(f: dict) -> str:
@@ -1202,27 +1252,37 @@ def unknown_at_start_text(f: dict) -> str:
             "（記録が無いのは、setup script が入口を通らない古い形か、入口が記録を書く前の版で入れた時）。頼みの合間に次をする:\n"
             "1. claude-code-remote の get_environment で setup script を読み、土台の docs/核の届け方.md の形（目録の取り直しと入口）と照らす。"
             "違えば update_environment で直す（直せない環境は親の窓・連絡板へ頼み、オーナーへ 1 行知らせる）。\n"
-            + CONTINUE + tip_core_text(f))
+            + START_CONTINUE)
 
 
-def update_text(f: dict) -> str:
+def update_text(f: dict, core: str) -> str:
+    """起動の後に核か振る舞いの既定の文が変わった時の知らせ。core＝変わった物だけの全文（changed_core_text）。"""
     return ("## 土台が新しくなった — 新しい核をここで読み、窓はそのまま続ける\n"
-            f"土台の main の先端が、この窓に入った物から窓の振る舞いを変えた（{_short(f)}）。"
-            + CONTINUE + tip_core_text(f))
+            f"土台の main の先端で、窓が読んでいる核か振る舞いの既定の文が変わった（{_short(f)}）。"
+            + CONTINUE + core)
+
+
+# 起動の時の知らせの締め（核は上に先端の本文で 1 枚だけ差し込んでいるので、ここでは本文を重ねない）
+START_CONTINUE = ("窓は立て直さず・引き継がず・閉じず、そのまま頼みを続ける（create_session・archive_session をしない）。"
+                  "上の核と振る舞いの既定は main の先端の本文（読めなかった物だけ入っている版の本文）。"
+                  "守りの hook は裏で先端の版を入れ直し、済んだ後の呼び出しから先端の版で動く（hook の足し・外しと skill は次に立つ窓から）。\n")
+
+
+def after_setup_text(f: dict) -> str:
+    """setup の後に main が進んだだけの窓（作り置きの箱）の起動の知らせ。直す物は無い。"""
+    return f"（土台は setup の後に main が進んでいた（{_short(f)}）。{START_CONTINUE}"
 
 
 # 先端の核を差し込む時の文（起動の時の古さの訳ごと。無い訳＝setup の後に main が進んだ・起動の後に新しくなった）
 TOLD_TEXT = {"setup": stale_at_start_text, "unknown": unknown_at_start_text}
+# 起動の後に新しくなった窓の圧縮・resume の後の知らせ（本文は上に 1 枚だけ差し込む）
+RESTART_TEXT = ("## 土台は起動の後に新しくなっている — 上の核と振る舞いの既定は main の先端の本文\n" + START_CONTINUE)
 
 
 def inject() -> int:
     data, bad_input = _hook_input()
     project = Path(os.environ.get("CLAUDE_PROJECT_DIR") or os.getcwd())
     parts = []
-    try:  # 核はいつも正本を差し込む（使う側の写しの枠が在っても、写しでなく正本が効く）
-        parts.append(inject_text())
-    except UNREADABLE as e:
-        print(f"plugin core: 核.md が読めない（{e}）＝核は差し込まれていない", file=sys.stderr)
     for name, make in (("古い形", lambda: olds_text(find_olds_bounded(project), project)),
                        ("CLAUDE.md の量", lambda: claude_md_text(project)), ("入れ方", setup_text)):
         try:
@@ -1268,9 +1328,29 @@ def inject() -> int:
         elif session:
             state = {"checked": time.time(), "cause": cause, "comparable": comparable, "start": f,
                      "start_main": f["main"] if f else None, "told": told, "told_kind": kind}
-            _save_state(session, state)
+    # 核はいつも正本を 1 枚だけ差し込む（使う側の写しの枠が在っても、写しでなく正本が効く）。土台が入った版より新しい窓は
+    # 先端の本文で差し込み、入っている古い本文と先端の本文の 2 枚を並べない。
+    texts = None
     if told:
-        parts.append(TOLD_TEXT.get(kind, update_text)(told))
+        try:
+            texts = tip_texts(told["main"])
+        except Exception as e:  # noqa: BLE001  先端が読めなくても入っている版の核は差し込む。壊れた事は名指しする
+            parts.append(_broken_text("先端の核の読み", e))
+        if unreadable_tip_text(texts):  # 先端で読めなかった file を起動の時に 1 回名指す（seen_digests が「名指した」と持つ）
+            parts.append(unreadable_tip_text(texts).rstrip("\n"))
+    try:
+        parts.insert(0, inject_text(texts))
+    except UNREADABLE as e:
+        print(f"plugin core: 核.md が読めない（{e}）＝核は差し込まれていない", file=sys.stderr)
+    if state is not None and broken is None and session and "core" not in state:
+        try:  # この窓が読んだ本文の印（fresh が、本文の変わらない先端を送り直さないために比べる）
+            state["core"] = seen_digests(texts)
+        except UNREADABLE:
+            pass
+        _save_state(session, state)
+    if told:
+        parts.append(TOLD_TEXT[kind](told) if kind in TOLD_TEXT else RESTART_TEXT if kind == "update"
+                     else after_setup_text(told))
     if parts:
         out = {"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": "\n".join(parts)}}
         sys.stdout.write(json.dumps(out, ensure_ascii=False))
@@ -1279,7 +1359,8 @@ def inject() -> int:
 
 def fresh() -> int:
     """起動の後に土台が新しくなったかを見る。新しくなっていれば、main の先端の核と振る舞いの既定をこの窓に差し込み、
-    窓はそのまま頼みを続ける（引き継がせない・閉じさせない）。同じ先端は 1 回だけ差し込む（問いのたびに繰り返さない）。"""
+    窓はそのまま頼みを続ける（引き継がせない・閉じさせない）。同じ先端は 1 回だけ見る（問いのたびに繰り返さない）。
+    核と振る舞いの既定は、この窓が読んだ本文から変わった物だけを送る（本文が同じなら守りの入れ直しだけで黙る）。"""
     data, bad_input = _hook_input()
     session = data.get("session_id")
     if bad_input:
@@ -1313,12 +1394,25 @@ def fresh() -> int:
         got, text = None, _broken_text("新しさ", e)
     state["checked"] = time.time()
     if got and got["plugins"] and got["main"] != (state.get("told") or {}).get("main"):
-        state["told"], state["told_kind"] = got, "update"
-        text = update_text(got)
+        # 守りの hook は先端の版へ入れ直す。核と振る舞いの既定は、この窓が読んだ本文から変わった物だけを 1 回送る
+        # （plugin のどこかが動くたびに同じ核を送り直さない＝同じ核を文脈に何枚も積まない）。
+        try:
+            had = state.get("core")
+            if had is None:  # 本文の印を持たない前の版の記録: 前に送った先端か、入っている版の本文を読んだと読む
+                told_main = (state.get("told") or {}).get("main")
+                had = seen_digests(tip_texts(told_main) if told_main else None)
+            new = tip_texts(got["main"])
+            core = changed_core_text(got["main"], new, had)
+        except Exception as e:  # noqa: BLE001  先端の核を読めなくても問いは止めない。名指しし、told を進めず次の問いで読み直す
+            text = _broken_text("先端の核の読み", e)
+        else:
+            state["told"], state["told_kind"] = got, "update"
+            state["core"] = {**had, **{k: v or TIP_UNREADABLE for k, v in core_digests(new).items()}}
+            text = update_text(got, core) if core else None
         try:
             start_refresh(got["main"])
         except Exception as e:  # noqa: BLE001  入れ直しが壊れても問いは止めない。壊れた事は名指しする
-            text += _broken_text("裏の入れ直し", e)
+            text = (text or "") + _broken_text("裏の入れ直し", e)
     _save_state(session, state)
     return _say(text)
 

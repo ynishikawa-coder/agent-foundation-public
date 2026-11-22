@@ -462,7 +462,10 @@ def test_起動の後に_plugin_が変わったら先端の核を差し込み窓
         assert old not in text.replace("create_session・archive_session をしない", ""), old
     assert f.hook("fresh") == ""                         # 同じ先端は 1 回だけ（問いのたびに繰り返さない）
     _commit(f.work, {"plugins/checker/y.py": "y\n"}, "また変える")
-    assert "checker" in f.hook("fresh")                  # 先端がまた進めばもう 1 度
+    assert f.hook("fresh") == ""                         # 核の本文が同じなら、plugin が動いても送り直さない
+    _commit(f.work, {"plugins/core/核.md": "核 5\n"}, "核をまた変える")
+    again = f.hook("fresh")
+    assert "核 5" in again and "核 3" not in again        # 核が変われば、変わった物だけをもう 1 度
 
 
 @pytest.mark.parametrize("source", ["compact", "clear", "resume"])
@@ -475,7 +478,8 @@ def test_途中で古くなった窓は圧縮や_resume_の後も先端の核を
     assert "新しい核をここで読み" in f.hook("fresh")
     again = f.hook("inject", source=source)
     assert "土台が古いまま立った窓" not in again           # 「起動の時から古い」と取り違えない
-    assert "新しい核をここで読み" in again
+    assert "起動の後に新しくなっている" in again
+    assert again.startswith("核 1") and "# 振る舞いの核" not in again   # 先端の核を 1 枚だけ（入っている古い核と並べない）
 
 
 def test_起動の時から古い窓は圧縮の後も同じ知らせを出す(tmp_path):
@@ -504,7 +508,9 @@ def test_起動の時から古い窓は_setup_script_を直し窓はそのまま
     assert "update_environment" in text and "直せない時" in text and "連絡板" in text
     assert "そのまま頼みを続ける" in text and "核 2" in text   # 先端の核を差し込む
     assert "create_session で" not in text and "archive_session で" not in text
-    assert "# 振る舞いの核" in text                       # 核の差し込みは止めない
+    assert text.startswith("核 2") and text.count("核 2") == 1   # 先端の核を 1 枚だけ差し込む
+    assert "# 振る舞いの核" not in text                   # 入っている古い核と 2 枚並べない
+    assert "# 振る舞いの既定" in text                     # 先端で読めない物だけ入っている版で差し込む
     assert f.hook("fresh") == ""
 
 

@@ -222,7 +222,7 @@ def test_起動の時に古ければ裏の入れ直しを始め_古くなけれ�
     started = []
     monkeypatch.setattr(kaku, "start_refresh", lambda tip: started.append(tip) or True)
     monkeypatch.setattr(kaku, "setup_text", lambda: None)
-    monkeypatch.setattr(kaku, "tip_core_text", lambda f: "")
+    monkeypatch.setattr(kaku, "tip_texts", lambda main: {})
     monkeypatch.setattr(kaku, "start_cause", lambda f: "after")
     monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(tmp_path))
     for sid, plugins in (("s-old", ["guard"]), ("s-new", [])):
