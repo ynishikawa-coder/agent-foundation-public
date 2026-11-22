@@ -5,6 +5,7 @@ import subprocess
 import sys
 from pathlib import Path
 
+import needs
 import pytest
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -18,7 +19,7 @@ def env(tmp_path):
     proj = tmp_path / "proj"
     proj.mkdir()
     (tmp_path / "scratch").mkdir()
-    e = {k: v for k, v in os.environ.items() if not k.startswith(("AF_", "SKILL_VALUES", "CLAUDE_PROJECT_DIR"))}
+    e = {k: v for k, v in os.environ.items() if not k.startswith(("AF_", "_AF_", "SKILL_VALUES", "CLAUDE_PROJECT_DIR"))}
     e.update({"AF_GUARD_TMP": str(tmp_path / "tmp"), "AF_GUARD_STATE": str(tmp_path / "state"),
               "CLAUDE_PROJECT_DIR": str(proj), "PYTHONDONTWRITEBYTECODE": "1",
               "TMPDIR": str(tmp_path / "scratch")})     # 作業場を tmp_path の下の 1 か所に絞る（repo は作業場の外）
@@ -26,7 +27,7 @@ def env(tmp_path):
 
 
 def hook(env, event, payload):
-    p = subprocess.run([sys.executable, str(GUARD), event], input=json.dumps(payload, ensure_ascii=False),
+    p = subprocess.run([sys.executable, env.get("_AF_TEST_GUARD") or str(GUARD), event], input=json.dumps(payload, ensure_ascii=False),
                        capture_output=True, text=True, env=env, timeout=60)
     assert p.returncode == 0, p.stderr
     out = p.stdout.strip()
@@ -54,9 +55,9 @@ def bash(cmd, sid="s1", cwd="", tpath=""):
 
 
 # ── hook の配線 ──
-def test_hooks_json_が3つの出来事で入口を回す():
+def test_hooks_json_が4つの出来事で入口を回す():
     data = json.loads((PLUGIN / "hooks" / "hooks.json").read_text(encoding="utf-8"))["hooks"]
-    want = {"PreToolUse": "pre", "PostToolUse": "post", "SessionStart": "start"}
+    want = {"PreToolUse": "pre", "PostToolUse": "post", "SessionStart": "start", "Stop": "stop"}
     assert set(data) == set(want)
     for event, arg in want.items():
         cmd = data[event][0]["hooks"][0]["command"]
@@ -64,7 +65,7 @@ def test_hooks_json_が3つの出来事で入口を回す():
 
 
 def test_壊れた入力では何も出さず通す(env):
-    for event in ("pre", "post", "start"):
+    for event in ("pre", "post", "start", "stop"):
         p = subprocess.run([sys.executable, str(GUARD), event], input="こわれた", capture_output=True, text=True, env=env)
         assert p.returncode == 0 and p.stdout.strip() == ""
 
@@ -256,9 +257,12 @@ def test_作業場と変更の無い作業部屋の掃除は離席中でも通�
 
 
 # ── context_size（文脈の量）──
-def usage_log(tmp_path, tokens, first="作り物の頼み"):
+def usage_log(tmp_path, tokens, first="作り物の頼み", origin=None):
+    head = {"type": "user", "message": {"content": first}}
+    if origin:
+        head["origin"] = {"kind": origin}       # 頼みの行の記録（人が打ったか・別の窓から来たか）
     return write_log(tmp_path / "ctx.jsonl", [
-        {"type": "user", "message": {"content": first}},
+        head,
         {"type": "assistant", "message": {"usage": {"input_tokens": 10, "cache_read_input_tokens": tokens - 10,
                                                     "cache_creation_input_tokens": 0}, "content": []}}])
 
@@ -279,7 +283,7 @@ def test_文脈が目安を越えた最初の1回だけ知らせる(env, tmp_pat
 
 
 def test_子の窓には止まる側の知らせを出す(env, tmp_path):
-    tpath = usage_log(tmp_path, 400_000, first="あなたは書く窓です（親窓 session_ABC123 の子）。")
+    tpath = usage_log(tmp_path, 400_000, first="あなたは書く窓です（親窓 session_ABC123 の子）。", origin="task-notification")
     assert "引き継ぎを書いて止まって" in hook(env, "post", post_tool(tpath))["additionalContext"]
 
 
@@ -447,9 +451,9 @@ def test_時刻は字でなく時刻で比べる(env, tmp_path):
 
 
 def test_1つの見張りが_import_で壊れても他の見張りは走る(env, tmp_path):
-    broken = tmp_path / "plugin"
     import shutil
-    shutil.copytree(PLUGIN / "scripts", broken)
+    shutil.copytree(PLUGIN, tmp_path / "plugin")   # 入れた時と同じく lib/ の symlink は実体で写る
+    broken = tmp_path / "plugin" / "scripts"
     (broken / "irreversible.py").write_text("raise ImportError('作り物の故障')\n", encoding="utf-8")
     payload = {"tool_name": "Write", "tool_input": {"file_path": "/x/tests/test_a.py", "content": "OPENAI_API_KEY"}}
     p = subprocess.run([sys.executable, str(broken / "guard.py"), "pre"], input=json.dumps(payload),
@@ -478,6 +482,34 @@ def filled_qa_page(dest="artifact"):
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     return mod.filled_template(dest)
+
+
+def without_check(env, tmp_path, ver="v1", docs_kit_ver=None):
+    """guard を入れた plugin の形（cache/<市場>/guard/<版>）に写して回す env。docs-kit は docs_kit_ver の版にだけ置く（None なら置かない）。
+    hook の入口は _AF_TEST_GUARD（試験の中だけの差し替え・hook の本体は読まない）。"""
+    market = tmp_path / "cache" / "market"
+    root = market / "guard" / ver
+    if not root.exists():
+        shutil.copytree(PLUGIN, root)
+    if docs_kit_ver:
+        shutil.copytree(ROOT / "plugins" / "docs-kit", market / "docs-kit" / docs_kit_ver, dirs_exist_ok=True)
+    # 入れた形の市場の取り出し（<plugins>/marketplaces/<市場>）＝outbound が鍵の形の正本 public-guard/guard.py を読む所
+    pg = tmp_path / "marketplaces" / "market" / "public-guard"
+    if not pg.exists():
+        shutil.copytree(ROOT / "public-guard", pg)
+    clone_at(pg.parent, ver)  # 市場の取り出しは git で、入った版（cache の dir の名）が歴史に在る
+    return dict(env, _AF_TEST_GUARD=str(root / "scripts" / "guard.py"))
+
+
+def clone_at(clone, ver):
+    """作り物の市場の取り出しを git にし、今の中身を版 ver（tag）として持たせる（guard は入った版の中身だけを読む）。"""
+    g = lambda *a: subprocess.run(["git", "-C", str(clone), "-c", "user.name=t", "-c", "user.email=t@example.invalid", *a],
+                                  capture_output=True, text=True)
+    if not (clone / ".git").exists():
+        g("init", "-q")
+        g("add", "-A")
+        g("commit", "-qm", "版")
+    g("tag", "-f", ver)
 
 
 def publish(path, cwd="", **extra):
@@ -528,7 +560,7 @@ def test_qa_page_型の印があれば中身が崩れていても止まる(env, 
 def test_qa_page_radioと答えを外へ出す仕組みが揃えば問いのページと見る(env, tmp_path, body):
     page = tmp_path / "poll.html"
     page.write_text(body, encoding="utf-8")
-    env = dict(env, AF_QA_CHECK=str(tmp_path / "無い.mjs"))
+    env = without_check(env, tmp_path)
     assert "見つからず" in deny_reason(env, publish(page))
 
 
@@ -546,14 +578,14 @@ def test_qa_page_radioと答えを外へ出す仕組みが揃えば問いのペ�
 def test_qa_page_問いのページでない物と_publish_でない物は見ない(env, tmp_path, name, body, extra):
     page = tmp_path / ("p.json" if body.startswith("{") else "p.html")
     page.write_text(body, encoding="utf-8")
-    env = dict(env, AF_QA_CHECK=str(tmp_path / "無い.mjs"))     # 見たら必ず止まる形にして、見ていない事を確かめる
+    env = without_check(env, tmp_path)     # 見たら必ず止まる形にして、見ていない事を確かめる
     assert not denied(env, publish(page, **extra)), name
 
 
 def test_qa_page_検査が無い時は止まる(env, tmp_path):
     page = tmp_path / "kakunin.html"
     page.write_text(STATE_PAGE, encoding="utf-8")
-    env = dict(env, AF_QA_CHECK=str(tmp_path / "無い.mjs"))
+    env = without_check(env, tmp_path)
     assert "緑を確かめられない" in deny_reason(env, publish(page))
 
 
@@ -565,44 +597,46 @@ def test_qa_page_値の表で外した_file_は見ない(env, tmp_path):
     (tmp_path / "quiz").mkdir()
     page = tmp_path / "quiz" / "q.html"
     page.write_text(STATE_PAGE, encoding="utf-8")
-    env = dict(env, AF_QA_CHECK=str(tmp_path / "無い.mjs"))
+    env = without_check(env, tmp_path)
     assert not denied(env, publish(page))
 
 
-def test_qa_page_入れた_plugin_の形でも検査を見つける(tmp_path):
+def _qa_page_mod():
     sys.path.insert(0, str(PLUGIN / "scripts"))
     try:
         import qa_page
     finally:
         sys.path.pop(0)
+    return qa_page
+
+
+def test_qa_page_入れた_plugin_の形では同じ版の検査だけを見つける(tmp_path):
+    qa_page = _qa_page_mod()
     rel = Path("skills") / "qa-html" / "check.mjs"
     for ver in ("aaa", "bbb"):
         (tmp_path / "market" / "docs-kit" / ver / rel).parent.mkdir(parents=True)
         (tmp_path / "market" / "docs-kit" / ver / rel).write_text("//", encoding="utf-8")
     guard_root = tmp_path / "market" / "guard" / "aaa"
     guard_root.mkdir(parents=True)
-    old = os.environ.pop("AF_QA_CHECK", None)
-    try:
-        assert qa_page.find_check(str(guard_root)) == str(tmp_path / "market" / "docs-kit" / "aaa" / rel)
-        other = tmp_path / "market" / "guard" / "ccc"         # 同じ版の docs-kit が無い時は新しい物
-        other.mkdir()
-        os.utime(tmp_path / "market" / "docs-kit" / "aaa" / rel, (1, 1))
-        assert qa_page.find_check(str(other)) == str(tmp_path / "market" / "docs-kit" / "bbb" / rel)
-    finally:
-        if old is not None:
-            os.environ["AF_QA_CHECK"] = old
+    assert qa_page.find_check(str(guard_root)) == str(tmp_path / "market" / "docs-kit" / "aaa" / rel)
+    # 注入: 同じ版の docs-kit が無く、別の版（新しい物）だけがある → 見つけない（前は新しい物で照らしていた）
+    other = tmp_path / "market" / "guard" / "ccc"
+    other.mkdir()
+    assert qa_page.find_check(str(other)) == ""
 
 
 def test_qa_page_赤が多い時ほか何件と全部の出し方を出す(env, tmp_path):
+    needs.node()   # 飛ばす条件は試験の頭で（作り物の file を書く前に）
     fake = tmp_path / "fake_check.mjs"
     fake.write_text('console.log(JSON.stringify({ok: false, red: Array.from({length: 13}, (_, i) => "作り物の赤 " + (i + 1))}));'
                     "process.exit(1);\n", encoding="utf-8")
     page = tmp_path / "kakunin.html"
     page.write_text(STATE_PAGE, encoding="utf-8")
-    if not shutil.which("node"):
-        pytest.skip("node が無い（作り物の検査は node で動く）")
-    why = deny_reason(dict(env, AF_QA_CHECK=str(fake)), publish(page))
-    assert "検査の赤 13 件" in why and "作り物の赤 12" in why and "ほか 1 件" in why and str(fake) in why
+    env = without_check(env, tmp_path, ver="v1", docs_kit_ver="v1")
+    real = tmp_path / "cache" / "market" / "docs-kit" / "v1" / "skills" / "qa-html" / "check.mjs"
+    shutil.copyfile(fake, real)                                        # 同じ版の検査の在り処に作り物を置く
+    why = deny_reason(env, publish(page))
+    assert "検査の赤 13 件" in why and "作り物の赤 12" in why and "ほか 1 件" in why and str(real) in why
 
 
 def test_qa_page_51個目に在る問いの並びも見分ける(tmp_path):
@@ -843,8 +877,9 @@ def test_ask_shape_判定の値は値の表で変えられ誤って止まる形�
     env["SKILL_VALUES"] = str(table)
     table.write_text(json.dumps({"guard": {"ask_question_max_chars": 120}}), encoding="utf-8")
     assert deny_reason(env, long_q) == ""
-    table.write_text(json.dumps({"guard": {"ask_term_allow": ["^ISO\\d+$"]}}), encoding="utf-8")
-    assert deny_reason(env, ask_pre(q("ISO9001 の書き方に合わせますか"))) == ""
+    assert "B202" in deny_reason(env, ask_pre(q("B202 の部屋で会いますか")))
+    table.write_text(json.dumps({"guard": {"ask_term_allow": ["^B\\d+$"]}}), encoding="utf-8")
+    assert deny_reason(env, ask_pre(q("B202 の部屋で会いますか"))) == ""
     assert "E02" in deny_reason(env, ask_pre(q("E02 を入れますか")))
     table.write_text(json.dumps({"guard": {"ask_shape_exempt": ["^作り物の例外"]}}), encoding="utf-8")
     assert deny_reason(env, ask_pre(q("作り物の例外 E02 を入れますか"))) == ""

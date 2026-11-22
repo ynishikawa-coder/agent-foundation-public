@@ -13,10 +13,10 @@
 
 ## この形の前に枝を切った PR が main を取り込む時
 
-`git merge origin/main` で `CHANGELOG.md` が衝突したら、自分の行を自分の断片へ移す（移す前の記録に在る行は移さない）:
+`git fetch origin main && git merge origin/main` で `CHANGELOG.md` が衝突したら、自分の行を自分の断片へ移す（移す前の記録に在る行は移さない）:
 
 ```
 git show HEAD:CHANGELOG.md | python3 scripts/changelog.py adopt - CHANGELOG.d/<枝の日付>-<話題>.txt
-git checkout origin/main -- CHANGELOG.md
+git checkout MERGE_HEAD -- CHANGELOG.md   # 取り込んでいる main そのもの（手元の origin/main は後で動きうる）
 python3 scripts/changelog.py check
 ```

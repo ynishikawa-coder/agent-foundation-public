@@ -6,19 +6,26 @@
   2. 2 行目 `見た先端: <SHA の先頭 12 文字>`
   3. `## verdict` の次の行が green／red／red（blocked: …）で、1 行目の判定と合う
   4. `## 所見` の各行の札 `- [止める|台帳へ|直った｜<段>] …`。`[止める｜…]` か点の fail が 1 つでも在れば red、無ければ green
-  5. 別の目: 書いた窓（--writer）とレビューした窓が同じなら形の誤り（自分の PR に判定を付けない）
+  5. 別の目: 書いた窓（--writer）のどれかとレビューした窓が同じなら形の誤り（自分の PR に判定を付けない）。
+     --writer は PR の commit の `Claude-Session:` の窓の全部を `,` で並べて渡す（同じ plugin の scripts/pr_writer.py --writers が出す。
+     途中の commit を書いた窓も書いた側）。
+  9. 名乗り: --reviewer（判定を出す窓の本物の id＝守りの hook が窓の環境の記録から読んで渡す）が在れば、1 行目の
+     `レビューした窓:` の字はその写しとして照らす: 違えば誤り。別の目もその本物の id で照らす（手で書いた名乗りで決めない）。
+     読むだけの助手（Agent）は立てた窓の環境を受け継ぐので、立てた窓の id で名乗る今の形のまま通る。
   6. `## 点` に、review-pr の SKILL.md の「見る点」の表の点（番号と名）が全部 1 行ずつ在り、
-     各行の値が pass／fail／N/A のどれか（点 3 は `書いた窓 <id> ≠ この窓` も可）。
-     欠け・重なり・表に無い点・選べる値の外・同じ見出しの節が 2 つ在るのは誤り。
-     点「全体の絵」は N/A にできず、pass は `pass（差なし・版 <版>）` の形だけ（照らさずに通さない）。
-     点の正本は SKILL.md の表 1 か所（ここに写さない）。表が読めない時は止まる（点を見ずに通さない）。
+     各行の値がその点に選べる値のどれか。選べる値は SKILL.md の「判定の形」の雛形の `## 点` の行
+     （`- 1 依頼の充足: pass/fail`・`- 8 歯と口・注入の試験: pass/fail/N/A`・点 3 は `書いた窓 <id> ≠ この窓`）から点ごとに読む。
+     欠け・重なり・表に無い点・その点に選べる値の外（例: 点 1〜7 の N/A）・同じ見出しの節が 2 つ在るのは誤り。
+     点「全体の絵」の pass は `pass（差なし・版 <版>）` の形だけ（照らさずに通さない）。
+     点と選べる値の正本は SKILL.md の 1 か所（ここに写さない）。読めない時は止まる（点を見ずに通さない）。
   7. red（blocked を除く）は `## verdict` に `直し: 細目 §3「まず構造を疑う」` の行が在る
      （所見を直す行の一覧として返さず、根治の入口を指す。中身は細目が正本＝ここは指すだけ）。
 
   8. 所見の札（止める・台帳へ・直った）と段（設計・整地…）は、review-pr の SKILL.md の「判定の形」の節の
      「- 札は」の行から読む（ここに写さない＝札や段を足す PR がこの file の定数を触らない）。読めない時は止まる。
 
-使い方: python3 verdict_form.py <コメントのファイル> [<ファイル> …] --writer <書いた窓の session id> --head <PR の先端の SHA>
+使い方: python3 verdict_form.py <コメントのファイル> [<ファイル> …] --writer <書いた窓の session id>[,<id> …] --head <PR の先端の SHA>
+          [--reviewer <判定を出す窓の session id>]
   --writer と --head は欠かせない（欠けたら別の目と先端を照らさずに通さない＝exit 2）。
   助手（Agent）の判定は立てた窓の session id で書く。書いた窓が立てた助手の判定は --writer と同じになり誤り。
   ファイルは全部照らす（2 つ以上の時は誤りの頭にファイルの名）。誤りを 1 行ずつ出し、どれかに誤りがあれば exit 1。
@@ -40,7 +47,18 @@ PICTURE = "全体の絵"
 _PV = r"(?:[^／）\s]+ )?\d{4}-\d{2}-\d{2}\.\d+"
 PICTURE_PASS = re.compile(r"^pass（差なし・版 " + _PV + r"(?:／" + _PV + r")*）$")
 OTHER_EYE = re.compile(r"^書いた窓 (session_[A-Za-z0-9]+) ≠ この窓$")
+TEMPLATE_EYE = "書いた窓 <id> ≠ この窓"   # 雛形の点 3 の値の書き方（OTHER_EYE の雛形の形）
+TEMPLATE_VALUES = re.compile(r"^((?:pass|fail|N/A)(?:/(?:pass|fail|N/A))*)(?:$|[ （(])")
 ROOT_CAUSE = "直し: 細目 §3「まず構造を疑う」"
+SESSION_ID = re.compile(r"^session_[A-Za-z0-9]+$")
+
+
+def writer_set(writer):
+    """--writer の値（`,` で並べた字か並び）を書いた窓の組にする。"""
+    if not writer:
+        return set()
+    items = writer.split(",") if isinstance(writer, str) else list(writer)
+    return {w.strip() for w in items if w and w.strip()}
 
 
 def load_points(path=SKILL):
@@ -54,6 +72,34 @@ def load_points(path=SKILL):
     if not points:
         raise ValueError("見る点の表が読めない: %s" % path)
     return points
+
+
+def load_values(path=SKILL):
+    """review-pr の「判定の形」の雛形の `## 点` の行から {番号: 選べる値の組}。点 3 の別の目の形は {"eye"}。
+    雛形が読めない・点の値が読めない行が在る時は例外（黙って pass／fail／N/A を全部許さない）。"""
+    lines = [ln.strip() for ln in Path(path).read_text(encoding="utf-8").splitlines()]
+    try:
+        start = lines.index("## 点")
+    except ValueError:
+        raise ValueError("判定の形の雛形の `## 点` が読めない: %s" % path)
+    out = {}
+    for ln in lines[start + 1:]:
+        if not ln.startswith("- "):
+            break
+        m = POINT_LINE.match(ln)
+        if not m:
+            raise ValueError("雛形の点の行が読めない: %s" % ln[:40])
+        val = m.group(3).strip()
+        if val == TEMPLATE_EYE:
+            out[int(m.group(1))] = frozenset({"eye"})
+            continue
+        mv = TEMPLATE_VALUES.match(val)
+        if not mv:
+            raise ValueError("雛形の点 %s の選べる値が読めない: %s" % (m.group(1), val[:30]))
+        out[int(m.group(1))] = frozenset(re.findall(r"pass|fail|N/A", mv.group(1)))
+    if not out:
+        raise ValueError("判定の形の雛形の `## 点` に行が無い: %s" % path)
+    return out
 
 
 def load_cards(path=SKILL):
@@ -87,8 +133,11 @@ def section(lines, head):
     return out if inside or out else None
 
 
-def check_points(lines, points, reviewer=None, writer=None):
-    """`## 点` の欄の誤りと、fail の数。"""
+def check_points(lines, points, reviewer=None, writer=None, values=None):
+    """`## 点` の欄の誤りと、fail の数。values は {番号: 選べる値の組}（既定は SKILL.md の雛形から読む）。"""
+    writers = writer_set(writer)
+    if values is None:
+        values = load_values()
     errs, fails = [], 0
     body = section(lines, "点")
     if body is None:
@@ -111,22 +160,24 @@ def check_points(lines, points, reviewer=None, writer=None):
         seen.add(no)
         if name != points[no]:
             errs.append("点 %d の名が `%s` でない（今は `%s`）" % (no, points[no], name))
-        eye = OTHER_EYE.match(val) if no == 3 else None
+        allowed = values.get(no)
+        if allowed is None:
+            errs.append("点 %d の選べる値が判定の形の雛形に無い（SKILL.md の雛形に足す）" % no)
+            continue
+        eye = OTHER_EYE.match(val) if "eye" in allowed else None
         if eye:
             if reviewer and eye.group(1) == reviewer:
                 errs.append("点 3: 書いた窓とレビューした窓が同じ（別の目でない）")
-            if writer and eye.group(1) != writer:
-                errs.append("点 3: 書いた窓 %s が --writer %s と違う" % (eye.group(1), writer))
+            if writers and eye.group(1) not in writers:
+                errs.append("点 3: 書いた窓 %s が --writer %s のどれとも違う" % (eye.group(1), ",".join(sorted(writers))))
             continue
         mv = VALUE.match(val)
-        if not mv:
-            errs.append("点 %d の値が pass／fail／N/A のどれでもない: %s" % (no, val[:20]))
+        if not mv or mv.group(1) not in allowed:
+            want = "書いた窓 <id> ≠ この窓" if "eye" in allowed else "／".join(v for v in ("pass", "fail", "N/A") if v in allowed)
+            errs.append("点 %d の値が %s のどれでもない: %s" % (no, want, val[:20]))
             continue
-        if points[no] == PICTURE:
-            if mv.group(1) == "N/A":
-                errs.append("点 %d %s は N/A にできない（絵が無ければ fail）" % (no, PICTURE))
-            elif mv.group(1) == "pass" and not PICTURE_PASS.match(val):
-                errs.append("点 %d %s の pass が `pass（差なし・版 YYYY-MM-DD.n）` でない（照らした版を書く）" % (no, PICTURE))
+        if points[no] == PICTURE and mv.group(1) == "pass" and not PICTURE_PASS.match(val):
+            errs.append("点 %d %s の pass が `pass（差なし・版 YYYY-MM-DD.n）` でない（照らした版を書く）" % (no, PICTURE))
         if mv.group(1) == "fail":
             fails += 1
     for no in sorted(set(points) - seen):
@@ -134,9 +185,11 @@ def check_points(lines, points, reviewer=None, writer=None):
     return errs, fails
 
 
-def check(text, writer=None, head=None, points=None, cards=None):
+def check(text, writer=None, head=None, points=None, cards=None, values=None, poster=None):
     if points is None:
         points = load_points()
+    if values is None:
+        values = load_values()
     if cards is None:
         cards = load_cards()
     card = card_re(*cards)
@@ -150,13 +203,19 @@ def check(text, writer=None, head=None, points=None, cards=None):
     if not m2:
         errs.append("2 行目が `見た先端: <SHA12>` でない")
     reviewer, judged = (m1.group(1), m1.group(2)) if m1 else (None, None)
+    if poster:
+        # 名乗りの字は写し。判定を出す窓の本物の id（記録）と照らし、別の目はその本物の id で見る
+        if reviewer and reviewer != poster:
+            errs.append("1 行目の `レビューした窓: %s` が判定を出す窓 %s と違う（名乗りは出す窓の id で書く。書いた窓の"
+                        "中の助手は判定を出せない＝別の窓で当てる）" % (reviewer, poster))
+        reviewer = poster
     for h in ("verdict", "点", "所見"):
         n = sum(1 for ln in lines if ln.strip() == "## " + h)
         if n > 1:
             errs.append("`## %s` の節が %d 個在る（1 つだけにする）" % (h, n))
     if m2 and head and not head.startswith(m2.group(1)):
         errs.append("見た先端 %s が PR の今の先端 %s と違う（見直して判定を足す）" % (m2.group(1), head[:12]))
-    if writer and reviewer and writer == reviewer:
+    if reviewer and reviewer in writer_set(writer):
         errs.append("書いた窓とレビューした窓が同じ（別の目でない）")
 
     verdict = section(lines, "verdict")
@@ -181,7 +240,7 @@ def check(text, writer=None, head=None, points=None, cards=None):
             continue
         if re.match(r"^- [\[［]%s" % STOP_CARD, s):
             stops += 1
-    perrs, fails = check_points(lines, points, reviewer=reviewer, writer=writer)
+    perrs, fails = check_points(lines, points, reviewer=reviewer, writer=writer, values=values)
     errs.extend(perrs)
     want = "red" if stops or fails else "green"
     blocked = bool(mv and "blocked" in body[0])
@@ -197,7 +256,7 @@ def main(argv):
     if not args:
         sys.stderr.write(__doc__)
         return 2
-    opts, paths, i = {"--writer": None, "--head": None}, [], 0
+    opts, paths, i = {"--writer": None, "--head": None, "--reviewer": None}, [], 0
     while i < len(args):
         a = args[i]
         if a in opts:
@@ -218,14 +277,19 @@ def main(argv):
     if not paths:
         sys.stderr.write(__doc__)
         return 2
-    if not opts["--writer"] or not opts["--head"]:
+    if not writer_set(opts["--writer"]) or not opts["--head"]:
         # 欠けた材料で通さない: 書いた窓が無いと別の目を、先端が無いと見た後の push を照らせない
         sys.stderr.write("--writer <書いた窓の session id> と --head <PR の先端の SHA> の両方が要る（欠けたまま形を通さない）\n")
+        return 2
+    bad_ids = [w for w in writer_set(opts["--writer"]) | ({opts["--reviewer"]} if opts["--reviewer"] else set())
+               if not SESSION_ID.match(w)]
+    if bad_ids:
+        sys.stderr.write("--writer・--reviewer の値が窓の id（session_…）の形でない: %s\n" % "・".join(sorted(bad_ids)))
         return 2
     bad = 0
     for path in paths:
         with open(path, encoding="utf-8") as f:
-            errs = check(f.read(), writer=opts["--writer"], head=opts["--head"])
+            errs = check(f.read(), writer=opts["--writer"], head=opts["--head"], poster=opts["--reviewer"])
         bad += bool(errs)
         for e in errs:
             print(("%s: %s" % (path, e)) if len(paths) > 1 else e)

@@ -1,42 +1,6 @@
 # 核・振る舞いの既定・細目の文のうち、消しても試験が赤にならない文（tests/test_rule_holes.py が照らす）。
 # 行の形: <path><TAB><文>。新しい文はここへ足さず、文を照らす試験を足す。試験で守られた文・無くなった文は消す。
 # この表の残りは原因の台帳の行（核と細目の文の試験の穴）が持つ。
-plugins/core/振る舞い.md	# 振る舞いの既定（agent-foundation）
-plugins/core/振る舞い.md	AI のもともとの癖と逆を求める既定だけを置く（形の細目は細目.md）。
-plugins/core/振る舞い.md	Chrome で打てない手だけ人の手順にする。
-plugins/core/振る舞い.md	ずれたら見込みを書き直して伝える。
-plugins/core/振る舞い.md	核と一緒に毎回差し込む。
-plugins/core/核.md	# 振る舞いの核（agent-foundation）
-plugins/core/核.md	## 1. 安全
-plugins/core/核.md	## 6. 時刻は日本時間
-plugins/core/核.md	## 8. 記録
-plugins/core/核.md	- 1 行目は 4 札のどれか: `✅終わった`／`❓答えて`／`⏳待ち`／`🛑止まった`。
-plugins/core/核.md	- AI がこの後やることは締める前に自分で動かす。
-plugins/core/核.md	- AI が立てた 🤖 の窓は終わったら AI が閉じる。
-plugins/core/核.md	- オーナーにしか決められない事（外すとやり直す分かれ道・オーナーだけの情報・言葉の解釈・戻せない操作／秘密／お金／社外への送信）だけ聞く。
-plugins/core/核.md	- 人に見せる時刻は `YYYY-MM-DD HH:MM 日本時間`、外へ渡す時刻はタイムゾーン付き。
-plugins/core/核.md	- 人への文は初めて読む人がそれだけで分かる言葉で書く。
-plugins/core/核.md	- 問いは前提から聞く。
-plugins/core/核.md	- 最後の 2 行は `AI がこの後やること:` と `あなたがやること:`。
-plugins/core/核.md	- 終わったかの判定は書いた窓と別の目がする。
-plugins/core/核.md	- 結論を先に。
-plugins/core/核.md	- 規律は畳む・直す・言い換え・止めずに知らせる物なら AI が入れ、新しく「止める」物と核の原則の変更はオーナーの同意を取る。
-plugins/core/核.md	- 記録は各社の決まった置き場へ。
-plugins/core/核.md	- 返事も実況も日本語で書く。
-plugins/core/核.md	- 途中確認せず、範囲が明確な頼みは一気にやる。
-plugins/core/核.md	1. 戻せない操作の前に人に聞く — 強制 push・DB の削除・人の手が入った物や git に無い一点物の削除。
-plugins/core/核.md	2 つの AI の窓が常に読む原則。
-plugins/core/核.md	2. 秘密を出さない — 鍵・トークン・パスワード・接続文字列・認証情報を出力・コード・試験・文書・PR 本文・ログのどこにも書かない。
-plugins/core/核.md	3. `permissions.deny` と自動の許可の判定を尊重し回避しない。
-plugins/core/核.md	4. 公開の repo は誰に見られてもよく保つ — 土台の公開の検査を main で必須にする。
-plugins/core/核.md	AI が作った物・git で戻せる物の片付けは聞かない。
-plugins/core/核.md	git には動く時に読む物だけ。
-plugins/core/核.md	repo 固有の決まりはその repo の `CLAUDE.md` へ。
-plugins/core/核.md	人にしか確かめられない所は見る所を 1 つ示して渡す。
-plugins/core/核.md	古い道は畳む（安全の守りは残す）。
-plugins/core/核.md	止められたら打ち方を直すか、外せる人に聞く。
-plugins/core/核.md	物は本当の名で呼ぶ。
-plugins/core/核.md	調べれば分かる事・安く直せる事は AI が決めて進める。
 plugins/core/細目.md	# 核の細目（agent-foundation）
 plugins/core/細目.md	## 1. 安全
 plugins/core/細目.md	## 2. 日本語
@@ -52,7 +16,6 @@ plugins/core/細目.md	- **別の道で確かめる** — 出した答えを、�
 plugins/core/細目.md	- **前提から聞く** — 問いが頼っている前提が未決なら、そちらを先に聞く（相談の間の論点の表は skill `design-mode`）。
 plugins/core/細目.md	- **問いの持ち方** — 問いは持った窓（子窓も）が題に ❓ を付けて直に出す。
 plugins/core/細目.md	- **情報の取り方** — 結果は件数と失敗した物の ID だけ出す。
-plugins/core/細目.md	- **手の窓** — 先に AI の道具で打てる手（窓を立てる・送る・閉じる・push・PR・合流・調べる・見張る・Notion や Drive への書き込み）か振り分け、自分で打つ。
 plugins/core/細目.md	- **文脈が重い時** — 重くなったら区切りの良い所で後継の窓へ移る。
 plugins/core/細目.md	- **書かない物** — 同じ中身を 2 度出さない（本文と表・要約の二重）。
 plugins/core/細目.md	- **根治の 4 段（問題→原因→解決→未来）**
@@ -110,7 +73,6 @@ plugins/core/細目.md	マインドマップ・理論モックは一緒に形を
 plugins/core/細目.md	ミスは 2 段・3 段上の前提（決まりの形・道具・置き場・聞かせ方）に根がある前提で探し、「書き漏れました」「確認不足でした」のように単発の誤りで片付けない。
 plugins/core/細目.md	一覧は原因の段にそのまま載せ、全部を原因の台帳に入れる。
 plugins/core/細目.md	予約や外の API には `+09:00`、cron なら頭に `CRON_TZ=Asia/Tokyo` を付け、素の時刻を渡さない。
-plugins/core/細目.md	人にしか打てない手（許しと設定・アカウントと支払い・PC やスマホにしか無い物・社外への go・他社のオーナーへの連絡）だけ、題 `🙋⏳ 手: <何を>` の窓を立てて頼む。
 plugins/core/細目.md	人や AI が別の所へ手で写す段を残さない。
 plugins/core/細目.md	人や他の窓の返事を待つ事は数えない。
 plugins/core/細目.md	仕組み（検査の本体・呼び口・見回り）は土台の `docs/公開の検査.md`、作る手順は skill `dev-flow:public-repo`。
@@ -154,8 +116,6 @@ plugins/core/細目.md	直す窓は直しが合流したら自分の行を `直�
 plugins/core/細目.md	相手から受ける答えは、機械が確かめられる形（入力と期待の出力の例つき）で受ける。
 plugins/core/細目.md	知らない値・欠けた材料・仕組みで表せない決まりは、既定で止まる（黙って既定の値・近い形・前回の値で進めない）。
 plugins/core/細目.md	秘密・個人の情報・顧客の語をどれにも書かない。
-plugins/core/細目.md	種類は返し先（`🙋`＝オーナー／`🤖`＝別の窓か仕組み）。
-plugins/core/細目.md	窓が何をする窓か（役）は作業名に書く（決まった一覧は無い・手の窓だけ作業名を `手: <何を>` にする）。
 plugins/core/細目.md	窓の中だけの呼び名は、初めて出す所で括弧の注を付ける。
 plugins/core/細目.md	窓を読んでいない人がチャットと画面だけで答えられる形にする。
 plugins/core/細目.md	節の番号は核と同じです。
@@ -176,7 +136,6 @@ plugins/core/細目.md	迷ったら最新の版と、repo に既に在る型を�
 plugins/core/細目.md	過去の答えに合わせて確かめるのは根治でない（答えから逆算すると、決まりから正しく作る目的が崩れる）。
 plugins/core/細目.md	選ぶ問いを平文で出さない。
 plugins/core/細目.md	頼まれていない説明を足さない。
-plugins/core/細目.md	頼んだ窓は締めの「あなたがやること」に手の窓の URL と、済むまで何に進めないかを書く。
 plugins/core/細目.md	題の長さ・中の言葉・話題の混ざり・推奨の印の付け方は guard の `ask_shape` が出す前に照らす。
 plugins/core/細目.md	食い違う時は核と振る舞いの既定が勝ちます。
 plugins/core/細目.md	🙋 の窓とオーナーが立てた窓は自動で閉じない。

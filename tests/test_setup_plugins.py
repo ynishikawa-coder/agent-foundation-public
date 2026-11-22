@@ -14,6 +14,7 @@ import pytest
 
 ROOT = Path(__file__).resolve().parent.parent
 ENTRY = ROOT / "scripts" / "setup_plugins.py"
+KAKU = ROOT / "plugins" / "core" / "scripts" / "kaku.py"
 DOC = ROOT / "docs" / "核の届け方.md"
 
 FAKE = r'''#!/usr/bin/env python3
@@ -39,11 +40,13 @@ elif a[:2] in (["plugin", "install"], ["plugin", "update"]):
         sys.exit(0 if a[1] == "install" else 1)
     if a[1] == "update" and name in os.environ.get("FAKE_UPDATE_STUCK", "").split():
         sys.exit(0)
-    table["plugins"][a[2]] = [{"scope": "user", "gitCommitSha": head()}]
+    where = str(Path(os.environ["HOME"]) / ".claude" / "plugins" / "cache" / a[2].split("@")[1] / name / head()[:12])
+    table["plugins"][a[2]] = [{"scope": "user", "installPath": where, "gitCommitSha": head()}]
     table_path.parent.mkdir(parents=True, exist_ok=True)
     table_path.write_text(json.dumps(table))
 elif a[:2] == ["plugin", "list"]:
-    print(json.dumps([{"id": k, "scope": "user", "enabled": True} for k in table["plugins"]]))
+    print(json.dumps([{"id": k, "scope": "user", "enabled": True, "installPath": v[0].get("installPath")}
+                      for k, v in table["plugins"].items()]))
 '''
 
 
@@ -58,6 +61,8 @@ def foundation(tmp_path, names):
     (up / "scripts").mkdir(parents=True)
     (up / ".claude-plugin").mkdir()
     shutil.copy2(ENTRY, up / "scripts" / "setup_plugins.py")
+    (up / "plugins" / "core" / "scripts").mkdir(parents=True)
+    shutil.copy2(KAKU, up / "plugins" / "core" / "scripts" / "kaku.py")  # 入口が読む比べ方の正本（本物の clone は repo 全体）
     write_manifest(up, names)
     git(tmp_path, "init", "-q", "-b", "main", str(up))
     git(up, "add", "-A")
@@ -77,7 +82,11 @@ def run(tmp_path, root, broken="", **extra):
     fake.write_text(FAKE, encoding="utf-8")
     fake.chmod(0o755)
     home = tmp_path / "home"
-    home.mkdir(exist_ok=True)
+    known = home / ".claude" / "plugins" / "known_marketplaces.json"
+    if not known.exists():  # setup script の marketplace add が書く登録（目録の clone＝入口の在り処）
+        known.parent.mkdir(parents=True, exist_ok=True)
+        known.write_text(json.dumps({"agent-foundation": {"source": {"source": "github", "repo": "o/r"},
+                                                          "installLocation": str(root)}}), encoding="utf-8")
     env = dict(os.environ, HOME=str(home), CLAUDE_BIN=str(fake), FAKE_LOG=str(tmp_path / "log"), FAKE_BROKEN=broken,
                FAKE_ROOT=str(root), **extra)
     r = subprocess.run([sys.executable, str(root / "scripts" / "setup_plugins.py")], capture_output=True, text=True,
@@ -135,7 +144,7 @@ def test_使う側に貼る_setup_script_は_plugin_の名を写さない():
     assert "plugin install" not in block and "want=" not in block
 
 
-@pytest.mark.parametrize("flags", ["-c", "-ec"])  # 貼る先の setup script が set -e でも 3 行目の知らせまで届く
+@pytest.mark.parametrize("flags", ["-c", "-ec"])  # 貼る先の setup script が set -e でも 最後の行の知らせまで届く
 def test_setup_script_の塊は目録が取れない時も起動を止めず知らせる(tmp_path, flags):
     home = tmp_path / "home"
     home.mkdir()

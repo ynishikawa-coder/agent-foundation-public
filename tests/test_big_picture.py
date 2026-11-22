@@ -228,7 +228,10 @@ def test_形の崩れた_JSON_は落ちずに照らせないで止まる(tmp_pat
 def test_土台の絵は配りの器から全部の_plugin_へ流れを描く():
     """代表の 1 本で済ませない（実物の絵と同じ粗さ）。plugin の箱は配りの器から全部繋がる。"""
     pic = agreed()
-    parts = {b["id"] for b in pic["boxes"] if b["tab"] == "arch" and b["k"] == "part" and b["id"] != "a2"}
+    # plugin の箱＝題の頭（「（」の前）が plugins/ の下の名の部品。plugin の外の部品（公開の検査）は配りの器から入らない。
+    plugins = {p.name for p in (ROOT / "plugins").iterdir() if (p / ".claude-plugin" / "plugin.json").is_file()}
+    parts = {b["id"] for b in pic["boxes"] if b["tab"] == "arch" and b["k"] == "part" and b["t"].split("（")[0] in plugins}
+    assert len(parts) == len(plugins), (parts, plugins)
     fed = {a["to"] for a in pic["arrows"] if a["from"] == "a2"}
     assert parts <= fed, parts - fed
 

@@ -8,11 +8,16 @@
   新しい決まりの文を足したら、その文を照らす試験を同じ PR で足す（文をそのまま照らすのが一番強い）。
 - 表の文が試験で守られるようになった・文が無くなった時は、表から消す（古い穴の行を残さない）。
 """
+import collections
+import contextlib
 import functools
+import io
 import importlib.util
 import inspect
 import pathlib
 import re
+
+import pytest
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 RULE_FILES = ["plugins/core/核.md", "plugins/core/振る舞い.md", "plugins/core/細目.md"]
@@ -46,9 +51,66 @@ def _消す(text, i, s):
     return "".join(lines)
 
 
+# 飛んだ・xfail は「赤になった」に数えない（試験が回っていない）。pytest.fail と普通の例外だけが赤。
+_NOT_RUN = (pytest.skip.Exception, pytest.xfail.Exception)
+_RED = (Exception, pytest.fail.Exception)
+外れた = {}   # 決まりの試験の照らしから外れた試験 → 訳（tests/test_rule_holes_witness.py が名指しで照らす）
+
+
+def _呼び方(f):
+    """f を回す呼び方の並び（引数の組）。tmp_path・monkeypatch・capsys と parametrize の値だけを用意できる。用意できなければ None。"""
+    names = list(inspect.signature(f).parameters)
+    if not names:
+        return [{}]
+    params = [{}]
+    for m in getattr(f, "pytestmark", []):
+        if m.name != "parametrize":
+            continue
+        argnames = [x.strip() for x in m.args[0].split(",")] if isinstance(m.args[0], str) else list(m.args[0])
+        rows = [v.values if hasattr(v, "values") else v for v in m.args[1]]
+        rows = [dict(zip(argnames, r if len(argnames) > 1 else (r,))) for r in rows]
+        params = [{**p, **r} for p in params for r in rows]
+    left = [n for n in names if n not in params[0]]
+    if any(n not in FIXTURES for n in left):
+        return None
+    return params
+
+
+FIXTURES = ("tmp_path", "monkeypatch", "capsys")
+
+
+class _Capsys:
+    """capsys の代わり（readouterr() が前に読んだ後の出力を返す）。"""
+    def __init__(self):
+        self.out, self.err = io.StringIO(), io.StringIO()
+
+    def readouterr(self):
+        o, e = self.out.getvalue(), self.err.getvalue()
+        self.out.seek(0), self.out.truncate(), self.err.seek(0), self.err.truncate()
+        return collections.namedtuple("CaptureResult", "out err")(o, e)
+
+
+def _回す(f, args):
+    """f を args と、要る fixture（tmp_path・monkeypatch・capsys）で 1 回回す。"""
+    import tempfile
+    names = inspect.signature(f).parameters
+    cap = _Capsys()
+    with tempfile.TemporaryDirectory() as d, pytest.MonkeyPatch.context() as mp, \
+            contextlib.redirect_stdout(cap.out), contextlib.redirect_stderr(cap.err):
+        kw = dict(args)
+        if "tmp_path" in names:
+            kw["tmp_path"] = pathlib.Path(d)
+        if "monkeypatch" in names:
+            kw["monkeypatch"] = mp
+        if "capsys" in names:
+            kw["capsys"] = cap
+        f(**kw)
+
+
 @functools.lru_cache(maxsize=1)
 def _決まりの試験():
-    """{決まりの file: その file を読む試験の関数の並び}。読むかは 1 回回して見る。"""
+    """{決まりの file: その file を読む試験の (関数, 引数) の並び}。読むかは 1 回回して見る。
+    元の文で通らない試験（元から赤・飛んだ・xfail）は、文を消した回の赤と区別できないので照らしに使わず 外れた に名を残す。"""
     targets = {(ROOT / r).resolve(): r for r in RULE_FILES}
     readers = {r: [] for r in RULE_FILES}
     current = []
@@ -66,21 +128,30 @@ def _決まりの試験():
         m = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(m)
         for name, f in sorted(vars(m).items()):
-            if not (name.startswith("test_") and inspect.isfunction(f)) or inspect.signature(f).parameters:
+            if not (name.startswith("test_") and inspect.isfunction(f)):
                 continue
-            current.append(f)
-            pathlib.Path.read_text = spy
-            try:
-                f()
-            except BaseException:      # noqa: BLE001 — 元から赤の試験は他の所で赤になる。ここは読むかだけを見る
-                pass
-            finally:
-                pathlib.Path.read_text = _read
-    return readers
+            calls = _呼び方(f)
+            if calls is None:
+                外れた[f"{p.name}::{name}"] = "用意できない fixture を取る"
+                continue
+            for args in calls:
+                current.append((f, args))
+                pathlib.Path.read_text = spy
+                try:
+                    _回す(f, args)
+                except _NOT_RUN:
+                    外れた[f"{p.name}::{name}"] = "元の文で飛んだ・xfail"
+                except _RED:
+                    外れた[f"{p.name}::{name}"] = "元の文で赤"
+                finally:
+                    pathlib.Path.read_text = _read
+    return {r: [x for x in fs if f"{x[0].__module__[len('_rule_holes_'):]}.py::{x[0].__name__}" not in 外れた]
+            for r, fs in readers.items()}
 
 
 def 穴(rel, text=None, only=None):
-    """rel の文のうち、消しても決まりの試験がどれも赤にならない文の並び。text を渡せばその中身で見る（only は見る文を絞る）。"""
+    """rel の文のうち、消しても決まりの試験がどれも赤にならない文の並び。text を渡せばその中身で見る（only は見る文を絞る）。
+    文を消した回で決まりの試験が飛んだ・xfail になった時は、赤に数えず止める（回っていない試験を赤と言わない）。"""
     path = (ROOT / rel).resolve()
     text = _read(path, encoding="utf-8") if text is None else text
     funcs = _決まりの試験()[rel]
@@ -102,10 +173,12 @@ def 穴(rel, text=None, only=None):
         pathlib.Path.read_text = fake
         pathlib.Path.rglob = _rglob
         try:
-            for f in funcs:
+            for f, args in funcs:
                 try:
-                    f()
-                except BaseException:  # noqa: BLE001
+                    _回す(f, args)
+                except _NOT_RUN as e:
+                    raise AssertionError(f"{f.__name__} が文「{s.strip()}」を消した回で飛んだ（赤と数えない）: {e}") from None
+                except _RED:
                     caught = True
                     break
         finally:
@@ -133,7 +206,9 @@ def 今の穴():
 def test_核と細目の文は消すと試験が赤になるか_守らない文の表に在る():
     new = sorted(今の穴() - 表())
     assert not new, ("この文を消しても試験が赤にならない（文を照らす試験を足す。足せない訳がある時だけ "
-                     "tests/data/試験で守らない文.txt に載せる）:\n" + "\n".join(f"{r}\t{s}" for r, s in new))
+                     "tests/data/試験で守らない文.txt に載せる）:\n" + "\n".join(f"{r}\t{s}" for r, s in new)
+                     + "\n照らしから外れた試験（元の文で通らない・用意できない fixture）:\n"
+                     + "\n".join(f"{k}: {v}" for k, v in sorted(外れた.items())))
 
 
 def test_守らない文の表に古い行を残さない():

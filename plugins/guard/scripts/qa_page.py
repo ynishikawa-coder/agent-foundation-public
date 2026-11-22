@@ -13,8 +13,10 @@
         ③ <script id="state"> などの JSON に、問いの並び（qs・questions）で、選択肢（options・choices）を持つ物
   JSON: 問いの並び（questions・qs）で、選択肢を持つ物（Artifact 型へ渡す問いのデータ）
 検査が走らない（check.mjs が見つからない・node が無い・検査が壊れた）時も止める＝緑を確かめられない物は出さない。
-  check.mjs の在り処: 環境変数 AF_QA_CHECK → 同じ repo の plugins/docs-kit → 入れた plugin の docs-kit（同じ版を先に）。
-問いのページでないのに止まる時は、repo の値の表 guard.qa_page_exempt（file の path に当てる正規表現の並び）で外す
+  check.mjs の在り処は guard と同じ commit の docs-kit だけ: 同じ repo の plugins/docs-kit か、入れた plugin の
+  cache/<市場>/docs-kit/<guard と同じ版>。別の版の docs-kit・path を渡す口（前の AF_QA_CHECK）は使わない＝型と検査の版が
+  食い違ったまま判定しない（同じ版が無ければ止めて、docs-kit を同じ版で入れ直すよう名指しする）。
+問いのページでないのに止まる時は、repo の値の表 guard.qa_page_exempt（repo の根からの file の path の全体に当てる正規表現の並び・各行 ^…$）で外す
 （値の表は PR とレビューを通るので、窓の中の一存では外れない）。
 """
 from __future__ import annotations
@@ -86,10 +88,7 @@ def why_question_page(path, raw):
 
 
 def find_check(guard_root=None):
-    """check.mjs の path か ""。"""
-    env = os.environ.get("AF_QA_CHECK") or ""
-    if env:
-        return env if os.path.isfile(env) else ""
+    """guard と同じ版の docs-kit の check.mjs の path か ""（別の版へは降りない・path を渡す口も持たない）。"""
     return G.sibling_plugin_file("docs-kit", os.path.join("skills", "qa-html", "check.mjs"), guard_root)
 
 
@@ -154,12 +153,25 @@ def check(data, vals):
     return ""
 
 
+def repo_rel(path):
+    """値の表 qa_page_exempt の当てる相手: file の path を repo の根（.git の在る dir）から / 区切りで。
+    repo の外の file は絶対 path（/ 区切り）。repo の上の dir の名には当てない。"""
+    full = os.path.abspath(os.path.expanduser(path))
+    d = os.path.dirname(full)
+    while True:
+        if os.path.exists(os.path.join(d, ".git")):
+            return os.path.relpath(full, d).replace(os.sep, "/")
+        up = os.path.dirname(d)
+        if up == d:
+            return full.replace(os.sep, "/")
+        d = up
+
+
 def check_page(path, vals):
     if not path.lower().endswith(PAGE_EXT):
         return ""
-    for pat in vals.get("qa_page_exempt") or []:
-        if isinstance(pat, str) and pat and re.search(pat, path.replace(os.sep, "/")):
-            return ""
+    if G.SV.hit(G.patterns(vals, "qa_page_exempt"), repo_rel(path), path.replace(os.sep, "/")) is not None:
+        return ""
     try:
         with open(path, encoding="utf-8") as f:
             raw = f.read()
@@ -171,7 +183,9 @@ def check_page(path, vals):
     chk = find_check()
     node = shutil.which("node")
     if not chk:
-        return reason(path, why, ["  検査（docs-kit の qa-html の check.mjs）が見つからず、緑を確かめられない。plugin docs-kit を入れる（または AF_QA_CHECK に path）"])
+        here = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        return reason(path, why, ["  検査（docs-kit の qa-html の check.mjs）が guard と同じ版（%s）で見つからず、緑を確かめられない。"
+                                  "別の版の検査では照らさない。plugin docs-kit を guard と同じ版で入れ直す（claude plugin install docs-kit@<市場>）" % os.path.basename(here)])
     if not node:
         return reason(path, why, ["  node が無く、検査（check.mjs）を走らせられない。node を入れる"], chk)
     try:

@@ -11,11 +11,11 @@ inputs:
     required: false
     default: ""
   deny-words-file:
-    description: repo の根からの path。その repo に置かない語の表（1 行 1 語・無ければ空）
+    description: repo の根からの path。その repo に置かない語の表（1 行 1 語・表を持たないなら空のまま。名指した表が無い・語が 0 なら赤）
     required: false
     default: ""
   pattern-skip:
-    description: 形の照らしから外す path（空白区切り・形を書いた検査の道具だけに使う。顧客の語の照らしは外さない）
+    description: '形の照らしを狭める path（空白区切り・形を書いた検査の道具だけに使う。そのファイルでも外れるのは印「public-guard: 形の見本」を書いた行の個人の情報の形だけ。秘密の形・置かない語・顧客の語は外さない）'
     required: false
     default: ""
   checkout:

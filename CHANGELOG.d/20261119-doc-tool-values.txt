@@ -1,0 +1,3 @@
+- 直した: 決まりの文書と道具の値を 1 つに揃えた。判定の形の道具は点ごとに選べる値を review-pr の雛形から読む（点 1〜7 の N/A は赤）。qa-html の検査はなぜ聞くかの 5 文を SKILL.md の表から、変更の記録の道具は札を CHANGELOG.d/README.md から直に読む。session-watch の「分からない」の見分けは guard の ask_shape.is_dunno を直に呼ぶ（わからない・Unknown なども「分からない」と数える）
+- 直した: 推奨の語の並びを選択肢の画面の見張り・確認ページの検査・guard-rules で同じにした（確認ページの検査も おススメ・イチオシ・recommend・suggested を大小を問わず拾う）
+- 足した: 文書と道具の値（qa-html の長さの上限・guard の既定・差し戻しと止める回数・枝の名・推奨の語・「分からない」）を突き合わせる試験 tests/test_doc_tool_values.py

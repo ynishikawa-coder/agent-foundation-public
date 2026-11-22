@@ -69,7 +69,7 @@ def test_commit_前の物も照らす(repo):
 
 
 @pytest.mark.parametrize("branch,code", [("claude/sakumono", 1), ("claude/2026-11-19-sakumono", 1),
-                                         ("patch-1", 0), ("fix/sakumono", 0), ("main", 0), ("HEAD", 0)])
+                                         ("patch-1", 3), ("fix/sakumono", 3), ("main", 3), ("HEAD", 3)])
 def test_AI_の枝だけを止め_人の枝と枝の分からない時は照らしていないと出す(repo, branch, code):
     (repo / "CHANGELOG.d" / "20261119-betsu.txt").write_text("- 足した: 作り物\n", encoding="utf-8")
     with (repo / "tests" / "test_old.py").open("a", encoding="utf-8") as f:
@@ -77,5 +77,5 @@ def test_AI_の枝だけを止め_人の枝と枝の分からない時は照ら�
     commit(repo)
     res = run(repo, branch)
     assert res.returncode == code, (branch, res.stdout)
-    if code == 0:
+    if code == 3:
         assert "照らしていない" in res.stdout and "緑" not in res.stdout, branch

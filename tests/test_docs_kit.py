@@ -9,6 +9,7 @@ import subprocess
 import sys
 from pathlib import Path
 
+import needs
 import pytest
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -204,7 +205,7 @@ def test_問いのデータの悪い例は決まった赤だけ():
               "問い q2: ひとことの欄",
               # 根拠・読み・見込み・リンク・ほかの問いに頼る言い方
               "「前の問」は書かない", "読んだ資料 d1 にリンク", "問い q1: 根拠（どの資料のどこを見たか", "問い q1: 実物が無い", "問い q1: AI の読み",
-              "問い q1: AI の今の見込みの根拠", "問い q1: 選択肢「決まったら連絡」に印", "問い q2: 根拠（どの資料のどこを見たか", "問い q2: AI の読み"]
+              "問い q1: AI の今の見込みの根拠", "問い q1: 選択肢「決まったら連絡」の推奨の印", "問い q2: 根拠（どの資料のどこを見たか", "問い q2: AI の読み"]
     assert len(out["red"]) == len(expect), out["red"]
     for e in expect:
         assert any(r.startswith(e) for r in out["red"]), (e, out["red"])
@@ -631,24 +632,12 @@ def test_ひとことに書かせる選択肢に印が無いと赤(tmp_path):
     assert len(red) == 1 and red[0].startswith("問い q1: ひとことに書かせる選択肢「ほかの答え」に data-supp=\"need\" が無い"), red
 
 
-def _playwright():
-    try:
-        from playwright.sync_api import sync_playwright
-        return sync_playwright
-    except ImportError:
-        return None
-
-
-@pytest.mark.skipif(_playwright() is None, reason="playwright が無い（型の JS を実ブラウザで動かす）")
 def test_ひとことに書かせる選択肢を選ぶと欄の名が変わり空では進めない(tmp_path):
+    sync_playwright = needs.py_playwright()
     page = tmp_path / "確認.html"
     page.write_text(filled_template("copy"), encoding="utf-8")
-    with _playwright()() as p:
-        exe = os.environ.get("QA_CHROMIUM")   # 入った playwright と別の版のブラウザを使う時だけ
-        try:
-            b = p.chromium.launch(**({"executable_path": exe} if exe else {}))
-        except Exception as e:   # 入った playwright の版のブラウザが無い窓（QA_CHROMIUM で別の版を指せる）
-            pytest.skip(f"ブラウザを起こせない: {str(e).splitlines()[0]}")
+    with sync_playwright() as p:
+        b = p.chromium.launch(executable_path=needs.chromium(p))   # file が在るのに起こせなければ赤（飛ばさない）
         pg = b.new_page()
         pg.goto(page.as_uri())
         js = """([sel, ev, val]) => { const f = document.querySelector('fieldset.q[data-qkey="q1"]'); const el = f.querySelector(sel);
@@ -693,23 +682,6 @@ def test_印の値は_need_だけ(tmp_path):
     p.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
     red = run_check(p)["red"]
     assert red and all('"supp" は "need" だけ（今 true）' in x for x in red), red
-
-
-@needs_node
-def test_選択肢におすすめの印を付けると赤(tmp_path):
-    """推奨の印は外した＝見込みは選択肢の後の別枠（根拠つき）だけ。HTML の印もデータの recommended も赤。"""
-    page = tmp_path / "確認.html"
-    page.write_text(filled_template().replace("<b>切り捨てる</b>", '<b>切り捨てる<span class="tag-rec">おすすめ</span></b>', 1), encoding="utf-8")
-    red = run_check(page)["red"]
-    assert any(r.startswith("選択肢に印（おすすめ・tag-rec）を付けない") for r in red), red
-    assert any(r.startswith("問い q1: 選択肢「切り捨てる") and "に印" in r for r in red), red
-    assert any(r.startswith("「おすすめ」は書かない") for r in red), red
-    data = json.loads((DATA / "good.json").read_text(encoding="utf-8"))
-    data["questions"][0]["options"][1]["recommended"] = False   # 値に関わらず鍵があれば赤
-    q = tmp_path / "q.json"
-    q.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
-    red = run_check(q)["red"]
-    assert len(red) == 1 and red[0].startswith("問い q1: 選択肢「借りた日から 14 日」に印（\"recommended\"）"), red
 
 
 # 問いのデータ（JSON）を 1 か所だけ壊すと、その 1 つの赤だけが出る（根拠・読み・見込み・リンク・先に決めておきたい事）
