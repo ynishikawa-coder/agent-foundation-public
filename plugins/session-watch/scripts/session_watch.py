@@ -19,6 +19,10 @@
              （選択肢の画面と同じ物を直に呼ぶ）。返し先が別の窓の窓（🤖）は人への文でないので見ない
   time     … 返事の時刻が日本時間でない（Z・UTC・GMT・+09:00 以外の時差）か、日付つきの時刻に日本時間の印が無いか（核 §6）
   done     … 1 行目が ✅ の返事に、終わったと言い切らない語（ほぼ・大体・たぶん・はず 等）が終わりの語と同じ文に在るか（核 §7）
+  lang     … 返事と実況の本文（1 行目の札・締めの 2 行・コードの塊・`…`・URL・識別子・> の引用を外した所）の大半が
+             日本語でないか（核 §2）。行ごとに日本語の字（1 字を英字 3 字ぶん）とふつうの英語の語の字を比べて英語の行を決め、
+             英語の行の字が 30 字以上で日本語の行より多い時に拾う。実況は英語の文の字を足して 30 字以上で拾う。
+             要約（compact）の後の最初の返事でも同じに照らす（要約の行は人の行なので AI の文に混ぜない）
   secret   … 返事に鍵・トークンの形が在るか。形の正本は公開の検査 public-guard/guard.py の secret_labels（直に呼ぶ）
   neighbor … 上の inner・secret の正本（隣の plugin guard・公開の検査）が見つからず照らせないか
   unread   … 会話ログに読めない行（JSON として読めない・dict でない）が在るか（黙って飛ばして判定しない）
@@ -47,7 +51,7 @@
                                                  手の窓で頼むよう知らせる（どれも止めない）
   python3 session_watch.py --stop              … Stop の hook。届いた返事の STOP_CODES の札（題の印〔今の題で直せる物・会話ログに
                                                  題が無い時も〕・1 行目の札・締めの 2 行・平文の問い・中の言葉・時刻・完了の言い切り・
-                                                 秘密）の崩れを、次の頼みの時に知らせる物として置くだけ（差し戻さない・書き直させない・
+                                                 本文の言語・秘密）の崩れを、次の頼みの時に知らせる物として置くだけ（差し戻さない・書き直させない・
                                                  exit 0 で何も出さない＝返事はそのまま届く）
 読めない行は黙って飛ばさず unread で名指す。照らしが壊れたら手で回す口は exit 2、hook の口は窓を止めずに broken で知らせる。
 """
@@ -596,6 +600,46 @@ def hedge_hits(body):
     return out
 
 
+# 本文の言語（核 §2）: 返事も実況も日本語。札・締めだけ日本語で本文が英語の返事を拾う。
+JA_CHAR = re.compile(r"[\u3040-\u30ff\u3400-\u9fff\uf900-\ufaff\uff66-\uff9f]")
+LATIN_WORD = re.compile(r"[A-Za-z][A-Za-z0-9_./\\:#@+'’-]*")
+PLAIN_WORD = re.compile(r"^(?:[a-z]+|[A-Z][a-z]+)(?:['’][a-z]+)?$")   # 識別子（_ . / 数字・内の大文字・全部大文字）は数えない
+JA_WEIGHT = 3        # 日本語の 1 字は英語のおよそ 3 字ぶんの中身（「hook が起動時に差し込む」を日本語の行と読む）
+LANG_MIN = 30        # 英語の字がこれより少ない本文は見ない（「OK」「Done」程度の一言で知らせない）
+LANG_WORDS = 3       # 英語の行と読むのに要る、ふつうの英語の語の数
+
+
+def lang_body(text):
+    """言語を数える本文: 1 行目の札と締めの 2 行を外す（コードの塊・`…`・URL は prose が外す）。"""
+    body, _ = split_close(text)
+    lines = body.splitlines()
+    while lines and not lines[0].strip():
+        lines.pop(0)
+    if lines and CARD_LINE.match(lines[0]):
+        lines = lines[1:]
+    return "\n".join(lines)
+
+
+def lang_hits(body, least=LANG_MIN):
+    """本文の大半が日本語でなければ (英語の字, 日本語の重み, 英語の行の例)。日本語なら None。
+    行ごとに、日本語の字×JA_WEIGHT と、ふつうの英語の語の字を比べて英語の行か決める（識別子・引用の行は数えない）。"""
+    en_total, ja_total, sample = 0, 0, ""
+    for ln in body.splitlines():
+        if ln.lstrip().startswith(">"):
+            continue                                 # > の引用（人や記録の文をそのまま引いた所）
+        ja = len(JA_CHAR.findall(ln)) * JA_WEIGHT
+        plain = [w for w in LATIN_WORD.findall(ln) if PLAIN_WORD.match(w)]
+        en = sum(len(w) for w in plain)
+        if en > ja and len(plain) >= LANG_WORDS:
+            en_total += en
+            sample = sample or ln.strip()
+        elif ja:
+            ja_total += ja + en
+    if en_total >= least and en_total > ja_total:
+        return en_total, ja_total, sample
+    return None
+
+
 def ai_window(log):
     """返し先が別の窓の窓（🤖）か。種類の正本 window_kind（手の窓は 🙋）か、決まらなければ最後の題の種類で決める。"""
     last = None
@@ -606,7 +650,7 @@ def ai_window(log):
 
 
 def words(log, closing, data=None):
-    """返事の本文の言葉の札 [(code, 説明)]: inner・time・done・secret・neighbor。"""
+    """返事の本文の言葉の札 [(code, 説明)]: inner・time・done・lang・secret・neighbor。"""
     found = []
     if not closing.strip():
         return found
@@ -666,7 +710,19 @@ def words(log, closing, data=None):
             if hh:
                 found.append(("done", "✅ の返事に、終わったと言い切らない語がある: %s" % "／".join("「%s」" % x for x in hh[:3])))
 
-    for name, fn in (("secret", secret), ("inner", inner), ("time", time), ("done", done)):
+    def lang():
+        hit = lang_hits(prose(lang_body(closing), exempt))
+        if hit:
+            found.append(("lang", "返事の本文の大半が日本語でない（英語 %d 字・日本語 %d 字ぶん）: %s" % (hit[0], hit[1], hit[2][:50])))
+        # 実況（このターンの締めより前の文）も日本語（核 §2）。締めと同じ文は数えない。
+        #   実況は 1 回ずつ短いので、文ごとに英語か決め、英語の実況の字を足して数える（前の日本語の返事に薄められない）。
+        narr = [v for k, v in log.turn if k == "text" and v.strip() and v.strip() not in closing]
+        en = [h for h in (lang_hits(prose(v, exempt), least=1) for v in narr) if h]
+        if sum(h[0] for h in en) >= LANG_MIN:
+            found.append(("lang", "実況（返事の前の途中の文）が日本語でない（%d 回・英語 %d 字）: %s"
+                          % (len(en), sum(h[0] for h in en), en[0][2][:50])))
+
+    for name, fn in (("secret", secret), ("inner", inner), ("time", time), ("done", done), ("lang", lang)):
         part(name, fn)
     return found
 
@@ -957,7 +1013,7 @@ def hook_remind(stdin):
 
 
 # ── 知らせる（Stop の hook が置き、次の頼みの時に UserPromptSubmit の hook が出す・差し戻さない）────────────────
-STOP_CODES = ("title", "card", "close", "plain", "inner", "time", "done", "secret", "neighbor", "unread", "nolog")
+STOP_CODES = ("title", "card", "close", "plain", "inner", "time", "done", "lang", "secret", "neighbor", "unread", "nolog")
 ONCE_CODES = ("neighbor", "unread", "nolog")   # AI には直せない＝窓ごとに 1 回だけ知らせる
 #   知らせる札（核 §1・§2・§4・§5・§6・§7 の、AI が読み飛ばすとそのまま人に届く所）。ほか（idk・unanswered・rest・hand）は
 #   手で回す点検だけ。neighbor（隣の正本が見つからない）・unread（会話ログに読めない行）は窓ごとに 1 回だけ知らせる（AI には直せない）。
@@ -972,6 +1028,8 @@ STOP_HOW = {
     "time": "時刻は「YYYY-MM-DD HH:MM 日本時間」で書く（UTC の時刻は 9 時間足す）。記録をそのまま見せる時はコードの囲みに入れる（核 §6）。",
     "done": "確かめた事だけを言い切る。確かめ切れていない所があれば 1 行目を「一部」「止めた」の形にし、何が残るかを書く（核 §7）。"
             "人の言葉を引くだけなら「」で囲む。",
+    "lang": "返事も実況も日本語で書く（核 §2）。会話の要約（英語のことがある）の後も、要約の言葉に合わせず日本語で書く。"
+            "英語の記録・出力をそのまま見せる時はコードの囲みか > の引用に入れる（数えない）。",
     "secret": "鍵・トークンの値を以後の返事に出さず、在り処（環境の値の名・設定の場所）だけを書く。出てしまった鍵は人に作り直しを頼む（核 §1）。",
     "nolog": "hook が渡す会話ログの path（transcript_path）か、その file が無い。AI には直せない。続くなら plugin "
              "session-watch の hooks.json と Claude Code の版を確かめる PR を出すか、あなたがやることに書く。",
