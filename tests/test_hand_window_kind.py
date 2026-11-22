@@ -1,8 +1,10 @@
 """手の窓（作業名が `手:` の窓）の種類は返し先によらず 🙋 で、決まりの文と見張りが同じ 1 つの正本を読むかを見る。
 
-なぜ在るか: 決まり（skill title-mark）が「（親窓 session_… の子）と書いた窓は 🤖」と「手の窓は 🙋⏳ 手:」を別々に書き、
-見張り（session_watch.py）も返し先だけで種類を決めていた。親窓が手の窓を立てる頼みに（親窓 … の子）と書くと、
+意図: 手の窓の種類（🙋）を、決まりと見張りが同じに決め、差し戻しが行き来しないようにする。
+課題: 親窓が手の窓を立てる頼みに（親窓 … の子）と書くと、
 Stop の見張りが 🙋 を 🤖 へ替えろと毎回差し戻し、🤖 に替えると今度は title_shape が 🙋 へ戻せと差し戻した。
+原因: 決まり（skill title-mark）が「（親窓 session_… の子）と書いた窓は 🤖」と「手の窓は 🙋⏳ 手:」を別々に書き、
+見張り（session_watch.py）も返し先だけで種類を決めていた。
 """
 import importlib.util
 import json
@@ -12,7 +14,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 SCRIPT = ROOT / "plugins" / "session-watch" / "scripts" / "session_watch.py"
 SKILL = ROOT / "plugins" / "session-watch" / "skills" / "title-mark" / "SKILL.md"
-DETAIL = ROOT / "plugins" / "core" / "細目.md"
+DETAIL = ROOT / "plugins" / "core" / "細目" / "04-聞き方.md"   # 手の窓の節
 
 spec = importlib.util.spec_from_file_location("session_watch_hand_kind", SCRIPT)
 sw = importlib.util.module_from_spec(spec)

@@ -1,7 +1,9 @@
 """決まりの文書（SKILL.md・README・CONTRIBUTING・細目）の値と、それを照らす道具の値が 1 つに揃っているかを見る。
 
-なぜ在るか: 決まりの文書と道具の値が別々に書かれ、片方だけ変えても赤にならなかった（「分からない」の見分け・判定の点ごとの値・
+意図: 決まりの文書と道具の値が片方だけ変わったら赤にする（「分からない」の見分け・判定の点ごとの値・
 qa-html の長さの上限・guard の既定・差し戻しの回数・変更の記録の札と枝の名・推奨の語）。
+課題: 片方だけ変えても赤にならなかった。
+原因: 決まりの文書と道具の値が別々に書かれていた。
 直し方は 2 つ: 写しを無くせる所は道具が文書を直に読む（verdict_form の点ごとの値・qa-html のなぜ聞くかの 5 文・changelog の札・
 session-watch の「分からない」は guard の ask_shape.is_dunno を直に呼ぶ）。文書と道具の両方に値が要る所は、文書から値を読んで
 道具の値と同じかを見る（片方だけ変えると赤）。各組に、値をわざとずらすと拒む注入の試験を置く。
@@ -14,6 +16,7 @@ import subprocess
 from pathlib import Path
 
 import pytest
+from saimoku import 全文 as 細目の全文
 
 ROOT = Path(__file__).resolve().parent.parent
 GUARD_SKILL = ROOT / "plugins/guard/skills/guard-rules/SKILL.md"
@@ -80,7 +83,7 @@ def _dunno_forms(text):
 
 
 def test_細目の分からないは_ask_shape_の見分けに当たる():
-    assert AS.is_dunno(_dunno_word(_read(ROOT / "plugins/core/細目.md")))
+    assert AS.is_dunno(_dunno_word(細目の全文()))
 
 
 def test_guard_rules_に書いた分からないの形は全部_ask_shape_の見分けに当たる():
@@ -261,7 +264,7 @@ def test_聞く前に引いた跡で止める回数は_guard_rules_の文と同�
 
 def test_回数と札を書き換えると道具とずれて赤():
     """注入の試験。"""
-    w = _read(WATCH_SKILL).replace("・`neighbor` は、Stop", " は、Stop")
+    w = _read(WATCH_SKILL).replace("・`nolog` は、Stop", " は、Stop")
     assert _watch_stop(w) != SW.STOP_CODES
     assert _prior_max(_read(GUARD_SKILL).replace("同じ頼みの中で 2 回まで", "同じ頼みの中で 5 回まで")) != PA.ASK_PRIOR_MAX
 

@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """部品（plugin）どうしの呼び出しの流れを、コードと手順の文から機械で拾い、全体の絵に全部在るかを照らす。
 
-なぜ在るか: 全体の絵を写す・描く時に、ある plugin の script・skill の手順が別の plugin の道具を呼ぶ流れを、
+意図: plugin をまたぐ呼び出しの流れを目で探さず、ここで拾った一覧を正にして全体の絵と照らせるようにする。
+課題: 全体の絵を写す・描く時に、ある plugin の script・skill の手順が別の plugin の道具を呼ぶ流れを、
 人の目で 2 回続けて拾い漏らした（合意した絵に無い流れが実物に在り、合流の前の照らしで red）。
-流れは目で探さず、ここで拾った一覧を正にする。
+原因: 流れを拾うのが人の目だけだった。
 
   python3 scripts/call_flows.py list  [--repo DIR]            # 流れを 1 行ずつ「呼ぶ側 → 呼ばれる側  証拠」で出す
   python3 scripts/call_flows.py check <絵.json> [--repo DIR]  # 拾った流れが全部、絵の仕組みの構成（arch）の矢印に在るか
@@ -46,7 +47,7 @@ ROOT = Path(__file__).resolve().parent.parent
 TOOL_SUFFIX = (".py", ".mjs", ".js", ".sh")
 CODE_SUFFIX = (".py", ".mjs", ".js", ".sh", ".md", ".json")   # 呼ぶ形を読める file（.html・.txt は道具を呼ばない）
 OUTSIDE_SKIP = {"plugins", "tests", "scripts", "docs", "CHANGELOG.d"}  # 配らない・道具でない dir（. で始まる dir も外す）
-ROOT_CAUSE = ("直し: 絵に無い流れを 1 本ずつ足して済ませず、流れが絵から漏れた原因を細目 §3「まず構造を疑う」で探して直す"
+ROOT_CAUSE = ("直し: 意図（合意した絵が実物の流れを全部持つ）とのずれから入り、流れが絵から漏れた原因を細目 §3「まず構造を疑う」で探して直す（1 本ずつ足して済ませない）"
               "（絵は合意の版＝足すならオーナーに差を見せて決めてもらう）")
 
 

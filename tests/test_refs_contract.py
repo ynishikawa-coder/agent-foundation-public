@@ -42,11 +42,13 @@ def renumbered(tmp_path):
         if src.is_file():
             (root / rel).parent.mkdir(parents=True, exist_ok=True)
             shutil.copy(src, root / rel)
-    p = root / "plugins/core/細目.md"
-    text = p.read_text(encoding="utf-8")
-    for n in range(8, 0, -1):
-        text = text.replace(f"\n## {n}. ", f"\n## {n + 1}. ")
-    p.write_text(text.replace("\n## 2. 安全", "\n## 1. 作り物の新しい節\n\n- 作り物。\n\n## 2. 安全", 1), encoding="utf-8")
+        elif src.is_dir():                                  # 細目は節ごとの file の dir
+            shutil.copytree(src, root / rel)
+    for p in sorted((root / "plugins/core/細目").glob("*.md")):
+        text = p.read_text(encoding="utf-8")
+        for n in range(8, 0, -1):
+            text = text.replace(f"## {n}. ", f"## {n + 1}. ")
+        p.write_text(text.replace("## 2. 安全", "## 1. 作り物の新しい節\n\n- 作り物。\n\n## 2. 安全", 1), encoding="utf-8")
     return root
 
 
@@ -54,7 +56,7 @@ def test_約束は節と名と見張りの出来事を出す():
     res = run("list")
     assert res.returncode == 0, res.stdout
     c = json.loads(res.stdout)
-    sai = c["docs"]["plugins/core/細目.md"]
+    sai = c["docs"]["plugins/core/細目"]                   # 節ごとの file をつないだ全文が 1 つの文書
     assert {"no": 3, "title": "直すは根治"} in [{k: s[k] for k in ("no", "title")} for s in sai["sections"]]
     assert any(n["name"] == "まず構造を疑う" and n["section"] == "直すは根治" for n in sai["names"])
     assert c["hooks"]["plugins/guard/scripts/values_keys.py"] == {"pre": "check", "start": "resurface"}
@@ -89,7 +91,10 @@ def test_名で引くと今の番号が出る():
     ("`CONTRIBUTING.md` §99 を見る。", False),
     ("`plugins/core/細目.md` §99 を見る。", False),
     ("細目.md「作り物の無い名」を見る。", False),
-    ("細目.md「まず構造を疑う」を見る。", True),
+    ("細目.md「まず構造を疑う」を見る。", True),                         # 割る前の名も受ける（壊れる 1 段目）
+    ("`plugins/core/細目.md`「まず構造を疑う」を見る。", True),
+    ("`plugins/core/細目/03-直すは根治.md`「まず構造を疑う」を見る。", True),  # 節の file の path
+    ("`plugins/core/細目/03-直すは根治.md`「作り物の無い名」を見る。", False),
     ("`CONTRIBUTING.md` §1「枝と PR」を見る。", True),
     ("細目「の」を見る。", False),                                       # 短すぎる引きは文書のどこかに当たるだけで合わない
     ("結核「作り物」の話。", True),                                      # 略の名を長い語の中に当てない

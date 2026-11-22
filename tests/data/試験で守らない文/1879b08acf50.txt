@@ -1,0 +1,1 @@
+plugins/core/細目/09-量の上限.md	核・振る舞いの既定・各 repo に固有の決まり（根の `CLAUDE.md`）に別々の上限があり、`python3 plugins/core/scripts/kaku.py check` が照らします（数は `kaku.py` の `LIMITS` の 1 か所。
