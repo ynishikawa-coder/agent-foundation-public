@@ -185,6 +185,14 @@ def test_入れ直しの失敗は_1_行で_1_度だけ名指す(home, tmp_path):
     assert kaku.refresh_failed_text(state) is None
 
 
+def test_入れ直しの記録が壊れていれば黙らず_1_度だけ名指す(home):
+    (home / "af-foundation" / "refresh.json").write_text("こわれた", encoding="utf-8")
+    state = {}
+    text = kaku.refresh_failed_text(state)
+    assert text and "裏の入れ直しの記録" in text
+    assert kaku.refresh_failed_text(state) is None
+
+
 def test_入れ直しが済めば名指さない(home, tmp_path):
     clone = _entry(tmp_path, 0, "✅ 入った")
     kaku.refresh("c" * 40, clone / "scripts" / "setup_plugins.py")
