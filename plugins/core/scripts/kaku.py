@@ -539,7 +539,7 @@ def catalog_source() -> tuple[dict, str | None]:
     """目録 agent-foundation の登録（known_marketplaces.json の行）と、土台の出所でない時の名指し。
     ({}, None)＝目録が無い・手元から入れた（照らさない）/ (行, None)＝土台の repo の GitHub から入った /
     ({}, 名指し)＝別の出所（fork・別の git）から入った＝その main を正と見ない。"""
-    m = (_read_json(_home() / "plugins" / "known_marketplaces.json") or {}).get(MARKET) or {}
+    m = (_read_json(_home() / "plugins" / "known_marketplaces.json", dict) or {}).get(MARKET) or {}
     src = m.get("source") if isinstance(m.get("source"), dict) else {}
     if not m.get("installLocation") or src.get("source") in LOCAL_SOURCES or not src:
         return {}, None
@@ -564,7 +564,7 @@ def user_rows(table: dict | None = None, market: str = MARKET) -> dict[str, list
     """{plugin の名: 入った台帳の user scope の行の並び}（目録 market の物だけ）。scope の欄が user と書かれた行だけを
     数える（欄の無い行を user と見ない）。台帳を読む所（新しさ・入れ方・写しの見張り・plugin-smoke）はこの 1 つを通す。"""
     if table is None:
-        table = _read_json(_home() / "plugins" / "installed_plugins.json") or {}
+        table = _read_json(_home() / "plugins" / "installed_plugins.json", dict) or {}
     plugins = table.get("plugins") if isinstance(table, dict) else None
     out = {}
     for key, rows in plugins.items() if isinstance(plugins, dict) else []:
@@ -596,13 +596,15 @@ def setup_record() -> tuple[dict | None, str | None]:
     """今の土台を入れた setup が入口 scripts/setup_plugins.py で書いた記録（setup.json）と、そう確かめられない訳。
     file が在るだけでは今回の記録と見ない: 記録の名簿の版（catalog_sha）が入った plugin core の commit と同じで、
     記録の時（at）が土台の plugin を入れ直した時（台帳の lastUpdated）より前でない時だけ今回の物（前の setup の記録が
-    残った容器で、入口を通らない古い形の setup script が入れ直したのを見逃さない）。"""
+    残った容器で、入口を通らない古い形の setup script が入れ直したのを見逃さない）。
+    記録が在るのに読めない（開けない・壊れた JSON）時は「無い」と言わず Unreadable を上げる。"""
     have = installed_sha()
     # 版ごとの記録（入口が setup-<入れた版>.json にも書く）が今動いている版の物なら、それが今回の記録。setup.json は
     # 起動の時に別の口（使う側の起動の hook）が入口を回し直すと、並んで走るこの hook が読む前に新しい版の記録へ
     # 書き換わる＝今動いている版の記録を版の名で引けば取り違えない。同じ版を後で入れ直しても動く物は同じ。
-    own = _read_json(_home() / "af-foundation" / f"setup-{have}.json") if have else None
-    if isinstance(own, dict) and own.get("catalog_sha") == have:
+    # 在るのに読めない記録は Unreadable のまま上げる（「記録が無い」と言って setup の走らせ直しへ導かない・setup_text が名指す）
+    own = _read_json(_home() / "af-foundation" / f"setup-{have}.json", dict) if have else None
+    if own is not None and own.get("catalog_sha") == have:
         # 版ごとの記録にも記録の時の照らしを当てる（入口を通らない古い形が同じ版を記録の後に入れ直したのを見逃さない）。
         # 見るのは今動いている版の行だけ: 並んだ入れ直しが書いた別の版の行は、今動いている物を変えていない。
         at = _when(own.get("at"))
@@ -611,8 +613,8 @@ def setup_record() -> tuple[dict | None, str | None]:
         if at is None or (same and max(same) > at + 2):
             return None, "入口の記録の時が土台の plugin を入れ直した時より前（記録の後に入口を通らずに入れ直した）"
         return own, None
-    state = _read_json(_home() / "af-foundation" / "setup.json")
-    if not isinstance(state, dict):
+    state = _read_json(_home() / "af-foundation" / "setup.json", dict)
+    if state is None:
         return None, "入口の記録（~/.claude/af-foundation/setup.json）が無い"
     if not have or state.get("catalog_sha") != have:
         return None, (f"入口の記録の名簿の版 {str(state.get('catalog_sha'))[:12]} が入った土台 {str(have)[:12]} と違う"
@@ -627,7 +629,7 @@ def setup_record() -> tuple[dict | None, str | None]:
 
 def _enabled() -> set[str]:
     """user scope で enabled の plugin（~/.claude/settings.json の enabledPlugins。入口の listed() と同じ見方）。"""
-    on = (_read_json(_home() / "settings.json") or {}).get("enabledPlugins") or {}
+    on = (_read_json(_home() / "settings.json", dict) or {}).get("enabledPlugins") or {}
     return {k for k, v in on.items() if v is True} if isinstance(on, dict) else set()
 
 
@@ -643,8 +645,13 @@ def setup_text() -> str | None:
         parts.append(f"- この窓に入った plugin core の版が分からない（入った台帳 installed_plugins.json に installPath が"
                      f"この plugin の dir {PLUGIN} と同じ行が無い）。土台の古さを照らしていない＝核と守りが土台の今の物か分からない。"
                      "最初にオーナーへ知らせ、setup script を土台の docs/核の届け方.md の形に直す。\n")
-    state, why = setup_record()
-    if state is None:
+    try:
+        state, why = setup_record()
+    except Unreadable as e:
+        state, why = None, None
+        parts.append(f"- 入口の記録が読めない: {e}。記録が無いのでも、setup script が古い形と決まったのでもない（在るのに開けない・壊れている）。"
+                     "setup を走らせ直す前に、その file の中身と権限を見る。直せない時は親の窓・オーナーへ 1 行知らせる。\n")
+    if state is None and why:
         parts.append(f"- 環境の setup script が古い形（今の土台を入れた setup が土台の入口 scripts/setup_plugins.py を通っていない: {why}）。"
                      "土台が plugin を足しても入らず、入れ損ねの見張りにも入らない。土台の docs/核の届け方.md の形に貼り替える"
                      "（Javis の環境は get_environment → update_environment。直せない環境は親の窓・連絡板へ頼み、オーナーへ 1 行知らせる）。\n")
@@ -725,11 +732,46 @@ def _home() -> Path:
     return Path(os.environ.get("HOME") or "~").expanduser() / ".claude"
 
 
-def _read_json(path: Path):
+class Unreadable(Exception):
+    """在るのに読めない記録（開けない・UTF-8 でない・JSON でない・形が違う）。名（path）と訳（why）を持つ。
+    「無い」（None）と分ける＝読めない記録を「無い」と読んで書き直す・別の直しへ導く道を作らない。"""
+
+    def __init__(self, path: Path, why: str):
+        super().__init__(f"{path} が読めない（{why}）")
+        self.path, self.why = path, why
+
+
+def _read_json(path: Path, kind: type | None = None):
+    """記録の JSON を読む 1 本の口。無い＝None。在るのに読めない（開けない・壊れた JSON・kind の形でない）＝Unreadable を上げる。
+    黙って None にしない（呼ぶ側が「無い」と「読めない」を分けて名指すため）。"""
     try:
-        return json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
+        text = path.read_text(encoding="utf-8")
+    except FileNotFoundError:
         return None
+    except UNREADABLE as e:
+        raise Unreadable(path, f"{type(e).__name__}: {e}") from e
+    try:
+        data = json.loads(text)
+    except ValueError as e:
+        raise Unreadable(path, f"JSON として壊れている: {e}") from e
+    if kind is not None and not isinstance(data, kind):
+        raise Unreadable(path, f"中身の形が {kind.__name__} でない（{type(data).__name__}）")
+    return data
+
+
+def _broken_text(name: str, e: Exception) -> str:
+    """見張りが動かなかった・入力が読めなかった事を窓の文脈へ名指す文（止めずに知らせる）。"""
+    return (f"## 土台の見張り（{name}）が動かなかった\n{type(e).__name__}: {e}。"
+            "土台の plugin core の不具合か壊れた記録として親の窓へ知らせる（止めずに頼みは続ける）。\n")
+
+
+def _state_broken_text(e: "Unreadable", where: str) -> str:
+    """窓の記録（~/.claude/af-foundation/<session>.json）が在るのに読めない時の知らせ。記録は書き直さない。"""
+    return ("## この窓の土台の記録が読めない — 記録は書き直していない\n"
+            f"{e}。{where}（無い記録として今の値で上書きすると、起動の時の main の先端と前に差し込んだ核の比べが黙って変わる）。"
+            "起動の後に土台が新しくなったかの見張りは、この記録が読めるまでこの窓で動かない。"
+            "この記録は plugin core が書いた物: 中身と権限を見て、壊れていれば消す（次の起動の hook が今の値で書き直す）。"
+            "直せない時は親の窓へ知らせる。\n")
 
 
 def _git(loc: str, *args: str, timeout: int = 20) -> str | None:
@@ -746,7 +788,7 @@ def installed_sha() -> str | None:
 
     読むのは installPath がこの plugin の dir（今動いている kaku.py の在り処）と同じ行だけ。合う行が無ければ None
     （＝分からない）。行が 1 つでも別の dir（project scope で入った・前に別の所へ入った）の行の版で古さを決めない。"""
-    table = _read_json(_home() / "plugins" / "installed_plugins.json") or {}
+    table = _read_json(_home() / "plugins" / "installed_plugins.json", dict) or {}
     rows = (table.get("plugins") or {}).get(f"core@{MARKET}") or []
     for row in rows if isinstance(rows, list) else []:
         if isinstance(row, dict) and row.get("installPath") and Path(row["installPath"]).resolve() == PLUGIN:
@@ -844,12 +886,15 @@ def _save_state(session: str, state: dict) -> None:
         pass
 
 
-def _hook_input() -> dict:
+def _hook_input() -> tuple[dict, Exception | None]:
+    """hook の入力（stdin の JSON）と、読めなかった時の訳。空は {}（無い）。壊れた入力を黙って {} にしない。"""
     try:
         data = json.loads(sys.stdin.read() or "{}")
-    except (ValueError, OSError):
-        return {}
-    return data if isinstance(data, dict) else {}
+    except (ValueError, OSError) as e:
+        return {}, e
+    if not isinstance(data, dict):
+        return {}, ValueError(f"hook の入力の形が dict でない（{type(data).__name__}）")
+    return data, None
 
 
 def _short(f: dict) -> str:
@@ -898,9 +943,12 @@ def tip_core_text(f: dict) -> str:
 
 
 def stale_at_start_text(f: dict) -> str:
-    rec = (setup_record()[0] or {}).get("main_at_setup") or ""
+    try:  # 2 回目の起動（told の差し直し）の間に記録が壊れても、核の差し込みごと落とさず名指す
+        rec = ((setup_record()[0] or {}).get("main_at_setup") or "")[:12]
+    except Unreadable as e:
+        rec = f"（入口の記録が読めない: {e}）"
     return ("## 土台が古いまま立った窓 — setup script を直し、窓はそのまま続ける\n"
-            f"この窓は main の先端より古い土台で立った（{_short(f)}）。setup の時の main の先端は {rec[:12]} で、setup はそれと違う物を入れた。"
+            f"この窓は main の先端より古い土台で立った（{_short(f)}）。setup の時の main の先端は {rec} で、setup はそれと違う物を入れた。"
             "setup script が版（tag）を指している・目録を取り直さない古い形（marketplace update の行が無い）・入れ損ねている"
             "ので、次に立つ窓にも同じ物が入る。頼みの合間に次をする:\n"
             "1. 環境の setup script を土台の docs/核の届け方.md の形（main の先端を入れる）に直す: "
@@ -932,7 +980,7 @@ TOLD_TEXT = {"setup": stale_at_start_text, "unknown": unknown_at_start_text}
 
 
 def inject() -> int:
-    data = _hook_input()
+    data, bad_input = _hook_input()
     project = Path(os.environ.get("CLAUDE_PROJECT_DIR") or os.getcwd())
     parts = []
     try:  # 核はいつも正本を差し込む（使う側の写しの枠が在っても、写しでなく正本が効く）
@@ -944,12 +992,18 @@ def inject() -> int:
         try:
             t = make()
         except Exception as e:  # noqa: BLE001  見張りが壊れても核の差し込みは止めない。壊れた事は名指しする
-            t = f"## 土台の見張り（{name}）が動かなかった\n{type(e).__name__}: {e}。土台の plugin core の不具合として親の窓へ知らせる。\n"
+            t = _broken_text(name, e)
         if t:
             parts.append(t)
+    if bad_input:
+        parts.append(_broken_text("hook の入力", bad_input))
     session = data.get("session_id")
-    state = _read_json(_state_path(session)) if session else None
-    if isinstance(state, dict):
+    broken = None
+    try:
+        state = _read_json(_state_path(session), dict) if session else None
+    except Unreadable as e:  # 読めない記録を「無い」と読んで起動の時の記録を書き直さない
+        state, broken = None, e
+    if state is not None:
         # 同じ窓の 2 回目（文脈の圧縮・/clear・resume）: 起動の時の記録を書き直さず、外へも見に行かない。
         # 前に差し込んだ main の先端の核（told）を、もう一度差し込む（圧縮で起動の時の古い核だけが残らない）。
         told, kind = state.get("told"), state.get("told_kind")
@@ -957,12 +1011,15 @@ def inject() -> int:
         try:
             f = freshness()
             cause = start_cause(f)
-        except Exception:  # noqa: BLE001  新しさの見張りが壊れても核の差し込みは止めない
+        except Exception as e:  # noqa: BLE001  新しさの見張りが壊れても核の差し込みは止めない。壊れた事は名指しする
             f, cause = None, None
+            parts.append(_broken_text("新しさ", e))
         # 入った土台が先端より古ければ、先端の核をここで差し込む。setup が古い物を入れた・分からない時だけ setup script を
         # 直させる（setup の後に main が進んだだけ＝作り置きの箱は直す物が無い）。
         told, kind = (f, cause) if f and f["plugins"] else (None, None)
-        if session:
+        if broken is not None:
+            parts.append(_state_broken_text(broken, "起動の時の記録（start_main・told）を今の値で書き直していない"))
+        elif session:
             state = {"checked": time.time(), "cause": cause, "comparable": f is not None, "start": f,
                      "start_main": f["main"] if f else None, "told": told, "told_kind": kind}
             _save_state(session, state)
@@ -977,31 +1034,42 @@ def inject() -> int:
 def fresh() -> int:
     """起動の後に土台が新しくなったかを見る。新しくなっていれば、main の先端の核と振る舞いの既定をこの窓に差し込み、
     窓はそのまま頼みを続ける（引き継がせない・閉じさせない）。同じ先端は 1 回だけ差し込む（問いのたびに繰り返さない）。"""
-    data = _hook_input()
+    data, bad_input = _hook_input()
     session = data.get("session_id")
+    if bad_input:
+        return _say(_broken_text("hook の入力", bad_input))
     if not session:
         return 0
     path = _state_path(session)
-    state = _read_json(path)
-    if not isinstance(state, dict) or not state.get("comparable"):
+    try:
+        state = _read_json(path, dict)
+    except Unreadable as e:  # 読めない記録で黙って 0 を返さない（新しくなった土台を差し込めない事を名指す）
+        return _say(_state_broken_text(e, "記録を書き直していない"))
+    if state is None or not state.get("comparable"):
         return 0
     interval = float(os.environ.get("AF_FRESH_INTERVAL") or FRESH_INTERVAL)
     if time.time() - float(state.get("checked") or 0) < interval:
         return 0
+    broken = None
     try:
         got = freshness()
-    except Exception:  # noqa: BLE001
-        got = None
+    except Exception as e:  # noqa: BLE001  見張りが壊れても問いは止めない。壊れた事は名指しする（間を置いて 1 回）
+        got, broken = None, e
     state["checked"] = time.time()
     if got and got["plugins"] and state.get("start_main"):
         # 入った版でなく、この窓が立った時の先端と比べる（作り置きの箱で立った窓を、立つ前の main の進みで数えない）
         moved = moved_since(state["start_main"], got["main"])
         got = dict(got, plugins=moved) if moved else None
-    text = None
+    text = _broken_text("新しさ", broken) if broken else None
     if got and got["plugins"] and got["main"] != (state.get("told") or {}).get("main"):
         state["told"], state["told_kind"] = got, "update"
         text = update_text(got)
     _save_state(session, state)
+    return _say(text)
+
+
+def _say(text: str | None) -> int:
+    """問いの時の hook（fresh）が窓の文脈へ足す口。"""
     if text:
         out = {"hookSpecificOutput": {"hookEventName": "UserPromptSubmit", "additionalContext": text}}
         sys.stdout.write(json.dumps(out, ensure_ascii=False))
