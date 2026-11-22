@@ -122,6 +122,10 @@ def flows(repo: Path) -> dict[tuple[str, str], list[str]]:
             if (no, USING_REPO) not in seen:
                 seen.add((no, USING_REPO))
                 out[(x, USING_REPO)].append(f"{f}:{no} 今の dir を引く")
+        for no in relative_reads(f, text):
+            if (no, USING_REPO) not in seen:
+                seen.add((no, USING_REPO))
+                out[(x, USING_REPO)].append(f"{f}:{no} 相対の path で開く（今の dir に頼る）")
         for no, piece, kind in pieces(f, text, units):
             if kind == "value":
                 y = borrowed[x].get(piece.strip()) if f.endswith(".py") else None
@@ -144,16 +148,23 @@ def flows(repo: Path) -> dict[tuple[str, str], list[str]]:
 # ── 使う側の repo を読む形 ───────────────────────────────────────
 # plugin は土台の道具だけでなく、開いた（使う側の）repo も読む（読むだけ・オーナーの決定 2026-11-22 で土台の道具の全体に許す）。
 # 読む物を字の形で 1 つずつ挙げて拾うと、決まった path・引数で渡された path を読む形を漏らす（漏れが 3 回続いた）。
-# なので「使う側の repo の在り処を引くか」で拾う: 在り処を引かずに使う側の repo を読む道は無い。
+# なので「使う側の repo の在り処を引くか」で拾う。在り処を引く道は 2 つ: 在り処を名指して引く形と、相対の path で開いて
+# 今の dir に暗に頼る形（hook・道具は使う側の repo を今の dir にして動くので、相対の path は使う側の repo を指す）。
 #   在り処を引く形（コードの値と呼び出し。説明の文は除く）: 環境変数 CLAUDE_PROJECT_DIR・`git rev-parse --show-toplevel`・
 #   今の dir（Path.cwd()・os.getcwd()・process.cwd()・sh の $PWD／$(pwd)）・hook の入力の "cwd"・
 #   plugin の .json の表に置いた git の pathspec の glob（例 古い形.json の files。表を読む道具が使う側の repo に当てる）。
+#   相対の path で開く形（コードの呼び出し）: .py の open()・Path()・PurePath()・os.path／os の stat・exists・isfile・isdir・
+#   listdir・scandir・walk・glob／iglob（関数か module の呼び出し。物の method の root.glob() は物から辿るので数えない）に、
+#   / と ~ で始まらない字の値を直に渡す。.mjs／.js の fs の読む呼び出し
+#   （readFileSync・readFile・existsSync・statSync・readdirSync・openSync・createReadStream など）に同じ字の値を渡す。
 #   → 絵の箱「使う側の repo」（題の頭）への流れ。
 # 使う側の repo の中の名前付きの物（値の表・CLAUDE.md）は、その物を指す値でそれぞれの箱への流れにも数える:
 #   - 値の表: 値が config/skill-values.json・値の表の口 skill_values の import（plugin の lib/ の symlink を通して読む）
 #   - CLAUDE.md: 値が CLAUDE.md（開いた repo の根の CLAUDE.md を読む）
 # 残る穴: 在り処を呼ぶ側（人・別の道具）から引数だけで受け取り、自分では在り処を引かない道具は拾わない
 #   （その道具を呼ぶ側が在り処を引く。手で path を渡して読ませる使い方は絵の上では呼ぶ側の流れ）。
+#   相対の path を字の値でなく組み立てた値（変数・f-string・+ でつないだ値）で開く形と、.sh の命令に相対の path を
+#   渡す形（cat docs/x など）は拾わない（.sh は命令の引数が path か字の値かを形で分けられない）。
 USING_TABLE = "repo ごとの値の表"
 USING_CLAUDE = "repo 固有の CLAUDE.md"
 USING_REPO = "使う側の repo"
@@ -193,6 +204,43 @@ def locate_calls(f: str, text: str) -> list[int]:
         code = re.sub(r"/\*.*?\*/", lambda m: "\n" * m.group(0).count("\n"), text, flags=re.S)
         return [no for no, ln in enumerate(code.splitlines(), 1)
                 if re.search(r"\bprocess\.cwd\(\s*\)", ln.split("//", 1)[0])]
+    return []
+
+
+_REL_PY_FUNCS = {"open", "Path", "PurePath", "exists", "isfile", "isdir", "listdir", "scandir", "walk", "stat",
+                 "glob", "iglob"}
+_REL_PY_MODULES = {"os", "os.path", "glob", "io", "pathlib", "shutil"}
+_REL_JS = re.compile(r"\b(?:readFileSync|readFile|existsSync|statSync|lstatSync|readdirSync|readdir|openSync|"
+                     r"createReadStream|accessSync)\(\s*(['\"`])(?![/~])([^'\"`$]+)\1")
+
+
+def _relative(v) -> bool:
+    return isinstance(v, str) and bool(v.strip()) and v not in ("-", ".") and not v.startswith(("/", "~"))
+
+
+def relative_reads(f: str, text: str) -> list[int]:
+    """相対の path（字の値）で開く・調べる呼び出しの行。今の dir に暗に頼る＝使う側の repo を読む。"""
+    if f.endswith(".py"):
+        try:
+            tree = ast.parse(text)
+        except SyntaxError:
+            return []                      # 形の崩れは pieces が照らせないで止める
+        out = []
+        for n in ast.walk(tree):
+            if not isinstance(n, ast.Call) or not n.args:
+                continue
+            if isinstance(n.func, ast.Attribute):   # 物の method（root.glob・p.open）はその物から辿るので数えない
+                fn = n.func.attr if ast.unparse(n.func.value) in _REL_PY_MODULES else ""
+            else:
+                fn = getattr(n.func, "id", "")
+            a = n.args[0]
+            if fn in _REL_PY_FUNCS and isinstance(a, ast.Constant) and _relative(a.value):
+                out.append(n.lineno)
+        return out
+    if f.endswith((".mjs", ".js")):
+        code = re.sub(r"/\*.*?\*/", lambda m: "\n" * m.group(0).count("\n"), text, flags=re.S)
+        return [no for no, ln in enumerate(code.splitlines(), 1)
+                if any(_relative(m.group(2)) for m in _REL_JS.finditer(ln.split("//", 1)[0]))]
     return []
 
 

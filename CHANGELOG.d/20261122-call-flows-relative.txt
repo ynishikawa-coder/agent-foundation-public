@@ -1,0 +1,1 @@
+- 直した: 流れを拾う道具（scripts/call_flows.py）が、相対の path で開く形（open("docs/x.md")・fs.readFileSync("docs/x.md") など今の dir に頼って使う側の repo を読む形）も使う側の repo を読む流れに数える。拾わない形（組み立てた path・.sh の命令の引数）は注釈の残る穴に書いた
