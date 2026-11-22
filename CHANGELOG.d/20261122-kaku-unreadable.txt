@@ -1,0 +1,1 @@
+- 直した: plugin core（kaku.py）の記録の読み口が「無い」と「読めない」を分けるようにした。窓の記録（~/.claude/af-foundation/<session>.json）が在るのに読めない（壊れた JSON・UTF-8 でない・開けない・形が違う）時、inject は起動の時の記録（start_main・told）を書き直さず、fresh は黙って 0 を返さず、どちらも名と訳を窓に知らせる。入口の記録（setup.json・setup-<版>.json）が壊れている時は「記録が無い」「setup script が古い形」と言わず「入口の記録が読めない」と名指す。新しさの見張りが壊れた時・hook の入力が壊れた時も黙らず名指す（止めずに知らせる・土台の中だけ）
