@@ -63,21 +63,22 @@ def test_合格_分け方は全部の_file_をちょうど1つの組へ入れ本
     assert max(sizes) - min(sizes) <= 2 and af_tally.assign(list(reversed(items)), 2) == g
 
 
-def test_合格_重い_module_の試験は1本ずつ組へ散らす():
-    """1 本が長い file（決まりの文を消して回す試験）を 1 つの組に寄せると、その組だけが長くなる。"""
+def test_合格_重い_file_は1つの組を占め_ほかの試験はほかの組へ寄る():
+    """1 本が長い file（決まりの文を消して回す試験）は本数でなく重さで数える。ほかの組へ試験を寄せ、組の長さを均す。"""
     heavy = type("M", (), {"AF_SHARD_WEIGHT": 100})
-    items = [_It(f"tests/test_h.py::t[{n}]", heavy) for n in range(4)]
-    items += [_It(f"tests/test_{f}.py::t{n}") for f in "abcd" for n in range(10)]
+    items = [_It(f"tests/test_h.py::t[{n}]", heavy) for n in range(3)]
+    items += [_It(f"tests/test_{f}.py::t{n}") for f in "abcdef" for n in range(10)]
     g = af_tally.assign(items, 4)
-    assert [sum(1 for u in grp if u.startswith("tests/test_h.py::")) for grp in g] == [1, 1, 1, 1], g
-    assert sorted(sum(g, [])) == sorted([i.nodeid for i in items[:4]] + [f"tests/test_{f}.py" for f in "abcd"])
+    assert ["tests/test_h.py"] in g, g
+    assert sorted(sum(g, [])) == sorted(["tests/test_h.py"] + [f"tests/test_{f}.py" for f in "abcdef"])
 
 
-def test_合格_重い_module_を1本ずつ分けても_check_all_は全部を1回ずつ数える(tmp_path):
+def test_合格_重い_file_も_check_all_は全部を1回ずつ数える(tmp_path):
     body = "AF_SHARD_WEIGHT = 50\nimport pytest\n\n@pytest.mark.parametrize('n', range(3))\ndef test_h(n):\n    pass\n"
-    code, last, out = run(box(tmp_path, {"test_h.py": body}), AF_CHECK_SHARDS="3")
+    files = {f"test_{x}.py": f"def test_{x}():\n    pass\n" for x in "ab"}
+    code, last, out = run(box(tmp_path, {"test_h.py": body, **files}), AF_CHECK_SHARDS="3")
     assert code == 0 and "check_all: 緑" in last, out
-    assert "4 passed" not in out and "3 passed" not in out, out    # 1 つの file の 3 本が別々の組で回った（merge が 1 回ずつを照らす）
+    assert "3 passed" in out and "6 passed" not in out, out    # 重い file の 3 本は 1 つの組で回り、ほかは別の組
 
 
 def test_合格_check_all_は組に分けて回し全部を数える(tmp_path):
