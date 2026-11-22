@@ -99,7 +99,6 @@ plugins/core/細目.md	核と振る舞いの既定（同じ plugin の `振る�
 plugins/core/細目.md	核・振る舞いの既定・各 repo に固有の決まり（根の `CLAUDE.md`）に別々の上限があり、`python3 plugins/core/scripts/kaku.py check` が照らします（数は `kaku.py` の `LIMITS` の 1 か所。
 plugins/core/細目.md	核（同じ plugin の `核.md`）の形の細目です。
 plugins/core/細目.md	棚卸しは 残す／直す／畳む の 3 つに分ける。
-plugins/core/細目.md	段が土台に入ったら一言は取らない。
 plugins/core/細目.md	決まりの文には今の結論だけを書き、日付・原文・経緯を書かない。
 plugins/core/細目.md	決まりの言葉（段取りの名・節の番号・決まりの中で意味が固まった言葉）は問いに出さない。
 plugins/core/細目.md	済んだかは、AI が確かめられる所（ファイル・設定・画面の結果）を先に確かめ、確かめられない所だけ聞く。
