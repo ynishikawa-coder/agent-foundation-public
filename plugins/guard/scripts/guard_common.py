@@ -255,6 +255,11 @@ def is_compact_summary(row):
     return bool(isinstance(row, dict) and row.get("isCompactSummary"))
 
 
+def starts_turn(row):
+    """会話の番（ターン）を切る行か。人の行の見分けの正本 is_human_row と同じ（plugin session-watch がこの名で直に読む＝写さない）。"""
+    return is_human_row(row)
+
+
 def is_compact_boundary(row):
     """会話を縮めた境の行（これより前の中身は文脈から外れている）。"""
     return isinstance(row, dict) and row.get("type") == "system" and row.get("subtype") == "compact_boundary"

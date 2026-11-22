@@ -206,8 +206,12 @@ def test_知らせる口は止めず_JSON_で隣に出す():
     assert out.returncode == 0
     body = json.loads(out.stdout)["hookSpecificOutput"]
     assert body["hookEventName"] == "UserPromptSubmit" and "decision" not in out.stdout
-    bad = subprocess.run([sys.executable, str(SCRIPT), "--remind"], input="壊れた", capture_output=True, text=True)
-    assert bad.returncode == 0 and bad.stdout == ""
+    # 読めない入力は窓を止めず（exit 0）、黙りもしない＝見張りが壊れたと 1 回だけ知らせる
+    tmp = dict(os.environ, AF_SESSION_WATCH_TMP=str(Path(__import__("tempfile").mkdtemp())))
+    bad = subprocess.run([sys.executable, str(SCRIPT), "--remind"], input="壊れた", capture_output=True, text=True, env=tmp)
+    assert bad.returncode == 0 and "見張りの --remind が壊れて" in json.loads(bad.stdout)["hookSpecificOutput"]["additionalContext"]
+    again = subprocess.run([sys.executable, str(SCRIPT), "--remind"], input="壊れた", capture_output=True, text=True, env=tmp)
+    assert again.returncode == 0 and again.stdout == ""
 
 
 # ── 動かしていない AI がこの後やること（核 §5）──
@@ -331,7 +335,11 @@ def stop_env(tmp_path, **extra):
     return dict({"AF_SESSION_WATCH_TMP": str(tmp_path / "sw")}, **extra)
 
 
-def stop_data(text, tpath="", active=False, sid="s1"):
+EMPTY_LOG = Path(__import__("tempfile").mkdtemp()) / "empty.jsonl"   # 在るが中身の無い会話ログ（無い会話ログは nolog で知らせる）
+EMPTY_LOG.write_text("", encoding="utf-8")
+
+
+def stop_data(text, tpath=str(EMPTY_LOG), active=False, sid="s1"):
     return {"hook_event_name": "Stop", "session_id": sid, "transcript_path": tpath,
             "stop_hook_active": active, "last_assistant_message": text}
 

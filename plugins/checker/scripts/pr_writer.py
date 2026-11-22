@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""PR 本文の頭の `書いた窓:` が、PR の枝の先端の commit を書いた窓（commit の `Claude-Session:` の行）と同じかを照らす。
+"""PR の書いた窓を commit の `Claude-Session:` の行（記録）から出す（--writers）。本文の頭に `書いた窓:` の写しが残っていれば、
+先端の commit を書いた窓と同じかを照らす。
 
   python3 plugins/checker/scripts/pr_writer.py --branch <枝の名> --head <PR の先端の SHA> [--base <比べる元の ref>] --body-file <本文の file>
   --base を省くと、比べる元は出所（origin）の今の main（出所へ直に聞き、手元に無ければ取って来る）。手元の origin/main は
@@ -9,6 +10,8 @@
 別の窓が commit すると、本文は最初の窓のまま・先端は直した窓になり、直した窓が自分の PR に判定を付けても
 「別の目」と通ってしまう。正本は commit の `Claude-Session:`（窓が commit の度に自動で付ける行）で、手で直す本文は写し。
 写しが正本と違えば赤にし、直す行（`書いた窓: <先端の窓>`）をそのまま出す。
+今の形（2026-11-22）: PR の型は `書いた窓:` を置かない（写しを置かなければ、直しの commit の後に書き直し忘れる誤りが入れない）。
+本文に `書いた窓:` が無いのが正しい形＝緑。写しが残る本文（前の型で出した PR）だけを照らす。
 
 先端の窓: 先端から first-parent で遡り（main を取り込む merge 等、`Claude-Session:` の無い commit は飛ばす）、
 比べる元との分かれ目より後で最初に `Claude-Session:` を持つ commit の窓。
@@ -83,7 +86,7 @@ def check(root: Path, head: str, base: str, body: str) -> list[str]:
         return [f"PR の commit（{base} との分かれ目から {head[:12]} まで）に `Claude-Session:` の行が無く、書いた窓が決まらない"]
     m = WRITER.search(body)
     if not m:
-        return [f"PR 本文の頭に `書いた窓:` が無い。頭に `書いた窓: {tip}` を書く（先端の commit {sha[:12]} の窓）"]
+        return []   # 写しを置かない今の型＝書いた窓は記録（commit の Claude-Session:）だけ
     if not ID.match(m.group(1)):
         return [f"PR 本文の `書いた窓: {m.group(1)}` が窓の id の形でない。`書いた窓: {tip}` に直す（先端の commit {sha[:12]} の窓）"]
     if m.group(1) != tip:
@@ -140,7 +143,7 @@ def main(argv=None) -> int:
         print(f"✗ {e}")
     if errs:
         print("pr_writer: 赤")
-        print("直し: 本文の頭を直すだけで済ませず、写しが正本からずれた原因を細目 §3「まず構造を疑う」で探して直す")
+        print("直し: 本文の頭を直すだけで済ませず、意図（書いた窓の名乗りが commit の記録と 1 つに合う）とのずれから入り、写しが正本からずれた原因を細目 §3「まず構造を疑う」で探して直す")
         return 1
     print("pr_writer: 緑")
     return 0

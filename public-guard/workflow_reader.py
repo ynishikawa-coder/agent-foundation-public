@@ -3,9 +3,11 @@
 1 か所で読む。見回り（public-guard/patrol.py）・守りの hook（plugins/guard/scripts/pr_text.py）・手元の公開の検査
 （scripts/checks/public_guard.sh）は皆ここを通して読む（file の text を正規表現で拾う別の読み方を持たない）。
 
-なぜ在るか: 前は見回りが file 全体の text から `uses:` を拾い（コメントの行・job の外・起こり方を見ない）、守りの hook は
+意図: workflow の見分けを 1 つにし、見回り・守りの hook・手元の検査が同じ読み方をする。
+課題: 前は見回りが file 全体の text から `uses:` を拾い（コメントの行・job の外・起こり方を見ない）、守りの hook は
 名の順で最初の workflow だけを見て（起こり方・job の if: を見ず、2 つ目の workflow の語の表を落とし）、手元の検査は
-ci.yml の値を手で写していた。同じ見分けが 3 通りに分かれ、それぞれ違う外れ方をしていた。
+ci.yml の値を手で写していた。それぞれ違う外れ方をしていた。
+原因: 同じ見分けが 3 通りに分かれていた。
 
 数える呼び口: workflow が PR か push で走り（on: に pull_request・pull_request_target・push・merge_group）、
 job の if: と step の if: が字どおりの false でない step。workflow_dispatch・schedule だけで走る workflow や

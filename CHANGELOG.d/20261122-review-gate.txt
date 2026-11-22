@@ -1,0 +1,3 @@
+- 足した: レビューの関所 `plugins/checker/scripts/review_gate.py`。PR の先端で必須の検査が全部緑・mergeable_state が clean・同じ先端の判定がまだ無い時だけ「入ってよい」と GitHub の記録から決める。review-pr はこれを回してから見て、通らない時は判定せず「まだ」を返す（土台の中だけ）
+- 足した: review-pr と CONTRIBUTING §2 に「1 つの先端に判定は 1 つ」「レビューが始まった後に依頼に無い話を足さない（足されたら判定せず「別の PR へ」と返す）」（土台の中だけ）
+- 足した: `scripts/pr_overlap.py --repo <owner/name> --files <path>...`＝並べる前に触る file を宣言し、開いている PR と重なるかを引く口。振る舞いの既定「並走」に、同じ file を取る窓は並べず列にする文（括弧書きの重なり〔1 窓 1 枝・書く窓と確かめる窓は別〕は CONTRIBUTING §1 と核 §7 に在るので畳んだ）（土台の中だけ）

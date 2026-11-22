@@ -11,7 +11,7 @@ cd "$(dirname "$0")/../.."
 WORKFLOW=.github/workflows/ci.yml
 if ! out="$(python3 public-guard/workflow_reader.py guard-args "$WORKFLOW")"; then
   echo "public_guard: $WORKFLOW の job public-guard の呼び口から guard.py の値を読めない（CI でも照らす job が在ると言えない）"
-  echo "直し: 値をここへ写して通すだけで済ませず、ci.yml の呼び口が読めない形になった原因を細目 §3「まず構造を疑う」で探して直す"
+  echo "直し: 値をここへ写して通すだけで済ませず、意図（公開の検査の値を ci.yml の 1 か所から読む）とのずれから入り、呼び口が読めない形になった原因を細目 §3「まず構造を疑う」で探して直す"
   exit 1
 fi
 if [ "${GITHUB_ACTIONS:-}" = "true" ]; then
