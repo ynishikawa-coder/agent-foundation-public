@@ -40,10 +40,6 @@ PLAN_LACKS = "Upgrade to GitHub Pro or make this repository public to enable thi
 UNKNOWN_TRIES = 4   # mergeable_state は GitHub が後で数える（unknown の間は少し待って読み直す）
 
 
-class PlanLacksRules(Exception):
-    """ルールセットの口が、この版（無料の版の非公開の repo）には無いと GitHub が本文で答えた。"""
-
-
 def required_contexts(rules: list) -> list[str]:
     """rules/branches/<base> の返しから、必須の検査の名の並び。"""
     out: list[str] = []
