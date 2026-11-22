@@ -5,7 +5,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/session_watch.py\" --remind"
+            "command": "f=\"$HOME/.claude/plugins/marketplaces/agent-foundation/plugins/core/scripts/hook_run.py\"; [ -f \"$f\" ] || f=; python3 ${f:+\"$f\"} \"${CLAUDE_PLUGIN_ROOT}/scripts/session_watch.py\" --remind"
           }
         ]
       }
@@ -15,7 +15,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/session_watch.py\" --stop"
+            "command": "f=\"$HOME/.claude/plugins/marketplaces/agent-foundation/plugins/core/scripts/hook_run.py\"; [ -f \"$f\" ] || f=; python3 ${f:+\"$f\"} \"${CLAUDE_PLUGIN_ROOT}/scripts/session_watch.py\" --stop"
           }
         ]
       }
