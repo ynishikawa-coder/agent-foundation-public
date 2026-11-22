@@ -135,9 +135,10 @@ def test_型の欄の段の名と順は細目の根治の段に沿う():
         assert steps == sorted(steps, key=dan.index), k["名"]
 
 
-@pytest.mark.parametrize("kata", 型の欄, ids=_ids)
-def test_型は意図などの欄を別々にこの順で持つ(kata):
-    assert 欄の外れ(型の所(_read(kata["file"]), kata), kata["欄"]) == []
+def test_型は意図などの欄を別々にこの順で持つ():
+    # 引数を取らない形にする: 決まりの文を消して回す tests/test_rule_holes.py が、引数を取らない試験だけを回すため
+    bad = {k["名"]: b for k in 型の欄 if (b := 欄の外れ(型の所(_read(k["file"]), k), k["欄"]))}
+    assert not bad, bad
 
 
 def _字だけ残す(unit, name):
