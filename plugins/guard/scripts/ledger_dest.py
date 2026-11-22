@@ -6,7 +6,8 @@
 前の形: 台帳へ書く道具の入力を誰も照らさず、細目は 3 つ・Notion の台帳は 5 つのまま、表に無い値で行が書かれていた。
 今の形: Notion へページを書く・直す入力の中の `行き先` の値を細目の表（core の 細目.md を直に読む＝写さない）と照らし、表に無い値なら
   書いた後に知らせる（止めない＝新しく止めるにはオーナーの同意が要る）。直し方: 行を表の値へ替える。表に足すべき値なら、
-  細目を直す PR（核・細目の変更はオーナーの同意）を出す。細目が読めない時は黙る（推して知らせない）。
+  細目を直す PR（核・細目の変更はオーナーの同意）を出す。細目が読めない・行の形が変わった時は、値を推して照らさず
+  「照らせなかった」と知らせる（黙って照らした事にしない）。
 """
 import os
 import re
@@ -20,12 +21,19 @@ WRITE_TOOLS = ("notion-create-pages", "notion-update-page")
 _LINE = re.compile(r"^- \*\*原因の台帳\*\*.*$", re.M)
 
 
+def saimoku_path():
+    return os.environ.get("AF_SAIMOKU") or G.sibling_plugin_file("core", "細目.md") or ""
+
+
 def saimoku_text():
-    path = os.environ.get("AF_SAIMOKU") or G.sibling_plugin_file("core", "細目.md")
+    path = saimoku_path()
     if not path or not os.path.isfile(path):
         return ""
-    with open(path, encoding="utf-8") as f:
-        return f.read()
+    try:
+        with open(path, encoding="utf-8") as f:
+            return f.read()
+    except (OSError, UnicodeDecodeError):
+        return ""
 
 
 def table(text):
@@ -67,7 +75,10 @@ def check(data, vals):
         return ""
     t = table(saimoku_text())
     if t is None:
-        return ""
+        return ("[guard] 原因の台帳へ書いた行き先 %s を照らせなかった（core の細目.md〔%s〕が読めないか、§3「原因の台帳」の行の形が"
+                "変わって行き先の表を読めない。書いた物は止めていない）。行き先の値が細目 §3「原因の台帳」の表に在るかを細目を開いて"
+                "確かめる。細目の行の形を変えたなら、この見張り（plugins/guard/scripts/ledger_dest.py の table）を同じ PR で直す。"
+                % ("・".join("「%s」" % v for v in sorted(set(got))), saimoku_path() or "在り処が分からない"))
     known, pend = t
     bad = sorted({v for v in got if v not in known and v != pend})
     if not bad:

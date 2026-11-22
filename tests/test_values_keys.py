@@ -58,7 +58,6 @@ def _named(problems, path):
     "dev-flow": {"preimpl-cleanup": {"record": "PR 本文", "ledger": "1 行ずつ"}, "codex": {"clients": {"作り物": {"paths": []}}}},
     "docs-kit": {"qa-html": {"customer": {"check_cmd": "作り物"}}, "pdf-read": {"engine_source": "作り物"}},
     "guard": {"context_limit": 1000, "_readme": "注"},
-    "repo_sections": ["作り物の repo の頭"],
     "作り物の repo の頭": {"何でも": "repo が自分で持つ所は見ない"},
 }
 

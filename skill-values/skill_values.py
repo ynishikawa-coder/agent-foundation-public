@@ -18,6 +18,8 @@
   - 頂の欄は閉じた表: 土台の欄（schema の sections）・`_` で始まる注・その repo 自身の欄の名の並び（頂の鍵 repo_sections）の
     どれか。どれでもない頂の欄（`gaurd` のような打ち間違い・名を書き忘れた repo 自身の欄）は「知らない頂の欄」と名指す
     （黙って repo 自身の物と見て照らしを飛ばさない）。repo 自身の欄の中身は照らさない。
+  - 壊れる（1 段目・CONTRIBUTING.md §8）: 頂に repo_sections の無い表（前の形）は、土台の欄でも注でもない頂の欄を問題に
+    数えず（止めない・check は 0）、legacy で名を並べて知らせる（起動の知らせ・check の出力）。2 段目でこの受けを畳む。
   - 鍵が無い・値が空（""・[]・{}・null）は「既定で動く」で、問題ではない。
 
 使い方:
@@ -441,13 +443,32 @@ def own_sections(table):
     return {x for x in raw if x not in clash}, out
 
 
+def legacy(table):
+    """壊れる（1 段目）: 頂に repo_sections の無い表（前の形）の、土台の欄でも注でもない頂の欄の名の並び。
+    問題に数えず（止めない）知らせる。repo_sections の在る表は [] （閉じた表で照らす）。"""
+    if not isinstance(table, dict) or OWN_KEY in table:
+        return []
+    sections = schema()["sections"]
+    return [k for k in table if not str(k).startswith("_") and k not in sections]
+
+
+def say_legacy(names):
+    """legacy の知らせの文（無ければ ""）。"""
+    if not names:
+        return ""
+    return ("値の表の頂の欄 %s は、土台の欄でも頂の %s に並べた repo 自身の欄でもない（前の形・今は止めない）。"
+            "repo 自身の欄なら頂に \"%s\": [%s] を足す。土台の欄の打ち間違いなら名を直す。土台が前の形の受けを畳むと"
+            "「知らない頂の欄」として止まる。" % ("・".join(names), OWN_KEY, OWN_KEY, ", ".join('"%s"' % n for n in names)))
+
+
 def check(table):
-    """表全体を照らした問題の並び（土台の欄と頂の欄の閉じた表）。"""
+    """表全体を照らした問題の並び（土台の欄と頂の欄の閉じた表。前の形の頂の欄は legacy が知らせる）。"""
     sections = schema()["sections"]
     retired = schema().get("retired") or {}
     own, out = own_sections(table)
+    old = set(legacy(table))
     for plugin, node in table.items():
-        if str(plugin).startswith("_") or plugin == OWN_KEY or plugin in own:
+        if str(plugin).startswith("_") or plugin == OWN_KEY or plugin in own or plugin in old:
             continue
         if plugin not in sections:
             out.append("%s は知らない頂の欄（効かない）。頂の欄: 土台の欄 %s・その repo 自身の欄（頂の %s に名を並べる）"
@@ -534,6 +555,9 @@ def main(argv):
     if cmd == "check":
         table, problems = load(path)
         problems += check(table)
+        note = say_legacy(legacy(table))
+        if note:
+            sys.stderr.write(note + "\n")
         if problems:
             sys.stderr.write(format_problems(path, problems) + "\n")
             return 1

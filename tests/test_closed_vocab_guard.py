@@ -120,8 +120,7 @@ def _sv_check(tmp_path, table):
 
 
 @pytest.mark.parametrize("table,named", [
-    ({"gaurd": {"context_limit": 1000}}, "gaurd は知らない頂の欄"),
-    ({"javis": {"x": 1}}, "javis は知らない頂の欄"),
+    ({"repo_sections": [], "gaurd": {"context_limit": 1000}}, "gaurd は知らない頂の欄"),
     ({"repo_sections": ["javis"], "jarvis": {"x": 1}, "javis": {"x": 1}}, "jarvis は知らない頂の欄"),
     ({"repo_sections": "javis", "javis": {"x": 1}}, "repo_sections の型が違う"),
     ({"repo_sections": ["guard"]}, "repo_sections の guard は土台の欄"),
@@ -133,7 +132,19 @@ def test_知らない頂の欄を名指す(tmp_path, table, named):
 
 def test_repo_sections_に並べた欄は照らさない(tmp_path):
     p = _sv_check(tmp_path, {"_readme": "注", "repo_sections": ["javis"], "javis": {"何でも": 1}})
+    assert p.returncode == 0 and "前の形" not in p.stderr, p.stdout + p.stderr
+
+
+@pytest.mark.parametrize("table,names", [
+    ({"gaurd": {"context_limit": 1000}}, ["gaurd"]),
+    ({"javis": {"x": 1}, "guard": {"context_limit": 1000}}, ["javis"]),
+])
+def test_壊れる_1_段目_repo_sections_の無い表は止めずに名指す(tmp_path, table, names):
+    """CONTRIBUTING.md §8 の 1 段目: 前の形（repo_sections の無い表）は通し続け、頂の欄の名を並べて知らせる。"""
+    p = _sv_check(tmp_path, table)
     assert p.returncode == 0, p.stdout + p.stderr
+    for n in names:
+        assert n in p.stderr and "前の形" in p.stderr and "repo_sections" in p.stderr, p.stderr
 
 
 # ── Blueprint: fate・kind・mode ──

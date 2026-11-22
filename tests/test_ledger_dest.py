@@ -57,12 +57,15 @@ def test_止めない(env):  # noqa: F811
     assert hook(env, "pre", update("オーナーの判断")) == {}
 
 
-def test_細目が読めない時は推して知らせない(env, tmp_path):  # noqa: F811
-    env = dict(env, AF_SAIMOKU=str(tmp_path / "無い.md"))
-    assert hook(env, "post", update("オーナーの判断")) == {}
+def test_細目が読めない時は値を推さず照らせなかったと知らせる(env, tmp_path):  # noqa: F811
+    """注入の試験: 前の形は細目が無い・行の形が変わった時に黙り、照らしていないのに照らした事になった。"""
     (tmp_path / "崩れ.md").write_text("- **原因の台帳** — 行き先の書き方を変えた\n", encoding="utf-8")
-    env["AF_SAIMOKU"] = str(tmp_path / "崩れ.md")
-    assert hook(env, "post", update("オーナーの判断")) == {}
+    for f in ("無い.md", "崩れ.md"):
+        e = dict(env, AF_SAIMOKU=str(tmp_path / f))
+        for dest in ("オーナーの判断", "直した"):
+            ctx = hook(e, "post", update(dest)).get("additionalContext", "")
+            assert "照らせなかった" in ctx and "「%s」" % dest in ctx and "止めていない" in ctx, ctx
+    assert hook(dict(env, AF_SAIMOKU=str(tmp_path / "無い.md")), "post", update(None)) == {}   # 行き先を書かない入力は黙る
 
 
 def test_細目の表を書き換えると照らす値も変わる(env, tmp_path):  # noqa: F811

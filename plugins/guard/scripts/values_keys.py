@@ -113,7 +113,8 @@ def resurface(data, vals):
     if problems:
         return "値の表 %s が読めない（%s）。土台の道具は止まり、守りは既定で動いている。この repo の PR で直す。" % (path, "・".join(problems))
     keys = unknown(table)
-    return _say(keys, path) if keys else ""
+    note = SV.say_legacy(SV.legacy(table))
+    return "\n".join(x for x in (_say(keys, path) if keys else "", note and "値の表 %s: %s" % (path, note)) if x)
 
 
 def main(argv):
@@ -125,6 +126,9 @@ def main(argv):
         print("値の表 %s が読めない（照らせない）: %s" % (path, e))
         return 2
     keys = unknown(table)
+    note = SV.say_legacy(SV.legacy(table))
+    if note:
+        print("値の表 %s: %s" % (path, note))
     if keys:
         print(_say(keys, path))
         return 1
