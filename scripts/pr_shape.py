@@ -189,19 +189,20 @@ def grown_test_files(root: Path, mb: str, rows_nr: list[list[str]]) -> list[str]
             pairs.append(([path], path))
     # git が名の変更と見なかった D+A: 足した試験の file が、消した試験の file と同じ名の試験を持てば、そこから移した物
     gone = {p[-1]: None for st, *p in rows_nr if st == "D" and TEST_PATH.match(p[-1]) and p[-1] not in moved_from}
+    added = [p[-1] for st, *p in rows_nr if st == "A" and TEST_PATH.match(p[-1]) and p[-1] not in moved_to]
     for g in gone:
         try:
             gone[g] = tests_shape(_blob(root, mb, g) or "")
-        except ValueError:
+        except ValueError as e:  # 読めない所を「試験が無い」と読まない（足した試験の file が在れば、移した先を照らせない＝赤）
+            if added:
+                errs.append(f"{g}（消した側）: 試験の file を構文で読めず、移した試験かを照らせない（{e}）。直してから照らす")
             gone[g] = {}
-    for st, *paths in rows_nr:
-        path = paths[-1]
-        if st != "A" or not TEST_PATH.match(path) or path in moved_to:
-            continue
+    for path in added:
         try:
             names = set(tests_shape(_now(root, path)))
-        except ValueError:
-            continue  # 新しい試験の file の構文は pytest が赤にする
+        except ValueError as e:  # 前は読み飛ばした＝移した試験を見落とした。PR では pytest が走らないので、ここで赤にする
+            errs.append(f"{path}: 試験の file を構文で読めない（{e}）。直してから照らす")
+            continue
         src = [g for g, shape in gone.items() if shape and names & set(shape)]
         if src:
             pairs.append((src, path))

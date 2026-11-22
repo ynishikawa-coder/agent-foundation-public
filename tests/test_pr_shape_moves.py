@@ -120,3 +120,20 @@ def test_名を変えるだけは緑(repo):
     git(repo, "mv", "tests/test_old.py", "tests/test_renamed.py")
     res = run(repo)
     assert res.returncode == 0, res.stdout
+
+
+# 原因の台帳: 読めない試験の file を空（試験が無い）と読み、移した試験を見落とした。PR では pytest が走らないので、ここで赤にする
+@pytest.mark.parametrize("tail", ["", "\n\ndef test_extra():\n    assert 1\n"])
+def test_構文の誤りの在る新しい試験の_file_は赤(repo, tail):
+    (repo / "tests" / "test_old.py").unlink()
+    # git の似ている度合いの外（D+A）で、元の試験 test_a を持つ＝移した物。構文の誤りで読めないと前は見落とした
+    _write(repo, "tests/test_moved.py", "def test_a():\n    assert 1\n\n\n" + "".join(
+        f"def test_new{i}():\n    assert {i} == {i}  # 足した\n\n\n" for i in range(12)) + tail + "\n\ndef test_broken(:\n    pass\n")
+    res = run(repo)
+    assert res.returncode == 1 and "tests/test_moved.py: 試験の file を構文で読めない" in res.stdout, res.stdout
+
+
+def test_構文の誤りの在る新しい試験の_file_は試験を移さなくても赤(repo):
+    _write(repo, "tests/test_new_broken.py", "def test_x(:\n    pass\n")
+    res = run(repo)
+    assert res.returncode == 1 and "tests/test_new_broken.py: 試験の file を構文で読めない" in res.stdout, res.stdout
