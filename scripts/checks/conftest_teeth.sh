@@ -19,7 +19,7 @@ judge_code=$?
 last=$(printf '%s\n' "$report" | sed -n 's/^赤: //p')
 if [ $code -ne 0 ]; then
   echo "✗ conftest を読まずに回した飛ばす条件の試験が赤（tests/conftest.py の飛ばす条件が壊れている）"
-  echo "直し: 意図（試験が黙って飛ばされない）とのずれから入り、飛ばす条件が壊れた原因を細目 §3「まず構造を疑う」で探して直す（試験を合わせて通すだけで済ませない）"
+  echo "直し: 試験を合わせて通すだけで済ませず、意図（試験が黙って飛ばされない）とのずれから入り、飛ばす条件が壊れた原因を細目 §3「まず構造を疑う」で探して直す"
   exit 1
 fi
 if [ $judge_code -ne 0 ] || [ -n "$last" ] || ! printf '%s' "$report" | grep -qE '^pytest で飛ばした [0-9]+ 本'; then
