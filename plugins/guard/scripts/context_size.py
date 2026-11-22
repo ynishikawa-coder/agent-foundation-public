@@ -10,7 +10,7 @@
 
 止めた文の最後には入口（guard.py）が、出し直すだけで済ませず原因を細目 §3「まず構造を疑う」で探す行を付ける。
 Stop（締めの差し戻し・オーナー同意 2026-11-19: 文で知らせるだけの所は AI だけ止めて書き直させる形にしてよい）:
-  目安を越えた後、越えた行より後に引き継ぎの跡（値の表の context_handoff の正規表現に「道具の名 + 入力の JSON」が当たる
+  目安を越えた後、越えた番（その番の頼みの行）より後に引き継ぎの跡（値の表の context_handoff の正規表現に「道具の名 + 入力の JSON」が当たる
   道具の呼び出し。既定は後継の窓を立てる・親の窓へ送る・引き継ぎの file を書く）が無いまま AI が締めようとしたら、
   decision=block で AI だけを差し戻し、引き継がせる。人の入力・操作は止めない（返事が届くのが引き継ぎの後になるだけ）。
   上限: 同じターンで context_stop_max 回（既定 2）まで。越えたら通して届ける（窓が回り続けない）。0 で差し戻さない。
@@ -103,23 +103,31 @@ def _tool_sigs(row):
 
 
 def handoff_state(tpath, limit, patterns):
-    """(目安を越えたか, 越えた後に引き継ぎの跡が在るか)。"""
+    """(目安を越えたか, 越えた番〔その番の頼みの行〕より後に引き継ぎの跡が在るか)。
+    越える直前の同じ番の中で後継を立て返し先へ送り、締めの文で越えた窓も引き継いだと数える（越えた行より後だけを
+    見ると、その窓の締めを差し戻し続けた）。前の番の呼び出し（途中の返し等）は数えない。"""
     over, handed = False, False
+    turn = []        # 今の番（最後の頼みの行より後）の道具の呼び出し
     for row in G.iter_rows(tpath):
+        if not over and G.is_owner_row(row):
+            turn = []
+            continue
         if row.get("type") != "assistant":
             continue
+        sigs = list(_tool_sigs(row))
         if over:
-            if any(G.SV.hit(patterns, sig) is not None for sig in _tool_sigs(row)):
+            if any(G.SV.hit(patterns, sig) is not None for sig in sigs):
                 handed = True
                 break
             continue
+        turn += sigs
         u = (row.get("message") or {}).get("usage") or {}
         if isinstance(u, dict):
             tot = sum(int(u.get(k) or 0) for k in ("input_tokens", "cache_read_input_tokens", "cache_creation_input_tokens"))
             if tot >= limit:
                 over = True
-                # 越えた行そのものの道具の呼び出しも越えた後に数える
-                if any(G.SV.hit(patterns, sig) is not None for sig in _tool_sigs(row)):
+                # 越えた番の中の呼び出し（越えた行そのものも）を越えた後に数える
+                if any(G.SV.hit(patterns, sig) is not None for sig in turn):
                     handed = True
                     break
     return over, handed
@@ -175,7 +183,7 @@ def stop(data, vals):
         "[guard] この窓の文脈が目安（%s token）を越えた後、まだ引き継いでいないので、締めを差し戻した（オーナー同意 "
         "2026-11-19・止めたのは AI の締めだけ・人の操作は止めていない）。" % format(limit, ","),
         "直し方: " + how,
-        "引き継ぎの跡と数える物: 目安を越えた後の道具の呼び出しのうち、値の表 guard.context_handoff に当たる物"
+        "引き継ぎの跡と数える物: 目安を越えた番とその後の道具の呼び出しのうち、値の表 guard.context_handoff に当たる物"
         "（今の値: %s）。一度あれば、この窓ではもう差し戻さない。" % ("・".join(str(r) for _, _, r in patterns[:6]) or "無し"),
         "上限: 同じターンで %d 回まで差し戻し、越えたら通して届ける。" % cap,
         "誤って差し戻された時（別の道で引き継いだ等）: その道の呼び出しに当たる形を値の表の guard.context_handoff に足す。"

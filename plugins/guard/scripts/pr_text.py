@@ -228,7 +228,7 @@ def pr_facts(repo, ti):
     if c.returncode != 0:
         return "", [], "PR #%s の commit を引けなかった: %s" % (number, (c.stderr or "").strip().splitlines()[-1:] or "")
     try:
-        msgs = [json.loads(ln) for ln in c.stdout.splitlines() if ln.strip()]
+        msgs = [json.loads(ln) for ln in c.stdout.split("\n") if ln.strip()]   # 1 行 1 件の JSON は \n だけで割る
     except ValueError:
         return "", [], "PR #%s の commit の説明が読めない" % number
     if not total.strip().isdigit() or len(msgs) < int(total):

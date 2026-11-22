@@ -59,12 +59,31 @@ def test_context_stop_引き継いだ窓と目安の手前の窓は差し戻さ�
     assert stop_hook(env, over_log(tmp_path, 299_999, name="u.jsonl")) == ""
 
 
-def test_context_stop_目安を越える前の引き継ぎらしい呼び出しは数えない(env, tmp_path):
+def test_context_stop_目安を越える前の番の引き継ぎらしい呼び出しは数えない(env, tmp_path):
     tpath = write_log(tmp_path / "b.jsonl", [
         {"type": "user", "message": {"content": "作り物の頼み"}},
         use("mcp__claude-code-remote__send_message", {"message": "途中の返し"}),
+        {"type": "user", "message": {"content": "作り物の次の頼み"}},
         {"type": "assistant", "message": {"usage": {"input_tokens": 300_000}, "content": []}}])
     assert stop_hook(env, tpath)
+
+
+def test_context_stop_越える直前の同じ番で引き継いで締めの文で越えた窓は差し戻さない(env, tmp_path):
+    """2026-11-22 の窓: 後継を立てた時 297,148・返し先へ送った時 299,126・締めの文で 300,289 と越え、締めを 2 回差し戻された。"""
+    def at(tokens, *blocks):
+        return {"type": "assistant", "message": {"usage": {"input_tokens": tokens}, "content": list(blocks)}}
+    tpath = write_log(tmp_path / "c.jsonl", [
+        {"type": "user", "message": {"content": "作り物の知らせ"}},
+        at(297_148, {"type": "tool_use", "name": "mcp__claude-code-remote__create_session", "input": {"prompt": "作り物の引き継ぎ"}}),
+        at(299_126, {"type": "tool_use", "name": "mcp__claude-code-remote__send_message", "input": {"message": "作り物の返し"}}),
+        at(300_289, {"type": "text", "text": "作り物の締め"})])
+    assert stop_hook(env, tpath) == ""
+    # 注入: 同じ形で引き継ぎの呼び出しだけ抜くと差し戻す
+    tpath = write_log(tmp_path / "d.jsonl", [
+        {"type": "user", "message": {"content": "作り物の知らせ"}},
+        at(297_148, {"type": "tool_use", "name": "Read", "input": {"file_path": "/x/a"}}),
+        at(300_289, {"type": "text", "text": "作り物の締め"})])
+    assert stop_hook(env, tpath, sid="s2")
 
 
 def test_context_stop_まとめ直して縮んだ後は差し戻さない(env, tmp_path):
