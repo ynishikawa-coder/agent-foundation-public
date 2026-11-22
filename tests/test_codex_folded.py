@@ -44,6 +44,23 @@ def test_道具と文書が_codex_の道具を指さない():
         for n, ln in enumerate(text.splitlines(), 1):
             if rel == "skill-values/schema.json" and '"dev-flow.codex":' in ln:
                 continue   # 畳んだ印の行（使う側の古い欄を名指す訳の文）
+            if rel == "plugins/core/古い形.json":
+                continue   # 使う側に残った指しを起動の hook が名指す行（下の試験が照らす）
             if any(w in ln for w in NAMES) or "Codex の DEFER" in ln:
                 hits.append(f"{rel}:{n}")
     assert not hits, hits
+
+
+def test_使う側に残った指しと欄を古い形が名指す():
+    """古い形.json の codex の 2 行を消す・当たらない形にすると赤（使う側に残った指しを起動の hook が知らせない）。"""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("kaku_codex", ROOT / "plugins" / "core" / "scripts" / "kaku.py")
+    kaku = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(kaku)
+    rows = {r["id"]: r for r in kaku.olds_table()}
+    ref, sec = rows["codex-skill-ref"], rows["values-codex-section"]
+    assert ref["re"].search("- Codex に実装させない（レビューだけ・`dev-flow:codex`）。")
+    assert ref["re"].search("python3 tools/codex_pack.py --task t1")
+    assert not ref["re"].search("dev-flow:codex-like の別の skill")
+    assert sec["re"].search('{"dev-flow": {"codex": {"self_allow": ["tools/**"]}}}')
+    assert sec["files"] == ["config/skill-values.json"]

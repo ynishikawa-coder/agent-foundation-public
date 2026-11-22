@@ -227,7 +227,7 @@
     "dev-flow.verify.code_done_rule": "2026-11-19 に畳んだ（土台の規律の写しだった。正本の核・細目・skill の本文を直に読む・PR #43）。消す",
     "dev-flow.spec-doc.branch_rule": "2026-11-19 に畳んだ（土台の規律の写しだった。正本の核・細目・skill の本文を直に読む・PR #43）。消す",
     "dev-flow.spec-doc.supersede_rule": "2026-11-19 に畳んだ（土台の規律の写しだった。正本の核・細目・skill の本文を直に読む・PR #43）。消す",
-    "dev-flow.codex": "2026-11-22 に畳んだ（Codex を使わない＝2026-11-19 のオーナーの決定。skill dev-flow:codex と渡すパックの道具 codex_pack.py を消した）。欄ごと消す",
+    "dev-flow.codex": "2026-11-22 に畳んだ（Codex を使わない＝2026-11-19 のオーナーの決定。Codex のレビューの skill と渡すパックを作る道具を消した）。欄ごと消す",
     "dev-flow.preimpl-cleanup.cleanup_followup": "2026-11-19 に畳んだ（[後片付け] は原因の台帳の行にする＝細目 §3・PR #36）。消す"
   }
 }

@@ -161,6 +161,38 @@
       "pattern": "(?m)^(?!.*public-guard: 形の見本).*(?:03-1234-(?:5678)|090(?:12345678)|taro\\.yamada@(?:gmail)\\.com|〒100-(?:0001)|notion\\.so/(?:abc123))",
       "fix": "その file の形の見本の行に印 public-guard: 形の見本 を書く（印の行の個人の情報の形だけが外れる。秘密の形は印の行でも照らす）",
       "example": "連絡先 taro.yamada@gmail.com"
+    },
+    {
+      "id": "codex-skill-ref",
+      "what": "畳んだ skill dev-flow:codex・渡すパックの道具 codex_pack.py を指す文・道具（2026-11-19 のオーナーの決定で Codex を使わない。土台から消えたので指す先が無い）",
+      "files": [
+        "*.md",
+        "*.py",
+        "*.sh",
+        "*.json",
+        "*.yml",
+        "*.yaml",
+        ":(exclude)tests/**",
+        ":(exclude)**/tests/**",
+        ":(exclude)**/test_*.py",
+        ":(exclude)CHANGELOG.md",
+        ":(exclude)**/CHANGELOG.md",
+        ":(exclude)CHANGELOG.d/**",
+        ":(exclude)**/decision-drift/**"
+      ],
+      "pattern": "dev-flow:codex(?![\\w-])|\\bcodex_pack\\.py\\b",
+      "fix": "その行を消す（Codex を使わない。レビューは別の窓が checker:review-pr でする）",
+      "example": "- Codex に実装させない（レビューだけ・`dev-flow:codex`）。"
+    },
+    {
+      "id": "values-codex-section",
+      "what": "値の表の欄 dev-flow.codex（畳んだ欄。土台は読まず、値の表の照らしが「畳んだ欄」と名指す）",
+      "files": [
+        "config/skill-values.json"
+      ],
+      "pattern": "\"codex\"\\s*:\\s*\\{",
+      "fix": "config/skill-values.json の \"dev-flow\" の中の \"codex\" の欄を消す",
+      "example": "\"dev-flow\": {\"codex\": {\"self_allow\": [\"tools/**\"]}}"
     }
   ]
 }
