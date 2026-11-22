@@ -1,6 +1,4 @@
-書いた窓: <先端の commit の Claude-Session の session id>
 job: <YYYYMMDD-話題>
-検査: <CI の結果 1 行。例: check_all: 緑 (1 本)>
 
 ## 何をどう変えたか
 
@@ -29,7 +27,7 @@ job: <YYYYMMDD-話題>
 <!-- この PR で片付かなかった物（担当の外・レビューの「台帳へ」・Codex の DEFER・一時しのぎの恒久の直し・入らなかった仕事）は全部、各社の原因の台帳に行を入れてから、1 行ずつ `- 台帳の行 <行の id の末尾 12 字>` だけを書く（題・行き先・直す窓は台帳の行が正本＝ここに写さない。手で写すと後で行き先が変わった時に付いて来ない。行の URL は Notion のページの URL なので公開の PR に書かない＝CONTRIBUTING.md §4）。無ければ「なし」 -->
 
 <!--
-書いた窓は先端の commit の `Claude-Session:` の窓。直しの往復で別の窓が commit したら、その窓が頭の行を自分に書き換える（違えば CI の job check が赤＝plugins/checker/scripts/pr_writer.py）。
+頭の欄は job だけ。書いた窓と検査の結果は本文に写さない＝書いた窓は PR の commit 全部の `Claude-Session:` の窓（記録・plugins/checker/scripts/pr_writer.py --writers が出す）、検査は CI の job check の結果（記録）。走らせた命令は「検証」に書く（前は頭に手で写し、直しの commit を足した窓が書き直さずに記録とずれた）。
 レビューは書いた窓と別の窓がする（どちらのアカウントの窓でもよい）。green が今の先端に付き全体の絵と差が無ければ、親窓（どちらの AI の窓でもよい・CONTRIBUTING §3）が squash で入れる。レビューした窓は PR に次の 2 行で始まるコメントを残す:
 レビューした窓: <session id> 判定: green|red
 見た先端: <SHA の先頭 12 文字>

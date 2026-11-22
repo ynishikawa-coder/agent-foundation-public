@@ -5,7 +5,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/kaku.py\" inject"
+            "command": "f=\"$HOME/.claude/plugins/marketplaces/agent-foundation/plugins/core/scripts/hook_run.py\"; [ -f \"$f\" ] || f=; python3 ${f:+\"$f\"} \"${CLAUDE_PLUGIN_ROOT}/scripts/kaku.py\" inject"
           }
         ]
       }
@@ -15,7 +15,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/kaku.py\" fresh"
+            "command": "f=\"$HOME/.claude/plugins/marketplaces/agent-foundation/plugins/core/scripts/hook_run.py\"; [ -f \"$f\" ] || f=; python3 ${f:+\"$f\"} \"${CLAUDE_PLUGIN_ROOT}/scripts/kaku.py\" fresh"
           }
         ]
       }

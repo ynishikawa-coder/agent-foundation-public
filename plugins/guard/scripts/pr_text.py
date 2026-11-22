@@ -17,14 +17,14 @@
 照らす物（見分けは正本を直に読む・呼ぶ。ここに決まりを写さない）:
   verdict … （材料は記録から: 出す先の PR の先端と、PR の commit 全部の `Claude-Session:` の窓（書いた窓の組）を gh で引き
             --head・--writer で、判定を出す窓の本物の id を窓の環境の記録（CLAUDE_CODE_REMOTE_SESSION_ID）から読み --reviewer で
-            渡す。本文の `書いた窓:`・判定の 1 行目の名乗りは手で書いた写しで、照らされる側。どれかが引けなければ止める）
+            渡す。判定の 1 行目の名乗りは手で書いた写しで、照らされる側。本文の `書いた窓:` は読まない。どれかが引けなければ止める）
             コメントがレビューの判定（どの行かに `レビューした窓: … 判定: green|red` が揃うか、verdict の見出しが在る）なら、checker の
             `scripts/verdict_form.py` をそのまま呼ぶ。赤なら止める。道具が見つからない・壊れた時も止める
   cleanup … PR の本文（本文を渡す時だけ）に、dev-flow の preimpl-cleanup の `整地受領証.template.md` の見出し
             （`## 1.` からの番号つき。見出しの名と数は雛形から読む）が全部在り、雛形の `〔…〕` が残っていない事。整地の要らない PR
             （振る舞いを変えない: 誤字・記録だけ・版だけ等）は本文に `整地: 不要（<訳>）` の 1 行を書く（訳はレビューが照らす）
   words   … PR の題・本文に、窓の id（`session_01…`）がそのまま出ていない事。本文の頭の欄の塊（1 行目から最初の空行まで）の
-            窓の id を書く欄（書いた窓＝commit の記録と照らす写し。畳んだ親窓の欄も 2 段目までは）・コードの囲み・`…` の字・URL の中は
+            窓の id を書く欄（PR の型から畳んだ書いた窓・親窓の欄。使う側の型に残る間は）・コードの囲み・`…` の字・URL の中は
             数えない（job・検査 等の欄や、頭の塊の外で同じ字で始まる行は数える。親窓は照らせない写しなので PR の型に置かない＝
             窓の親はサーバの記録 get_session を読む）
   public  … 公開の repo（窓の repo の取り出しの workflow が action public-guard を呼ぶ／値の表 public_repos_extra）なら、
@@ -177,7 +177,6 @@ def looks_verdict(body):
     return bool(VERDICT_LINE.search(body) or VERDICT_HEAD.search(body))
 
 
-WRITER_LINE = re.compile(r"^\s*書いた窓\s*[:：]\s*(session_[A-Za-z0-9]+)", re.M)
 # commit の書き手の記録（窓が commit の度に付ける行）。PR の commit 全部から読み、書いた窓の組にする
 COMMIT_SESSION = re.compile(r"^Claude-Session:\s*\S*?(session_[A-Za-z0-9]+)\s*$", re.M)
 # 窓の環境の記録（harness が hook に渡す。cse_<x> → session_<x>）。道具の呼び出しの文では変えられない
@@ -199,8 +198,9 @@ def poster_id(env=None):
 def pr_facts(repo, ti):
     """判定を出す先の PR の (先端の SHA, 書いた窓の組, 誤り)。GitHub から引く（判定の形の道具が要る材料・写さない）。
 
-    書いた窓の組は PR の commit 全部の `Claude-Session:` の窓（記録）と、本文の頭の `書いた窓:`（写し）を合わせた物。
-    途中の commit を書いた窓も入る。commit に記録が 1 つも無ければ誤り（本文の写しだけで書いた窓を決めない）。
+    書いた窓の組は PR の commit 全部の `Claude-Session:` の窓（記録）だけ。途中の commit を書いた窓も入る。本文の頭の
+    `書いた窓:` は手の写しなので読まない（PR の型から畳んだ・写しが記録とずれるとレビューの窓を書いた窓に数えて弾いた）。
+    commit に記録が 1 つも無ければ誤り。
     引けない時は誤りを返す（欠けた材料で判定を通さない）。"""
     if not repo:
         return "", [], "出す先の repo（owner・repo）が道具の入力に無い"
@@ -243,9 +243,6 @@ def pr_facts(repo, ti):
     if not writers:
         return head.strip(), [], ("PR #%s の commit に `Claude-Session:` の行が 1 つも無く、書いた窓が記録から決まらない"
                                   "（本文の `書いた窓:` の写しだけで別の目を照らさない）" % number)
-    m = WRITER_LINE.search(body)
-    if m and m.group(1) not in writers:
-        writers.append(m.group(1))
     return head.strip(), writers, ""
 
 

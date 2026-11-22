@@ -65,7 +65,7 @@ repo ごとに違う値は、repo の根（`git rev-parse --show-toplevel`）の
 # Goal Completion Report — <タスク名>
 ## Goal Status: Completed / Partially Completed / Stopped / Failed
 ## 意図（このゴールが何のために在るか・頼みの原文から）
-## Completed Criteria / Unmet Criteria（未達は 課題＝意図とのずれ／原因 を別の行に）
+## Completed Criteria / Unmet Criteria（未達は 1 つ 1 行: `- <基準> — 課題: <意図とのずれ> ／ 原因: <なぜ>`）
 ## 設計と実物の差分
 ## Verification Results（Check｜Status｜真実源｜記録の所在）
 ## Unverified Items（確かめられなかった物と理由・無ければ「なし」）

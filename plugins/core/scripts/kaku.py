@@ -12,6 +12,9 @@
                                       （記録が無ければ分からないと名指す）。古ければ先端の核と振る舞いの既定も差し込む。
   python3 kaku.py fresh               UserPromptSubmit の hook が呼ぶ。窓が立った時の main の先端から plugin が変わったら、
                                       先端の核と振る舞いの既定をこの窓に差し込む（窓は引き継がず閉じず、そのまま続ける）。
+  python3 kaku.py refresh TIP ENTRY    inject・fresh が古さを見つけた時に裏で回す。目録の clone の入口 ENTRY（setup_plugins.py）で
+                                      先端の版を入れ直し、結果を ~/.claude/af-foundation/refresh.json に書く（hook の入口 hook_run.py が
+                                      次の呼び出しから入れ直した版を回す・失敗は fresh が 1 行で名指す）。
   python3 kaku.py check [--claude P]  核と振る舞いの既定が在り、上限の内かを照らす。--claude を渡すと、その CLAUDE.md が各社固有の上限の内で
                                       核の写しの枠を持たないかも照らす。
   python3 kaku.py grow --base REF     増やさない物（guarded() の一覧＝毎回差し込む物と形の細目）が git の REF の時より
@@ -872,6 +875,79 @@ def moved_since(base: str, tip: str) -> list[str]:
     return sorted(_carrier_names(names)) if names else []
 
 
+REFRESH_TIMEOUT = 600  # 裏の入れ直し（入口 setup_plugins.py）を待つ上限（秒）
+
+
+def _refresh_file(name: str) -> Path:
+    return _home() / "af-foundation" / name
+
+
+def start_refresh(tip: str) -> bool:
+    """入った土台が先端より古い時、目録の clone の入口 scripts/setup_plugins.py を裏で回して先端の版を入れ直す
+    （窓の起動を待たせない）。入れ直した版は、hook の入口 hook_run.py が次の呼び出しから回す。
+    同じ先端へ入れ直し済み・入れ直し中なら何もしない。回し始めた＝True。"""
+    loc = catalog_source()[0].get("installLocation")
+    entry = Path(loc) / "scripts" / "setup_plugins.py" if loc else None
+    if not entry or not entry.is_file():
+        return False
+    try:
+        done = _read_json(_refresh_file("refresh.json"), dict) or {}
+    except Unreadable:
+        done = {}  # 壊れた前の結果は入れ直しの結果で書き直す（入れ直しを止めない）
+    if done.get("main") == tip and done.get("code") == 0:
+        return False
+    lock = _refresh_file("refresh.lock")
+    lock.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        if lock.exists() and time.time() - lock.stat().st_mtime > REFRESH_TIMEOUT + 60:
+            lock.unlink()  # 前の入れ直しが落ちて残した錠
+        fd = os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        os.close(fd)
+    except FileExistsError:
+        return False
+    subprocess.Popen([sys.executable, str(Path(__file__).resolve()), "refresh", tip, str(entry)],
+                     stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                     start_new_session=True, cwd=str(_home()))
+    return True
+
+
+def refresh(tip: str, entry: Path) -> int:
+    """裏で回る入れ直しの本体（start_refresh が別の process で呼ぶ）。結果を refresh.json に書き、錠を外す。"""
+    try:
+        p = subprocess.run([sys.executable, str(entry)], capture_output=True, text=True, timeout=REFRESH_TIMEOUT,
+                           stdin=subprocess.DEVNULL)
+        code, out = p.returncode, (p.stdout + p.stderr).strip()
+    except (OSError, subprocess.SubprocessError) as e:
+        code, out = -1, f"{type(e).__name__}: {e}"
+    line = (out.splitlines() or [""])[-1][:300]
+    try:
+        _refresh_file("refresh.json").write_text(json.dumps(
+            {"main": tip, "code": code, "line": line, "at": time.time()}, ensure_ascii=False), encoding="utf-8")
+    except OSError:
+        pass
+    try:
+        _refresh_file("refresh.lock").unlink()
+    except OSError:
+        pass
+    return 0
+
+
+def refresh_failed_text(state: dict) -> str | None:
+    """裏の入れ直しが失敗していれば、1 度だけ 1 行で名指す（前の版の hook で続ける）。"""
+    try:
+        r = _read_json(_refresh_file("refresh.json"), dict)
+    except Unreadable as e:
+        if state.get("refresh_told") == "unreadable":
+            return None
+        state["refresh_told"] = "unreadable"
+        return _broken_text("裏の入れ直しの記録", e)
+    if r is None or r.get("code") == 0 or r.get("at") == state.get("refresh_told"):
+        return None
+    state["refresh_told"] = r.get("at")
+    return (f"## 土台の hook を先端へ入れ直せなかった\n入口 scripts/setup_plugins.py が {r.get('code')} で抜けた"
+            f"（{r.get('line') or '訳は出ていない'}）。守りの hook は前の版のまま動く（止めない）。最初にオーナーへ 1 行知らせる。\n")
+
+
 def _state_path(session: str) -> Path:
     safe = "".join(c for c in session if c.isalnum() or c in "-_") or "unknown"
     return _home() / "af-foundation" / f"{safe}.json"
@@ -920,7 +996,7 @@ def start_cause(f: dict | None) -> str | None:
 
 CONTINUE = ("窓は立て直さず・引き継がず・閉じず、そのまま頼みを続ける（create_session・archive_session をしない）。"
             "下の main の先端の核と振る舞いの既定が、起動の時に差し込まれた物に代わって効く。"
-            "守りの hook と skill の script は入れ直すまで起動の時の版のまま動く（止めない・次に立つ窓は新しい版で立つ）。\n")
+            "守りの hook は裏で先端の版を入れ直し、済んだ後の呼び出しから先端の版で動く（hook の足し・外しと skill は次に立つ窓から）。\n")
 
 
 def tip_core_text(f: dict) -> str:
@@ -1017,6 +1093,11 @@ def inject() -> int:
         # 入った土台が先端より古ければ、先端の核をここで差し込む。setup が古い物を入れた・分からない時だけ setup script を
         # 直させる（setup の後に main が進んだだけ＝作り置きの箱は直す物が無い）。
         told, kind = (f, cause) if f and f["plugins"] else (None, None)
+        if told:
+            try:  # 守りの hook も先端の版で動くよう、裏で入れ直す（起動は待たせない・失敗は fresh が 1 行で名指す）
+                start_refresh(f["main"])
+            except Exception as e:  # noqa: BLE001  入れ直しが壊れても核の差し込みは止めない。壊れた事は名指しする
+                parts.append(_broken_text("裏の入れ直し", e))
         if broken is not None:
             parts.append(_state_broken_text(broken, "起動の時の記録（start_main・told）を今の値で書き直していない"))
         elif session:
@@ -1047,6 +1128,10 @@ def fresh() -> int:
         return _say(_state_broken_text(e, "記録を書き直していない"))
     if state is None or not state.get("comparable"):
         return 0
+    failed = refresh_failed_text(state)
+    if failed:
+        _save_state(session, state)
+        return _say(failed)
     interval = float(os.environ.get("AF_FRESH_INTERVAL") or FRESH_INTERVAL)
     if time.time() - float(state.get("checked") or 0) < interval:
         return 0
@@ -1064,6 +1149,10 @@ def fresh() -> int:
     if got and got["plugins"] and got["main"] != (state.get("told") or {}).get("main"):
         state["told"], state["told_kind"] = got, "update"
         text = update_text(got)
+        try:
+            start_refresh(got["main"])
+        except Exception as e:  # noqa: BLE001  入れ直しが壊れても問いは止めない。壊れた事は名指しする
+            text += _broken_text("裏の入れ直し", e)
     _save_state(session, state)
     return _say(text)
 
@@ -1216,7 +1305,12 @@ def main(argv=None) -> int:
     o.add_argument("dirs", type=Path, nargs="+")
     o.add_argument("--table", type=Path, default=OLDS, help="古い形の一覧（既定は plugin の 古い形.json）")
     o.add_argument("--json", action="store_true", help="当たりを [[id, path], …] で出す（起動の hook が別の process で呼ぶ）")
+    r = sub.add_parser("refresh", help="裏で入口を回して先端の版を入れ直す（inject・fresh が別の process で呼ぶ）")
+    r.add_argument("tip")
+    r.add_argument("entry", type=Path)
     a = ap.parse_args(argv)
+    if a.cmd == "refresh":
+        return refresh(a.tip, a.entry)
     if a.cmd == "inject":
         return inject()
     if a.cmd == "grow":
