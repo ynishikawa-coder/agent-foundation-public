@@ -137,6 +137,11 @@ def open_files(repo: str, token: str) -> dict[str, list[str]]:
     return out
 
 
+# 重なった時の順（オーナーの答え 2026-11-23「AI が決め、ぶつかる時だけ聞く」）: 順は AI が決め、聞くのはぶつかる時だけ
+ORDER = ("順: 先に開いた PR が先に入り、後の PR は入った main を取り込んでから続ける（AI が決める・聞かない）。"
+         "オーナーに聞くのは、片方がもう片方の通る条件（試験・レビューの見る点）を変える時と、2 つの意図が逆向きの時だけ")
+
+
 def main_files(repo: str, declared: list[str]) -> int:
     try:
         others = open_files(repo, os.environ.get("GITHUB_TOKEN") or "")
@@ -147,6 +152,7 @@ def main_files(repo: str, declared: list[str]) -> int:
         print(f"✗ {pr} が {f} を書き換えている")
     if hits:
         print("pr_overlap: 重なる — 同じ file を取る窓は並べず列にする（重なる PR が入ってから main を取り込んで始める）")
+        print(ORDER)
         print("直し: 1 つの file を多くの窓が取り合うなら、意図（窓どうしが互いに待たずに進む）とのずれから入り、分け方の原因を細目 §3「まず構造を疑う」で探す")
         return 1
     print(f"pr_overlap: 重ならない — 宣言した {len(declared)} file を開いている PR {len(others)} 本のどれも書き換えていない")
@@ -195,8 +201,8 @@ def main(argv=None) -> int:
     for pr, f, (s, e) in hits:
         print(f"⚠ {pr} も {f} の {s}〜{e} 行の辺りを書き換えている（同じ節の本当の重なり）")
     if hits:
-        print("pr_overlap: 知らせ — 重なる PR の書いた窓と親の窓で、どちらを先に入れて後の方が取り込み直すかを今決める"
-              "（合流の時に初めて衝突に気づかない）。止めはしない")
+        print("pr_overlap: 知らせ — 重なる PR の書いた窓へ今知らせる（合流の時に初めて衝突に気づかない）。止めはしない")
+        print(ORDER)
     else:
         print("pr_overlap: 重なる PR は無い")
     return 0

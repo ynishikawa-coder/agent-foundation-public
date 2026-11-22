@@ -86,7 +86,8 @@ def test_記録が読めない時は入ってよいと言わず_exit_2(capsys):
     assert "読めない" in capsys.readouterr().out
 
 
-def test_入口の_exit_は入ってよいが_0_まだが_1(capsys):
+def test_入口の_exit_は入ってよいが_0_まだが_1(capsys, monkeypatch):
+    monkeypatch.setattr(rg, "TIP", "fedcba9876543210" * 2 + "fedcba98")
     ok = lambda *a: (pr(), REQ, GREEN, [])                                    # noqa: E731
     red = lambda *a: (pr(mergeable_state="dirty"), REQ, GREEN, [])            # noqa: E731
     assert rg.main(["--repo", "o/r", "--pr", "1"], read=ok) == 0
@@ -99,3 +100,26 @@ def test_材料を_file_で受ける口が無い():
     src = (ROOT / "plugins" / "checker" / "scripts" / "review_gate.py").read_text(encoding="utf-8")
     assert "add_argument(\"--repo\"" in src and "add_argument(\"--pr\"" in src
     assert src.count("add_argument(") == 2
+
+
+def test_入ってよい時は判定が従う決まりの版と_first_を出す(capsys, monkeypatch):
+    """初めの判定が無ければ main の先端の版と `なし`、在ればその初めの判定の版（後の版の判定や古い形の判定は数えない）。"""
+    tip = "fedcba9876543210" * 2 + "fedcba98"
+    monkeypatch.setattr(rg, "TIP", tip)
+    assert rg.main(["--repo", "o/r", "--pr", "1"], read=lambda *a: (pr(), REQ, GREEN, [])) == 0
+    out = capsys.readouterr().out
+    assert "決まりの版: %s" % tip[:12] in out and "--first なし" in out
+    old_form = {"body": "レビューした窓: session_R0 判定: red\n見た先端: ffffffffffff\n"}
+    first = {"body": "レビューした窓: session_R1 判定: red\n見た先端: eeeeeeeeeeee\n決まりの版: 111111111111\n"}
+    later = {"body": "レビューした窓: session_R2 判定: red\n見た先端: dddddddddddd\n決まりの版: 222222222222\n"}
+    read = lambda *a: (pr(), REQ, GREEN, [old_form, first, later])          # noqa: E731
+    assert rg.main(["--repo", "o/r", "--pr", "1"], read=read) == 0
+    out = capsys.readouterr().out
+    assert "決まりの版: 111111111111" in out and "--first 111111111111" in out
+
+
+def test_main_の先端の版が分からず初めの判定も無ければ_exit_2(capsys, monkeypatch):
+    monkeypatch.setattr(rg, "TIP", "")
+    monkeypatch.delenv(rg.TIP_ENV, raising=False)
+    assert rg.main(["--repo", "o/r", "--pr", "1"], read=lambda *a: (pr(), REQ, GREEN, [])) == 2
+    assert "決まりの版を決められない" in capsys.readouterr().out
