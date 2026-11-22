@@ -39,7 +39,7 @@ def empty_log(tmp_path):
 # ── 1. 最初の知らせ: 会話ログに行が無い時は文だけで子の窓と決めず、サーバの記録で決めさせる ──
 def test_ログに行が無く文が別の窓を指せば_parent_session_id_で決めさせる(tmp_path):
     text = sw.remind({"prompt": CHILD, "transcript_path": empty_log(tmp_path)}, CHILD_ENV)
-    assert text and "parent_session_id" in text and "付け直す" in text, text
+    assert text and "parent_session_id" in text and "set_session_title" in text and "親の題を写さない" in text, text
 
 
 def test_ログに行が無く返し先がオーナーなら_オーナー相手の窓(tmp_path):

@@ -97,8 +97,11 @@ def test_決まりの文は見張りの正本と同じ文():
 
 def test_細目は手の窓の種類を書き正本を指す():
     text = DETAIL.read_text(encoding="utf-8")
-    assert ("種類は `🙋`＝オーナーと話す窓／`✋`＝手の窓（オーナーの操作を頼む窓）／`🤖`＝AI が立てて AI に返す窓"
-            "（決め方は skill `session-watch:title-mark`）。") in text
+    # 文の写しを留めず、細目の「窓の題」の行が種類を表の正本（TITLE_TABLE）どおりに並べ skill を指すかを照らす
+    line = next(l for l in text.splitlines() if l.startswith("- **窓の題**"))
+    for kind in sw.TITLE_TABLE:
+        assert f"`{kind}`" in line, kind
+    assert "skill `session-watch:title-mark`" in line
 
 
 def test_細目は手の窓を種類で書き作業名の印を持たない():
