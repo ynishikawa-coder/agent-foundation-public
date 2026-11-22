@@ -25,7 +25,7 @@ def test_決まりの文は消すと試験が赤になるか_守らない文の�
                        + "\n".join(f"{r}\t{s}" for r, s in stale))
 
 
-def test_守らない文の表の行はどれも決まりの file を名指す():
+def test_守らない文の表の行はどれも決まりの_file_を名指す():
     """file ごとに照らすと、決まりの file でない path の行はどの回にも拾われない＝古い行が残る。それを拒む。"""
     bad = sorted((r, s) for r, s in rh.表() if r not in rh.RULE_FILES)
     assert not bad, "決まりの file でない path の行（表から消す）:\n" + "\n".join(f"{r}\t{s}" for r, s in bad)
