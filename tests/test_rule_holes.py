@@ -209,22 +209,27 @@ def 表(table=None):
 
 
 
-@functools.lru_cache(maxsize=1)
-def 今の穴():
-    return {(rel, s) for rel in RULE_FILES for s in 穴(rel)}
+# 決まりの file ごとに 1 本（1 本が長い＝check_all が組へ 1 本ずつ散らす。重さは他の試験 1 本の何本分か）
+AF_SHARD_WEIGHT = 200
 
 
-def test_核と細目の文は消すと試験が赤になるか_守らない文の表に在る():
-    new = sorted(今の穴() - 表())
+@pytest.mark.parametrize("rel", RULE_FILES)
+def test_核と細目の文は消すと試験が赤になるか_守らない文の表に在る(rel):
+    """rel の文を 1 つずつ消して、赤にならない文が表に在るか。表の rel の行が古くないか（守られた・無くなった文は表から消す）も同じ回で見る。"""
+    now = set(穴(rel))
+    listed = {s for r, s in 表() if r == rel}
+    new, stale = sorted(now - listed), sorted(listed - now)
     assert not new, ("この文を消しても試験が赤にならない（文を照らす試験を足す。足せない訳がある時だけ "
-                     "tests/data/試験で守らない文/ に 1 件 1 file で載せる・名は 表の名）:\n" + "\n".join(f"{r}\t{s}" for r, s in new)
+                     "tests/data/試験で守らない文/ に 1 件 1 file で載せる・名は 表の名）:\n" + "\n".join(f"{rel}\t{s}" for s in new)
                      + "\n照らしから外れた試験（元の文で通らない・用意できない fixture）:\n"
                      + "\n".join(f"{k}: {v}" for k, v in sorted(外れた.items())))
-
-
-def test_守らない文の表に古い行を残さない():
-    stale = sorted(表() - 今の穴())
     assert not stale, ("表の文が無くなったか、試験で守られるようになった（表から消す）:\n"
+                       + "\n".join(f"{rel}\t{s}" for s in stale))
+
+
+def test_守らない文の表に決まりの_file_の外の行を残さない():
+    stale = sorted((r, s) for r, s in 表() if r not in RULE_FILES)
+    assert not stale, ("表の行の file が決まりの file に無い（file が無くなった・名が変わった。表から消す）:\n"
                        + "\n".join(f"{r}\t{s}" for r, s in stale))
 
 

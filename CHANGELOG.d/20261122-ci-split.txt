@@ -1,0 +1,2 @@
+- 直した: PR ごとの検査（`scripts/check_all.sh`）が試験を CPU の数（4 まで・`AF_CHECK_SHARDS` で変える）の組に分けて同時に回す。組の結果は数える段（`af_tally.py judge`）が合わせ、組が欠けた・2 度回った・どの組でも回らなかった試験があれば赤。1 本が長い試験の file は module に `AF_SHARD_WEIGHT` を書くと試験 1 本ずつ組へ散る。
+- 直した: 決まりの文を消して回す試験（`tests/test_rule_holes.py`）を決まりの file ごとの 1 本に分けた（組へ散らせる・表の古い行も file ごとに照らす）。

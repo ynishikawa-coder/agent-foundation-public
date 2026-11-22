@@ -102,6 +102,8 @@ class _Tally:
         self.items = []
         self.collected = []      # 集めた試験の全部（collect の報告の result が正本。外しの hook を通ったかに頼らない）
         self.tampered = []
+        self.shard = _shard_of(config)
+        self.sharded_out = []    # 分けて回す時、ほかの組が回す試験（集めは全部の組が同じにする）
 
     def set(self, nodeid, outcome, reason="", wait=None):
         cur = self.results.get(nodeid)
@@ -135,6 +137,18 @@ class _Tally:
     def pytest_deselected(self, items):
         for it in items:
             self.deselected.append({"nodeid": it.nodeid, "markers": sorted({m.name for m in it.iter_markers()})})
+
+    @pytest.hookimpl(trylast=True)
+    def pytest_collection_modifyitems(self, session, config, items):
+        """--af-shard=i/K の時、-m などで外した後の試験を file ごとに K 組へ分け、i 組の物だけを回す。
+        分け方は集めた試験だけで決まる（どの組も同じ試験を集めるので同じ分け方になる）。外した物は sharded_out に残し、
+        組を合わせる判定（merge）が「どの試験もちょうど 1 つの組で回った」を照らす。"""
+        if self.shard is None:
+            return
+        i, k = self.shard
+        keep = set(assign(items, k)[i])
+        self.sharded_out = [it.nodeid for it in items if unit(it)[0] not in keep]
+        items[:] = [it for it in items if unit(it)[0] in keep]
 
     def pytest_collection_finish(self, session):
         self.items = [it.nodeid for it in session.items]
@@ -183,15 +197,19 @@ class _Tally:
         return out
 
     def pytest_sessionfinish(self, session, exitstatus):
+        if self.shard and not self.items and self.sharded_out and exitstatus == pytest.ExitCode.NO_TESTS_COLLECTED:
+            # 試験がほかの組へ全部行った組は「何も集めなかった」でなく空の組（集めた 0 本は合わせた後の数で見る）
+            exitstatus = session.exitstatus = pytest.ExitCode.OK
         unrun = [n for n in self.items if n not in self.results]
-        kept = set(self.items) | {d["nodeid"] for d in self.deselected}
+        kept = set(self.items) | {d["nodeid"] for d in self.deselected} | set(self.sharded_out)
         dropped = [n for n in dict.fromkeys(self.collected) if n not in kept]
         data = {"finished": True, "exitstatus": int(exitstatus), "collected": len(set(self.collected)),
                 "dropped": dropped,
                 "results": [dict(nodeid=k, **v) for k, v in self.results.items()] + self.collect_skips,
                 "deselected": self.deselected, "unrun": unrun,
                 "audit": self.audit() + self.tampered, "unseen": self.unseen(),
-                "pytest": pytest.__version__}
+                "pytest": pytest.__version__,
+                "shard": list(self.shard) if self.shard else None, "sharded_out": self.sharded_out}
         if self.path:
             tmp = self.path + ".tmp"
             with open(tmp, "w", encoding="utf-8") as f:
@@ -257,7 +275,40 @@ def _reason(report):
     return str(lr or "").splitlines()[-1] if lr else ""
 
 
+def _shard_of(config):
+    v = config.getoption("af_shard")
+    if not v:
+        return None
+    m = re.fullmatch(r"(\d+)/(\d+)", v)
+    if not m or not 0 <= int(m.group(1)) < int(m.group(2)):
+        raise pytest.UsageError(f"--af-shard は i/K（0 <= i < K）: {v}")
+    return int(m.group(1)), int(m.group(2))
+
+
+def unit(it):
+    """(分ける単位, 重さ)。既定は file（重さ 1）。module が AF_SHARD_WEIGHT = N を持つ時は試験 1 本ずつ・重さ N
+    （1 本が長い file＝決まりの文を消して回す試験など。file ごとでは 1 つの組だけが長くなる）。"""
+    w = getattr(getattr(it, "module", None), "AF_SHARD_WEIGHT", 0)
+    return (it.nodeid, w) if w else (it.nodeid.split("::")[0], 1)
+
+
+def assign(items, k):
+    """試験を単位（file・重い module は試験 1 本）ごとに K 組へ分ける（重い単位から、今いちばん軽い組へ）。組ごとの単位の並びを返す。"""
+    count = {}
+    for it in items:
+        f, w = unit(it)
+        count[f] = count.get(f, 0) + w
+    groups, load = [[] for _ in range(k)], [0] * k
+    for f in sorted(count, key=lambda f: (-count[f], f)):
+        j = load.index(min(load))
+        groups[j].append(f)
+        load[j] += count[f]
+    return groups
+
+
 def pytest_addoption(parser):
+    parser.addoption("--af-shard", dest="af_shard", default=None,
+                     help="i/K: 試験を file ごとに K 組へ分け、i 組だけを回す（check_all が K 組を同時に回して merge で合わせる）")
     parser.addoption("--af-judge", dest="af_judge", default=None, choices=["real-claude"],
                      help="pytest の中で結果を判定し、緑に数えない物があれば赤で終える（real-claude: job plugin-smoke）")
 
@@ -284,6 +335,49 @@ def read_waits(root):
             raise ValueError(f"{WAITS_FILE} の行が「path 待つ試験の file 何か」の形でない: {ln}")
         out[parts[0]] = parts[1]
     return out
+
+
+def merge(datas):
+    """分けて回した K 組の結果を 1 つにする。組が揃わない・集めた試験が組で違う・どの組でも回らない／2 つの組で回った
+    試験があれば ValueError（数える段が止まった＝赤）。組が 1 つで分けていなければそのまま返す。"""
+    if len(datas) == 1 and not datas[0].get("shard"):
+        return datas[0]
+    for d in datas:
+        if not isinstance(d, dict) or d.get("finished") is not True:
+            raise ValueError("試験の結果が終わりまで書かれていない組がある（pytest が途中で止まった）")
+    k = len(datas)
+    if sorted(tuple(d.get("shard") or ()) for d in datas) != [(i, k) for i in range(k)]:
+        raise ValueError(f"組が揃っていない（{k} 組の 0..{k - 1} が 1 つずつ要る）")
+    if len({d["collected"] for d in datas}) != 1:
+        raise ValueError("集めた試験の数が組で違う（組ごとに別の物を集めた）")
+    ran = {}
+    for d in datas:
+        mine = {r["nodeid"] for r in d["results"]} | set(d["unrun"])
+        for nid in mine - {r["nodeid"] for r in d["results"] if "::" not in r["nodeid"]}:
+            ran[nid] = ran.get(nid, 0) + 1
+    twice = sorted(n for n, c in ran.items() if c > 1)
+    if twice:
+        raise ValueError(f"2 つの組で回った試験がある: {twice[:3]}")
+    everyone = set().union(*(set(d["sharded_out"]) for d in datas))
+    nobody = sorted(everyone - set(ran))
+    if nobody:
+        raise ValueError(f"どの組でも回らなかった試験がある: {nobody[:3]}")
+
+    def uniq(key, by=None):
+        seen, out = set(), []
+        for d in datas:
+            for x in d[key]:
+                h = x[by] if by else x
+                if h not in seen:
+                    seen.add(h)
+                    out.append(x)
+        return out
+
+    vers = {d["pytest"] for d in datas}
+    return {"finished": True, "exitstatus": max(d["exitstatus"] for d in datas), "collected": datas[0]["collected"],
+            "dropped": uniq("dropped"), "results": uniq("results", "nodeid"), "deselected": uniq("deselected", "nodeid"),
+            "unrun": uniq("unrun"), "audit": uniq("audit"), "unseen": uniq("unseen"),
+            "pytest": vers.pop() if len(vers) == 1 else "組で違う版"}
 
 
 def judge(data, root, ci, only_passed=False, mode=None):
@@ -348,12 +442,13 @@ def judge(data, root, ci, only_passed=False, mode=None):
 
 
 def main(argv):
-    if len(argv) < 2 or argv[0] != "judge":
-        print("使い方: af_tally.py judge <結果の JSON> [--only-passed]", file=sys.stderr)
+    files = [a for a in argv[1:] if not a.startswith("--")]
+    if len(argv) < 2 or argv[0] != "judge" or not files:
+        print("使い方: af_tally.py judge <結果の JSON>... [--only-passed]（分けて回した組は全部を渡す）", file=sys.stderr)
         return 2
     ci = os.environ.get("GITHUB_ACTIONS") == "true"
     try:
-        data = json.loads(Path(argv[1]).read_text(encoding="utf-8"))
+        data = merge([json.loads(Path(f).read_text(encoding="utf-8")) for f in files])
         n, bad, named = judge(data, ".", ci, only_passed="--only-passed" in argv)
     except (OSError, ValueError, KeyError, TypeError) as e:
         print(f"数える段が止まった: {e.__class__.__name__}: {e}")
