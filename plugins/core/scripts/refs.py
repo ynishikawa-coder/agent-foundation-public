@@ -259,9 +259,11 @@ def main(argv=None) -> int:
     k.add_argument("files", nargs="+", type=Path)
     k.add_argument("--numbers", action="store_true", help="番号だけの指しを許す（土台の中の指し）。番号が在るかは照らす")
     a = ap.parse_args(argv)
+    sys.path.insert(0, str(HERE))
+    import kaku
     try:
         c = contract(a.root)
-    except (OSError, UnicodeDecodeError, ValueError, SyntaxError) as e:
+    except (OSError, UnicodeDecodeError, ValueError, SyntaxError, kaku.Unreadable) as e:  # 入った台帳が読めない時も名指す
         print(f"refs: 照らせない — {e}")
         return 2
     if a.cmd == "list":

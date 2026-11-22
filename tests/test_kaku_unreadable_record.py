@@ -157,3 +157,14 @@ def test_注入_setup_record_は壊れた記録を無いと言わず名指す(ho
     assert "入口の記録が読めない" in text and str(path) in text
     assert "記録（~/.claude/af-foundation/setup.json）が無い" not in text
     assert "環境の setup script が古い形" not in text, "読めない記録で setup の走らせ直しへ導いた"
+
+
+@pytest.mark.parametrize("kind", KINDS)
+def test_注入_起動の時から古い知らせは壊れた入口の記録で落ちず名指す(home, kind):
+    """2 回目の起動で told を差し直す時に入口の記録が壊れていても、hook ごと落ちて核の差し込みを消さない。"""
+    _installed(home, home)
+    path = home / ".claude" / "af-foundation" / "setup.json"
+    _break(path, kind)
+    f = {"installed": SHA, "main": "d" * 40, "ref": "main", "shas": {"core": SHA}, "plugins": ["guard"]}
+    text = kaku.stale_at_start_text(f)
+    assert "読めない" in text and str(path) in text

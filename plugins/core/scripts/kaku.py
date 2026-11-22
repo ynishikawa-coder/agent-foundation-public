@@ -923,9 +923,12 @@ def tip_core_text(f: dict) -> str:
 
 
 def stale_at_start_text(f: dict) -> str:
-    rec = (setup_record()[0] or {}).get("main_at_setup") or ""
+    try:  # 2 回目の起動（told の差し直し）の間に記録が壊れても、核の差し込みごと落とさず名指す
+        rec = ((setup_record()[0] or {}).get("main_at_setup") or "")[:12]
+    except Unreadable as e:
+        rec = f"（入口の記録が読めない: {e}）"
     return ("## 土台が古いまま立った窓 — setup script を直し、窓はそのまま続ける\n"
-            f"この窓は main の先端より古い土台で立った（{_short(f)}）。setup の時の main の先端は {rec[:12]} で、setup はそれと違う物を入れた。"
+            f"この窓は main の先端より古い土台で立った（{_short(f)}）。setup の時の main の先端は {rec} で、setup はそれと違う物を入れた。"
             "setup script が版（tag）を指している・目録を取り直さない古い形（marketplace update の行が無い）・入れ損ねている"
             "ので、次に立つ窓にも同じ物が入る。頼みの合間に次をする:\n"
             "1. 環境の setup script を土台の docs/核の届け方.md の形（main の先端を入れる）に直す: "
