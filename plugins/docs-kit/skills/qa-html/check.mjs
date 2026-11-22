@@ -94,12 +94,13 @@ export const RULES = {
   "free_options": { "other": ["ほかの答え", "別の決め方"], "none": ["当てはまらない"] },
   // ひとことに書かせる選択肢＝鍵が free_options.other（ほかの答え・別の決め方）か、字（見出し・添え書き・変わる事）がこれに当たる物。data-supp="need"（JSON は "supp": "need"）が要る
   "supp_ask": /ひとこと|補足に書|補足欄|下の欄/,
+  // 問いの形。SKILL.md §問いの形の表は `check.mjs --table kinds` の出力をそのまま置く（試験が一字違わず照らす＝写さない）
   "kinds": {
-    "choose": "どちらが正しいですか＝こちらが計算した候補を並べる（候補 2 つ以上）",
-    "mismatch": "資料どうしが食い違う＝「合っていますか」を使ってよいのはここだけ（候補 2 つ以上）",
-    "fact": "資料の外にしか無い事実（「当てはまらない」を必ず置く）",
-    "judge": "読んでも決まりが分からない時の判断（候補 2 つ以上）",
-    "complete": "読んだ資料で全部か（「これで全部」と、足りない資料の名をひとことに書かせる選択肢〔supp: need〕を置く）"
+    "choose": { "head": "(a) `choose`「どちらが正しいですか」", "when": "こちらで候補ごとに計算した結果が分かれる", "options": "候補を並べ、それぞれの変わる事を 1 行（例「10 月の請求が合計 1,200 円」）＋「ほかの答え（ひとことに）」" },
+    "mismatch": { "head": "(a) の仲間 `mismatch`「合っていますか」", "when": "資料どうしが食い違う（「合っていますか」を使ってよいのはここだけ）", "options": "食い違う 2 つを見つけた事に書き、候補に両方を置く＋「ほかの答え（ひとことに）」" },
+    "fact": { "head": "(b) `fact` 資料の外にしか無い事実", "when": "入社日・納品日など、資料の中に無い事", "options": "分かる範囲の候補＋「当てはまらない」" },
+    "judge": { "head": "(c) `judge` 判断の問い（決まりが資料に無い・読めない時の判断／オーナー宛てでは作り方の分かれ道）", "when": "決まりが資料に無い・読めない・オーナーが判断を決める", "options": "候補 2 つ以上（オーナー宛てなら推す案を 1 つ目に推奨の印と理由・お客さん宛ては印なし）＋「別の決め方（ひとことに）」" },
+    "complete": { "head": "(d) `complete` 読んだ資料で全部か", "when": "資料が欠けていると計算が変わる時", "options": "「これで全部」（変わる事つき）＋「ほかにもある」（足りない資料の名をひとことに・`data-supp=\"need\"`＝無ければ赤）。「当てはまらない」は要らない" }
   },
   "groups": {
     "rule": "会社の決まり（全員に効く）",
@@ -280,8 +281,51 @@ function byClass(html, cls) {
   return out.filter(Boolean);
 }
 
-// 宛先: send＝素のフォームで配る口へ・copy＝答えを写して貼り戻す・artifact＝確認のページ（Artifact）が答えを受ける
-export const DESTS = ["send", "copy", "artifact"];
+// 宛先の印の閉じた表。SKILL.md の宛先の表は `check.mjs --table dests` の出力をそのまま置く（試験が一字違わず照らす＝写さない）
+export const DEST_TABLE = {
+  "send": { "name": "送る", "when": "配る口のある会社がお客さんに聞く", "sent": "素のフォームの送信で配る口へ。受付の画面は配る口が出す" },
+  "copy": { "name": "写す", "when": "オーナーが確認 HTML を頼んだ", "sent": "受付の画面に貼り戻しのテキストが出る＝チャットに貼る" },
+  "artifact": { "name": "確認のページ", "when": "確認を Artifact（claude.ai の非公開のページ）で渡す", "sent": "受付の画面を出し、`document` に `qa:submit` を投げる＝ページの仕組みが答えを持つ" },
+};
+export const DESTS = Object.keys(DEST_TABLE);
+
+// 長さの上限の表の行（所, 上限の文）。上限の文の {鍵} に RULES.limits の値を差す。SKILL.md §長さの上限の表は
+// `check.mjs --table limits` の出力をそのまま置く。RULES.limits のどの鍵も、どこかの行でちょうど 1 度使う（tables が照らす）
+const LIMIT_ROWS = [
+  ["問い（legend）", "1 行・{question_chars} 字"],
+  ["まとまりの 1 行（`.glead`）", "1 行・{glead_chars} 字"],
+  ["何について（`.about`）", "札 {about_tags} つ"],
+  ["見つけた事（`.known`）", "文 {known_lines} 行・1 行 {known_line_chars} 字＋数字の表 {known_table_rows} 行（見出しを入れて）。残りは `details.more`（くわしく）へ"],
+  ["切り抜き（`figure.clip`）", "1 問 {clips} 枚"],
+  ["根拠（`.evidence` の li）", "1 問 {evidence} つ・場所 {where_chars} 字・引用 {quote_chars} 字"],
+  ["AI の読み（`.reading`）", "1〜{reading_lines} 行・1 行 {reading_line_chars} 字"],
+  ["AI の今の見込み（`.estimate`）", "中身 {estimate_chars} 字・根拠 {basis_chars} 字"],
+  ["推す理由（`small.rec`・`recommended`）", "1 行・{rec_chars} 字"],
+  ["くわしく（`details.more`）", "{more_lines} 行（原文は `.orig` に別で）"],
+  ["選択肢の見出し（`<b>`）", "{option_chars} 字"],
+  ["この答えで変わる事（`small.chg`）", "1 行・{change_chars} 字"],
+  ["選択肢の添え書き（`<small>`・逃げ道の「下のひとことに…」など）", "1 行・{option_detail_chars} 字"],
+  ["1 枚の問いの数", "{questions_per_page} 問（目安 10 分・超えるなら 2 枚に分ける）"],
+];
+
+// SKILL.md に置く表（名 → Markdown の表）。表に無い鍵・2 度使う鍵・行の無い鍵は投げる（写しの表を黙って欠かせない）
+export function tables(limits = RULES.limits) {
+  const md = (head, rows) => [`| ${head.join(" | ")} |`, `|${head.map(() => "---").join("|")}|`, ...rows.map((r) => `| ${r.join(" | ")} |`)].join("\n");
+  const used = [];
+  const limitRows = LIMIT_ROWS.map(([place, text]) => [place, text.replace(/\{(\w+)\}/g, (_, k) => {
+    if (!(k in limits)) throw new Error(`長さの上限の行が知らない鍵 ${k} を指す`);
+    used.push(k);
+    return String(limits[k]);
+  })]);
+  const twice = used.filter((k, i) => used.indexOf(k) !== i);
+  const missing = Object.keys(limits).filter((k) => !used.includes(k));
+  if (twice.length || missing.length) throw new Error(`長さの上限の表の行と RULES.limits が合わない（2 度: ${twice.join("・") || "なし"}／行が無い: ${missing.join("・") || "なし"}）`);
+  return {
+    dests: md(["印", "いつ", "送った時"], DESTS.map((d) => [`\`${d}\`（${DEST_TABLE[d].name}）`, DEST_TABLE[d].when, DEST_TABLE[d].sent])),
+    limits: md(["所", "上限"], limitRows),
+    kinds: md(["形（`data-kind`）", "いつ", "選択肢"], KINDS.map((k) => [RULES.kinds[k].head, RULES.kinds[k].when, RULES.kinds[k].options])),
+  };
+}
 
 function compileWords(company) {
   return [...RULES.internal_words, ...(company.internal_words ?? [])].map((w) =>
@@ -1204,6 +1248,15 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
     process.stdout.write(readFileSync(TEMPLATE, "utf8"));
     process.exit(0);
   }
+  if (args[0] === "--table") {
+    const all = tables();
+    if (args.length !== 2 || !(args[1] in all)) {
+      console.error(`使い方: check.mjs --table <${Object.keys(all).join("|")}>（知らない引数: ${args.slice(1).join(" ")}）`);
+      process.exit(2);
+    }
+    process.stdout.write(all[args[1]] + "\n");
+    process.exit(0);
+  }
   if (args[0] === "--answer") {
     // 知らない引数は黙って捨てず止める（--json・--extra 鍵,鍵・file か - の 1 つだけ）
     const rest = args.slice(1);
@@ -1251,7 +1304,7 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
   // file は全部照らす（1 つ目だけ照らして残りを黙って通さない）
   const files = args.filter((a, i) => !a.startsWith("--") && !takesValue.has(args[i - 1]));
   if (!files.length) {
-    console.error("使い方: check.mjs <file.html|file.json> [<file> …] [--json] [--values <skill-values.json>] [--prior <引いた結果.json>] [--run-prior] [--prior-input]／check.mjs --template／check.mjs --answer <file|-> [--extra 鍵,鍵] [--json]");
+    console.error("使い方: check.mjs <file.html|file.json> [<file> …] [--json] [--values <skill-values.json>] [--prior <引いた結果.json>] [--run-prior] [--prior-input]／check.mjs --template／check.mjs --table <dests|limits|kinds>／check.mjs --answer <file|-> [--extra 鍵,鍵] [--json]");
     process.exit(2);
   }
   const perPage = ["--prior", "--run-prior", "--prior-input"].filter((f) => args.includes(f));
