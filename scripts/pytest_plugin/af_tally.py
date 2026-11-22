@@ -286,13 +286,15 @@ def _shard_of(config):
 
 
 def unit(it):
-    """(分ける単位＝file, 試験 1 本の重さ)。重さは既定で 1。module が AF_SHARD_WEIGHT = N を持つ時は N
-    （1 本が数分かかる file＝決まりの文を消して回す試験。本数で均すと、その file の組だけが長くなる）。"""
-    return it.nodeid.split("::")[0], getattr(getattr(it, "module", None), "AF_SHARD_WEIGHT", 1)
+    """(分ける単位, 試験 1 本の重さ)。単位は既定で file、重さは既定で 1。module が AF_SHARD_WEIGHT = N を持つ時は、
+    重さ N で試験 1 本ずつを単位にする（1 本が数分かかる試験＝決まりの文を消して回す試験。file ごとに束ねると、
+    その file の組だけが長くなる）。"""
+    w = getattr(getattr(it, "module", None), "AF_SHARD_WEIGHT", None)
+    return (it.nodeid.split("::")[0], 1) if w is None else (it.nodeid, w)
 
 
 def assign(items, k):
-    """試験の file を K 組へ分ける（重い file から、今いちばん軽い組へ。重さは試験の本数×unit の重さ）。組ごとの file の並びを返す。"""
+    """試験の単位（file か、重い試験 1 本）を K 組へ分ける（重い単位から、今いちばん軽い組へ。重さは試験の本数×unit の重さ）。組ごとの単位の並びを返す。"""
     count = {}
     for it in items:
         f, w = unit(it)
