@@ -14,7 +14,10 @@
   base の枝に無い＝積んだ PR は既定の枝の物）／
   先端の check run と commit status／PR のコメント（同じ先端の判定 `見た先端: <先端12>` が在るか）。
 入ってよい: 開いている・mergeable_state が clean・必須の検査が全部、先端で終わって success（neutral・skipped も GitHub と同じく通す）・
-  同じ先端の判定がまだ無い。どれかが外れたら「まだ」（同じ先端の判定が在れば「済み」）。
+  同じ先端の判定がまだ無い。
+  無料のプランの非公開 repo（GitHub が必須の検査を作らせず rules を 403「Upgrade to GitHub Pro」で返す）だけは、必須の検査の代わりに
+  先端で走った検査が全部終わって緑（1 つも無ければ mergeable_state clean だけ）で通す（オーナーの答え 2026-11-22）。
+  それ以外の 403・必須の検査が空の repo は今までどおり通さない。どれかが外れたら「まだ」（同じ先端の判定が在れば「済み」）。
 exit: 0=入ってよい / 1=まだ・済み（訳を 1 行ずつ）/ 2=読めない（入ってよいと言わない＝まだと同じに扱う）。
 材料を file で受ける口は置かない（窓が書いた材料で関所を通さない）。試験は decide を直に呼ぶ。
 """
@@ -33,6 +36,8 @@ API = "https://api.github.com"
 OK = {"success", "neutral", "skipped"}
 VERDICT = re.compile(r"^\s*レビューした窓\s*[:：]\s*(session_[A-Za-z0-9]+)\s+判定\s*[:：]\s*(green|red)\b", re.M)
 SEEN = re.compile(r"^\s*見た先端\s*[:：]\s*([0-9a-f]{12})\s*$", re.M)
+PLAN_NONE = None    # 無料のプランで必須の検査を持てない repo（rules が 403「Upgrade to GitHub Pro」）
+PLAN_403 = "Upgrade to GitHub Pro"
 UNKNOWN_TRIES = 4   # mergeable_state は GitHub が後で数える（unknown の間は少し待って読み直す）
 
 
@@ -87,7 +92,12 @@ def decide(pr: dict, required: list[str], states: dict[str, str], comments: list
                "unstable": "必須でない検査に赤か走り中がある", "draft": "下書きの PR",
                "unknown": "GitHub がまだ数え終えていない（少し後で引き直す）"}.get(ms, "")
         why.append("mergeable_state が %s（clean でない）%s" % (ms, "＝" + say if say else ""))
-    if not required:
+    if required is PLAN_NONE:   # 必須の検査を持てない repo: 走った検査が全部緑
+        required = []
+        for name, st in states.items():
+            if st not in OK:
+                why.append("検査 %s が %s（必須の検査を持てない repo なので走った検査は全部緑を求める）" % (name, st))
+    elif not required:
         why.append("base の枝の必須の検査が読めない（必須の検査が無い所では関所を通さない）")
     for name in required:
         st = states.get(name)
@@ -129,6 +139,16 @@ def _pages(path: str, token: str, key: str = "") -> list:
     raise OSError("%s が 1000 件を越え、全部を読めない" % path)
 
 
+def _rules(repo: str, branch: str, token: str):
+    """必須の検査の名の並び。無料のプランで rules を持てない repo は PLAN_NONE（他の 403 は読めないとして上げる）。"""
+    try:
+        return required_contexts(_get("/repos/%s/rules/branches/%s" % (repo, branch), token))
+    except urllib.error.HTTPError as e:
+        if e.code == 403 and PLAN_403 in (e.read() or b"").decode("utf-8", "replace"):
+            return PLAN_NONE
+        raise
+
+
 def read_facts(repo: str, number: int, token: str, wait=time.sleep):
     pr = _get("/repos/%s/pulls/%d" % (repo, number), token)
     for i in range(UNKNOWN_TRIES):
@@ -137,11 +157,11 @@ def read_facts(repo: str, number: int, token: str, wait=time.sleep):
         wait(3)
         pr = _get("/repos/%s/pulls/%d" % (repo, number), token)
     head = pr["head"]["sha"]
-    required = required_contexts(_get("/repos/%s/rules/branches/%s" % (repo, pr["base"]["ref"]), token))
-    if not required:   # 積んだ PR（base が別の枝）は最後に既定の枝へ入る＝既定の枝の必須の検査で見る
+    required = _rules(repo, pr["base"]["ref"], token)
+    if required == []:   # 積んだ PR（base が別の枝）は最後に既定の枝へ入る＝既定の枝の必須の検査で見る
         default = _get("/repos/%s" % repo, token).get("default_branch") or ""
         if default and default != pr["base"]["ref"]:
-            required = required_contexts(_get("/repos/%s/rules/branches/%s" % (repo, default), token))
+            required = _rules(repo, default, token)
     runs = _pages("/repos/%s/commits/%s/check-runs" % (repo, head), token, key="check_runs")
     statuses = _pages("/repos/%s/commits/%s/statuses" % (repo, head), token)
     comments = _pages("/repos/%s/issues/%d/comments" % (repo, number), token)
@@ -166,8 +186,9 @@ def main(argv=None, read=read_facts) -> int:
     for w in why:
         print("✗ " + w)
     if kind == "入ってよい":
-        print("review_gate: 入ってよい — #%d@%s 必須の検査 %s が緑・mergeable_state clean・この先端の判定はまだ無い"
-              % (a.pr, head, "・".join(required)))
+        what = ("必須の検査 %s" % "・".join(required)) if required is not PLAN_NONE else \
+            ("走った検査 %s" % ("・".join(states) or "なし（必須の検査を持てない repo）"))
+        print("review_gate: 入ってよい — #%d@%s %s が緑・mergeable_state clean・この先端の判定はまだ無い" % (a.pr, head, what))
         return 0
     print("review_gate: %s — #%d@%s（判定に入らない。書いた窓へ「%s」と訳だけを返す）" % (kind, a.pr, head, kind))
     print("直し: 書いた窓は訳を 1 つずつ潰さず、意図（レビューは中身だけを 1 回見る）とのずれから入り、検査の赤・衝突の原因を細目 §3「まず構造を疑う」で探して直してからレビューを頼む")

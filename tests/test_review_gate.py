@@ -99,3 +99,30 @@ def test_材料を_file_で受ける口が無い():
     src = (ROOT / "plugins" / "checker" / "scripts" / "review_gate.py").read_text(encoding="utf-8")
     assert "add_argument(\"--repo\"" in src and "add_argument(\"--pr\"" in src
     assert src.count("add_argument(") == 2
+
+
+def test_必須の検査を持てない_repo_は走った検査の全緑で通し_赤と走り中は拒む():
+    # 無料のプランの非公開 repo（rules が 403「Upgrade to GitHub Pro」）: オーナーの答え 2026-11-22
+    assert rg.decide(pr(), rg.PLAN_NONE, {}, [])[0] == "入ってよい"                       # 検査が 1 つも無い
+    assert rg.decide(pr(), rg.PLAN_NONE, {"check": "success"}, [])[0] == "入ってよい"
+    assert rg.decide(pr(), rg.PLAN_NONE, {"check": "failure"}, [])[0] == "まだ"
+    assert rg.decide(pr(), rg.PLAN_NONE, {"check": "in_progress"}, [])[0] == "まだ"
+    assert rg.decide(pr(mergeable_state="dirty"), rg.PLAN_NONE, {}, [])[0] == "まだ"
+
+
+def test_rules_の_403_はプランの返しだけを持てない_repo_と読み_他の_403_は読めない(monkeypatch):
+    import io
+    import urllib.error
+
+    def raiser(body):
+        def _g(*a):
+            raise urllib.error.HTTPError("u", 403, "Forbidden", {}, io.BytesIO(body))
+        return _g
+    monkeypatch.setattr(rg, "_get", raiser(b'{"message":"Upgrade to GitHub Pro or make this repository public"}'))
+    assert rg._rules("o/r", "main", "") is rg.PLAN_NONE
+    monkeypatch.setattr(rg, "_get", raiser(b'{"message":"Resource not accessible by integration"}'))
+    try:
+        rg._rules("o/r", "main", "")
+        raise AssertionError("他の 403 を持てない repo と読んだ")
+    except urllib.error.HTTPError:
+        pass
