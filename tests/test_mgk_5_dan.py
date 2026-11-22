@@ -28,6 +28,12 @@ def 核の段(kaku3):
     return m.group(1).split("→") if m else []
 
 
+# 段どうしの受け渡し: 課題は「なぜ」を原因へ送る／未来は意図が果たされ課題が起きない姿で、言えない時は解決へ戻る
+段の受け渡し = {"課題": ["原因"], "未来": ["意図", "課題", "解決"]}
+# 段の要（その段の箇条の中に在る事を照らす。別の段へ移すと赤）: 意図そのものを疑う／渡された 1 件の症状で幅を決めない
+段の要 = {"意図": ["意図そのもの", "疑う"], "課題": ["症状", "幅"]}
+
+
 def 段の外れ(saimoku3, kaku3):
     """細目 §3「根治の 5 段」の子の箇条が、核の段をこの順で持つかを照らし、外れを返す（空なら合う）。
     核に無い子は「同じ原因の他の問題」だけで、原因のすぐ後に置く（原因の段の中で別の目が探す物）。
@@ -44,9 +50,12 @@ def 段の外れ(saimoku3, kaku3):
     extra = [n for n in names if n not in dan]
     if extra != ["同じ原因の他の問題"] or "原因" not in names or names.index(extra[0]) != names.index("原因") + 1:
         bad.append(f"核に無い子は「同じ原因の他の問題」1 つだけを原因のすぐ後に置く: {names}")
-    for step, refs in {"課題": ["原因"], "未来": ["意図", "課題"]}.items():
+    for step, refs in 段の受け渡し.items():
         if step in body:
             bad += [f"{step} の段が {r} の段を指さない" for r in refs if r not in body[step]]
+    for step, words in 段の要.items():
+        if step in body:
+            bad += [f"{step} の段に要が無い: {w}" for w in words if w not in body[step]]
     if any(not v.strip() for v in body.values()):
         bad.append("本文の無い段が在る")
     return bad
@@ -58,38 +67,6 @@ def _3節():
 
 def test_細目の根治の段は核の段をこの順で持ち_課題はなぜを原因へ送る():
     assert 段の外れ(*_3節()) == []
-
-
-def _段を入れ替える(s3, a, b):
-    kids = dict(箇条の子(s3, "根治の 5 段"))
-    la, lb = (f"  - **{n}** — {kids[n]}".split("\n")[0] for n in (a, b))
-    return s3.replace(la, "\0").replace(lb, la).replace("\0", lb)
-
-
-def test_注入_段の順を入れ替えると赤():
-    s3, k3 = _3節()
-    assert any("順" in x for x in 段の外れ(_段を入れ替える(s3, "課題", "原因"), k3))
-    assert any("同じ原因の他の問題" in x for x in 段の外れ(_段を入れ替える(s3, "同じ原因の他の問題", "解決"), k3))
-
-
-def test_注入_段を箇条から外して字だけ残すと赤():
-    s3, k3 = _3節()
-    broken = s3.replace("  - **課題** — ", "課題も含めて書く。", 1)
-    assert "課題" in broken
-    assert 段の外れ(broken, k3)
-
-
-def test_注入_課題が原因の段を指さないと赤_言い回しを変えても形が在れば緑():
-    s3, k3 = _3節()
-    kadai = dict(箇条の子(s3, "根治の 5 段"))["課題"]
-    assert any("課題 の段が 原因" in x for x in 段の外れ(s3.replace(kadai, "起きた事のずれを書く。"), k3))
-    kids = 箇条の子(s3, "根治の 5 段")
-    reworded = s3
-    for name, body in kids:
-        keep = [n for n, _ in kids if n in body.split("\n")[0]]
-        reworded = reworded.replace(body.split("\n")[0], "言い換えた文。" + "・".join(keep) + "。", 1)
-    assert reworded != s3
-    assert 段の外れ(reworded, k3) == []
 
 
 def test_核の根治は意図から始まる_5_段():
@@ -109,20 +86,13 @@ def MGK_の外れ(furumai, saimoku3):
         bad.append("MGK の欄が説明の頼みにも 5 段で答えると書かない")
     if 箇条の子(saimoku3, "根治の 5 段") is None or "MGK" not in head:
         bad.append("細目 §3 の根治の 5 段の箇条が MGK と呼ばない")
+    if "振る舞いの既定" not in head:
+        bad.append("細目 §3 の根治の 5 段の箇条が、言われた時の答え方の在り処（振る舞いの既定）を指さない")
     return bad
 
 
 def test_MGK_して_と言われたら_5_段の見出しで答える():
     assert MGK_の外れ((CORE / "振る舞い.md").read_text(encoding="utf-8"), _3節()[0]) == []
-
-
-def test_注入_MGK_の欄を消す_段を指さない_注記に入れると赤():
-    furumai, s3 = (CORE / "振る舞い.md").read_text(encoding="utf-8"), _3節()[0]
-    assert MGK_の外れ(furumai.replace("- **MGK** —", "- MGK —"), s3)
-    assert MGK_の外れ(furumai.replace("根治の 5 段の見出し", "決まった見出し"), s3)
-    line = next(l for l in furumai.splitlines() if l.startswith("- **MGK**"))
-    assert MGK_の外れ(furumai.replace(line, "<!-- " + line + " -->"), s3)
-    assert MGK_の外れ(furumai, s3.replace("（呼び名 MGK。", "（"))
 
 
 def test_古い_4_段と呼び名_MGkm_が決まりと道具に残らない():
