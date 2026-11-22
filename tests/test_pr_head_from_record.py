@@ -9,13 +9,23 @@ import re
 from test_pr_writer import A, B, ROOT, body, repo_with, run
 
 
-def test_型の頭に記録の写しの欄が無い():
-    tpl = (ROOT / ".github" / "pull_request_template.md").read_text(encoding="utf-8")
-    head = tpl.split("\n\n", 1)[0]
-    assert not re.search(r"^\s*(?:書いた窓|検査|親窓)\s*[:：]", head, re.M), "型の頭に写しの欄が戻った: " + head
-    # 注入: 前の型の頭を戻すと拾う
-    old = "書いた窓: <id>\njob: x\n検査: 緑\n"
-    assert re.search(r"^\s*(?:書いた窓|検査|親窓)\s*[:：]", old, re.M)
+COPY_FIELD = re.compile(r"^\s*(?:書いた窓|検査|親窓)\s*[:：]", re.M)
+
+
+def copy_fields_in_head(tpl_path):
+    """型の file の頭の塊（最初の空行まで）に在る記録の写しの欄の行を返す。"""
+    head = tpl_path.read_text(encoding="utf-8").split("\n\n", 1)[0]
+    return [m.group(0).strip() for m in COPY_FIELD.finditer(head)]
+
+
+def test_型の頭に記録の写しの欄が無い(tmp_path):
+    real = ROOT / ".github" / "pull_request_template.md"
+    assert copy_fields_in_head(real) == [], "型の頭に写しの欄が戻った"
+    # 注入: 本物の型の file に前の頭を書き戻した作り物の型で、同じ照らしが赤になる
+    fake = tmp_path / "pull_request_template.md"
+    fake.write_text("書いた窓: <session id>\n" + real.read_text(encoding="utf-8").replace("\n\n", "\n検査: <緑>\n\n", 1),
+                    encoding="utf-8")
+    assert len(copy_fields_in_head(fake)) == 2
 
 
 def test_写しの無い本文は_直しの往復で別の窓が_commit_しても緑(tmp_path):
