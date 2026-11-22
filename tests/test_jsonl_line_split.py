@@ -7,6 +7,7 @@ JSON の文字列の中にそのまま書かれたそれらの字を含む行を
 """
 import ast
 import json
+import subprocess
 import sys
 from pathlib import Path
 
@@ -55,11 +56,38 @@ def _splitlines_feeding_json(path):
     return sorted(out)
 
 
+# 走査から外す dir（repo の根からの名）。外す時はここに名と理由を書く。今は無い＝git が持つ *.py を全部照らす。
+EXCLUDE_DIRS = ()
+
+
+def _tracked_py(root):
+    """git が持つ *.py を全部（外す dir だけを除く）。新しい dir に置いた読み口も走査に入る。"""
+    out = subprocess.run(["git", "ls-files", "-z", "--", "*.py"], cwd=root, capture_output=True, text=True, check=True)
+    paths = [p for p in out.stdout.split("\0") if p]
+    assert paths, "git ls-files が *.py を 1 つも返さない（走査が空のまま緑にならないように止める）"
+    return [root / p for p in paths if not any(p == d or p.startswith(d + "/") for d in EXCLUDE_DIRS)]
+
+
+def _bad_readers(root):
+    return ["%s:%d" % (path.relative_to(root), n) for path in _tracked_py(root) for n in _splitlines_feeding_json(path)]
+
+
 def test_土台の道具は1行1件のJSONをsplitlinesで割らない():
-    bad = []
-    for path in sorted((ROOT / "plugins").rglob("*.py")) + sorted((ROOT / "scripts").rglob("*.py")):
-        bad += ["%s:%d" % (path.relative_to(ROOT), n) for n in _splitlines_feeding_json(path)]
+    bad = _bad_readers(ROOT)
     assert not bad, "1 行 1 件の JSON は split('\\n') で割る（splitlines() は U+2028 などでも割る）: " + "、".join(bad)
+
+
+@pytest.mark.parametrize("where", ["public-guard/zz_inj.py", "新しい場所/zz_inj.py", "tests/zz_inj.py"])
+def test_走査はgitが持つどのdirの誤った読み口も拒む(tmp_path, where):
+    """plugins/・scripts/ の外（repo の根の public-guard/・まだ無い dir・試験）に置いた誤った読み口も赤にする。"""
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+    inj = tmp_path / where
+    inj.parent.mkdir(parents=True, exist_ok=True)
+    inj.write_text("import json\ndef r(t):\n    return [json.loads(x) for x in t.splitlines()]\n", encoding="utf-8")
+    (tmp_path / "ok.py").write_text("import json\ndef r(t):\n    return [json.loads(x) for x in t.split('\\n')]\n",
+                                    encoding="utf-8")
+    subprocess.run(["git", "-C", str(tmp_path), "add", "-A"], check=True)
+    assert _bad_readers(tmp_path) == [where + ":3"]
 
 
 def test_見張りの検査は作り物の誤った読み方を拒む(tmp_path):
