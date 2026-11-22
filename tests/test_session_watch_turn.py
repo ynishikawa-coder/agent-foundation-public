@@ -160,3 +160,27 @@ def test_言い直して出し直した問いに答えが返れば元の問い�
 def test_答えの無いまま閉じられず答えも無い問いは今までどおり拾う():
     rows = [human("作り物（返し先=オーナー）"), ask("置き場はどれ", "a1"), result("a1"), human("続けて")]
     assert "unanswered" in codes(rows)
+
+
+# ── 会話ログが無い時を空の会話ログとして黙って照らさない ──
+def test_Stop_は会話ログの_path_か_file_が無いと_nolog_で窓ごとに1回だけ知らせる(tmp_path):
+    env = {"AF_SESSION_WATCH_TMP": str(tmp_path / "w")}
+    for i, path in enumerate(["", str(tmp_path / "無い.jsonl")]):
+        data = {"transcript_path": path, "session_id": "s%d" % i, "last_assistant_message": "済んだ。"}
+        first = sw.stop(data, env) or ""
+        assert "- nolog:" in first and "[nolog]" in first
+        assert "- nolog:" not in (sw.stop(data, env) or "")
+
+
+def test_remind_は_path_が無いと知らせ_最初の頼みで_file_がまだ無いのは知らせない(tmp_path):
+    env = {"AF_SESSION_WATCH_TMP": str(tmp_path / "w"), "CLAUDE_CODE_REMOTE": "true"}
+    text = sw.remind({"session_id": "a", "prompt": "作り物を直して"}, env) or ""
+    assert "会話ログを読めなかった" in text
+    later = sw.remind({"session_id": "b", "prompt": "作り物を直して", "transcript_path": str(tmp_path / "無い.jsonl")}, env) or ""
+    assert "会話ログを読めなかった" not in later
+
+
+def test_会話ログが在れば_nolog_を出さない(tmp_path):
+    p = write(tmp_path, [json.dumps(human("作り物（返し先=オーナー）"), ensure_ascii=False)])
+    env = {"AF_SESSION_WATCH_TMP": str(tmp_path / "w")}
+    assert "nolog" not in (sw.stop({"transcript_path": str(p), "session_id": "s1", "last_assistant_message": "済んだ。"}, env) or "")

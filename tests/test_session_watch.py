@@ -335,7 +335,11 @@ def stop_env(tmp_path, **extra):
     return dict({"AF_SESSION_WATCH_TMP": str(tmp_path / "sw")}, **extra)
 
 
-def stop_data(text, tpath="", active=False, sid="s1"):
+EMPTY_LOG = Path(__import__("tempfile").mkdtemp()) / "empty.jsonl"   # 在るが中身の無い会話ログ（無い会話ログは nolog で知らせる）
+EMPTY_LOG.write_text("", encoding="utf-8")
+
+
+def stop_data(text, tpath=str(EMPTY_LOG), active=False, sid="s1"):
     return {"hook_event_name": "Stop", "session_id": sid, "transcript_path": tpath,
             "stop_hook_active": active, "last_assistant_message": text}
 

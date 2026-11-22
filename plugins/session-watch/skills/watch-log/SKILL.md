@@ -7,7 +7,7 @@ description: 会話ログ（transcript の JSONL）を手で点検にかけ、�
 
 点検は会話ログだけを読む（環境の値・外の台帳・`get_session` の返りを見ない）。手で回す: `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/session_watch.py" <transcript.jsonl>`。拾った物を 1 行ずつ出し、拾えば exit 1（最後の行で細目 §3「まず構造を疑う」 を指す）。知らない印・読めないログ・照らしの故障は exit 2 で止まる（拾う物なしの緑に化けない）。会話ログの番（ターン）は人が打った行だけで切る（正本は plugin guard の `guard_common.starts_turn`＝別の窓・仕組みの知らせの行と要約の行は番を切らない）。拾われた物は下の直し方で出し直すだけで済ませず、返事の形が守る意図とのずれから入り、細目 §3「まず構造を疑う」で原因を探して直す。
 
-`title`（今の題で直せる物）・`card`・`close`・`plain`・`inner`・`time`・`done`・`secret`・`neighbor`・`unread` は、Stop の hook（`session_watch.py --stop`）も同じ見張りで見て、崩れていれば次の頼みの時に UserPromptSubmit の hook（`--remind`）が隣へ知らせる（差し戻さない＝`decision: block` を出さない・返事はそのまま届き書き直さない・次の返事から合わせる）。知らせの文に直し方と誤った時の外し方を出す。誤って当たる行は値の表 `config/skill-values.json` の `session-watch.watch-log.reply_exempt`（行に当てる正規表現の並び・`inner`・`time`・`done` で見ない）に、中の言葉の字は `guard.ask_term_allow` に足す（PR とレビューを通す）。「問いを出す前に ❓ を付けていない」は過ぎた事で今は直せないので知らせない。ほかの札（`idk`・`unanswered`・`rest`・`hand`）は手で回す点検と知らせるだけ。`neighbor`・`unread` は AI には直せないので窓ごとに 1 回だけ知らせる。hook の口で照らしそのものが壊れた時も、窓は止めずに窓ごとに 1 回だけ壊れたと知らせる（黙って「崩れなし」にしない）。
+`title`（今の題で直せる物）・`card`・`close`・`plain`・`inner`・`time`・`done`・`secret`・`neighbor`・`unread`・`nolog` は、Stop の hook（`session_watch.py --stop`）も同じ見張りで見て、崩れていれば次の頼みの時に UserPromptSubmit の hook（`--remind`）が隣へ知らせる（差し戻さない＝`decision: block` を出さない・返事はそのまま届き書き直さない・次の返事から合わせる）。知らせの文に直し方と誤った時の外し方を出す。誤って当たる行は値の表 `config/skill-values.json` の `session-watch.watch-log.reply_exempt`（行に当てる正規表現の並び・`inner`・`time`・`done` で見ない）に、中の言葉の字は `guard.ask_term_allow` に足す（PR とレビューを通す）。「問いを出す前に ❓ を付けていない」は過ぎた事で今は直せないので知らせない。ほかの札（`idk`・`unanswered`・`rest`・`hand`）は手で回す点検と知らせるだけ。`neighbor`・`unread`・`nolog` は AI には直せないので窓ごとに 1 回だけ知らせる。hook の口で照らしそのものが壊れた時も、窓は止めずに窓ごとに 1 回だけ壊れたと知らせる（黙って「崩れなし」にしない）。
 
 ## 拾う物と直し方
 
@@ -32,6 +32,7 @@ description: 会話ログ（transcript の JSONL）を手で点検にかけ、�
 | `done` | 1 行目が ✅ の返事で、終わりの語（終わった・済んだ・直った・できた・通った・緑 等）と同じ文に、言い切らない語（ほぼ・大体・たぶん・はず・おそらく・と思う・かもしれない）がある。「」で引いた言葉と、先の事の見込みの句（次の・来週・今後・予定 等があり、過去の言い切りの無い句。、で切る）は数えない。2 つの語が「、」をまたいでも同じ文なら数える | 確かめた事だけ言い切る。残りがあれば札を ⏳／🛑 にし、何が残るかを書く（核 §7） |
 | `secret` | 返事（コードの囲みの中も）に鍵・トークンの形がある。形の正本は公開の検査 `public-guard/guard.py` の `secret_labels`（直に呼ぶ）。知らせの文には札の名だけを出し、値は出さない | 値を消し、在り処の名だけを書く（核 §1） |
 | `unread` | 会話ログに読めない行（JSON として読めない・dict でない）がある。その行を除いて照らした事を行の番号つきで名指す（黙って飛ばさない） | 書きかけ・壊れた会話ログ。題・問い・答えの判定は手で確かめ、続くなら読み口を直す PR を出す |
+| `nolog` | hook の口で会話ログの path（`transcript_path`）か file が無い。空の会話ログとして黙って照らさず、返事の文の形だけ照らした事を名指す（最初の頼みの hook は file がまだ無いことがあるので path だけを見る） | hook の入力の変化・会話ログの置き場の誤り。plugin session-watch の hooks.json と Claude Code の版を確かめる |
 | `neighbor` | 上の正本（隣の plugin guard・市場の写しの `public-guard/guard.py`）が見つからず照らせない／照らしが壊れた／値の表の `reply_exempt` に正規表現として読めない形がある（読めない形は捨て、他の札は札ごとに照らし続ける）。探す順は 環境変数（`AF_ASK_SHAPE`・`AF_GUARD_COMMON`・`AF_PUBLIC_GUARD`）→ 同じ repo の隣 → 入れた plugin の同じ版 → 市場の写し → 入れた plugin の新しい版 | 土台の plugin guard を入れ直す（`docs/核の届け方.md`） |
 
 `title` には、クラウドの窓で題が会話ログに一度も無い時（親が `create_session` で付けた題は会話ログの外）も入る。材料が無い時は既定で止め、`get_session` で今の題を読んで `set_session_title` で付け直させる（同じ題でよい）。

@@ -22,6 +22,8 @@
   secret   … 返事に鍵・トークンの形が在るか。形の正本は公開の検査 public-guard/guard.py の secret_labels（直に呼ぶ）
   neighbor … 上の inner・secret の正本（隣の plugin guard・公開の検査）が見つからず照らせないか
   unread   … 会話ログに読めない行（JSON として読めない・dict でない）が在るか（黙って飛ばして判定しない）
+  nolog    … hook の口で会話ログの path か file が無いか（空の会話ログとして黙って照らさない。最初の頼みの hook は
+             file がまだ無いことがあるので path だけを見る）
   broken   … 照らしそのものが例外で壊れたか（hook の口。手で回す口は exit 2 で止まる）
 
 会話の番（ターン）は人が打った行（guard_common.starts_turn＝人の頼みで、別の窓・仕組みの知らせでも要約の行でもない行）
@@ -851,9 +853,9 @@ def remind(data, env=None):
     env = os.environ if env is None else env
     out = [take_note(env, data.get("session_id"))]
     if str(env.get("CLAUDE_CODE_REMOTE", "")).lower() == "true":
-        path = data.get("transcript_path") or ""
-        log = Log(read_rows(path)) if path and os.path.exists(path) else Log([])
-        out += [remind_title(log, data), remind_hand(log)]
+        log, missing = log_of(data, first_prompt=True)
+        out += [missing and nolog_note(env, data.get("session_id"), missing),
+                remind_title(log, data), remind_hand(log)]
     out = [t for t in out if t]
     return "\n".join(out) if out else None
 
@@ -895,6 +897,27 @@ def broken_note(env, sid, where, e):
     return BROKEN % (where, "%s: %s" % (type(e).__name__, str(e)[:80]))
 
 
+NOLOG = ("会話ログを読めなかった（%s）。題・問い・答え・手の窓の照らしは材料が無いので照らしていない（返事の文の形だけ照らした）。"
+         "この知らせは窓ごとに 1 回だけ。")
+
+
+def log_of(data, first_prompt=False):
+    """hook の入力から会話ログを読む。(Log, 読めなかった理由 か None)。材料が無いのを黙って空の会話ログにしない。
+    first_prompt: 最初の頼みの hook では会話ログの file がまだ作られていないことがある＝file が無いのは理由にしない
+    （path が無いのは理由にする）。Stop の hook では file が無いのも理由にする。"""
+    path = data.get("transcript_path")
+    if not isinstance(path, str) or not path:
+        return Log([]), "hook の入力に transcript_path が無い"
+    if not os.path.isfile(path):
+        return Log([]), (None if first_prompt else "file が無い: %s" % path[-80:])
+    return Log(read_rows(path)), None
+
+
+def nolog_note(env, sid, why):
+    """会話ログを読めなかった知らせ（--remind の口・窓ごとに 1 回だけ・Stop の口と印を分け合う）。"""
+    return None if _seen(env, sid, "nolog") else "[session-watch] " + NOLOG % why
+
+
 def hook_remind(stdin):
     data = {}
     try:
@@ -913,8 +936,8 @@ def hook_remind(stdin):
 
 
 # ── 知らせる（Stop の hook が置き、次の頼みの時に UserPromptSubmit の hook が出す・差し戻さない）────────────────
-STOP_CODES = ("title", "card", "close", "plain", "inner", "time", "done", "secret", "neighbor", "unread")
-ONCE_CODES = ("neighbor", "unread")   # AI には直せない＝窓ごとに 1 回だけ知らせる
+STOP_CODES = ("title", "card", "close", "plain", "inner", "time", "done", "secret", "neighbor", "unread", "nolog")
+ONCE_CODES = ("neighbor", "unread", "nolog")   # AI には直せない＝窓ごとに 1 回だけ知らせる
 #   知らせる札（核 §1・§2・§4・§5・§6・§7 の、AI が読み飛ばすとそのまま人に届く所）。ほか（idk・unanswered・rest・hand）は
 #   手で回す点検だけ。neighbor（隣の正本が見つからない）・unread（会話ログに読めない行）は窓ごとに 1 回だけ知らせる（AI には直せない）。
 #   返事は差し戻さない（書き直しは同じ返事を 2 度書く無駄になる＝届いた返事はそのまま・次の返事から合わせる）。
@@ -929,6 +952,8 @@ STOP_HOW = {
     "done": "確かめた事だけを言い切る。確かめ切れていない所があれば 1 行目を「一部」「止めた」の形にし、何が残るかを書く（核 §7）。"
             "人の言葉を引くだけなら「」で囲む。",
     "secret": "鍵・トークンの値を以後の返事に出さず、在り処（環境の値の名・設定の場所）だけを書く。出てしまった鍵は人に作り直しを頼む（核 §1）。",
+    "nolog": "hook が渡す会話ログの path（transcript_path）か、その file が無い。AI には直せない。続くなら plugin "
+             "session-watch の hooks.json と Claude Code の版を確かめる PR を出すか、あなたがやることに書く。",
     "unread": "会話ログの読めない行は AI には直せない。照らしはその行を除いて出したので、題・問い・答えの判定は手で確かめる"
               "（この知らせは窓ごとに 1 回だけ）。続くなら plugin session-watch の読み口を直す PR を出す。",
     "neighbor": "上の行が名指す原因を直す: 値の表の読めない形なら、その形を直す PR を出すか、あなたがやることに書く。隣の正本が"
@@ -975,13 +1000,14 @@ def take_note(env, sid):
 def stop(data, env=None):
     """知らせる文（str）か None。今の返事（last_assistant_message・無ければ会話ログの締め）の形を見る。"""
     env = os.environ if env is None else env
-    path = data.get("transcript_path") or ""
-    log = Log(read_rows(path)) if path and os.path.exists(path) else Log([])
+    log, missing = log_of(data)
     if str(env.get("CLAUDE_CODE_REMOTE", "")).lower() == "true":
         log.cloud = True          # クラウドの窓は題の道具を持つ（会話ログで道具を打つ前でも題を照らす）
     last = data.get("last_assistant_message")
     closing = last if isinstance(last, str) and last.strip() else None
     found = [(c, m) for c, m in check(log, closing, data) if c in STOP_CODES and not m.startswith(ASK_BEFORE)]
+    if missing:
+        found.insert(0, ("nolog", NOLOG % missing))
     for once in ONCE_CODES:
         if any(c == once for c, _ in found) and _seen(env, data.get("session_id"), once):
             found = [(c, m) for c, m in found if c != once]
