@@ -78,9 +78,14 @@ def plugin_dirs() -> list[Path]:
 def foundation_files(base: Path | None) -> list[Path]:
     if base is not None:
         return sorted(p for p in base.rglob("*.md") if p.is_file())
-    own = [PLUGIN / n for n in ("核.md", "振る舞い.md")] + sorted((PLUGIN / "細目").glob("*.md"))   # 細目は節ごとの file
+    own = [PLUGIN / n for n in ("核.md", "振る舞い.md")]
+    # 自分の版の核・振る舞い・細目は必ず在る物: 欠けを黙って除くと、その文の写しを拾わずに緑になる
+    lack = [str(p) for p in own if not p.is_file()] + ([] if (PLUGIN / "細目").is_dir() else [str(PLUGIN / "細目")])
+    if lack:
+        raise OSError(f"土台の文が欠けている（照らす元に無い）: {' '.join(lack)}")
+    own += sorted((PLUGIN / "細目").glob("*.md"))   # 細目は節ごとの file
     skills = {p for d in plugin_dirs() for p in d.glob("skills/*/SKILL.md")}
-    return [p for p in own if p.is_file()] + sorted(skills)
+    return own + sorted(skills)
 
 
 def index(files: list[Path]):

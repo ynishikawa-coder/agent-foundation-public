@@ -509,7 +509,8 @@ def test_起動の時から古い窓は_setup_script_を直し窓はそのまま
 
 
 def test_比べられない時は窓を替えない(tmp_path):
-    """手元の dir から入れた試し・remote に出られない時は、知らない値で人の作業を止めない。"""
+    """手元の dir から入れた試し・remote に出られない時は、知らない値で人の作業を止めない（窓を替えさせない）。
+    remote に出られない時は「古くない」と黙らず、比べられなかった事だけを名指す（次の問いでまた見る）。"""
     f = Foundation(tmp_path)
     f.install(source="directory")
     f.hook("inject")
@@ -520,7 +521,9 @@ def test_比べられない時は窓を替えない(tmp_path):
     g.hook("inject", sid="s2")
     _commit(g.work, {"plugins/core/核.md": "核 3\n"}, "核を変える")
     g.remote.rename(g.tmp / "gone.git")                 # remote に出られない
-    assert g.hook("fresh", sid="s2") == ""
+    text = g.hook("fresh", sid="s2")
+    assert "比べられなかった" in text and "出所（origin）の先端を聞けない" in text and "。。" not in text
+    assert "create_session で" not in text               # 知らない値で窓を替えさせない
 
 
 def test_起動の記録が無い窓は見に行かない(tmp_path):
