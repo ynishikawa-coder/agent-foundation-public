@@ -9,6 +9,7 @@ from pathlib import Path
 
 import pytest
 from entry_box import box_env, copy_entry
+from md_yomi import 箇条の子, 太字の欄, 節, 見出し
 from uses import sh_code
 from saimoku import 全文 as 細目の全文
 
@@ -315,22 +316,13 @@ def _節(text, n):
 def test_核の根治は意図_課題_原因_解決_未来の_5_段で_未来は試験の段でない():
     kaku_text = (PLUGIN / "核.md").read_text(encoding="utf-8")
     s3 = _節(kaku_text, 3)
-    assert "意図→課題→原因→解決→未来" in s3
     assert "仕組み・設計）が悪い前提" in s3 and "別の目の助手" in s3
-    s3d = _節(細目の全文(), 3)
-    assert "意図が果たされ、同じ課題と同じ原因の他の問題が起きない状態" in s3d, "細目 §3 の未来が直した後の姿でない"
-    for word in ["**意図**", "**課題**", "**原因**", "**同じ原因の他の問題**", "**解決**", "**未来**",
-                 "無理・無駄・重複", "聞かせ方", "混じって", "試験を足す段ではない"]:
-        assert word in s3d, f"細目 §3 に無い: {word}"
-
-
-def test_MGK_は根治の_5_段の呼び名で説明の頼みにも_5_段で答える():
-    assert "意図→課題→原因→解決→未来" in _節((PLUGIN / "核.md").read_text(encoding="utf-8"), 3), "核 §3 に 5 段が無い"
-    s3d = _節(細目の全文(), 3)
-    assert "（呼び名 MGK。" in s3d, "細目 §3 に MGK の呼び名が無い"
-    line = next(l for l in (PLUGIN / "振る舞い.md").read_text(encoding="utf-8").splitlines() if "**MGK**" in l)
-    for word in ["説明", "根治の 5 段の見出しで答える"]:
-        assert word in line, f"振る舞いの既定の MGK の行に無い: {word}"
+    # 段の名と順は tests/test_mgk_5_dan.py が細目 §3 の箇条の形で照らす（ここで字を数えて二重に照らさない）。
+    # ここは段の中身の要が、その段の箇条の中に在るか（別の段や別の節に在っても数えない）。
+    dan = dict(箇条の子(_節(細目の全文(), 3), "根治の 5 段"))
+    for step, words in {"原因": ["無理・無駄・重複", "聞かせ方", "混じって"], "未来": ["意図が果たされ", "試験を足す段ではない"]}.items():
+        missing = [w for w in words if w not in dan.get(step, "")]
+        assert not missing, f"細目 §3 の {step} の段に無い: {missing}"
 
 
 def test_問いは選ぶ問いと開いた問いに分け_分からないを置き_言葉を混ぜない():
@@ -553,6 +545,7 @@ def test_挙げた原因は全部台帳に行き先つきで持ち_全部済む�
 
 # 残りの受け皿: 各所が自分の名の受け皿（後の便・🎯箱・他の窓へ回す・残りに書く…）を持たず、原因の台帳 1 つへ向ける。
 # (path, その所を見分ける語) — 語はちょうど 1 行に当たり、その行に「原因の台帳」が無ければ赤。
+# PR の型と整地の雛形は、字の行でなく節・欄の形で下の試験が照らす（PR の型の節／整地の解決の欄）。
 残りの所 = [
     ("plugins/core/細目/03-直すは根治.md", "**一時しのぎ**"),
     ("plugins/core/細目/04-聞き方.md", "③道具・仕組みの都合"),
@@ -560,7 +553,6 @@ def test_挙げた原因は全部台帳に行き先つきで持ち_全部済む�
     ("plugins/core/細目/04-聞き方.md", "**大きい仕事の並べ方**"),
     ("plugins/core/細目/07-完了の4状態.md", "| 一部 |"),
     ("plugins/dev-flow/skills/design-mode/SKILL.md", "どちらで出る時も"),
-    (".github/pull_request_template.md", "## 残り"),
     ("CONTRIBUTING.md", "1 本に入らなかった仕事"),
     ("CONTRIBUTING.md", "`合流済` が届いた枝"),
     ("plugins/checker/skills/review-pr/SKILL.md", "`[台帳へ｜<段>]`"),
@@ -580,8 +572,6 @@ def test_挙げた原因は全部台帳に行き先つきで持ち_全部済む�
     ("plugins/dev-flow/skills/spec-doc/SKILL.md", "部分にする正当な理由"),
     ("plugins/dev-flow/skills/preimpl-cleanup/SKILL.md", "`[後片付け]`（"),
     ("plugins/dev-flow/skills/preimpl-cleanup/SKILL.md", "**同梱の片付けの返し**"),
-    ("plugins/dev-flow/skills/preimpl-cleanup/整地受領証.template.md", "**畳む物**"),
-    ("plugins/dev-flow/skills/preimpl-cleanup/整地受領証.template.md", "**残る穴**"),
 ]
 
 
@@ -605,6 +595,103 @@ def test_残りの受け皿は原因の台帳_1_つで_名だけの受け皿を�
     assert not hits, hits
 
 
+PR_TPL = ROOT / ".github" / "pull_request_template.md"
+SEICHI_TPL = ROOT / "plugins" / "dev-flow" / "skills" / "preimpl-cleanup" / "整地受領証.template.md"
+_PR_の欄を指す = re.compile(r"PR [^「」\n]{0,3}?本文の「([^」:：]+)」")
+
+
+def _欄の名(head):
+    return re.split(r"[（(]", head)[0].strip()
+
+
+def PR_の型の外れ(tpl, rules):
+    """PR の型（tpl）が、決まりの文（rules）が「PR 本文の「X」」と名で指す欄を全部 ## の節として持ち、
+    「下の「X」」と指す節が指す所より下に在り、残りの節が型の最後の節で原因の台帳を指すかを照らす。
+    節は注記・コードの囲いの外の見出しだけを数える（注記の中の字は節でない）。"""
+    heads = 見出し(tpl, 2)
+    names = [_欄の名(h) for h in heads]
+    bad = [f"決まりが指す欄が PR の型の節に無い: {x}" for x in sorted(set(_PR_の欄を指す.findall(rules))) if x not in names]
+    if len(set(names)) != len(names):
+        bad.append(f"同じ名の節が 2 つ在る: {names}")
+    if "残り" not in names:
+        bad.append("残りの節が無い")
+    else:
+        if names[-1] != "残り":
+            bad.append(f"残りの節が型の最後でない（他の節は片付かない物を下の残りへ送る）: {names}")
+        if "原因の台帳" not in heads[names.index("残り")]:
+            bad.append("残りの節が原因の台帳を指さない")
+    lines = tpl.splitlines()
+    at = {_欄の名(m.group(1)): n for n, l in enumerate(lines) if (m := re.match(r"^## (.+)$", l))}
+    for n, l in enumerate(lines):
+        for x in re.findall(r"下の「([^」]+)」", l):
+            if at.get(x, -1) <= n:
+                bad.append(f"下の「{x}」と指す節が、指す所より下に無い（{n + 1} 行目）")
+    return bad
+
+
+def _PR_の決まり():
+    files = sorted((ROOT / "plugins").rglob("*.md")) + [ROOT / "CONTRIBUTING.md"]
+    return "\n".join(p.read_text(encoding="utf-8") for p in files)
+
+
+def test_PR_の型は決まりが名で指す欄を節として持ち_残りは最後で台帳を指す():
+    rules = _PR_の決まり()
+    assert {"残り", "使う側の写しの残り"} <= set(_PR_の欄を指す.findall(rules)), "決まりが PR 本文の欄を名で指さなくなった"
+    assert PR_の型の外れ(PR_TPL.read_text(encoding="utf-8"), rules) == []
+
+
+def test_注入_PR_の型の節を注記に入れる_順を崩す_名を変えると赤():
+    tpl, rules = PR_TPL.read_text(encoding="utf-8"), _PR_の決まり()
+    in_comment = tpl.replace("## 使う側の写しの残り", "<!-- ## 使う側の写しの残り -->")
+    assert "## 使う側の写しの残り" in in_comment   # 字は残る（字の有無の照らしなら緑だった）
+    assert any("使う側の写しの残り" in x for x in PR_の型の外れ(in_comment, rules))
+    a, b = tpl.index("## 使う側の写しの残り"), tpl.index("## 残り（原因の台帳の行）")
+    swapped = tpl[:a] + tpl[b:] + "\n" + tpl[a:b]
+    assert any("最後でない" in x for x in PR_の型の外れ(swapped, rules))
+    assert any("下の「残り」" in x for x in PR_の型の外れ(swapped, rules))
+    assert any("台帳を指さない" in x for x in PR_の型の外れ(tpl.replace("## 残り（原因の台帳の行）", "## 残り"), rules))
+    assert any("節に無い" in x for x in PR_の型の外れ(tpl.replace("## 使う側の写しの残り", "## 写しのこと"), rules))
+    # 型と決まりの名を一緒に言い換えれば緑（試験は名の字でなく、決まりが指す名と型の節が合うかを見る）
+    assert PR_の型の外れ(tpl.replace("使う側の写しの残り", "写しの残り"), rules.replace("使う側の写しの残り", "写しの残り")) == []
+
+
+def 整地の解決の外れ(tpl):
+    """整地の雛形の解決の節が、見出しの（…）に並べた欄を太字の欄としてこの順で持ち、畳む物と残る穴が
+    原因の台帳へ送る道を欄の中に持つかを照らす（欄の外・別の節の字は数えない）。"""
+    head = next((h for h in 見出し(tpl, 2) if re.match(r"^\d+\. 解決（", h)), None)
+    if head is None:
+        return ["解決の節が無い"]
+    want = re.split(r"・|と", re.search(r"（(.+)）", head).group(1))
+    fields = 太字の欄(節(tpl, head) or "")
+    names = [n for n, _ in fields]
+    bad = [f"解決の欄が無い: {w}" for w in want if w not in names]
+    got = [n for n in names if n in want]
+    if not bad and got != want:
+        bad.append(f"解決の欄の順が見出しと違う: {got} ／ 見出し: {want}")
+    body = dict(fields)
+    bad += [f"{w} の欄が原因の台帳へ送らない" for w in ("畳む物", "残る穴") if w in body and "原因の台帳" not in body[w]]
+    bad += [f"{w} の欄が空" for w in want if w in body and not body[w].strip(" :：\n")]
+    return bad
+
+
+def test_整地の解決は足す物_畳む物_注入の試験_残る穴を欄としてこの順で持つ():
+    assert 整地の解決の外れ(SEICHI_TPL.read_text(encoding="utf-8")) == []
+
+
+def test_注入_整地の解決の欄を消す_順を崩す_台帳を欄の外へ出すと赤():
+    tpl = SEICHI_TPL.read_text(encoding="utf-8")
+    for name in ("足す物", "畳む物", "注入の試験", "残る穴"):
+        broken = tpl.replace(f"**{name}**", name, 1)   # 欄を壊し字は残す
+        assert any(f"欄が無い: {name}" in x for x in 整地の解決の外れ(broken)), name
+    a, b = tpl.index("**足す物**"), tpl.index("**行き先**")
+    c, d = tpl.index("**注入の試験**"), tpl.index("**残る穴**")
+    swapped = tpl[:a] + tpl[c:d] + tpl[b:c] + tpl[a:b] + tpl[d:]
+    assert any("順" in x for x in 整地の解決の外れ(swapped))
+    moved = tpl.replace("原因の台帳の行にして直す窓を書く", "直す窓を書く").replace("原因の台帳の行にする", "書く")
+    assert any("畳む物 の欄が原因の台帳" in x for x in 整地の解決の外れ(moved + "\n原因の台帳\n"))
+    assert any("残る穴 の欄が原因の台帳" in x for x in 整地の解決の外れ(moved))
+
+
 def test_main_へは製品もオーナーに聞かずに入れ_絵と差がある時だけ止める():
     """「本番への出荷は聞く」を核に戻すと赤（Notion の決定と窓が読む核が食い違う形）。"""
     kaku_text = (PLUGIN / "核.md").read_text(encoding="utf-8")
@@ -626,7 +713,7 @@ def test_土台の直しは使う側の写しの残りも同じ仕事で直し_�
     assert len(line) == 1, "細目 §7 に「土台の直しの終わり」が無い"
     for word in ["使う側の repo", "同じ仕事の中で直す", "洗い出しだけで終わらせない", "使う側の写しの残り", "合流するまで「終わった」と言わない", "原因の台帳の行"]:
         assert word in line[0], f"土台の直しの終わりに無い: {word}"
-    assert "## 使う側の写しの残り" in (ROOT / ".github" / "pull_request_template.md").read_text(encoding="utf-8")
+    # PR の型がこの欄を節として持つかは test_PR_の型は決まりが名で指す欄を節として持ち_残りは最後で台帳を指す が照らす
     assert "土台の直しの終わり" in (ROOT / "CONTRIBUTING.md").read_text(encoding="utf-8")
     dm = [ln for ln in (ROOT / "plugins/dev-flow/skills/design-mode/SKILL.md").read_text(encoding="utf-8").splitlines() if ln.startswith("   | 写しの残り |")]
     assert len(dm) == 1 and "同じ仕事の中" in dm[0], "design-mode の写しの残りが洗い出すだけに戻った"

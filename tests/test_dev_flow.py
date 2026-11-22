@@ -3,6 +3,8 @@ import json
 import re
 from pathlib import Path
 
+from md_yomi import 太字の欄, 節
+
 ROOT = Path(__file__).resolve().parent.parent
 PLUGIN = ROOT / "plugins" / "dev-flow"
 # 何の skill が在るべきかの正本は plugins/README.md の表（tests/test_plugins_list.py が照らす）。ここは在る物の形だけを見る。
@@ -67,14 +69,31 @@ def test_整地は根治の_5_段を持ち_解決の段に注入の試験と残�
     heads = [l for l in tpl.splitlines() if l.startswith("## ")]
     assert heads == ["## 1. 意図", "## 2. 課題", "## 3. 原因と同じ原因の他の問題",
                      "## 4. 解決（足す物・畳む物・注入の試験と残る穴）", "## 5. 未来"], heads
+    # 残る穴は解決の節の「残る穴」の欄の下の箇条の名で照らす（雛形の別の所に字が在っても数えない）
+    labels = _残る穴の行(tpl)
     for hole in ["手で写す所", "選べる値の外が入る所", "黙って進む所", "正しい道を通らずに出る所", "申告で済む確かめ"]:
-        assert hole in tpl, f"残る穴の行が無い: {hole}"
+        assert any(lab.endswith(hole) for lab in labels), f"残る穴の欄に行が無い: {hole}（欄の行: {labels}）"
     skill = (skill_dir / "SKILL.md").read_text(encoding="utf-8")
     assert "5 段（意図→課題→原因→解決→未来" in frontmatter(skill)["description"]
     assert "読むだけの助手" in skill and "自分の読みや直し方は渡さない" in skill, "同じ原因の他の問題を別の目が探す段が無い"
     assert "試験を足す段ではない" in skill or "試験の名を並べる欄ではない" in skill, "未来が試験の段に縮んでいる"
     for old in ["3 つの問い", "4 つの問い", "構造の原因"]:
         assert old not in skill and old not in tpl, f"古い根治の言い回しが残る: {old}"
+
+
+def _残る穴の行(tpl):
+    head = next(h for h in re.findall(r"^## (.+)$", tpl, re.M) if h.startswith("4. 解決"))
+    field = dict(太字の欄(節(tpl, head) or "")).get("残る穴", "")
+    return [m.group(1) for l in field.splitlines() if (m := re.match(r"^- (.+?)[:：]", l))]
+
+
+def test_注入_残る穴の行を欄の外へ出すと数えない():
+    tpl = (PLUGIN / "skills" / "preimpl-cleanup" / "整地受領証.template.md").read_text(encoding="utf-8")
+    assert "申告で済む確かめ" in _残る穴の行(tpl)
+    moved = tpl.replace("- 申告で済む確かめ: 〔…〕\n", "") + "\n- 申告で済む確かめ: 〔…〕\n"   # 字は未来の節に残る
+    assert "申告で済む確かめ" in moved and "申告で済む確かめ" not in _残る穴の行(moved)
+    in_comment = tpl.replace("**残る穴**", "<!-- **残る穴** -->", 1)
+    assert _残る穴の行(in_comment) == []
 
 
 def test_規律を足す時も止める物かの後に誤りが入れない形と注入の試験を書く():
