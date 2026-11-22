@@ -208,20 +208,6 @@ def 表(table=None):
     return out
 
 
-def test_守らない文の表は_1_件_1_file_で名は中身から決まる():
-    """名が中身と合わない file（手で名を付けた・中身を書き換えて名を残した・2 件を 1 file に入れた）は赤。"""
-    bad = []
-    for p in sorted(TABLE.glob("*")):
-        if p.name == "README.md":
-            continue
-        body = _read(p, encoding="utf-8")
-        rows = body.splitlines()
-        if p.suffix != ".txt" or len(rows) != 1 or "\t" not in rows[0] or not body.endswith("\n") \
-                or p.name != 表の名(*rows[0].split("\t", 1)):
-            bad.append(p.name)
-    assert not bad, "1 件 1 file（名は 表の名(path, 文)・中身は 1 行 `<path><TAB><文>`）でない: " + ", ".join(bad)
-    assert 表(), "表が読めていない"
-
 
 @functools.lru_cache(maxsize=1)
 def 今の穴():

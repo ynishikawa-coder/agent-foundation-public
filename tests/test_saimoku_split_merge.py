@@ -71,9 +71,12 @@ def _append(f, line):
     f.write_text(f.read_text(encoding="utf-8") + line + "\n", encoding="utf-8")
 
 
+def _holes():
+    return __import__("test_rule_holes")      # 表の名と表の読み方の正本（写さない）
+
+
 def _row_file(d, rel, s):
-    holes = __import__("test_rule_holes")
-    (d / holes.表の名(rel, s)).write_text(f"{rel}\t{s}\n", encoding="utf-8")
+    (d / _holes().表の名(rel, s)).write_text(f"{rel}\t{s}\n", encoding="utf-8")
 
 
 def test_合格_別々の節に_1_行ずつ足した_2_本の枝は衝突せずに入る(tmp_path):
@@ -119,3 +122,18 @@ def test_注入_守らない文を_1_枚の末尾へ足す古い形は衝突す�
     _git(repo, "merge", "-q", "--no-edit", "a")
     r = _git(repo, "merge", "--no-edit", "b", check=False)
     assert r.returncode != 0 and "CONFLICT" in r.stdout, r.stdout + r.stderr
+
+
+def test_守らない文の表は_1_件_1_file_で名は中身から決まる():
+    """名が中身と合わない file（手で名を付けた・中身を書き換えて名を残した・2 件を 1 file に入れた）は赤。"""
+    bad = []
+    for p in sorted(TABLE.glob("*")):
+        if p.name == "README.md":
+            continue
+        body = p.read_text(encoding="utf-8")
+        rows = body.splitlines()
+        if p.suffix != ".txt" or len(rows) != 1 or "\t" not in rows[0] or not body.endswith("\n") \
+                or p.name != _holes().表の名(*rows[0].split("\t", 1)):
+            bad.append(p.name)
+    assert not bad, "1 件 1 file（名は test_rule_holes の 表の名(path, 文)・中身は 1 行 `<path><TAB><文>`）でない: " + ", ".join(bad)
+    assert _holes().表(), "表が読めていない"
