@@ -38,7 +38,7 @@ FROM_CLONE = "AF_SETUP_FROM_CLONE"  # 目録の clone の入口へ移った印�
 sys.path.insert(0, str(ROOT / "plugins" / "core" / "scripts"))
 import kaku  # noqa: E402  目録の枝・出所の先端の聞き方の正本（起動の hook と同じ物を読む・写さない）
 STATE = "setup.json"  # plugin core の kaku.py が読む印の file 名（~/.claude/af-foundation/ の下）
-ROOT_CAUSE = "直し: 意図（窓が土台の plugin を全部入れて立つ）とのずれから入り、入らない形になった原因を細目 §3「まず構造を疑う」で探して直す（1 つずつ入れ直すだけで済ませない）"
+ROOT_CAUSE = "直し: 1 つずつ入れ直すだけで済ませず、意図（窓が土台の plugin を全部入れて立つ）とのずれから入り、入らない形になった原因を細目 §3「まず構造を疑う」で探して直す"
 
 
 def home() -> Path:
