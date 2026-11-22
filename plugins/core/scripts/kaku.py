@@ -72,10 +72,239 @@ def olds_table(path: Path = OLDS) -> list[dict]:
         raise ValueError(f"{path.name} に olds の並びが無い")
     keys = {"id", "what", "files", "pattern", "fix", "example"}
     for r in rows:
-        if not isinstance(r, dict) or set(r) != keys or not isinstance(r["files"], list) or not r["files"]:
-            raise ValueError(f"{path.name} の行の欄が {sorted(keys)} でない: {r!r}")
+        if not isinstance(r, dict) or set(r) - {"reads"} != keys or not isinstance(r["files"], list) or not r["files"]:
+            raise ValueError(f"{path.name} の行の欄が {sorted(keys)}（と reads）でない: {r!r}")
+        if r.get("reads", "all") not in READS:
+            raise ValueError(f"{path.name} の行 {r['id']} の reads が {sorted(READS)} のどれでもない: {r['reads']!r}")
         r["re"] = re.compile(r["pattern"])
     return rows
+
+
+# 古い形の行が file のどこを読むか（reads）。名が在るかでなく、使う形の所だけに当てる（説明の文で名を挙げるだけは古い形でない）。
+#   all      … 中身の全部（既定）
+#   commands … 動く命令の所（code）: .md はコードの所（md_code）だけ。.sh .py .yml .yaml などは注釈と Python の docstring を除く。
+#              入口の名が注釈に在るだけでは入口を呼ぶことにならない
+#   prose    … 書いた欄・札の所: .md の自分の文（md_own＝閉じの在る囲み・注記・引用の外。# で始まる引用は書く行として残す）
+READS = {"all", "commands", "prose"}
+
+
+# ── 使う形の読み口（正本） ──
+# 構造（コードの囲み・字下げのコード・<pre>・注記・引用・注釈）の読み方は、ここの 1 か所に置く。古い形の行（old_view）・写しの照らし
+# （copies.py）・指しの照らし（refs.py）・試験（tests/uses.py と、それを通す試験）はここを呼び、読み方を写さない（写すと所ごとに
+# 読み方がずれる）。読めない・判断できない形（閉じの無い囲み・字下げ・<pre>・構文の読めない .py）は、読む側（名指す側）に倒す。
+# guard の plugin の読み方（pr_text の囲み・session_watch の strip_code など）は別の plugin で、plugin を跨いで import しない
+# 作りのため、ここの対象の外。
+
+_FENCE_OPEN = re.compile(r"^[ \t]*(?P<mark>`{3,}|~{3,})(?P<info>[^\n]*)$")
+_INDENTED = re.compile(r"^(?: {4}|[ \t]*\t)[ \t]*\S")
+_PRE_OPEN = re.compile(r"<pre\b", re.I)
+_PRE_CLOSE = re.compile(r"</pre\s*>", re.I)
+_NOTE = re.compile(r"<!--.*?-->", re.S)
+_QUOTES = re.compile(r"「[^「」\n]*」|『[^『』\n]*』|“[^“”\n]*”")
+_SPAN = re.compile(r"`[^`\n]+`")
+_BLOCKQUOTE = re.compile(r"^[ \t]{0,3}>")
+_CODE_KINDS = ("fence", "open", "indented", "pre")
+
+
+def md_blocks(text: str) -> list[tuple[str, str, str]]:
+    """.md の行ごとの (種類, 行, 囲みの言語)。種類:
+      text     … 地の文
+      mark     … コードの囲みの開き・閉じの行
+      fence    … コードの囲みの中（CommonMark の形: ` か ~ を 3 字以上で開き、同じ字を開きと同じ数以上だけ並べた行で閉じる。
+                 ` の囲みの開きの情報の欄に ` は入らない）
+      open     … 閉じの無い囲みの開きから終わりまで（読めない形＝コードとしても地の文としても読む）
+      indented … 4 字下げ・tab の行（字下げのコードか、リストの続きか、構文だけでは分けられない＝コードとしても読む）
+      pre      … <pre> から </pre> までの行（同じく、コードとしても読む）
+    """
+    lines = text.split("\n")
+    out: list[tuple[str, str, str]] = []
+    i, n = 0, len(lines)
+    while i < n:
+        ln = lines[i]
+        m = _FENCE_OPEN.match(ln)
+        if m and not (m.group("mark")[0] == "`" and "`" in m.group("info")):
+            mark = m.group("mark")
+            close = re.compile(r"^[ \t]*" + re.escape(mark[0]) + "{%d,}[ \t\r]*$" % len(mark))
+            j = next((k for k in range(i + 1, n) if close.match(lines[k])), None)
+            lang = (m.group("info").strip().split() or [""])[0].lower()
+            if j is None:
+                out += [("open", x, lang) for x in lines[i:]]
+                break
+            out.append(("mark", ln, lang))
+            out += [("fence", x, lang) for x in lines[i + 1:j]]
+            out.append(("mark", lines[j], lang))
+            i = j + 1
+            continue
+        if _PRE_OPEN.search(ln):
+            j = next((k for k in range(i, n) if _PRE_CLOSE.search(lines[k])), n - 1)
+            out += [("pre", x, "") for x in lines[i:j + 1]]
+            i = j + 1
+            continue
+        out.append(("indented" if _INDENTED.match(ln) else "text", ln, ""))
+        i += 1
+    return out
+
+
+def md_code(text: str) -> str:
+    """.md のコードの所（囲みの中・閉じの無い囲み・字下げ・<pre>）の字から注釈を除いた物。他の行は空（行の番号は保つ）。
+    地の文の `…` の中は、説明か指示かを構文で分けられないので読まない（残る穴）。"""
+    out, run, key = [], [], None
+    for kind, ln, lang in md_blocks(text) + [("end", "", "")]:
+        k = (kind, lang) if kind in _CODE_KINDS else None
+        if k != key and run:
+            body = "\n".join(run)
+            out.append(py_code(body) if key[1] in ("py", "python", "python3") else sh_code(body))
+            run = []
+        key = k
+        if k is not None:
+            run.append(ln)
+        elif kind != "end":
+            out.append("")
+    return "\n".join(out)
+
+
+def _keep_heading(m: re.Match) -> str:
+    """引用の中身が見出しの印 # で始まる物（「## 欄の名」＝書く行そのもの）は残し、他は空にする。"""
+    s = m.group(0)
+    return s if s[1:].lstrip(" \t").startswith("#") else " "
+
+
+def note_code(text: str) -> str:
+    """注記 <!-- --> を空にした字（.html・.md の注記。行の番号は保つ）。"""
+    return _NOTE.sub(lambda m: re.sub(r"[^\n]", " ", m.group(0)), text)
+
+
+def md_own(text: str, notes: bool = False, spans: bool = False) -> str:
+    """.md の自分の文: コードの囲み（閉じの在る物）・注記 <!-- -->・> の引用の行・地の文の引用（「」『』“”`…`）を空にした字
+    （行の番号は保つ）。引用の中身が見出しの印 # で始まる物は書く行そのものとして残す。閉じの無い囲み・字下げ・<pre> は、
+    囲みと決められないので地の文として読む。notes=True は注記の中を、spans=True は地の文の `…` の中を自分の文として読む
+    （写しの照らし＝注記も AI が読む文で、決まりの文を `…` で囲むだけで写しの照らしを迂回させない）。"""
+    body = "\n".join("" if kind in ("mark", "fence") else ln for kind, ln, _ in md_blocks(text))
+    body = body if notes else note_code(body)
+    out = []
+    for ln in body.split("\n"):
+        if _BLOCKQUOTE.match(ln):
+            ln = ln if re.sub(r"^[ \t>]*", "", ln).startswith("#") else ""
+        ln = _QUOTES.sub(_keep_heading, ln)
+        out.append(ln if spans else _SPAN.sub(_keep_heading, ln))
+    return "\n".join(out)
+
+
+def sh_code(text: str) -> str:
+    """shell（と yml）の字から注釈（引用の外で語の頭に在る #）を除いた物。' の中は \\ も字のまま・" の中と引用の外は
+    \\ が次の 1 字を守る。"""
+    out, q, i, n = [], "", 0, len(text)
+    while i < n:
+        c = text[i]
+        if c == "\\" and q != "'" and i + 1 < n:
+            out.append(text[i:i + 2])
+            i += 2
+            continue
+        if q:
+            q = "" if c == q else q
+        elif c in "'\"":
+            q = c
+        elif c == "#" and (i == 0 or text[i - 1] in " \t\n;&|("):
+            j = text.find("\n", i)
+            i = n if j < 0 else j
+            continue
+        out.append(c)
+        i += 1
+    return "".join(out)
+
+
+def py_code(text: str) -> str:
+    """Python の源から注釈と docstring を空にした字（字の値・名・演算子は元の字のまま・行の番号は保つ）。構文の読めない
+    源は全部を読む（読む側に倒す）。"""
+    import ast
+    import io
+    import tokenize
+    try:
+        tree = ast.parse(text)
+        toks = list(tokenize.generate_tokens(io.StringIO(text).readline))
+    except (SyntaxError, ValueError, tokenize.TokenError):
+        return text
+    doc = set()
+    for node in ast.walk(tree):
+        body = getattr(node, "body", None)
+        if isinstance(node, (ast.Module, ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)) and body \
+                and isinstance(body[0], ast.Expr) and isinstance(body[0].value, ast.Constant) \
+                and isinstance(body[0].value.value, str):
+            doc.add((body[0].value.lineno, body[0].value.col_offset))
+    starts = [0]
+    for ln in text.split("\n"):
+        starts.append(starts[-1] + len(ln) + 1)
+    chars = list(text)
+    for t in toks:
+        if t.type == tokenize.COMMENT or (t.type == tokenize.STRING and t.start in doc):
+            (r0, c0), (r1, c1) = t.start, t.end
+            for k in range(starts[r0 - 1] + c0, starts[r1 - 1] + c1):
+                if chars[k] != "\n":
+                    chars[k] = " "
+    return "".join(chars)
+
+
+def js_code(text: str) -> str:
+    """JavaScript（.mjs .js）の字から注釈（字の値の外の // と /* */）を除いた物。' " ` の字の値の中の // は残す。"""
+    out, q, i, n = [], "", 0, len(text)
+    while i < n:
+        c = text[i]
+        if q:
+            if c == "\\" and i + 1 < n:
+                out.append(text[i:i + 2])
+                i += 2
+                continue
+            q = "" if c == q else q
+        elif c in "'\"`":
+            q = c
+        elif text.startswith("//", i):
+            j = text.find("\n", i)
+            i = n if j < 0 else j
+            continue
+        elif text.startswith("/*", i):
+            j = text.find("*/", i + 2)
+            out.append(re.sub(r"[^\n]", " ", text[i:n if j < 0 else j + 2]))
+            i = n if j < 0 else j + 2
+            continue
+        out.append(c)
+        i += 1
+    return "".join(out)
+
+
+def code(rel: str, text: str) -> str:
+    """file の動く所（使う形）: 拡張子で読み方を選ぶ。知らない拡張子は全部を読む（読む側に倒す）。"""
+    ext = Path(rel).suffix.lower()
+    if ext in (".md", ".markdown"):
+        return md_code(text)
+    if ext == ".py":
+        return py_code(text)
+    if ext in (".sh", ".bash", ".yml", ".yaml"):
+        return sh_code(text)
+    if ext in (".mjs", ".js", ".cjs"):
+        return js_code(text)
+    if ext in (".html", ".htm"):
+        return note_code(text)
+    return text
+
+
+def own(rel: str, text: str) -> str:
+    """file の自分の文と使う形: .md は自分の文（md_own）、他は動く所（code）。"""
+    return md_own(text) if Path(rel).suffix.lower() in (".md", ".markdown") else code(rel, text)
+
+
+def old_view(row: dict, rel: str, text: str) -> str:
+    """古い形の行が読む所（reads の決まり）。"""
+    reads = row.get("reads", "all")
+    if reads == "commands":
+        return code(rel, text)
+    if reads == "prose" and Path(rel).suffix.lower() in (".md", ".markdown"):
+        return md_own(text)
+    return text
+
+
+def old_hit(row: dict, rel: str, text: str) -> bool:
+    """古い形の行が (相対 path, 中身) に当たるか（照らし方はこの 1 か所）。"""
+    return bool(row["re"].search(old_view(row, rel, text)))
 
 
 def _tracked(project: Path, specs: list[str]) -> list[Path]:
@@ -131,7 +360,7 @@ def _hits(rows: list[dict], texts) -> list[tuple[dict, str]]:
     found = []
     for r in rows:
         for rel, text in texts(r):
-            if r["re"].search(text):
+            if old_hit(r, rel, text):
                 found.append((r, rel))
     return found
 

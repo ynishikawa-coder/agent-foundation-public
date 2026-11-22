@@ -18,6 +18,7 @@ import sys
 from pathlib import Path
 
 from entry_box import box_env, copy_entry
+from uses import py_marks
 
 ROOT = Path(__file__).resolve().parent.parent
 CONFTEST = ROOT / "tests" / "conftest.py"
@@ -52,7 +53,7 @@ def test_file_を手で並べる行を入れると拾う():
 
 def test_印の試験はどれも_real_claude_の印を持つ():
     named = [n for n, t in _tests() if n.endswith("_real_claude.py") or n == "test_plugin_smoke.py"]
-    assert named and all("pytest.mark.real_claude" in t for n, t in _tests() if n in named)
+    assert named and all("real_claude" in py_marks(t) for n, t in _tests() if n in named)   # docstring の字でなく付けた印
 
 
 def _run_box(tmp_path, body, require):

@@ -5,6 +5,7 @@ import pathlib
 import subprocess
 
 import pytest
+from uses import sh_code, yaml_on, yaml_runs
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 
@@ -37,8 +38,8 @@ def test_書き戻しは鍵が無いと止まりPRでは回らない(monkeypatch
     monkeypatch.delenv("GH_TOKEN", raising=False)
     assert _apply().main() == 1
     t = _read(".github/workflows/rulesets.yml")
-    assert "python3 scripts/ruleset_apply.py" in t
-    assert "pull_request" not in t
+    assert any("python3 scripts/ruleset_apply.py" in sh_code(r) for r in yaml_runs(t))
+    assert "pull_request" not in yaml_on(t)                              # 注釈の「pull_request では回さない」は出来事でない
 
 
 def test_AIの道具で打てる手は自分で打ち_人にしか打てない手だけ手の窓で頼む():
@@ -50,7 +51,7 @@ def test_AIの道具で打てる手は自分で打ち_人にしか打てない�
 def test_鍵はmainだけのenvironmentから読み_手動でも回らない():
     t = _read(".github/workflows/rulesets.yml")
     assert "environment: rulesets" in t
-    assert "workflow_dispatch" not in t
+    assert "workflow_dispatch" not in yaml_on(t)
     c = _read("CONTRIBUTING.md")
     assert "鍵は environment `rulesets` の秘密に置く" in c
     assert "Deployment branches を「Selected branches and tags」にして `main` だけを足し" in c
