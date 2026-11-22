@@ -290,7 +290,9 @@ def unit(it):
     重さ N で試験 1 本ずつを単位にする（1 本が数分かかる試験＝決まりの文を消して回す試験。file ごとに束ねると、
     その file の組だけが長くなる）。"""
     w = getattr(getattr(it, "module", None), "AF_SHARD_WEIGHT", None)
-    return (it.nodeid.split("::")[0], 1) if w is None else (it.nodeid, w)
+    if w is None:
+        return it.nodeid.split("::")[0], 1
+    return it.nodeid, (w(it.nodeid) if callable(w) else w)   # 関数なら試験ごとの重さ（試験の名 → 重さ）
 
 
 def assign(items, k):

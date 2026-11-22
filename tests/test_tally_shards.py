@@ -74,6 +74,16 @@ def test_合格_重い試験は1本ずつ別の組へ散り_ほかの試験は�
     assert sorted(sum(g, [])) == sorted(hs + [f"tests/test_{f}.py" for f in "abcdef"])
 
 
+def test_合格_試験ごとの重さを関数で渡すと_重い試験から別の組へ入り組の重さが均される():
+    """決まりの file ごとの照らしは file の大きさで重さが違う。1 本ずつ同じ重さで数えると、重い物が 1 つの組に重なる。"""
+    ws = {"t[a]": 80, "t[b]": 70, "t[c]": 40, "t[d]": 30, "t[e]": 10, "t[f]": 10}
+    m = type("M", (), {"AF_SHARD_WEIGHT": staticmethod(lambda n: ws[n.split("::")[1]])})
+    items = [_It(f"tests/test_h.py::{k}", m) for k in ws]
+    g = af_tally.assign(items, 2)
+    load = [sum(ws[n.split("::")[1]] for n in grp) for grp in g]
+    assert sorted(load) == [120, 120], g    # 80+30+10 と 70+40+10（同じ重さで数えると 80+40+10 と 70+30+10 に偏る）
+
+
 def test_合格_重い試験も_check_all_は全部を1回ずつ数える(tmp_path):
     body = "AF_SHARD_WEIGHT = 50\nimport pytest\n\n@pytest.mark.parametrize('n', range(3))\ndef test_h(n):\n    pass\n"
     files = {f"test_{x}.py": f"def test_{x}():\n    pass\n" for x in "ab"}
