@@ -344,22 +344,29 @@ def away_path(session_id):
 
 
 def open_away(session_id, items, tpath=""):
-    """離席の印を開く。会話ログの今の長さ（バイト）を記す＝戻りはこの位置より後の人の行で数える（時刻では比べない）。"""
+    """離席の印を開く。会話ログの今の長さ（バイト）を記す＝戻りはこの位置より後の人の行で数える（時刻では比べない）。
+    もう開いていれば、前の問いの控えを残して位置を今に進める（今また答えが返らなかった＝今も席を外している）。
+    書きかけの印を残さない（一時ファイルから置き換える）。(印の path, 書けなかった訳)。"""
     p = away_path(session_id)
     if not p or not items:
-        return ""
+        return "", ("" if p else "窓の id が無く、離席の印を置けなかった")
     try:
         pos = os.path.getsize(tpath) if tpath else None
     except OSError:
         pos = None                # 位置を記せない印は、答えが返るまで戻りを数えない（irreversible が止め続ける）
+    prev = read_away(session_id) or {}
+    qs = [q for q in prev.get("questions") or [] if isinstance(q, str)]
+    qs += [q for q in (i.get("question", "")[:120] for i in items) if q not in qs]
+    tmp = "%s.%d.tmp" % (p, os.getpid())
     try:
         os.makedirs(os.path.dirname(p), exist_ok=True)
-        with open(p, "w", encoding="utf-8") as f:
+        with open(tmp, "w", encoding="utf-8") as f:
             json.dump({"since": G.now_utc(), "session_id": session_id, "log": tpath, "log_pos": pos,
-                       "questions": [i.get("question", "")[:120] for i in items]}, f, ensure_ascii=False)
-        return p
-    except OSError:
-        return ""
+                       "questions": qs}, f, ensure_ascii=False)
+        os.replace(tmp, p)
+        return p, ""
+    except OSError as e:
+        return "", "離席の印 %s を書けなかった（%s）" % (p, e.__class__.__name__)
 
 
 def close_away(session_id):
@@ -372,16 +379,19 @@ def close_away(session_id):
 
 
 def read_away(session_id):
-    """開いていれば中身、閉じていれば None（在席中はここで終わる＝stat 1 回）。"""
+    """開いていれば中身、閉じていれば None（在席中はここで終わる＝stat 1 回）。
+    在るのに読めない印は閉じたと取り違えない＝{"broken": 訳} を返す（irreversible は止め続け、訳を文に出す）。"""
     p = away_path(session_id)
-    if not p or not os.path.isfile(p):
+    if not p or not os.path.lexists(p):
         return None
     try:
         with open(p, encoding="utf-8") as f:
             d = json.load(f)
-        return d if isinstance(d, dict) else None
-    except Exception:
-        return None
+    except (OSError, ValueError) as e:
+        return {"broken": "離席の印 %s が読めない（%s）" % (p, e.__class__.__name__), "questions": []}
+    if not isinstance(d, dict):
+        return {"broken": "離席の印 %s の中身が dict でない" % p, "questions": []}
+    return d
 
 
 # ── hook の口 ──
@@ -414,7 +424,9 @@ def capture(data, vals):
     if pairs:
         close_away(session_id)
     elif unanswered:
-        open_away(session_id, unanswered, tpath)
+        _p, away_note = open_away(session_id, unanswered, tpath)
+        if away_note:     # 印が無いと戻せない操作を止められない＝黙らない
+            note = "；".join(n for n in (note, away_note + "。戻せない操作を機械が止められないので、答えが返るまで自分で行わない") if n)
     tail = "\n<unanswered-ledger-trouble>%s</unanswered-ledger-trouble>" % note if note else ""
     if not unanswered:
         return tail.strip()

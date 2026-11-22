@@ -4,7 +4,8 @@
   答えが 1 つでも返れば閉じる。オーナーが何か打てば閉じる（離席の印に記した会話ログのバイト位置より後に、人が打った行
   〔guard_common.is_human_row: 子の窓の知らせ・記録から差した頼み・縮めた要約は人に数えない〕が在るかで判定する。時刻では
   比べない＝入力が積まれてから書かれた行も位置で数え、後に続く大きな出力にも埋もれない）。位置の無い古い印・別の会話ログ・
-  縮んだ会話ログは戻りを確かめられないので止め続け、印より後の読めない行はその番号を止める文に出す。持ち越した問いは窓を開けない。
+  縮んだ会話ログ・読めない離席の印〔書きかけ・dict でない〕は戻りを確かめられないので止め続け（読めない印を「印が無い＝在席」と
+  取り違えない）、印より後の読めない行はその番号を止める文に出す。持ち越した問いは窓を開けない。
 
 止めるのは 4 つだけ: DB の破棄・メールの送信・Notion の物理削除・git で戻せない再帰の削除（rm -r）。
   強制 push・main への push・本番への出荷・sudo は、オーナーが居ても居なくても settings の permissions.deny の受け持ち（ここでは重ねない）。
@@ -226,6 +227,8 @@ def match(tool_name, tool_input, cwd, vals):
 
 def owner_returned(tpath, win):
     """(離席の印より後に人が打った行が在るか, 読めなかった事の文の並び)。確かめられなければ (False, 訳)。"""
+    if win.get("broken"):
+        return False, [win["broken"] + "ので、戻ったかを確かめられない"]
     log_path, pos = win.get("log"), win.get("log_pos")
     if not isinstance(pos, int) or isinstance(pos, bool) or pos < 0 or not log_path:
         return False, ["離席の印に会話ログの位置が無い（古い印）ので、戻ったかを確かめられない"]

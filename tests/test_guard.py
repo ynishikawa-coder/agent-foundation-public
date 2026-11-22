@@ -254,6 +254,31 @@ def test_位置の無い古い印と別の会話ログでは戻りを数えな�
     assert "短い" in deny_reason(env, bash(DROP, tpath=mine))
 
 
+@pytest.mark.parametrize("raw", ['{"since": "2000-01-01T00:00:00Z", "questi', "[1, 2]"], ids=["書きかけ", "dict でない"])
+def test_読めない離席の印は閉じたと取り違えず止めたまま訳を出す(env, tmp_path, raw):
+    """読めない印を「印が無い＝在席」と読む古い形は、人のいない間に戻せない操作を通した。"""
+    away = tmp_path / "tmp" / "away"
+    away.mkdir(parents=True)
+    (away / "s1.json").write_text(raw, encoding="utf-8")
+    tpath = write_log(tmp_path / "o.jsonl", [human("戻りました")])
+    why = deny_reason(env, bash(DROP, tpath=tpath))
+    assert "離席の印" in why and ("読めない" in why or "dict でない" in why), why
+
+
+def test_離席の印を書けなければ黙らず知らせ_重ねて閉じた問いは控えを残す(env, tmp_path):
+    tpath = away_log(env, tmp_path)
+    second = ask_result(tpath=tpath)
+    second["tool_response"]["questions"][0]["question"] = "作り物の次の問いですか"
+    hook(env, "post", second)
+    marker = json.loads((tmp_path / "tmp" / "away" / "s1.json").read_text(encoding="utf-8"))
+    assert len(marker["questions"]) == 2, marker
+    blocker = tmp_path / "tmp2"
+    blocker.write_text("置き場を塞ぐ file", encoding="utf-8")
+    env["AF_GUARD_TMP"] = str(blocker)                       # 印の置き場が file で塞がれ、書けない
+    note = hook(env, "post", ask_result(sid="s9")).get("additionalContext", "")
+    assert "離席の印" in note and "書けなかった" in note, note
+
+
 def test_人のいない窓の印があれば離席の止めも台帳も働かない(env):
     env["AF_UNATTENDED"] = "1"
     assert hook(env, "post", ask_result()) == {}
