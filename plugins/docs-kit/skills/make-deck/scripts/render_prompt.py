@@ -40,7 +40,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."
 import skill_values  # noqa: E402  値の表の 1 本の口（plugin の lib/＝土台の skill-values/ への symlink）
 
 # 止まる時の最後の行（中身は細目 §3 が正本＝ここは指すだけ）
-ROOT_CAUSE = "直し: 欠けを埋めて出し直すだけで済ませず、欠けた原因（材料の受け方・型の欄）を細目 §3「まず構造を疑う」で探して直す"
+ROOT_CAUSE = "直し: 意図（事実が確かな材料だけで資料を作る）とのずれから入り、欠けた原因（材料の受け方・型の欄）を細目 §3「まず構造を疑う」で探して直す（欠けを埋めて出し直すだけで済ませない）"
 SKILL_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DEFAULT_TEMPLATE = os.path.join(SKILL_ROOT, "prompts", "base.txt")
 
