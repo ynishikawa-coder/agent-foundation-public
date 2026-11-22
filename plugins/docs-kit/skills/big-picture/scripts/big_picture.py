@@ -45,8 +45,8 @@ VERSION = re.compile(r"^\d{4}-\d{2}-\d{2}\.\d+$")
 ID = re.compile(r"^[A-Za-z][A-Za-z0-9_-]*$")
 TEMPLATE = Path(__file__).resolve().parent.parent / "references" / "template.html"
 SLOT = "/*__BIG_PICTURE_DATA__*/null"
-ROOT_CAUSE = "直し: 形の誤りを 1 つずつ潰して出し直すだけで済ませず、誤りが入った原因を細目 §3「まず構造を疑う」で探して直す"
-ROOT_CAUSE_DIFF = "直し: 差は main へ入れずに止め、差を見せてオーナーに決めてもらう（実物を直す時は細目 §3「まず構造を疑う」で原因から）"
+ROOT_CAUSE = "直し: 意図（絵が照らせる正の形を保つ）とのずれから入り、誤りが入った原因を細目 §3「まず構造を疑う」で探して直す（形の誤りを 1 つずつ潰して出し直すだけで済ませない）"
+ROOT_CAUSE_DIFF = "直し: 差は main へ入れずに止め、差を見せてオーナーに決めてもらう（実物を直す時は合意した絵の意図とのずれから入り、細目 §3「まず構造を疑う」で原因を探す）"
 
 
 def load(path):
@@ -75,8 +75,10 @@ def check(pic):
         if k == "version" and meta.get("kind") == "実物":
             continue                                 # 実物は版を持たない（どの先端から描いたかは drawn_from）
         if not _text(meta.get(k)):
-            errs.append("meta.%s が無い（%s）" % (k, {"problem": "解決したい問題", "goal": "完成像"}.get(k, "欄")))
+            errs.append("meta.%s が無い（%s）" % (k, {"problem": "課題＝意図と今のずれ", "goal": "完成像"}.get(k, "欄")))
     kind = meta.get("kind")
+    if kind == "合意" and not _text(meta.get("intent")):
+        reds.append("赤い点: 絵の意図（meta.intent）— この仕組みが何のために在るかをオーナーにまだ聞いていない")
     if kind not in ("合意", "実物"):
         errs.append("meta.kind が 合意／実物 のどちらでもない: %r" % kind)
     if _text(meta.get("version")) and not VERSION.match(meta["version"]):
@@ -187,8 +189,9 @@ def compare(agreed, actual):
         b = A.get(i) or X.get(i)
         return "「%s」(%s)" % (b["t"], i)
 
-    out.append("## 欄 1 解決したい問題と完成像（文なので並べて見せる・差に数えない）")
-    out.append("- 問題: 合意＝%s ／ 実物＝%s" % (am["problem"], xm["problem"]))
+    out.append("## 欄 1 意図・課題と完成像（文なので並べて見せる・差に数えない）")
+    out.append("- 意図: 合意＝%s" % (am.get("intent") or "まだ聞いていない（赤い点）"))
+    out.append("- 課題: 合意＝%s ／ 実物＝%s" % (am["problem"], xm["problem"]))
     out.append("- 完成像: 合意＝%s ／ 実物＝%s" % (am["goal"], xm["goal"]))
     out.append("")
 
@@ -254,10 +257,13 @@ def explain(pic, pid):
     path = [p["cause"]] + [v for v in (p.get("via") or []) if v != p["cause"]]
     lines = [
         "「%s」（%s）" % (p["title"], p["date"]),
+        "- 意図（起きた所の箱が何のために在るか）: " + "／".join(
+            "%s %s" % (nm(i), B[i].get("intent") or "まだ聞いていない（赤い点）") for i in p["at"]),
+        "- 課題（意図とのずれ＝起きた事）: " + p["title"],
         "- 起きた所: " + "・".join(nm(i) for i in p["at"]),
         "- 原因の箱: %s — %s" % (nm(p["cause"]), "構造から来る" if p["origin"] == "構造" else "単発（絵の上で構造に原因が無いと示せた）"),
         "- 流れ: " + " → ".join(nm(i) for i in path + [a for a in p["at"] if a not in path]),
-        "- この箱の意図: " + (c.get("intent") or "まだ聞いていない（赤い点）"),
+        "- 原因の箱の意図: " + (c.get("intent") or "まだ聞いていない（赤い点）"),
         "- なぜここから起きたか: " + p["why_here"],
         "- この箱で起きた問題: %d 件" % len(same),
     ]

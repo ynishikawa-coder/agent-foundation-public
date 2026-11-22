@@ -71,7 +71,8 @@ def test_土台の絵の意図の空きは赤い点で全部出る():
     pic = agreed()
     _, reds = bp.check(pic)
     empty = [b for b in pic["boxes"] if not b.get("intent")]
-    assert len(reds) == len(empty) and empty, "意図の空いた箱は赤い点として全部出る"
+    meta = 0 if pic["meta"].get("intent") else 1   # 絵の意図（meta.intent）の空きも 1 つの赤い点
+    assert len(reds) == len(empty) + meta and empty, "意図の空いた箱は赤い点として全部出る"
     r = run("check", DODAI)
     assert r.returncode == 0 and "赤い点" in r.stdout and "CHECK OK" in r.stdout
 
@@ -197,7 +198,7 @@ def test_形の誤りは止める(mutate, word):
 def test_説明は箱の名と原因と意図を挙げる():
     r = run("explain", DODAI, "p1")
     assert r.returncode == 0, r.stdout
-    for word in ("起きた所", "原因の箱", "構造から来る", "流れ", "この箱の意図", "なぜここから起きたか", "【実物が絵どおりか】"):
+    for word in ("起きた所", "原因の箱", "構造から来る", "流れ", "原因の箱の意図", "なぜここから起きたか", "【実物が絵どおりか】"):
         assert word in r.stdout, word
 
 
