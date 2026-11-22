@@ -1,0 +1,1 @@
+- 壊れる: 古い土台で立った窓（作り置きの箱）でも守りの hook が先端の版で動く。土台の hooks.json の命令は目録の clone の入口 plugins/core/scripts/hook_run.py を通り、入口が入った台帳の今読まれる版の script を回す（先端が外した hook は回さない・入口が無い箱や台帳が読めない時は前の版で続ける）。plugin core の起動の hook（kaku.py inject・fresh）が古さを見つけると入口 scripts/setup_plugins.py を裏で回して先端を入れ直し（kaku.py refresh・起動は待たせない）、失敗は次の問いの隣に 1 行で名指す。使う側の setup script は変えない（土台の中だけ）
