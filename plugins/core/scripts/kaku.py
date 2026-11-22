@@ -1510,6 +1510,7 @@ def base_text(ref: str, path: Path) -> str:
 REPO = PLUGIN.parent.parent
 GUARD_HOOKS = "plugins/guard/scripts"
 CHECKS = "scripts/checks"
+WORKFLOWS = ".github/workflows"
 REVIEW_POINTS = "plugins/checker/skills/review-pr/SKILL.md"
 SAFETY = frozenset({"irreversible.py", "outbound.py", "paid_upstream.py", "public_guard.sh"})
 COUNT_FIX = "直し: 守りを足すなら同じ変更で同じ種類を 1 つ畳む（近い見張り・検査・点へ寄せる）。安全の守りは数えない（SAFETY）"
@@ -1524,12 +1525,17 @@ def guard_counts(ref: str | None = None, root: Path | None = None) -> dict[str, 
             d = root / rel
             if not d.is_dir():
                 raise OSError(f"{rel} が無い")
-            return sorted(x.name for x in d.iterdir() if x.is_file())
+            return sorted(x.name for x in d.iterdir())
         r = subprocess.run(["git", "-c", "core.quotepath=off", "ls-tree", "--full-tree", "--name-only", f"{ref}:{rel}"],
                            cwd=root, capture_output=True)
         if r.returncode != 0:
             raise OSError(f"{ref}:{rel} が読めない: {r.stderr.decode('utf-8', 'replace').strip()}")
         return sorted(r.stdout.decode("utf-8").splitlines())
+
+    def has(rel: str) -> bool:
+        if ref is None:
+            return (root / rel).is_file()
+        return subprocess.run(["git", "cat-file", "-e", f"{ref}:{rel}"], cwd=root, capture_output=True).returncode == 0
 
     def text(rel: str) -> str:
         if ref is None:
@@ -1540,10 +1546,19 @@ def guard_counts(ref: str | None = None, root: Path | None = None) -> dict[str, 
         return r.stdout.decode("utf-8")
 
     hooks = sum(1 for n in names(GUARD_HOOKS) if n.endswith(".py") and n not in SAFETY
-                and re.search(r"^HOOKS\s*=", text(f"{GUARD_HOOKS}/{n}"), re.M))
+                and re.search(r"^HOOKS\b\s*(:[^=\n]*)?=", text(f"{GUARD_HOOKS}/{n}"), re.M))
+    entries = 0  # plugin の hooks.json に登録した hook の口（guard の外に見張りを置いても数える）
+    for plug in names("plugins"):
+        rel = f"plugins/{plug}/hooks/hooks.json"
+        if has(rel):
+            entries += sum(len(m.get("hooks", [])) for arr in json.loads(text(rel)).get("hooks", {}).values() for m in arr)
     checks = sum(1 for n in names(CHECKS) if n.endswith(".sh") and n not in SAFETY)
+    steps = sum(1 for n in names(WORKFLOWS) if n.endswith((".yml", ".yaml"))
+                for line in text(f"{WORKFLOWS}/{n}").splitlines()
+                if re.match(r"\s*(- )?run:", line) and not re.search(r"public[-_]guard", line))
     points = len(re.findall(r"^\| *\d+ ", text(REVIEW_POINTS), re.M))
-    return {"守りの見張り（guard の hook）": hooks, "CI の検査（scripts/checks）": checks, "レビューの点（review-pr）": points}
+    return {"守りの見張り（guard の hook）": hooks, "hook の口（plugin の hooks.json）": entries,
+            "CI の検査（scripts/checks）": checks, "CI の段（workflow の run）": steps, "レビューの点（review-pr）": points}
 
 
 def test_count(root: Path | None = None) -> str:

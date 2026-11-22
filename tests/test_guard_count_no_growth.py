@@ -1,6 +1,7 @@
 """守りの数（guard の見張り・CI の検査・レビューの点）も main より増えたら赤（オーナー同意 2026-11-23: 守るための守りを足し続けない）。
 安全の守り（kaku.SAFETY）は数えない。試験は数を出すだけで止めない。本体は kaku.py grow（CI は scripts/checks/kaku_growth.sh）。"""
 import importlib.util
+import json
 import subprocess
 from pathlib import Path
 
@@ -10,6 +11,10 @@ kaku = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(kaku)
 
 TABLE = "| 点 | 見る事 | red |\n|---|---|---|\n| 1 甲 | a | b |\n| 2 乙 | a | b |\n\n| 言語 | 点 |\n|---|---|\n| Python | x |\n"
+
+HOOKS_JSON = {"hooks": {"PreToolUse": [{"hooks": [{"type": "command", "command": "guard.py pre"}]}]}}
+CI = "jobs:\n  a:\n    steps:\n      - run: bash scripts/check_all.sh\n      - name: x\n        run: python3 public-guard/patrol.py\n"
+NEW_HOOK = {"hooks": {"Stop": [{"hooks": [{"type": "command", "command": "watch.py --stop"}]}]}}
 
 
 def _g(root, *a):
@@ -33,6 +38,13 @@ def _repo(tmp_path, monkeypatch):
     r = tmp_path / kaku.REVIEW_POINTS
     r.parent.mkdir(parents=True)
     r.write_text(TABLE, encoding="utf-8")
+    h = tmp_path / "plugins" / "guard" / "hooks"
+    h.mkdir(parents=True)
+    (h / "hooks.json").write_text(json.dumps(HOOKS_JSON), encoding="utf-8")
+    (tmp_path / "plugins" / "session-watch").mkdir()
+    w = tmp_path / kaku.WORKFLOWS
+    w.mkdir(parents=True)
+    (w / "ci.yml").write_text(CI, encoding="utf-8")
     _g(tmp_path, "add", "-A")
     _g(tmp_path, "commit", "-q", "-m", "元")
     monkeypatch.setattr(kaku, "REPO", tmp_path)
@@ -55,6 +67,11 @@ def test_見張り_検査_点のどれかを足すと赤(tmp_path, monkeypatch, 
         (lambda: (c / "new_check.sh").write_text("true\n", encoding="utf-8"), lambda: (c / "new_check.sh").unlink(), "CI の検査"),
         (lambda: r.write_text(TABLE.replace("| 2 乙 | a | b |\n", "| 2 乙 | a | b |\n| 3 丙 | a | b |\n"), encoding="utf-8"),
          lambda: r.write_text(TABLE, encoding="utf-8"), "レビューの点"),
+        (lambda: (g / "typed.py").write_text("HOOKS: dict = {}\n", encoding="utf-8"), lambda: (g / "typed.py").unlink(), "守りの見張り"),
+        (lambda: _put(tmp_path / "plugins" / "session-watch" / "hooks" / "hooks.json", json.dumps(NEW_HOOK)),
+         lambda: (tmp_path / "plugins" / "session-watch" / "hooks" / "hooks.json").unlink(), "hook の口"),
+        (lambda: (tmp_path / kaku.WORKFLOWS / "ci.yml").write_text(CI + "      - run: python3 scripts/new.py\n", encoding="utf-8"),
+         lambda: (tmp_path / kaku.WORKFLOWS / "ci.yml").write_text(CI, encoding="utf-8"), "CI の段"),
     ):
         add()
         assert kaku.grow("HEAD") == 1, name
@@ -63,12 +80,18 @@ def test_見張り_検査_点のどれかを足すと赤(tmp_path, monkeypatch, 
         assert kaku.grow("HEAD") == 0, name
 
 
+def _put(path, body):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(body, encoding="utf-8")
+
+
 def test_安全の守りと_HOOKS_の無い部品と_言語の表は数えない(tmp_path, monkeypatch):
     g, c, r = _repo(tmp_path, monkeypatch)
     (g / "outbound.py").write_text("HOOKS = {}\n", encoding="utf-8")
     (g / "paid_upstream.py").write_text("HOOKS = {}\n", encoding="utf-8")
     (g / "_helper.py").write_text("y = 2\n", encoding="utf-8")
     r.write_text(TABLE + "| Shell | y |\n", encoding="utf-8")
+    (tmp_path / kaku.WORKFLOWS / "ci.yml").write_text(CI + "      - run: bash public_guard/check.sh\n", encoding="utf-8")
     assert kaku.grow("HEAD") == 0
 
 
