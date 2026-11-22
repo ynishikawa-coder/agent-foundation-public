@@ -26,7 +26,7 @@ def env(tmp_path):
               "TMPDIR": str(tmp_path / "scratch"),
               # 判定を出す窓の本物の id の記録（harness が窓の環境に置く cse_<x>）。試験はレビューの窓に固定する
               "CLAUDE_CODE_REMOTE_SESSION_ID": "cse_" + REVIEWER[len("session_"):]})
-    return e
+    return _fake_gh(e)                       # どの試験も実の GitHub へ出ない（整地の雛形も作り物の gh から引く）
 
 
 def deny_reason(env, payload):
@@ -52,11 +52,14 @@ def gh(tool, owner="fake-owner", repo="fake-private", **ti):
 FAKE_HEAD = "0123456789ab" + "c" * 28
 
 
-def _fake_gh(env, head=FAKE_HEAD, writer=WRITER, fail=False, commits=None, total=None):
-    """作り物の gh を PATH の頭に置く。実の GitHub へは出ない。
+def _fake_gh(env, head=FAKE_HEAD, writer=WRITER, fail=False, commits=None, total=None, templates=None,
+             pr_head_repo="fake-owner/fake-private"):
+    """作り物の gh を PATH の頭に置く。実の GitHub へは出ない。呼ばれた引数は 1 回 1 行で gh.log に残す（`gh_calls`）。
     PR を引く呼び出しには先端と本文の `書いた窓:`（写し）を、commit を引く呼び出しには各 commit の説明（`Claude-Session:` の
     記録。既定は書いた窓の 1 本・1 本ごとに JSON の 1 行）を返す。commits の None の要素は記録の無い commit。
-    total は PR の commit の数（既定は返す commit の数。GitHub が commit の一覧を 250 本で切る時の作り物に、返す数より大きくする）。"""
+    total は PR の commit の数（既定は返す commit の数。GitHub が commit の一覧を 250 本で切る時の作り物に、返す数より大きくする）。
+    templates は整地の雛形を引く呼び出し（contents）への答え: [(引数に含む字, 返す file か None＝HTTP 404)] を上から当てる
+    （既定は全部へ土台の雛形）。PR の head を引く呼び出しには pr_head_repo と先端を返す。"""
     bindir = Path(env["CLAUDE_PROJECT_DIR"]).parent / "fakebin"
     bindir.mkdir(exist_ok=True)
     gh_path = bindir / "gh"
@@ -65,12 +68,23 @@ def _fake_gh(env, head=FAKE_HEAD, writer=WRITER, fail=False, commits=None, total
     msgs = "".join(json.dumps("作り物の commit\n\n" + ("Claude-Session: https://claude.ai/code/%s\n" % c if c else ""),
                               ensure_ascii=False).replace("\\", "\\\\") + "\\n" for c in commits)
     total = len(commits) if total is None else total
-    gh_path.write_text("#!/bin/sh\n" + ("echo 'not found' >&2; exit 1\n" if fail else
-                       'case "$*" in *"/commits"*) printf \'%s\' ;; *) printf \'%%s\\n%%s\\n%%s\' \'%s\' \'%s\' \'%s\' ;; esac\n'
-                       % (msgs, head, total, body)), encoding="utf-8")
+    templates = [("", CLEANUP_TPL)] if templates is None else templates
+    tpl = "".join('    *"%s"*) %s ;;\n' % (key, ("cat '%s'" % path) if path else "echo 'gh: Not Found (HTTP 404)' >&2; exit 1")
+                  for key, path in templates)
+    log = bindir / "gh.log"
+    gh_path.write_text("#!/bin/sh\nprintf '%%s\\n' \"$*\" >> '%s'\n" % log + ("echo 'not found' >&2; exit 1\n" if fail else
+                       'case "$*" in *"/contents/"*)\n  case "$*" in\n%s    *) echo \'gh: Not Found (HTTP 404)\' >&2; exit 1 ;;\n  esac ;;\n'
+                       '  *"head.repo"*) printf \'%%s\\n%%s\' \'%s\' \'%s\' ;;\n'
+                       '  *"/commits"*) printf \'%s\' ;;\n  *) printf \'%%s\\n%%s\\n%%s\' \'%s\' \'%s\' \'%s\' ;;\nesac\n'
+                       % (tpl, pr_head_repo, head, msgs, head, total, body)), encoding="utf-8")
     gh_path.chmod(0o755)
     env["PATH"] = str(bindir) + os.pathsep + env.get("PATH", "")
     return env
+
+
+def gh_calls(env):
+    log = Path(env["CLAUDE_PROJECT_DIR"]).parent / "fakebin" / "gh.log"
+    return log.read_text(encoding="utf-8").split("\n") if log.exists() else []
 
 
 def verdict_comment(judged="green", head="0123456789ab", fail=None, stop=False, line1=None):
@@ -183,16 +197,99 @@ def test_pr_text_道具の名は_MCP_の_server_の名を問わず末尾で見�
     assert deny_reason(env, p) == ""
 
 
-def test_pr_text_整地の見出しは雛形を直に読む(env, tmp_path):
-    """雛形の見出しを替えると、照らす見出しも替わる（ここに見出しを写していない）。"""
-    tpl = tmp_path / "整地受領証.template.md"
-    tpl.write_text(CLEANUP_TPL.read_text(encoding="utf-8").replace("## 5. 未来", "## 5. 作り物の新しい欄"), encoding="utf-8")
-    env["AF_CLEANUP_TEMPLATE"] = str(tpl)
+def _template(tmp_path, name, old="## 5. 未来", new="## 5. 作り物の新しい欄"):
+    tpl = tmp_path / name
+    tpl.write_text(CLEANUP_TPL.read_text(encoding="utf-8").replace(old, new), encoding="utf-8")
+    return tpl
+
+
+def _contents_calls(env):
+    return [c for c in gh_calls(env) if "/contents/" in c]
+
+
+def test_pr_text_整地の見出しは出す先の_repo_の_PR_の枝の雛形を直に読む(env, tmp_path):
+    """雛形は PR を出す先の repo の head の枝から引く。窓の作業の木（CLAUDE_PROJECT_DIR）に置いた別の雛形は読まない
+    （窓に入った土台の版の古い型で、先の repo の今の型の本文を止めない・古い型の本文を通さない）。"""
+    proj = Path(env["CLAUDE_PROJECT_DIR"])
+    stale = proj / "plugins" / "dev-flow" / "skills" / "preimpl-cleanup" / "整地受領証.template.md"
+    stale.parent.mkdir(parents=True)
+    stale.write_text("## 1. 問題\n## 2. 原因\n## 3. 解決\n## 4. 未来\n", encoding="utf-8")   # 窓の作業の木の古い 4 段
+    _fake_gh(env, templates=[("ref=b", _template(tmp_path, "枝.md"))])
     why = deny_reason(env, gh("create_pull_request", title="作り物", head="b", base="main", body=cleanup_body()))
-    assert "5. 作り物の新しい欄" in why
+    assert "5. 作り物の新しい欄" in why and "1. 問題" not in why, why
+    assert any("repos/fake-owner/fake-private/contents/" in c and "ref=b" in c for c in _contents_calls(env))
+    # 同じ枝の雛形どおりの本文は通る（作業の木の古い 4 段では照らさない）
+    ok = cleanup_body().replace("## 5. 未来", "## 5. 作り物の新しい欄")
+    assert deny_reason(env, gh("create_pull_request", title="作り物", head="b", base="main", body=ok)) == ""
+
+
+def test_pr_text_書き替えは_PR_の_head_を_GitHub_から引いてその版の雛形で照らす(env, tmp_path):
+    sha = "ab" * 20
+    _fake_gh(env, head=sha, pr_head_repo="someone/fake-private", templates=[("ref=" + sha, _template(tmp_path, "head.md"))])
+    why = deny_reason(env, gh("update_pull_request", pullNumber=7, body=cleanup_body()))
+    assert "5. 作り物の新しい欄" in why, why
+    assert any("repos/someone/fake-private/contents/" in c and "ref=" + sha in c for c in _contents_calls(env))
+
+
+def test_pr_text_fork_の枝は_fork_の_repo_から読む(env, tmp_path):
+    _fake_gh(env, templates=[("repos/someone/fake-private/", _template(tmp_path, "fork.md"))])
+    why = deny_reason(env, gh("create_pull_request", title="作り物", head="someone:b", base="main", body=cleanup_body()))
+    assert "5. 作り物の新しい欄" in why, why
+
+
+def test_pr_text_雛形を持たない_repo_は土台の既定の枝の雛形で照らす(env, tmp_path):
+    found = "ynishikawa-coder/agent-foundation-public"
+    _fake_gh(env, templates=[("repos/fake-owner/", None), ("repos/%s/" % found, _template(tmp_path, "土台.md"))])
+    why = deny_reason(env, gh("create_pull_request", title="作り物", head="b", base="main", body=cleanup_body()))
+    assert "5. 作り物の新しい欄" in why, why
+    calls = [c for c in _contents_calls(env) if found in c]
+    assert calls and all("ref=" not in c for c in calls)                       # 既定の枝（窓が入れる main の先端）
+
+
+@pytest.mark.parametrize("case", ["土台の枝に雛形が無い", "GitHub から引けない", "gh が無い"])
+def test_pr_text_雛形を引けなければ窓の版で照らさず止める(env, tmp_path, case):
+    found = dict(owner="ynishikawa-coder", repo="agent-foundation-public")
+    payload = gh("create_pull_request", title="作り物", head="b", base="main", body=cleanup_body(), **found)
+    if case == "土台の枝に雛形が無い":
+        _fake_gh(env, templates=[("", None)])
+    elif case == "GitHub から引けない":
+        _fake_gh(env, fail=True)
+    else:
+        env["PATH"] = str(Path(env["CLAUDE_PROJECT_DIR"]).parent / "空")
+    why = deny_reason(env, payload)
+    assert "[cleanup]" in why and "引けず" in why, why
+
+
+def test_pr_text_試験の口の雛形の_path_が無ければ止める(env, tmp_path):
     env["AF_CLEANUP_TEMPLATE"] = str(tmp_path / "無い.md")
     why = deny_reason(env, gh("create_pull_request", title="作り物", head="b", base="main", body=cleanup_body()))
-    assert "整地の雛形" in why and "見つからず" in why
+    assert "[cleanup]" in why and "無い.md" in why
+
+
+LAYOUT_BAD = [
+    ("段の順を入れ替えた", cleanup_body().replace("## 1. 意図\n作り物の意図。\n\n## 2. 課題\n作り物の課題。",
+                                              "## 2. 課題\n作り物の課題。\n\n## 1. 意図\n作り物の意図。"), "順が雛形と違う"),
+    ("同じ見出しが 2 つ", cleanup_body("\n## 3. 原因と同じ原因の他の問題\n作り物の重ね。\n"), "順が雛形と違う"),
+    ("整地の節の外に置いた", cleanup_body().replace("## 整地（根治の段）\n", "## 整地（根治の段）\n\n## 何をした\n作り物。\n"), "整地の節の外"),
+    ("一部だけ節の外", cleanup_body().replace("## 5. 未来", "## 畳んだ古い物\nなし。\n\n## 5. 未来"), "5. 未来"),
+    ("整地の見出しが無い", cleanup_body().replace("## 整地（根治の段）\n", ""), "整地（根治の段）` の見出しが無い"),
+    ("節の見出しより浅い段の見出しで節が切れる", cleanup_body().replace("## 整地（根治の段）", "### 整地（根治の段）")
+     .replace("## 4. 解決", "## 別の話\n作り物。\n\n## 4. 解決"), "整地の節の外"),
+]
+
+
+@pytest.mark.parametrize("name,body,want", LAYOUT_BAD, ids=[c[0] for c in LAYOUT_BAD])
+def test_pr_text_整地の見出しの順と置き場が雛形と違えば止める(env, name, body, want):
+    why = deny_reason(env, gh("create_pull_request", title="作り物", head="b", base="main", body=body))
+    assert "[cleanup]" in why and want in why, why
+
+
+def test_pr_text_整地の節の後に続く節が在っても通る(env):
+    body = cleanup_body("\n## 畳んだ古い物\nなし。\n\n## 検証\n作り物。\n\n## 残り（原因の台帳の行）\nなし\n")
+    assert deny_reason(env, gh("create_pull_request", title="作り物", head="b", base="main", body=body)) == ""
+    nested = body.replace("\n## 1.", "\n### 1.").replace("\n## 2.", "\n### 2.").replace("\n## 3.", "\n### 3.") \
+        .replace("\n## 4.", "\n### 4.").replace("\n## 5.", "\n### 5.")
+    assert deny_reason(env, gh("create_pull_request", title="作り物", head="b", base="main", body=nested)) == ""
 
 
 def test_pr_text_判定の形は道具を直に呼び無ければ止める(env, tmp_path):

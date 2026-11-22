@@ -15,6 +15,8 @@ import needs
 import pytest
 
 ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT / "plugins" / "guard" / "scripts"))
+import guard_common as G  # noqa: E402  1 行 1 件の JSON を割る正本（json_lines）
 QA = ROOT / "plugins" / "docs-kit" / "skills" / "qa-html"
 CHECK = QA / "check.mjs"
 TEMPLATE = QA / "references" / "template.html"
@@ -152,7 +154,7 @@ const { chromium } = require('playwright');
 """, encoding="utf-8")
     p = subprocess.run([node, str(script), page.as_uri()], capture_output=True, text=True, timeout=120)
     assert p.returncode == 0, p.stderr
-    out = json.loads(p.stdout.strip().splitlines()[-1])
+    out = json.loads(list(G.json_lines(p.stdout))[-1])                 # 1 行 1 件の JSON を割る正本
     got = out["got"]
     assert got["form"] == "qa-html/2" and got["answers"], got
     assert answer(got)["red"] == []

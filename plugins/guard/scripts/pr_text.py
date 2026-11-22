@@ -20,7 +20,9 @@ AI が自分で回すか、出した後に CI やレビューが拾うだけだ�
             コメントがレビューの判定（どの行かに `レビューした窓: … 判定: green|red` が揃うか、verdict の見出しが在る）なら、checker の
             `scripts/verdict_form.py` をそのまま呼ぶ。赤なら止める。道具が見つからない・壊れた時も止める
   cleanup … PR の本文（本文を渡す時だけ）に、dev-flow の preimpl-cleanup の `整地受領証.template.md` の見出し
-            （`## 1.` からの番号つき。見出しの名と数は雛形から読む）が全部在り、雛形の `〔…〕` が残っていない事。整地の要らない PR
+            （`## 1.` からの番号つき。見出しの名と数は雛形から読む）が全部、`## 整地…` の節の下に雛形の順で 1 つずつ在り、
+            雛形の `〔…〕` が残っていない事。雛形は PR を出す先の repo の PR の head の枝から GitHub で引く（窓の作業の木・
+            窓に入った土台の版は読まない。その repo が雛形を持たなければ土台の repo の既定の枝。引けなければ止める）。整地の要らない PR
             （振る舞いを変えない: 誤字・記録だけ・版だけ等）は本文に `整地: 不要（<訳>）` の 1 行を書く（訳はレビューが照らす）
   words   … PR の題・本文に、窓の id（`session_01…`）がそのまま出ていない事。本文の頭の欄の塊（1 行目から最初の空行まで）の
             窓の id を書く欄（書いた窓＝commit の記録と照らす写し。畳んだ親窓の欄も 2 段目までは）・コードの囲み・`…` の字・URL の中は
@@ -228,7 +230,7 @@ def pr_facts(repo, ti):
     if c.returncode != 0:
         return "", [], "PR #%s の commit を引けなかった: %s" % (number, (c.stderr or "").strip().splitlines()[-1:] or "")
     try:
-        msgs = [json.loads(ln) for ln in c.stdout.split("\n") if ln.strip()]   # 1 行 1 件の JSON は \n だけで割る
+        msgs = [json.loads(ln) for ln in G.json_lines(c.stdout)]   # 1 行 1 件の JSON を割る正本（改行だけで割る）
     except ValueError:
         return "", [], "PR #%s の commit の説明が読めない" % number
     if not total.strip().isdigit() or len(msgs) < int(total):
@@ -276,15 +278,122 @@ def check_verdict(body, data):
 
 
 # ── cleanup（PR 本文の整地の欄）──
-def template_parts(path):
-    """雛形から (見出しの並び [(番号, 名)], 置き場の字の並び)。読めなければ例外。"""
-    with open(path, encoding="utf-8") as f:
-        text = f.read()
+CLEANUP_REL = "/".join(("plugins", "dev-flow", "skills", "preimpl-cleanup", "整地受領証.template.md"))
+HEADING = re.compile(r"^(#{1,6})[ \t]+(.+?)[ \t#]*$", re.M)
+SECTION = "整地"          # 整地の節の見出しの頭の字（PR の型の `## 整地（根治の段）`）
+
+
+def _gh_tail(p):
+    return " / ".join((p.stderr or p.stdout or "").strip().splitlines()[-1:])
+
+
+def pr_head(repo, ti):
+    """雛形を読む先＝PR の head の (repo, ref, 誤り)。create_pull_request は入力の head（`owner:枝` なら owner の同じ名の repo）、
+    ほか（update_pull_request）は GitHub から PR の head を引く（入力の写しで決めない）。"""
+    head = str(ti.get("head") or "").strip()
+    if head:
+        owner, _, branch = head.rpartition(":")
+        return ("%s/%s" % (owner, repo.split("/", 1)[1]) if owner else repo), branch, ""
+    number = next((ti.get(k) for k in NUMBER_KEYS if ti.get(k)), None)
+    if not number:
+        return "", "", "PR の head（枝）も番号も道具の入力に無い"
+    try:
+        p = _gh(["repos/%s/pulls/%s" % (repo, number), "--jq", '(.head.repo.full_name // "") + "\\n" + .head.sha'])
+    except FileNotFoundError:
+        return "", "", "GitHub の CLI（gh）が無く、PR #%s の head を引けない" % number
+    except (OSError, subprocess.SubprocessError) as e:
+        return "", "", "PR #%s の head を引けなかった（%s）" % (number, e.__class__.__name__)
+    full, _, sha = p.stdout.strip().partition("\n")
+    if p.returncode != 0 or not re.fullmatch(r"[0-9a-f]{40}", sha.strip()):
+        return "", "", "PR #%s の head を引けなかった: %s" % (number, _gh_tail(p))
+    return (full.strip() or repo), sha.strip(), ""
+
+
+def _fetch(repo, ref):
+    """repo の ref（"" なら既定の枝）の雛形の (字, 無いか, 誤り)。GitHub の今の中身を直に読む（窓の作業の木・入った土台の版は読まない）。"""
+    from urllib.parse import quote
+    url = "repos/%s/contents/%s" % (repo, quote(CLEANUP_REL)) + ("?ref=%s" % quote(ref, safe="") if ref else "")
+    try:
+        p = _gh(["-H", "Accept: application/vnd.github.raw", url])
+    except FileNotFoundError:
+        return "", False, "GitHub の CLI（gh）が無い"
+    except (OSError, subprocess.SubprocessError) as e:
+        return "", False, e.__class__.__name__
+    if p.returncode == 0:
+        return p.stdout, False, ""
+    return "", "HTTP 404" in (p.stderr or ""), _gh_tail(p)
+
+
+def cleanup_template(repo, ti):
+    """(雛形の字, どこから読んだか, 誤り)。読む先は PR を出す先の repo の PR の head の枝（雛形を変える PR はその枝の雛形で照らす）。
+    その repo が雛形を持たない（dev-flow を持たない使う側の repo）時は、正本の土台の repo の既定の枝（窓が入れる main の先端）。
+    土台そのものへの PR で head に雛形が無い・どこも引けない時は誤り（窓に入った古い版で照らさない）。"""
+    env = os.environ.get(CLEANUP_TEMPLATE[2]) or ""
+    if env:
+        if not os.path.isfile(env):
+            return "", "", "%s の %s が無い" % (CLEANUP_TEMPLATE[2], env)
+        return _read(env), env, ""
+    if not repo:
+        return "", "", "出す先の repo（owner・repo）が道具の入力に無い"
+    where, ref, err = pr_head(repo, ti)
+    if err:
+        return "", "", err
+    text, missing, err = _fetch(where, ref)
+    if text:
+        return text, "%s の %s" % (where, ref), ""
+    found = _foundation()
+    if missing and found and found.lower() not in (repo.lower(), where.lower()):
+        text, _, err = _fetch(found, "")
+        if text:
+            return text, "%s の既定の枝" % found, ""
+        return "", "", "土台 %s の既定の枝から引けない: %s" % (found, err)
+    if missing:
+        return "", "", "%s の %s に %s が無い" % (where, ref, CLEANUP_REL)
+    return "", "", "%s の %s から引けない: %s" % (where, ref, err)
+
+
+def template_parts(text):
+    """雛形の字から (見出しの並び [(番号, 名)], 置き場の字の並び)。見出しが無ければ例外。"""
     heads = [(no, name.split("（")[0].strip()) for no, name in TEMPLATE_HEAD.findall(text)]
     if not heads:
-        raise ValueError("整地の雛形に `## N. ` の見出しが無い: %s" % path)
+        raise ValueError("整地の雛形に `## N. ` の見出しが無い")
     holders = sorted({m.group(0)[:14] for m in PLACEHOLDER.finditer(COMMENT.sub("", text))})
     return heads, holders
+
+
+def layout(body, heads):
+    """本文の整地の欄の崩れ（無い・節の外・順の違い）の文の並び。整地の節＝`整地` で始まる見出しから、その見出しと同じか
+    浅い段の、雛形の見出しでない次の見出しの前まで。雛形の見出しはその節の中に、雛形の順で 1 つずつ在る事。"""
+    pats = [re.compile(r"(?:%s\.\s*)?%s" % (no, re.escape(name))) for no, name in heads]
+    label = ["%s. %s" % h for h in heads]
+
+    def which(text):
+        return next((i for i, p in enumerate(pats) if p.match(text)), None)
+
+    rows = [(len(m.group(1)), m.group(2), which(m.group(2))) for m in HEADING.finditer(body)]
+    anywhere = {i for _, _, i in rows if i is not None}
+    start = next((k for k, (_, t, i) in enumerate(rows) if i is None and t.startswith(SECTION)), None)
+    inside = []
+    if start is not None:
+        for level, _, i in rows[start + 1:]:
+            if i is None and level <= rows[start][0]:
+                break
+            if i is not None:
+                inside.append(i)
+    out = []
+    lack = [label[i] for i in range(len(heads)) if i not in anywhere]
+    if lack:
+        out.append("整地の見出しが無い: %s（雛形の見出し %d つ）" % ("・".join(lack), len(heads)))
+    if start is None:
+        out.append("`## 整地（根治の段）` の見出しが無い（雛形の見出しはその節の下に置く）")
+    outside = [label[i] for i in sorted(anywhere - set(inside))]
+    if start is not None and outside:
+        out.append("整地の見出しが整地の節の外に在る: %s（`## %s` の見出しの下に置く）" % ("・".join(outside), rows[start][1]))
+    seen = list(dict.fromkeys(inside))
+    if seen != sorted(seen) or len(seen) != len(inside):
+        out.append("整地の見出しの順が雛形と違う: 本文 %s（雛形は %s の順・1 つずつ）"
+                   % ("→".join(heads[i][0] for i in inside), "→".join(no for no, _ in heads)))
+    return out
 
 
 def check_cleanup(body, repo, data, vals):
@@ -293,19 +402,15 @@ def check_cleanup(body, repo, data, vals):
     body = FENCE.sub(" ", COMMENT.sub(" ", body))      # 注記（雛形の説明）とコードの囲みの中は数えない
     if NOT_NEEDED.search(body):
         return []
-    tpl = _find_sibling(*CLEANUP_TEMPLATE, data)
-    if not tpl:
-        return ["整地の雛形（dev-flow の preimpl-cleanup の 整地受領証.template.md）が見つからず、欄を確かめられない。"
-                "plugin dev-flow を入れる（または AF_CLEANUP_TEMPLATE に path）"]
+    text, src, err = cleanup_template(repo, data.get("tool_input") or {})
+    if err:
+        return ["整地の雛形（dev-flow の preimpl-cleanup の 整地受領証.template.md）を、PR を出す先の repo・枝から引けず、"
+                "欄を確かめられない: %s" % err]
     try:
-        heads, holders = template_parts(tpl)
-    except (OSError, ValueError) as e:
-        return ["整地の雛形が読めない: %s" % e]
-    out = []
-    lack = [("%s. %s" % (no, name)) for no, name in heads
-            if not re.search(r"^#{1,6}\s*(?:%s\.\s*)?%s" % (no, re.escape(name)), body, re.M)]
-    if lack:
-        out.append("整地の見出しが無い: %s（雛形の見出し %d つ）" % ("・".join(lack), len(heads)))
+        heads, holders = template_parts(text)
+    except ValueError as e:
+        return ["整地の雛形が読めない（%s）: %s" % (src, e)]
+    out = layout(body, heads)
     left = [h for h in holders if h in body]
     if left:
         out.append("整地の雛形の `〔…〕` が残っている: %s" % "・".join(h + "…" for h in left[:3]))

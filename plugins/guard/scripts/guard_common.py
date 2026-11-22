@@ -158,6 +158,16 @@ def parse_ts(text):
 
 
 # ── 会話ログ（transcript の JSONL）──
+def json_lines(text):
+    """1 行 1 件の JSON の text を 1 件ずつの字に割る（空の行は飛ばす）。1 行 1 件の JSON を割る正本はここ 1 つ
+    （会話ログ・gh の --jq の出力）。改行（\\n）だけで割る: splitlines() は U+2028・U+2029・U+0085 などでも割り、
+    JSON の文字列の中にそのまま書かれたその字を含む行を壊す。"""
+    for line in str(text or "").split("\n"):
+        line = line.strip()
+        if line:
+            yield line
+
+
 def iter_rows(path, tail_bytes=0):
     """1 行ずつ dict で返す（壊れ行は飛ばす）。tail_bytes>0 なら末尾だけ読む。"""
     with open(path, "rb") as f:
@@ -170,11 +180,7 @@ def iter_rows(path, tail_bytes=0):
                 raw = raw.split(b"\n", 1)[1]
         else:
             raw = f.read()
-    # 1 行 1 件の JSON は改行（\n）だけで割る。splitlines() は U+2028 などでも割り、その字を含む行を壊れ行として捨てる
-    for line in raw.decode("utf-8", "replace").split("\n"):
-        line = line.strip()
-        if not line:
-            continue
+    for line in json_lines(raw.decode("utf-8", "replace")):
         try:
             row = json.loads(line)
         except ValueError:

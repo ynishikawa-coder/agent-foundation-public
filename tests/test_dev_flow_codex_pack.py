@@ -7,6 +7,9 @@ from pathlib import Path
 
 import pytest
 
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "plugins" / "guard" / "scripts"))
+import guard_common as G  # noqa: E402  1 行 1 件の JSON を割る正本（json_lines）
+
 BUILDER = (Path(__file__).resolve().parent.parent
            / "plugins" / "dev-flow" / "skills" / "codex" / "codex_pack.py")
 TODAY = "2026-11-11"
@@ -142,7 +145,7 @@ def test_送り出しの記録は値の表が在る時だけ本文なしで書�
     vals["dev-flow"]["codex"]["egress_log"] = "logs/egress.jsonl"
     (repo / "config" / "skill-values.json").write_text(json.dumps(vals), encoding="utf-8")
     assert run(repo, tmp_path / "o2", "--file", "tools/calc.py").returncode == 0
-    lines = (repo / "logs" / "egress.jsonl").read_text(encoding="utf-8").splitlines()
+    lines = list(G.json_lines((repo / "logs" / "egress.jsonl").read_text(encoding="utf-8")))   # 1 行 1 件の JSON を割る正本
     rec = json.loads(lines[-1])
     assert rec["result"] == "作った" and rec["files"] == ["tools/calc.py"] and len(rec["sha256"]) == 64
     assert "def add" not in lines[-1]
@@ -225,7 +228,7 @@ def test_止めた時の送り出しの記録に塊の字を書かない(repo, t
     tok = put_chunk(repo)
     set_values(repo, egress_log="logs/egress.jsonl")
     assert run(repo, tmp_path / "o", "--file", "tools/blob.py").returncode == 1
-    line = (repo / "logs" / "egress.jsonl").read_text(encoding="utf-8").splitlines()[-1]
+    line = list(G.json_lines((repo / "logs" / "egress.jsonl").read_text(encoding="utf-8")))[-1]
     rec = json.loads(line)
     assert rec["result"] == "中止" and rec["block"] == ["高エントロピーの塊"]
     assert tok not in line
