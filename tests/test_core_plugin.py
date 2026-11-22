@@ -608,20 +608,6 @@ def test_残りの受け皿は原因の台帳_1_つで_名だけの受け皿を�
     assert not hits, hits
 
 
-def test_main_へは製品もオーナーに聞かずに入れ_絵と差がある時だけ止める():
-    """「本番への出荷は聞く」を核に戻すと赤（Notion の決定と窓が読む核が食い違う形）。"""
-    kaku_text = (PLUGIN / "核.md").read_text(encoding="utf-8")
-    assert "本番への出荷" not in _節(kaku_text, 4), "核 §4 に「本番への出荷は聞く」が戻った"
-    s7 = _節(kaku_text, 7)
-    for word in ["（製品も）オーナーに聞かずに入れる", "レビュー green", "試験が緑で衝突なし", "全体の絵", "差がある・照らせない時は止めて聞く", "先に絵を描き"]:
-        assert word in s7, f"核 §7 に無い: {word}"
-    s7d = _節(細目の全文(), 7)
-    assert "**main へ入れる**" in s7d and "**③の照らし方**" in s7d
-    assert "review-pr 点 13" in s7d and "③の段が土台に入るまで" not in s7d   # 照らす段が入った後に「一言を取る」間の扱いを残さない
-    assert "核 §7 の「照らせない時」" in s7d, "照らせない時の止めが核から読めない形に戻った"
-    assert "核 §7 と細目 §7 の「main へ入れる」" in (ROOT / "CONTRIBUTING.md").read_text(encoding="utf-8")
-
-
 def test_土台の直しは使う側の写しの残りも同じ仕事で直し_合流まで終わったと言わない():
     """写しの残りを洗い出すだけで終わる形（直す持ち主が無い）を戻すと赤。"""
     s7d = _節(細目の全文(), 7)

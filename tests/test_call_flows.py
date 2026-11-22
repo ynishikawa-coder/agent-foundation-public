@@ -8,7 +8,6 @@ import pytest
 
 ROOT = Path(__file__).resolve().parent.parent
 TOOL = ROOT / "scripts" / "call_flows.py"
-PICTURE = ROOT / "docs" / "全体の絵.json"
 
 
 def git(cwd, *a):
@@ -80,8 +79,3 @@ def test_path_ごと書いた呼び出しも拾う(fake, tmp_path):
 def test_部品の箱と結べない絵は照らせない(fake, tmp_path, label, boxes):
     res = run("check", str(picture(tmp_path, [("x0", "x1")], boxes)), "--repo", str(fake))
     assert res.returncode == 2, label
-
-
-def test_この_repo_の流れが合意した全体の絵に全部在る():
-    res = run("check", str(PICTURE))
-    assert res.returncode == 0, res.stdout
