@@ -17,8 +17,17 @@ from test_guard import env, hook  # noqa: F401  （env は fixture）
 from test_pr_text import PUBLIC_WORD, _fake_public_repo, gh
 
 GUARD_SCRIPTS = Path(__file__).resolve().parent.parent / "plugins" / "guard" / "scripts"
-MAX_READ = 2_000_000
 KEY = "gh" + "p_" + "A1b2C3d4" * 5          # 作り物の鍵（字をつないで作る＝この file が公開の検査に当たらない）
+
+
+@pytest.fixture
+def outbound(monkeypatch):
+    """照らす上限の正本 outbound.MAX_READ を直に読むための module（試験に上限の数を写さない）。"""
+    import sys
+    monkeypatch.syspath_prepend(str(GUARD_SCRIPTS))
+    sys.modules.pop("outbound", None)
+    import outbound as ob
+    return ob
 
 
 def publish(cwd, **ti):
@@ -29,9 +38,9 @@ def notice(env, payload):
     return hook(env, "post", payload).get("additionalContext", "")
 
 
-def test_大きすぎる_Artifact_の_file_は名と訳を知らせる(env, tmp_path):
+def test_大きすぎる_Artifact_の_file_は名と訳を知らせる(env, tmp_path, outbound):
     (tmp_path / "ok.html").write_text("<p>報告</p>", encoding="utf-8")
-    (tmp_path / "big.json").write_text("x" * (MAX_READ + 1), encoding="utf-8")
+    (tmp_path / "big.json").write_text("x" * (outbound.MAX_READ + 1), encoding="utf-8")     # 上限のすぐ上
     p = publish(tmp_path, file_path="ok.html", files={"data/big.json": "big.json"})
     got = notice(env, p)
     assert "照らせなかった" in got and str(tmp_path / "big.json") in got and "大きすぎる" in got
@@ -43,6 +52,13 @@ def test_開けない_Artifact_の_file_は名と訳を知らせる(env, tmp_pat
     p = publish(tmp_path, file_path="ok.html", files={"data/gone.json": "無い.json"})
     got = notice(env, p)
     assert str(tmp_path / "無い.json") in got and "開けない" in got
+
+
+def test_上限ちょうどの_file_は照らせた物として名指さない(env, tmp_path, outbound):
+    """境目の下側。上限の数を写した試験は正本が変わると境目を見なくなる＝ここは正本の数ちょうどで作る。"""
+    (tmp_path / "ok.html").write_text("<p>報告</p>", encoding="utf-8")
+    (tmp_path / "edge.json").write_text("x" * outbound.MAX_READ, encoding="utf-8")
+    assert notice(env, publish(tmp_path, file_path="ok.html", files={"data/edge.json": "edge.json"})) == ""
 
 
 def test_照らせた_file_だけの_Artifact_は何も知らせない(env, tmp_path):
@@ -59,15 +75,11 @@ def test_鍵で止める時も照らせなかった_file_を止めた文に添�
     assert "照らせなかった file" in why and "無い.json" in why and KEY not in why
 
 
-def test_secret_hits_は照らせなかった_file_を呼ぶ側へ渡す(tmp_path, monkeypatch):
-    import sys
-    monkeypatch.syspath_prepend(str(GUARD_SCRIPTS))
-    sys.modules.pop("outbound", None)
-    import outbound
+def test_secret_hits_は照らせなかった_file_を呼ぶ側へ渡す(tmp_path, outbound):
     pg = outbound._public_guard()
     assert pg is not None
     big = tmp_path / "big.txt"
-    big.write_text(KEY + "x" * MAX_READ, encoding="utf-8")       # 鍵が入っていても大きすぎて照らせない
+    big.write_text(KEY + "x" * (outbound.MAX_READ + 1 - len(KEY)), encoding="utf-8")   # 上限のすぐ上＝鍵が入っていても照らせない
     data = {"tool_name": "Artifact", "cwd": str(tmp_path), "tool_input": {"file_path": str(big)}}
     unread = []
     assert outbound.secret_hits(data, {}, pg, unread) == []
