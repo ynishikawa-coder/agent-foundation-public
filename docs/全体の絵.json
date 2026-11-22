@@ -510,7 +510,7 @@
    "y": 402,
    "w": 300,
    "h": 48,
-   "what": "開いた（使う側の）repo の全体。土台の道具は読むだけで、実行はしない。中の名前付きの物＝repo ごとの値の表（a9）・repo 固有の CLAUDE.md（a10）。そのほか文書・script・設計書・PR に出す file など（core の古い形の見張り・docs-kit の全体の絵と問いのページの検査・dev-flow の設計書の照らしと Codex のパック・checker の書いた窓の照らし・guard の守りの hook が読む）。",
+   "what": "開いた（使う側の）repo の全体。土台の道具は読むだけで、実行はしない。中の名前付きの物＝repo ごとの値の表（a9）・repo 固有の CLAUDE.md（a10）。そのほか文書・script・設計書・PR に出す file など（どの道具が何のために読むかは、この箱へ来る矢印の名）。",
    "why": "各 plugin が使う側の repo の在り処（CLAUDE_PROJECT_DIR・git rev-parse --show-toplevel・今の dir・hook の入力の cwd）を引いて読む。scripts/call_flows.py が在り処を引く形で拾う。",
    "intent": "土台の道具が使う側の repo を読む事を、core に限らず土台の道具の全体に許す。読むだけで、実行の許しは含まない（2026-11-22）。"
   }
@@ -752,19 +752,23 @@
   },
   {
    "from": "a4",
-   "to": "a13"
+   "to": "a13",
+   "label": "守りの hook が照らす時に読む（読むだけ）"
   },
   {
    "from": "a6",
-   "to": "a13"
+   "to": "a13",
+   "label": "書いた窓の照らしで読む（読むだけ）"
   },
   {
    "from": "a7",
-   "to": "a13"
+   "to": "a13",
+   "label": "設計書の照らし・Codex のパックで読む（読むだけ）"
   },
   {
    "from": "a8",
-   "to": "a13"
+   "to": "a13",
+   "label": "全体の絵と問いのページの検査で読む（読むだけ）"
   }
  ],
  "problems": [
