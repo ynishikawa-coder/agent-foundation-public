@@ -28,7 +28,7 @@ job: <YYYYMMDD-話題>
 
 <!--
 頭の欄は job だけ。書いた窓と検査の結果は本文に写さない＝書いた窓は PR の commit 全部の `Claude-Session:` の窓（記録・plugins/checker/scripts/pr_writer.py --writers が出す）、検査は CI の job check の結果（記録）。走らせた命令は「検証」に書く（前は頭に手で写し、直しの commit を足した窓が書き直さずに記録とずれた）。
-レビューは書いた窓と別の窓がする（どちらのアカウントの窓でもよい）。green が今の先端に付いたら Javis 側の親窓が squash で入れる。レビューした窓は PR に次の 2 行で始まるコメントを残す:
+レビューは書いた窓と別の窓がする（どちらのアカウントの窓でもよい）。green が今の先端に付き全体の絵と差が無ければ、親窓（どちらの AI の窓でもよい・CONTRIBUTING §3）が squash で入れる。レビューした窓は PR に次の 2 行で始まるコメントを残す:
 レビューした窓: <session id> 判定: green|red
 見た先端: <SHA の先頭 12 文字>
 -->
