@@ -116,9 +116,38 @@ def _回す(f, args):
         f(**kw)
 
 
-# 決まりの file を読みうる試験の file（中に決まりの file の名か置き場の名が在る）。決まりの試験を探すのはこの file だけ
-# （全部の試験を回すと数分かかる）。名の無い読み方で読む試験を見落とすと、その試験が照らす文が穴に出て赤になる（緑に倒れない）。
+# 決まりの file を読みうる試験（その関数か、関数が呼ぶ同じ file の関数・file の頭の値に、決まりの file の名か置き場の名が在る）。
+# 決まりの試験を探す時はこの試験だけを回す（全部の試験を回すと数分かかる）。名の無い読み方で読む試験を見落とすと、
+# その試験が照らす文が穴に出て赤になる（緑に倒れない）。
 _読みうる = re.compile(r"plugins/core|\"core\"|核|振る舞い|細目")
+
+
+def _読みうる試験(src):
+    """試験の file の中身 src の試験の関数のうち、決まりの file を読みうる物の名の集まり。"""
+    import ast
+    tree = ast.parse(src)
+    body = {}
+    head = []
+    for n in tree.body:
+        if isinstance(n, (ast.FunctionDef, ast.ClassDef)):
+            body[n.name] = n
+        else:
+            head.append(n)
+    names_of = {k: {x.id for x in ast.walk(v) if isinstance(x, ast.Name)} | {x.attr for x in ast.walk(v) if isinstance(x, ast.Attribute)}
+                for k, v in body.items()}
+    hit = {k for k, v in body.items() if _読みうる.search(ast.get_source_segment(src, v) or "")}
+    for n in head:   # file の頭の値（ROOT / "plugins" / "core" など）に名があれば、その値を使う関数も読みうる
+        if _読みうる.search(ast.get_source_segment(src, n) or ""):
+            hit |= {k for k, v in names_of.items()
+                    if {x.id for x in ast.walk(n) if isinstance(x, ast.Name) and isinstance(x.ctx, ast.Store)} & v}
+    changed = True
+    while changed:   # 読みうる関数を呼ぶ関数も読みうる
+        changed = False
+        for k, v in names_of.items():
+            if k not in hit and v & hit:
+                hit.add(k)
+                changed = True
+    return {k for k in hit if k.startswith("test_")}
 
 
 @functools.lru_cache(maxsize=1)
@@ -136,13 +165,15 @@ def _決まりの試験():
         return _read(self, *a, **k)
 
     for p in sorted((ROOT / "tests").glob("test_*.py")):
-        if p.name == pathlib.Path(__file__).name or not _読みうる.search(_read(p, encoding="utf-8")):
+        src = _read(p, encoding="utf-8")
+        if p.name == pathlib.Path(__file__).name or not _読みうる.search(src):
             continue
+        hit = _読みうる試験(src)
         spec = importlib.util.spec_from_file_location("_rule_holes_" + p.stem, p)
         m = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(m)
         for name, f in sorted(vars(m).items()):
-            if not (name.startswith("test_") and inspect.isfunction(f)):
+            if not (name.startswith("test_") and inspect.isfunction(f)) or name not in hit:
                 continue
             calls = _呼び方(f)
             if calls is None:
