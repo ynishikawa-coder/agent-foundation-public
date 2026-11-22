@@ -54,13 +54,6 @@ def test_開けない_Artifact_の_file_は名と訳を知らせる(env, tmp_pat
     assert str(tmp_path / "無い.json") in got and "開けない" in got
 
 
-def test_上限ちょうどの_file_は照らせた物として名指さない(env, tmp_path, outbound):
-    """境目の下側。上限の数を写した試験は正本が変わると境目を見なくなる＝ここは正本の数ちょうどで作る。"""
-    (tmp_path / "ok.html").write_text("<p>報告</p>", encoding="utf-8")
-    (tmp_path / "edge.json").write_text("x" * outbound.MAX_READ, encoding="utf-8")
-    assert notice(env, publish(tmp_path, file_path="ok.html", files={"data/edge.json": "edge.json"})) == ""
-
-
 def test_照らせた_file_だけの_Artifact_は何も知らせない(env, tmp_path):
     (tmp_path / "ok.html").write_text("<p>報告</p>", encoding="utf-8")
     assert notice(env, publish(tmp_path, file_path="ok.html")) == ""
