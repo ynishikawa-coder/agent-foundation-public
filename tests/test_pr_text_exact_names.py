@@ -74,6 +74,6 @@ def test_全体の形で書いた外す行は似た名の_repo_を外さない(e
     table = tmp_path / "values.json"
     env["SKILL_VALUES"] = str(table)
     table.write_text(json.dumps({"guard": {"pr_words_exempt_repos": ["^fake-owner/fake$"]}}), encoding="utf-8")
-    body = "## 整地（根治の 4 段）\n整地: 不要（試し）\n連絡: session_01CCCCCCCCCCCCCCCCCCCCCCCC\n"
+    body = "## 整地（根治の段）\n整地: 不要（試し）\n連絡: session_01CCCCCCCCCCCCCCCCCCCCCCCC\n"
     assert deny_reason(env, gh("update_pull_request", repo="fake", pullNumber=1, body=body)) == ""
     assert "[words]" in deny_reason(env, gh("update_pull_request", repo="fake-private", pullNumber=1, body=body))

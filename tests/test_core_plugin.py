@@ -285,28 +285,25 @@ def _節(text, n):
     return text[a:] if b < 0 else text[a:b]
 
 
-def test_核の根治は問題_原因_解決_未来の_4_段で_未来は試験の段でない():
+def test_核の根治は意図_課題_原因_解決_未来の_5_段で_未来は試験の段でない():
     kaku_text = (PLUGIN / "核.md").read_text(encoding="utf-8")
     s3 = _節(kaku_text, 3)
-    assert "問題→原因→解決→未来" in s3
+    assert "意図→課題→原因→解決→未来" in s3
     assert "仕組み・設計）が悪い前提" in s3 and "別の目の助手" in s3
     s3d = _節((PLUGIN / "細目.md").read_text(encoding="utf-8"), 3)
-    assert "同じ問題と同じ原因の他の問題が起きない状態" in s3d, "細目 §3 の未来が直した後の姿でない"
-    for word in ["**問題**", "**原因**", "**同じ原因の他の問題**", "**解決**", "**未来**",
+    assert "意図が果たされ、同じ課題と同じ原因の他の問題が起きない状態" in s3d, "細目 §3 の未来が直した後の姿でない"
+    for word in ["**意図**", "**課題**", "**原因**", "**同じ原因の他の問題**", "**解決**", "**未来**",
                  "無理・無駄・重複", "聞かせ方", "混じって", "試験を足す段ではない"]:
         assert word in s3d, f"細目 §3 に無い: {word}"
 
 
-def test_MGkm_は根治の_4_段の呼び名で説明の頼みにも_4_段で答える():
-    assert "問題→原因→解決→未来（MGkm）" in _節((PLUGIN / "核.md").read_text(encoding="utf-8"), 3), "核 §3 に MGkm が無い"
+def test_MGK_は根治の_5_段の呼び名で説明の頼みにも_5_段で答える():
+    assert "意図→課題→原因→解決→未来" in _節((PLUGIN / "核.md").read_text(encoding="utf-8"), 3), "核 §3 に 5 段が無い"
     s3d = _節((PLUGIN / "細目.md").read_text(encoding="utf-8"), 3)
-    assert "**呼び名 MGkm**" in s3d, "細目 §3 に MGkm の呼び名が無い"
-    line = next(l for l in s3d.splitlines() if "呼び名 MGkm" in l)
-    for word in ["問題 Mondai", "原因 Genin", "解決 Kaiketsu", "未来 Mirai"]:
-        assert word in line, f"MGkm の行に無い: {word}"
-    line = next(l for l in (PLUGIN / "振る舞い.md").read_text(encoding="utf-8").splitlines() if "**MGkm**" in l)
-    for word in ["説明", "4 段の見出しで答える"]:
-        assert word in line, f"振る舞いの既定の MGkm の行に無い: {word}"
+    assert "（呼び名 MGK。" in s3d, "細目 §3 に MGK の呼び名が無い"
+    line = next(l for l in (PLUGIN / "振る舞い.md").read_text(encoding="utf-8").splitlines() if "**MGK**" in l)
+    for word in ["説明", "根治の 5 段の見出しで答える"]:
+        assert word in line, f"振る舞いの既定の MGK の行に無い: {word}"
 
 
 def test_問いは選ぶ問いと開いた問いに分け_分からないを置き_言葉を混ぜない():
@@ -549,7 +546,7 @@ def test_挙げた原因は全部台帳に行き先つきで持ち_全部済む�
     ("plugins/dev-flow/skills/spec-doc/SKILL.md", "4. **右サイズを提示**"),
     ("plugins/dev-flow/skills/spec-doc/SKILL.md", "部分にする正当な理由"),
     ("plugins/dev-flow/skills/preimpl-cleanup/SKILL.md", "`[後片付け]`（"),
-    ("plugins/dev-flow/skills/preimpl-cleanup/SKILL.md", "6. **同梱の片付けの返し**"),
+    ("plugins/dev-flow/skills/preimpl-cleanup/SKILL.md", "**同梱の片付けの返し**"),
     ("plugins/dev-flow/skills/preimpl-cleanup/整地受領証.template.md", "**畳む物**"),
     ("plugins/dev-flow/skills/preimpl-cleanup/整地受領証.template.md", "**残る穴**"),
 ]
@@ -647,7 +644,7 @@ FURUMAI_WORDS = {  # 既定の要の語: 振る舞い.md だけに在り、細�
     "逃げ場": ["「できれば」「間に合わなければ後で」と書かない"],
     "呼び出し": ["2 回で打ち方を変えるか止める"],
     "一覧": ["削らない・選ばない"],
-    "MGkm": ["「MGkm して」と言ったら"],
+    "MGK": ["「MGK して」と言ったら"],
 }
 
 
