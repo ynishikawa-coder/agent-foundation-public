@@ -24,7 +24,7 @@ def _read(rel):
 
 def test_並走に触る_file_の宣言と列の文が在る():
     assert "触る file を先に宣言し、同じ file を取る窓は列に。" in _read("plugins/core/振る舞い.md")
-    assert "`--files`" in _read("CONTRIBUTING.md")   # 宣言を引く口は CONTRIBUTING が指す
+    assert "--files <path>" in _read("scripts/pr_overlap.py") and "振る舞いの既定「並走」" in _read("scripts/pr_overlap.py")
 
 
 def test_宣言した_file_を開いている_PR_が書き換えていれば名指す():

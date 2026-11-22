@@ -170,7 +170,7 @@ def main(argv=None, read=read_facts) -> int:
               % (a.pr, head, "・".join(required)))
         return 0
     print("review_gate: %s — #%d@%s（判定に入らない。書いた窓へ「%s」と訳だけを返す）" % (kind, a.pr, head, kind))
-    print("直し: 書いた窓は訳を 1 つずつ潰さず、検査の赤・衝突は細目 §3「まず構造を疑う」で原因から直してからレビューを頼む")
+    print("直し: 書いた窓は訳を 1 つずつ潰さず、意図（レビューは中身だけを 1 回見る）とのずれから入り、検査の赤・衝突の原因を細目 §3「まず構造を疑う」で探して直してからレビューを頼む")
     return 1
 
 
