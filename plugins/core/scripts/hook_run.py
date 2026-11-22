@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """土台の hook の入口: 入った台帳の今いちばん新しい版の script を回す（窓が古い版の dir で立っても先端の hook が効く）。
 
-意図: 合流した守りの hook の直しが、古い土台で立った窓にも次の呼び出しから効く。
+意図: 入れ直した守りの hook の直しが、古い土台で立った窓にも次の呼び出しから効く（入れ直すのは立つ時と急ぎの安全の直しの時だけ・docs/核の届け方.md）。
 課題: 作り置きの箱で立った窓は、箱を作った時の版の hook で動き続け、合流した直し（窓を立て直させる知らせ・返事の
   差し戻しを畳んだ直し）が箱の作り直しまで効かなかった。
 原因: hooks.json の命令が版の dir（${CLAUDE_PLUGIN_ROOT}）の script を直に指していた。Claude Code は窓の途中で plugin を
@@ -9,7 +9,7 @@
 形: 土台の hooks.json の命令は、目録の clone（~/.claude/plugins/marketplaces/agent-foundation）のこの入口へ
   自分の script の path と引数を渡す（入口が無ければ自分の script を直に回す）:
     f=…/hook_run.py; [ -f "$f" ] || f=; python3 ${f:+"$f"} "${CLAUDE_PLUGIN_ROOT}/scripts/<script>" <引数>
-  入口は目録の clone の物＝起動の時に plugin core が先端へ取り直す（kaku.py の refresh）ので、入口の直しも次の呼び出しから効く。
+  入口は目録の clone の物＝起動の時（と急ぎの安全の直しの時）に plugin core が先端へ取り直す（kaku.py の refresh）ので、入口の直しもその後の次の呼び出しから効く。
 やる事: 渡された script が属する plugin（呼ばれた dir の plugin.json の名）の、入った台帳（~/.claude/plugins/installed_plugins.json）の今読まれる行
   （kaku.current_row＝dir が在る行のうち最後に入れた行）の dir を引き、それが呼ばれた dir と違えば、その版の
   同じ script を CLAUDE_PLUGIN_ROOT をその dir にして回す。その版の hooks.json に同じ命令が無ければ（先端が外した hook）
