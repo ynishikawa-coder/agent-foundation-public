@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""会話ログ（transcript の JSONL）だけを読む点検（手で回す点検と、返事の形の崩れだけを AI へ差し戻す Stop の hook）。
+"""会話ログ（transcript の JSONL）だけを読む点検（手で回す点検と、返事の形の崩れを見つけて次の頼みの時に知らせる Stop の hook）。
 
 拾う物（どれも会話ログの中だけで決まる＝外の台帳・get_session の返りを見ない。値の表で外す形だけ読む）:
   title    … 窓の題の目印（`<種類><状態> <作業名>`）が決まりどおりか（題だけで決まる形は title_shape。
@@ -196,7 +196,7 @@ def text_of(row):
 def seeded_by_record(row):
     """子の窓の見分けの記録（頼みの行の origin）。正本は隣の plugin guard の
     guard_common.seeded_by_record（人の印の表もそこ 1 か所＝写さない）。隣が無い時は False（文だけで子の窓と決めない。
-    返事の差し戻しが neighbor の札で名指す）。"""
+    返事の見張りが neighbor の札で名指す）。"""
     G = neighbor("guard_common")
     return bool(G.seeded_by_record(row)) if G is not None else False
 
@@ -525,7 +525,7 @@ def words(log, closing, data=None):
     if not closing.strip():
         return found
     # 照らしは札ごとに分けて走らせる: 1 つ（値の表の誤った形・隣の正本の故障）が壊れても、他の札は黙って抜けない。
-    #   壊れた札は neighbor で名指す（AI には直せない＝窓ごとに 1 回だけ差し戻す）。
+    #   壊れた札は neighbor で名指す（AI には直せない＝窓ごとに 1 回だけ知らせる）。
     def part(name, fn):
         try:
             fn()
@@ -724,11 +724,11 @@ REMIND = (
 
 REMIND_PARENT = ("[session-watch] 最初の頼みの文の返し先が別の窓を指すが、頼みの行の記録をまだ読めない（文は人が貼った写しかもしれない）。"
                  "最初の返事の前に `get_session` を session_id を省いて読み、`parent_session_id` が在れば（別の窓が立てた記録）🤖 の窓"
-                 "として、親が付けた今の題を `set_session_title` で付け直す（親が付けた題は会話ログに載らず、返事の差し戻しが照らせない）。"
+                 "として、親が付けた今の題を `set_session_title` で付け直す（親が付けた題は会話ログに載らず、返事の見張りが照らせない）。"
                  "`parent_session_id` が無ければ人が立てた窓なので 🙋 で題を付ける。形の細目は skill `session-watch:title-mark`。")
 
 
-REMIND_CHILD = ("[session-watch] 親が付けた題は会話ログに載らず、返事の差し戻し（Stop）が照らせない。最初の返事の前に "
+REMIND_CHILD = ("[session-watch] 親が付けた題は会話ログに載らず、返事の見張り（Stop）が照らせない。最初の返事の前に "
                 "`get_session` を session_id を省いて読み、今の題を `set_session_title` で付け直す（形が合っていれば同じ題でよい）。")
 
 
@@ -793,7 +793,7 @@ def remind_title(log, data):
         if kind is None and kind_of(prompt, True) == AI:
             return REMIND_PARENT
     if kind == AI:
-        return REMIND_CHILD   # 親が create_session で付けた題は会話ログに無い＝返事の差し戻しで照らせないので、付け直させる
+        return REMIND_CHILD   # 親が create_session で付けた題は会話ログに無い＝返事の見張りで照らせないので、付け直させる
     which = ("%s（最初の頼みの返し先から）" % kind) if kind else (
         "オーナーと話す窓なら %s・別の窓へ返す窓なら %s" % (HUMAN, AI))
     return REMIND % (HUMAN, AI, REMOTE_PREFIX.rstrip("_"), which)
@@ -900,7 +900,7 @@ def stop(data, env=None):
 
 
 def _seen(env, sid, what):
-    """この窓で what を既に差し戻したか（初めてなら印を置いて False）。"""
+    """この窓で what を既に知らせたか（初めてなら印を置いて False）。"""
     d = stop_tmp(env)
     name = "".join(c for c in str(sid or "nosid") if c.isalnum() or c in "-_")[:120] or "nosid"
     path = os.path.join(d, "%s.%s" % (name, what))

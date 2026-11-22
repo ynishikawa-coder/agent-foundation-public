@@ -205,7 +205,7 @@ def in_ci() -> bool:
 
 def secret_labels(text: str) -> list[str]:
     """秘密の形に当たった札の並び（値は返さない）。秘密の形の正本はここ 1 つ。
-    返事の差し戻し（plugin session-watch の Stop の hook）もこれを直に呼ぶ（写さない）。"""
+    返事の見張り（plugin session-watch の Stop の hook）もこれを直に呼ぶ（写さない）。"""
     text = normalize(text)
     return [label for label, pat in SECRET_PATTERNS.items() if re.search(pat, text)]
 

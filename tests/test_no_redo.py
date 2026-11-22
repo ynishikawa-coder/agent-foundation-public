@@ -32,7 +32,7 @@ def _read(rel):
 # ── 1. 決まりの今の文（文をそのまま照らす＝消すと赤）──
 RULES = [
     ("plugins/core/核.md", "- 最後の 2 行は `AI がこの後やること:`（締める前に動かす）と `あなたがやること:`。"),
-    ("plugins/core/核.md", "- 🤖 の窓は終わったら AI が閉じる。"),
+    ("plugins/core/核.md", "- AI が立てた 🤖 の窓は終わったら AI が閉じる。"),
     ("plugins/core/核.md", "- 終わったかの判定は書いた窓と別の目が合流の前に 1 回する（見直しも同じ目）。"),
     ("plugins/core/振る舞い.md", "- **後継へ渡す残り** は 1 本の列にせず、1 つずつ持ち主（この窓・直す窓・台帳の行）を付ける。"),
     ("plugins/core/振る舞い.md", "- **同じ原因の他の問題** は書いた窓が削らず選ばず全部を原因の台帳へ。"),
@@ -49,6 +49,9 @@ RULES = [
     ("plugins/core/細目.md", "- **締めの 2 行** — オーナーが最後だけ読んで、自分の番かが分かる形にする。"),
     ("plugins/core/細目.md", "  - `あなたがやること: なし` ／ `あなたがやること: <何を>（問いに答える・手を打つ窓の URL）`"),
     ("plugins/core/細目.md", "- **文脈が重い時** — 後継の窓へ移らず、自動の要約に任せてそのまま続ける。"),
+    ("plugins/core/細目.md", "助手（Agent の `model: \"sonnet\"`）は Sonnet にする。"),
+    ("plugins/core/細目.md", "お金・戻せない操作・核の変更に触れるレビューは Opus のまま。"),
+    ("plugins/core/細目.md", "話題が変わったら新しい窓を勧める（強制しない）。"),
 ]
 
 
@@ -165,3 +168,66 @@ def test_文脈の目安の見張りと鍵が無い():
 def test_注入_値の表に文脈の目安の古い鍵を置くと畳んだ鍵と名指す(key, value):
     got = SV.check({"guard": {key: value}})
     assert any(("guard.%s は畳んだ鍵" % key) in g for g in got), got
+
+
+# ── 消した仕組みを今も在る物として書く説明（plugin の説明・README・skill・AI に出す文）──
+STALE_DESC = re.compile(r"差し戻す Stop の hook|AI だけへ差し戻す|返事の差し戻し|Stop の差し戻し|文脈の量を|文脈の量と越えた|引き継がずに締める|既に差し戻した")
+DESC_FILES = [p for p in [*(ROOT / "plugins").rglob("*"), *(ROOT / "public-guard").rglob("*")]
+              if p.is_file() and p.suffix in {".md", ".json", ".py"} and "tests" not in p.parts]
+
+
+@pytest.mark.parametrize("sample", [
+    "崩れを AI だけへ差し戻す Stop の hook",
+    "guard の一覧に「文脈の量と越えた後の締めの差し戻し」",
+    "session-watch の返事の差し戻しも直に呼ぶ",
+])
+def test_消した仕組みの説明を入れると拾う(sample):
+    assert STALE_DESC.search(sample)
+
+
+def test_説明に消した仕組みが残らない():
+    hits = [f"{p.relative_to(ROOT)}:{i}" for p in DESC_FILES
+            for i, line in enumerate(p.read_text(encoding="utf-8", errors="ignore").splitlines(), 1)
+            if STALE_DESC.search(line)]
+    assert not hits, hits
+
+
+# ── 自動の要約を約 20 万 token で走らせる（setup が settings.json に置く・人の値は替えない）──
+def _setup_mod():
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("setup_plugins_t", ROOT / "scripts" / "setup_plugins.py")
+    m = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(m)
+    return m
+
+
+def test_要約の窓を置く(tmp_path, monkeypatch):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    m = _setup_mod()
+    (tmp_path / ".claude").mkdir()
+    (tmp_path / ".claude" / "settings.json").write_text('{"env": {"TZ": "Asia/Tokyo"}}', encoding="utf-8")
+    assert m.compact_window()
+    d = json.loads((tmp_path / ".claude" / "settings.json").read_text(encoding="utf-8"))
+    assert d == {"env": {"TZ": "Asia/Tokyo"}, "autoCompactWindow": 200_000}
+
+
+def test_要約の窓は無い時も置く(tmp_path, monkeypatch):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    assert _setup_mod().compact_window()
+    assert json.loads((tmp_path / ".claude" / "settings.json").read_text())["autoCompactWindow"] == 200_000
+
+
+def test_人が置いた要約の窓は替えない(tmp_path, monkeypatch):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    (tmp_path / ".claude").mkdir()
+    (tmp_path / ".claude" / "settings.json").write_text('{"autoCompactWindow": 400000}', encoding="utf-8")
+    assert _setup_mod().compact_window()
+    assert json.loads((tmp_path / ".claude" / "settings.json").read_text())["autoCompactWindow"] == 400000
+
+
+def test_壊れた設定は替えず知らせる(tmp_path, monkeypatch):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    (tmp_path / ".claude").mkdir()
+    (tmp_path / ".claude" / "settings.json").write_text("{broken", encoding="utf-8")
+    assert not _setup_mod().compact_window()
+    assert (tmp_path / ".claude" / "settings.json").read_text() == "{broken"
