@@ -69,8 +69,17 @@ def test_guard_の上限の試験は正本の値を変えても境目のすぐ�
 
 @pytest.mark.parametrize("module,name,value,test,cut", GUARD_CASES)
 def test_注入_guard_の切りの誤りは上限の試験が赤(env, tmp_path, module, name, value, test, cut):
+    injected = _guard_copy(env, tmp_path, module, name, value, cut)  # 支度は raises の外（当て所の外れを赤に飲ませない）
     with pytest.raises(AssertionError):
-        _run(test, _guard_copy(env, tmp_path, module, name, value, cut), tmp_path)
+        _run(test, injected, tmp_path)
+
+
+@pytest.mark.parametrize("module,name,value,test,cut", GUARD_CASES)
+def test_注入_guard_の当て所が正本から外れたら支度が名指しで赤(env, tmp_path, module, name, value, test, cut):
+    """当て所の字が正本に無い（字の揺れ）時、支度が名指しで止まる＝注入の試験は空で緑にならない。"""
+    drifted = (cut[0] + "  # 正本に無い字", cut[1])
+    with pytest.raises(AssertionError, match="注入の当て所が正本から外れた"):
+        _guard_copy(env, tmp_path, module, name, value, drifted)
 
 
 def _smoke_copy(tmp_path, line_bytes, max_lines, cut=None):
