@@ -107,10 +107,12 @@ def handoff_state(tpath, limit, patterns):
     越える直前の同じ番の中で後継を立て返し先へ送り、締めの文で越えた窓も引き継いだと数える（越えた行より後だけを
     見ると、その窓の締めを差し戻し続けた）。前の番の呼び出し（途中の返し等）は数えない。"""
     over, handed = False, False
-    turn = []        # 今の番（最後の頼みの行より後）の道具の呼び出し
+    turn = []        # 今の番（人が打った最後の行より後）の道具の呼び出し
     for row in G.iter_rows(tpath):
         if not over and G.is_owner_row(row):
-            turn = []
+            # 番は人が打った行で切る（別の窓・子の窓の知らせは切らない＝後継の「受け取った」が挟まっても数える）
+            if not G.seeded_by_record(row):
+                turn = []
             continue
         if row.get("type") != "assistant":
             continue

@@ -114,3 +114,18 @@ def test_context_stop_助手の中と壊れた会話ログでは黙る(env, tmp_
     d.mkdir()
     assert stop_hook(env, over_log(d, 999_999)) == ""
     assert stop_hook(env, str(tmp_path / "無い.jsonl")) == ""
+
+
+def test_context_stop_引き継いだ後に知らせが挟まって越えても差し戻さない(env, tmp_path):
+    """番は人が打った行で切る。後継の窓の「受け取った」の知らせ（人の打った物でない行）は番を切らない。"""
+    def at(tokens, *blocks):
+        return {"type": "assistant", "message": {"usage": {"input_tokens": tokens}, "content": list(blocks)}}
+    rows = [
+        {"type": "user", "message": {"content": "作り物の頼み"}, "origin": {"kind": "human"}},
+        at(297_000, {"type": "tool_use", "name": "mcp__claude-code-remote__create_session", "input": {"prompt": "作り物の引き継ぎ"}}),
+        {"type": "user", "message": {"content": "作り物の受け取った"}, "origin": {"kind": "task-notification"}},
+        at(300_100, {"type": "text", "text": "作り物の締め"})]
+    assert stop_hook(env, write_log(tmp_path / "e.jsonl", rows)) == ""
+    # 注入: 挟まったのが人の打った行なら、前の番の呼び出しとして数えない
+    rows[2] = {"type": "user", "message": {"content": "作り物の次の頼み"}, "origin": {"kind": "human"}}
+    assert stop_hook(env, write_log(tmp_path / "f.jsonl", rows), sid="s3")
