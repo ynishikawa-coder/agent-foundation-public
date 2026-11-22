@@ -11,7 +11,7 @@
 
 | 名前 | 種類 | 持つ窓 | 状態 | 置き場 | 中身 |
 |---|---|---|---|---|---|
-| docs-kit | plugin | A3 | 出した | plugins/docs-kit/ | blueprint・compose-message・make-deck・mindmap・pdf-read・qa-html・theory-mock |
+| docs-kit | plugin | A3 | 出した | plugins/docs-kit/ | big-picture・blueprint・compose-message・make-deck・mindmap・pdf-read・qa-html・theory-mock |
 | dev-flow | plugin | A4 | 出した | plugins/dev-flow/ | design-mode・preimpl-cleanup・public-repo・register-rule・spec-doc・verify |
 | session-watch | plugin | A4 | 出した | plugins/session-watch/ | title-mark・watch-log |
 | checker | plugin | A4 | 出した | plugins/checker/ | review-pr |
@@ -20,7 +20,7 @@
 
 ## 行ごとの注
 
-- **docs-kit**（A3）: 確認のページ（Artifact・宛先がオーナーでも）と UTC の Artifact 型に、`qa-html` の検査をかける。publish の前は guard の `qa_page` が同じ検査で止める。
+- **docs-kit**（A3）: 全体の絵（big-picture）の正は JSON 1 つで、HTML はそこから描き直す写し。土台の絵は `docs/全体の絵.json`。checker の review-pr 点 13 が実物を合意した版と照らす。確認のページ（Artifact・宛先がオーナーでも）と UTC の Artifact 型に、`qa-html` の検査をかける。publish の前は guard の `qa_page` が同じ検査で止める。
 - **dev-flow**（A4）: 要件から brief を作る道具は Javis 固有なので入れない。
 - **session-watch**（A4）: 会話ログを見て、題の目印・平文で書いた問い・答えの無い問いを拾う。クラウドの窓で題に種類の印（🙋／🤖）がまだ無い間は、UserPromptSubmit の hook が付けるよう知らせる。前の返事の「あなたがやること」に人の手の手順を直に書いた時も、手の窓で頼んで URL だけを書くよう同じ hook が知らせる（どちらも止めない）。返事の形（題の印・1 行目の札・締めの 2 行）や中身（平文の問い・中の言葉・日本時間でない時刻・完了の言い切り・鍵）が崩れたまま締めようとすると、Stop の hook が AI だけを差し戻して書き直させる（人の操作は止めない）。中の言葉は guard の `ask_shape`、鍵の形は公開の検査 `public-guard/guard.py` を直に呼ぶ。skills の名前は A4 が決めて `中身` を書き替える。
 - **checker**（A4）: チェック役。skills の名前は A4 が決めて `中身` を書き替える。
