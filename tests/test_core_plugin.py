@@ -9,6 +9,7 @@ from pathlib import Path
 
 import pytest
 from entry_box import box_env, copy_entry
+from uses import sh_code
 
 ROOT = Path(__file__).resolve().parent.parent
 PLUGIN = ROOT / "plugins" / "core"
@@ -20,9 +21,16 @@ spec.loader.exec_module(kaku)
 LIMITS = kaku.LIMITS
 
 
+def used_text(rel, text):
+    """古い言い回しを探す所（使う形の所）: .md は自分の文（囲み・注記・引用の中を除く。# で始まる引用は書く行として残す）・
+    .py は注釈と docstring を除いたコード・.mjs は注釈を除いた字・.html は注記を除いた字・.json は字のまま。注釈や引用で
+    古い名を挙げて経緯を説明するのは残りでない。読み方の正本は kaku.own（写さない）。"""
+    return kaku.own(str(rel), text)
+
+
 def old_words_left(olds):
-    """土台の文（.md .py .json .mjs .html・試験と .git を除く）に残る古い言い回しを「path: 語」で返す。
-    変更の記録は CHANGELOG.d/ の .txt（経緯として古い語を持つ）なので、拡張子で外れる＝file 名で除かない。"""
+    """土台の文（.md .py .json .mjs .html・試験と .git を除く）の使う形の所（used_text）に残る古い言い回しを
+    「path: 語」で返す。変更の記録は CHANGELOG.d/ の .txt（経緯として古い語を持つ）なので、拡張子で外れる＝file 名で除かない。"""
     hits = []
     for p in sorted(ROOT.rglob("*")):
         rel = p.relative_to(ROOT)
@@ -32,7 +40,7 @@ def old_words_left(olds):
                 rel.parts[0] == "skill-values" or "lib" in rel.parts):
             continue
         if p.is_file() and p.suffix in {".md", ".py", ".json", ".mjs", ".html"}:
-            text = p.read_text(encoding="utf-8")
+            text = used_text(rel, p.read_text(encoding="utf-8"))
             hits += [f"{rel}: {o}" for o in olds if o in text]
     return hits
 
@@ -93,11 +101,29 @@ def test_写しの枠が在る_repo_にも正本の核を差し込み_枠を名�
     assert "古い形（写し）が残っている" in ctx and "CLAUDE.md: CLAUDE.md の核の写しの枠" in ctx
 
 
+def example_files(r):
+    """古い形の行の例を置く (相対 path, 中身) の組: files の照らす形ごとに 1 つ（glob の * を字に替えた path）。.md で命令を
+    読む行（reads=commands）は、使う側が命令を書く形（コードの囲み）に例を置く。"""
+    out = []
+    for spec in r["files"]:
+        if spec.startswith(":("):
+            continue
+        rel = spec.replace("**/", "x/").replace("*", "x")
+        md = rel.endswith((".md", ".markdown"))
+        out.append((rel, "```bash\n%s\n```\n" % r["example"] if md and r.get("reads") == "commands" else r["example"]))
+    return out
+
+
 def test_古い形の一覧の行は形が揃い_例が自分の形に当たる():
+    """例を本物の照らし口（kaku.old_hit＝行の reads の読み方を通す）で、行の照らす file の形ごとに当てる。読み方を変えて
+    例が当たらなくなれば赤（字の形だけで照らすと、読み方が見つける力を失っても緑のまま）。"""
     rows = kaku.olds_table()
     assert {r["id"] for r in rows} >= {"af-core-frame", "plugin-name-copy"}
     for r in rows:
-        assert r["re"].search(r["example"]), f"{r['id']} の例が形に当たらない（見つける力が無い）"
+        files = example_files(r)
+        assert files, f"{r['id']} に照らす file の形が無い"
+        for rel, text in files:
+            assert kaku.old_hit(r, rel, text), f"{r['id']} の例が {rel} で形に当たらない（見つける力が無い）"
 
 
 @pytest.mark.parametrize("line", [
@@ -421,29 +447,34 @@ class Foundation:
         return json.loads(r.stdout)["hookSpecificOutput"]["additionalContext"] if r.stdout else ""
 
 
-def test_起動の後に_plugin_が変わったら引き継いで閉じるよう知らせる(tmp_path):
-    """注入: 窓が立った後に main の先端で plugin を変える → 次の問いで引き継ぎの手順が出る。"""
+def test_起動の後に_plugin_が変わったら先端の核を差し込み窓はそのまま続ける(tmp_path):
+    """注入: 窓が立った後に main の先端で plugin を変える → 次の問いで先端の核が差し込まれ、引き継ぎ・閉じは求めない。"""
     f = Foundation(tmp_path)
     f.install()
     assert "土台が古い" not in f.hook("inject")
     assert f.hook("fresh") == ""                         # まだ先端と同じ
-    _commit(f.work, {"plugins/guard/x.py": "x\n"}, "守りを変える")
+    _commit(f.work, {"plugins/guard/x.py": "x\n", "plugins/core/核.md": "核 3\n"}, "守りと核を変える")
     text = f.hook("fresh")
-    assert "引き継いで閉じる" in text and "create_session" in text and "archive_session" in text
-    assert "guard" in text and "人の作業は新しい窓で止まらず続く" in text
-    assert "引き継いで閉じる" in f.hook("fresh")        # 引き継ぐまで問いのたびに知らせる
+    assert "新しい核をここで読み" in text and "そのまま頼みを続ける" in text and "guard" in text
+    assert "### main の先端の 核.md" in text and "核 3" in text
+    for old in ("create_session", "archive_session", "引き継いで閉じる"):
+        assert old not in text.replace("create_session・archive_session をしない", ""), old
+    assert f.hook("fresh") == ""                         # 同じ先端は 1 回だけ（問いのたびに繰り返さない）
+    _commit(f.work, {"plugins/checker/y.py": "y\n"}, "また変える")
+    assert "checker" in f.hook("fresh")                  # 先端がまた進めばもう 1 度
 
 
 @pytest.mark.parametrize("source", ["compact", "clear", "resume"])
-def test_途中で古くなった窓は圧縮や_resume_を通っても引き継ぎが消えない(tmp_path, source):
-    """注入: 起動 → main を進める → SessionStart がもう 1 回（圧縮・/clear・resume）→ fresh は引き継ぎを出し続ける。"""
+def test_途中で古くなった窓は圧縮や_resume_の後も先端の核をもう一度差し込む(tmp_path, source):
+    """注入: 起動 → main を進める → 先端の核を差し込む → SessionStart がもう 1 回（圧縮・/clear・resume）→ 同じ物を差し込む。"""
     f = Foundation(tmp_path)
     f.install()
     f.hook("inject")
     _commit(f.work, {"plugins/guard/x.py": "x\n"}, "守りを変える")
+    assert "新しい核をここで読み" in f.hook("fresh")
     again = f.hook("inject", source=source)
     assert "土台が古いまま立った窓" not in again           # 「起動の時から古い」と取り違えない
-    assert "引き継いで閉じる" in f.hook("fresh")
+    assert "新しい核をここで読み" in again
 
 
 def test_起動の時から古い窓は圧縮の後も同じ知らせを出す(tmp_path):
@@ -462,15 +493,16 @@ def test_文書と試験だけの変更では窓を替えない(tmp_path):
     assert f.hook("fresh") == ""
 
 
-def test_起動の時から古い窓は_setup_script_を直してから引き継ぐよう知らせる(tmp_path):
-    """注入: setup script が古い物を入れた（版を指したまま）→ 直してから引き継ぐ。直せない時だけ引き継がない（輪にしない）。"""
+def test_起動の時から古い窓は_setup_script_を直し窓はそのまま続けるよう知らせる(tmp_path):
+    """注入: setup script が古い物を入れた（版を指したまま）→ 直させるが、引き継ぎ・閉じは求めず先端の核を差し込む。"""
     f = Foundation(tmp_path)
     tip = _commit(f.work, {"plugins/core/核.md": "核 2\n"}, "核を変える")
     f.install(main_at_setup=tip)                         # setup の時の main は tip なのに、入れたのは 1 つ前
     text = f.hook("inject")
     assert "土台が古いまま立った窓" in text and "core" in text
-    assert "update_environment" in text and "create_session" in text and "archive_session" in text
-    assert "直せない時" in text and "連絡板" in text
+    assert "update_environment" in text and "直せない時" in text and "連絡板" in text
+    assert "そのまま頼みを続ける" in text and "核 2" in text   # 先端の核を差し込む
+    assert "create_session で" not in text and "archive_session で" not in text
     assert "# 振る舞いの核" in text                       # 核の差し込みは止めない
     assert f.hook("fresh") == ""
 
@@ -643,7 +675,7 @@ FURUMAI_WORDS = {  # 既定の要の語: 振る舞い.md だけに在り、細�
     "ぼかさない": ["「たぶん」「概ね」「〜と思われます」と書かず", "前→後"],
     "逃げ場": ["「できれば」「間に合わなければ後で」と書かない"],
     "呼び出し": ["2 回で打ち方を変えるか止める"],
-    "一覧": ["削らない・選ばない"],
+    "一覧": ["削らず選ばず全部を原因の台帳へ", "直す窓は行ごとでなく関係しない束ごとに並べる"],
     "MGK": ["「MGK して」と言ったら"],
 }
 
@@ -846,8 +878,8 @@ def test_差し込む物を足すと増え方の照らしもそれを見る(monk
 
 def test_増え方の照らしは検査の入口から回る():
     assert kaku.injected() == (kaku.KAKU, kaku.FURUMAI)
-    sh = (ROOT / "scripts" / "checks" / "kaku_growth.sh").read_text(encoding="utf-8")
-    assert "kaku.py grow --base" in sh and "origin/main" in sh
+    sh = sh_code((ROOT / "scripts" / "checks" / "kaku_growth.sh").read_text(encoding="utf-8"))   # 注釈の字は回すことにならない
+    assert "kaku.py grow --base" in sh and "pr_shape.py --print-main" in sh   # 比べる元は出所の今の main（前は注釈の origin/main の字で緑だった）
     ci = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
     check_job = ci.split("public-guard:")[0]
     assert "fetch-depth: 0" in check_job, "CI の check が origin/main を取らず、比べる元が無くなる"

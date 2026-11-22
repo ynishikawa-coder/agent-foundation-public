@@ -95,10 +95,23 @@ def index(files: list[Path]):
     return rows, inv
 
 
+def own_text(text: str) -> str:
+    """照らす file の自分の文（出所を示して引いた所を除く）。写しは自分の文として決まりを書き直した物で、引用は出所を示した引き。
+    読み方（コードの囲み・> の引用・「」『』“” の引用）の正本は kaku.md_own（写さない）。注記の中は AI が読む文なので照らし、
+    地の文の `…` の中も照らす（決まりの文を `…` で囲むだけで迂回させない）。"""
+    return _kaku().md_own(text, notes=True, spans=True)
+
+
+def _kaku():
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    import kaku
+    return kaku
+
+
 def scan(targets: list[Path], rows, inv, threshold: float = THRESHOLD):
     hits = []
     for t in targets:
-        for no, s in sentences(t.read_text(encoding="utf-8")):
+        for no, s in sentences(own_text(t.read_text(encoding="utf-8"))):
             g = grams(s)
             n = sum(g.values())
             cand = Counter()

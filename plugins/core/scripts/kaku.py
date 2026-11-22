@@ -8,10 +8,10 @@
                                       古い形の setup script（土台の入口 scripts/setup_plugins.py を通っていない）／入っていない plugin。
                                       あわせて、窓の最初の 1 回だけ、入った土台が main の先端と同じかを見て窓ごとに覚える。古ければ、
                                       setup の時の main の先端の記録（setup.json の main_at_setup）と比べて、setup が古い物を入れた
-                                      （setup script を直す）か setup の後に main が進んだ（作り置きの箱・何もしない）かを分ける
-                                      （記録が無ければ分からないと名指す）。
+                                      （setup script を直す）か setup の後に main が進んだ（作り置きの箱・setup script は直さない）かを分ける
+                                      （記録が無ければ分からないと名指す）。古ければ先端の核と振る舞いの既定も差し込む。
   python3 kaku.py fresh               UserPromptSubmit の hook が呼ぶ。窓が立った時の main の先端から plugin が変わったら、
-                                      この窓を新しい窓へ引き継いで閉じるよう AI に知らせる（人の作業は止めない）。
+                                      先端の核と振る舞いの既定をこの窓に差し込む（窓は引き継がず閉じず、そのまま続ける）。
   python3 kaku.py check [--claude P]  核と振る舞いの既定が在り、上限の内かを照らす。--claude を渡すと、その CLAUDE.md が各社固有の上限の内で
                                       核の写しの枠を持たないかも照らす。
   python3 kaku.py grow --base REF     増やさない物（guarded() の一覧＝毎回差し込む物と形の細目）が git の REF の時より
@@ -72,10 +72,239 @@ def olds_table(path: Path = OLDS) -> list[dict]:
         raise ValueError(f"{path.name} に olds の並びが無い")
     keys = {"id", "what", "files", "pattern", "fix", "example"}
     for r in rows:
-        if not isinstance(r, dict) or set(r) != keys or not isinstance(r["files"], list) or not r["files"]:
-            raise ValueError(f"{path.name} の行の欄が {sorted(keys)} でない: {r!r}")
+        if not isinstance(r, dict) or set(r) - {"reads"} != keys or not isinstance(r["files"], list) or not r["files"]:
+            raise ValueError(f"{path.name} の行の欄が {sorted(keys)}（と reads）でない: {r!r}")
+        if r.get("reads", "all") not in READS:
+            raise ValueError(f"{path.name} の行 {r['id']} の reads が {sorted(READS)} のどれでもない: {r['reads']!r}")
         r["re"] = re.compile(r["pattern"])
     return rows
+
+
+# 古い形の行が file のどこを読むか（reads）。名が在るかでなく、使う形の所だけに当てる（説明の文で名を挙げるだけは古い形でない）。
+#   all      … 中身の全部（既定）
+#   commands … 動く命令の所（code）: .md はコードの所（md_code）だけ。.sh .py .yml .yaml などは注釈と Python の docstring を除く。
+#              入口の名が注釈に在るだけでは入口を呼ぶことにならない
+#   prose    … 書いた欄・札の所: .md の自分の文（md_own＝閉じの在る囲み・注記・引用の外。# で始まる引用は書く行として残す）
+READS = {"all", "commands", "prose"}
+
+
+# ── 使う形の読み口（正本） ──
+# 構造（コードの囲み・字下げのコード・<pre>・注記・引用・注釈）の読み方は、ここの 1 か所に置く。古い形の行（old_view）・写しの照らし
+# （copies.py）・指しの照らし（refs.py）・試験（tests/uses.py と、それを通す試験）はここを呼び、読み方を写さない（写すと所ごとに
+# 読み方がずれる）。読めない・判断できない形（閉じの無い囲み・字下げ・<pre>・構文の読めない .py）は、読む側（名指す側）に倒す。
+# guard の plugin の読み方（pr_text の囲み・session_watch の strip_code など）は別の plugin で、plugin を跨いで import しない
+# 作りのため、ここの対象の外。
+
+_FENCE_OPEN = re.compile(r"^[ \t]*(?P<mark>`{3,}|~{3,})(?P<info>[^\n]*)$")
+_INDENTED = re.compile(r"^(?: {4}|[ \t]*\t)[ \t]*\S")
+_PRE_OPEN = re.compile(r"<pre\b", re.I)
+_PRE_CLOSE = re.compile(r"</pre\s*>", re.I)
+_NOTE = re.compile(r"<!--.*?-->", re.S)
+_QUOTES = re.compile(r"「[^「」\n]*」|『[^『』\n]*』|“[^“”\n]*”")
+_SPAN = re.compile(r"`[^`\n]+`")
+_BLOCKQUOTE = re.compile(r"^[ \t]{0,3}>")
+_CODE_KINDS = ("fence", "open", "indented", "pre")
+
+
+def md_blocks(text: str) -> list[tuple[str, str, str]]:
+    """.md の行ごとの (種類, 行, 囲みの言語)。種類:
+      text     … 地の文
+      mark     … コードの囲みの開き・閉じの行
+      fence    … コードの囲みの中（CommonMark の形: ` か ~ を 3 字以上で開き、同じ字を開きと同じ数以上だけ並べた行で閉じる。
+                 ` の囲みの開きの情報の欄に ` は入らない）
+      open     … 閉じの無い囲みの開きから終わりまで（読めない形＝コードとしても地の文としても読む）
+      indented … 4 字下げ・tab の行（字下げのコードか、リストの続きか、構文だけでは分けられない＝コードとしても読む）
+      pre      … <pre> から </pre> までの行（同じく、コードとしても読む）
+    """
+    lines = text.split("\n")
+    out: list[tuple[str, str, str]] = []
+    i, n = 0, len(lines)
+    while i < n:
+        ln = lines[i]
+        m = _FENCE_OPEN.match(ln)
+        if m and not (m.group("mark")[0] == "`" and "`" in m.group("info")):
+            mark = m.group("mark")
+            close = re.compile(r"^[ \t]*" + re.escape(mark[0]) + "{%d,}[ \t\r]*$" % len(mark))
+            j = next((k for k in range(i + 1, n) if close.match(lines[k])), None)
+            lang = (m.group("info").strip().split() or [""])[0].lower()
+            if j is None:
+                out += [("open", x, lang) for x in lines[i:]]
+                break
+            out.append(("mark", ln, lang))
+            out += [("fence", x, lang) for x in lines[i + 1:j]]
+            out.append(("mark", lines[j], lang))
+            i = j + 1
+            continue
+        if _PRE_OPEN.search(ln):
+            j = next((k for k in range(i, n) if _PRE_CLOSE.search(lines[k])), n - 1)
+            out += [("pre", x, "") for x in lines[i:j + 1]]
+            i = j + 1
+            continue
+        out.append(("indented" if _INDENTED.match(ln) else "text", ln, ""))
+        i += 1
+    return out
+
+
+def md_code(text: str) -> str:
+    """.md のコードの所（囲みの中・閉じの無い囲み・字下げ・<pre>）の字から注釈を除いた物。他の行は空（行の番号は保つ）。
+    地の文の `…` の中は、説明か指示かを構文で分けられないので読まない（残る穴）。"""
+    out, run, key = [], [], None
+    for kind, ln, lang in md_blocks(text) + [("end", "", "")]:
+        k = (kind, lang) if kind in _CODE_KINDS else None
+        if k != key and run:
+            body = "\n".join(run)
+            out.append(py_code(body) if key[1] in ("py", "python", "python3") else sh_code(body))
+            run = []
+        key = k
+        if k is not None:
+            run.append(ln)
+        elif kind != "end":
+            out.append("")
+    return "\n".join(out)
+
+
+def _keep_heading(m: re.Match) -> str:
+    """引用の中身が見出しの印 # で始まる物（「## 欄の名」＝書く行そのもの）は残し、他は空にする。"""
+    s = m.group(0)
+    return s if s[1:].lstrip(" \t").startswith("#") else " "
+
+
+def note_code(text: str) -> str:
+    """注記 <!-- --> を空にした字（.html・.md の注記。行の番号は保つ）。"""
+    return _NOTE.sub(lambda m: re.sub(r"[^\n]", " ", m.group(0)), text)
+
+
+def md_own(text: str, notes: bool = False, spans: bool = False) -> str:
+    """.md の自分の文: コードの囲み（閉じの在る物）・注記 <!-- -->・> の引用の行・地の文の引用（「」『』“”`…`）を空にした字
+    （行の番号は保つ）。引用の中身が見出しの印 # で始まる物は書く行そのものとして残す。閉じの無い囲み・字下げ・<pre> は、
+    囲みと決められないので地の文として読む。notes=True は注記の中を、spans=True は地の文の `…` の中を自分の文として読む
+    （写しの照らし＝注記も AI が読む文で、決まりの文を `…` で囲むだけで写しの照らしを迂回させない）。"""
+    body = "\n".join("" if kind in ("mark", "fence") else ln for kind, ln, _ in md_blocks(text))
+    body = body if notes else note_code(body)
+    out = []
+    for ln in body.split("\n"):
+        if _BLOCKQUOTE.match(ln):
+            ln = ln if re.sub(r"^[ \t>]*", "", ln).startswith("#") else ""
+        ln = _QUOTES.sub(_keep_heading, ln)
+        out.append(ln if spans else _SPAN.sub(_keep_heading, ln))
+    return "\n".join(out)
+
+
+def sh_code(text: str) -> str:
+    """shell（と yml）の字から注釈（引用の外で語の頭に在る #）を除いた物。' の中は \\ も字のまま・" の中と引用の外は
+    \\ が次の 1 字を守る。"""
+    out, q, i, n = [], "", 0, len(text)
+    while i < n:
+        c = text[i]
+        if c == "\\" and q != "'" and i + 1 < n:
+            out.append(text[i:i + 2])
+            i += 2
+            continue
+        if q:
+            q = "" if c == q else q
+        elif c in "'\"":
+            q = c
+        elif c == "#" and (i == 0 or text[i - 1] in " \t\n;&|("):
+            j = text.find("\n", i)
+            i = n if j < 0 else j
+            continue
+        out.append(c)
+        i += 1
+    return "".join(out)
+
+
+def py_code(text: str) -> str:
+    """Python の源から注釈と docstring を空にした字（字の値・名・演算子は元の字のまま・行の番号は保つ）。構文の読めない
+    源は全部を読む（読む側に倒す）。"""
+    import ast
+    import io
+    import tokenize
+    try:
+        tree = ast.parse(text)
+        toks = list(tokenize.generate_tokens(io.StringIO(text).readline))
+    except (SyntaxError, ValueError, tokenize.TokenError):
+        return text
+    doc = set()
+    for node in ast.walk(tree):
+        body = getattr(node, "body", None)
+        if isinstance(node, (ast.Module, ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)) and body \
+                and isinstance(body[0], ast.Expr) and isinstance(body[0].value, ast.Constant) \
+                and isinstance(body[0].value.value, str):
+            doc.add((body[0].value.lineno, body[0].value.col_offset))
+    starts = [0]
+    for ln in text.split("\n"):
+        starts.append(starts[-1] + len(ln) + 1)
+    chars = list(text)
+    for t in toks:
+        if t.type == tokenize.COMMENT or (t.type == tokenize.STRING and t.start in doc):
+            (r0, c0), (r1, c1) = t.start, t.end
+            for k in range(starts[r0 - 1] + c0, starts[r1 - 1] + c1):
+                if chars[k] != "\n":
+                    chars[k] = " "
+    return "".join(chars)
+
+
+def js_code(text: str) -> str:
+    """JavaScript（.mjs .js）の字から注釈（字の値の外の // と /* */）を除いた物。' " ` の字の値の中の // は残す。"""
+    out, q, i, n = [], "", 0, len(text)
+    while i < n:
+        c = text[i]
+        if q:
+            if c == "\\" and i + 1 < n:
+                out.append(text[i:i + 2])
+                i += 2
+                continue
+            q = "" if c == q else q
+        elif c in "'\"`":
+            q = c
+        elif text.startswith("//", i):
+            j = text.find("\n", i)
+            i = n if j < 0 else j
+            continue
+        elif text.startswith("/*", i):
+            j = text.find("*/", i + 2)
+            out.append(re.sub(r"[^\n]", " ", text[i:n if j < 0 else j + 2]))
+            i = n if j < 0 else j + 2
+            continue
+        out.append(c)
+        i += 1
+    return "".join(out)
+
+
+def code(rel: str, text: str) -> str:
+    """file の動く所（使う形）: 拡張子で読み方を選ぶ。知らない拡張子は全部を読む（読む側に倒す）。"""
+    ext = Path(rel).suffix.lower()
+    if ext in (".md", ".markdown"):
+        return md_code(text)
+    if ext == ".py":
+        return py_code(text)
+    if ext in (".sh", ".bash", ".yml", ".yaml"):
+        return sh_code(text)
+    if ext in (".mjs", ".js", ".cjs"):
+        return js_code(text)
+    if ext in (".html", ".htm"):
+        return note_code(text)
+    return text
+
+
+def own(rel: str, text: str) -> str:
+    """file の自分の文と使う形: .md は自分の文（md_own）、他は動く所（code）。"""
+    return md_own(text) if Path(rel).suffix.lower() in (".md", ".markdown") else code(rel, text)
+
+
+def old_view(row: dict, rel: str, text: str) -> str:
+    """古い形の行が読む所（reads の決まり）。"""
+    reads = row.get("reads", "all")
+    if reads == "commands":
+        return code(rel, text)
+    if reads == "prose" and Path(rel).suffix.lower() in (".md", ".markdown"):
+        return md_own(text)
+    return text
+
+
+def old_hit(row: dict, rel: str, text: str) -> bool:
+    """古い形の行が (相対 path, 中身) に当たるか（照らし方はこの 1 か所）。"""
+    return bool(row["re"].search(old_view(row, rel, text)))
 
 
 def _tracked(project: Path, specs: list[str]) -> list[Path]:
@@ -131,7 +360,7 @@ def _hits(rows: list[dict], texts) -> list[tuple[dict, str]]:
     found = []
     for r in rows:
         for rel, text in texts(r):
-            if r["re"].search(text):
+            if old_hit(r, rel, text):
                 found.append((r, rel))
     return found
 
@@ -624,19 +853,41 @@ def start_cause(f: dict | None) -> str | None:
     return "after" if all(sha == rec for sha in shas.values()) else "setup"
 
 
+CONTINUE = ("窓は立て直さず・引き継がず・閉じず、そのまま頼みを続ける（create_session・archive_session をしない）。"
+            "下の main の先端の核と振る舞いの既定が、起動の時に差し込まれた物に代わって効く。"
+            "守りの hook と skill の script は入れ直すまで起動の時の版のまま動く（止めない・次に立つ窓は新しい版で立つ）。\n")
+
+
+def tip_core_text(f: dict) -> str:
+    """main の先端の核と振る舞いの既定の今の本文（入れた時の目録の clone から読む）。差し込まれた物と同じなら 1 行だけ。"""
+    loc = catalog_source()[0].get("installLocation")
+    parts = []
+    for path in injected():
+        new = _git(loc, "show", f"{f['main']}:plugins/core/{path.name}") if loc else None
+        try:
+            now = path.read_text(encoding="utf-8")
+        except UNREADABLE:
+            now = None
+        if new is None:
+            parts.append(f"（main の先端の {path.name} を読めなかった。起動の時に差し込まれた物で続ける）")
+        elif now is not None and new.strip() == now.strip():
+            parts.append(f"（main の先端の {path.name} は差し込まれた物と同じ）")
+        else:
+            parts.append(f"### main の先端の {path.name}（{f['main'][:12]}）\n" + new.rstrip("\n"))
+    return "\n\n".join(parts) + "\n"
+
+
 def stale_at_start_text(f: dict) -> str:
     rec = (setup_record()[0] or {}).get("main_at_setup") or ""
-    return ("## 土台が古いまま立った窓 — setup script を直してから引き継いで閉じる\n"
+    return ("## 土台が古いまま立った窓 — setup script を直し、窓はそのまま続ける\n"
             f"この窓は main の先端より古い土台で立った（{_short(f)}）。setup の時の main の先端は {rec[:12]} で、setup はそれと違う物を入れた。"
             "setup script が版（tag）を指している・目録を取り直さない古い形（marketplace update の行が無い）・入れ損ねている"
-            "ので、直さずに立て直しても同じ物が入る。この返事では頼みに手を付けず次をする（人の作業は新しい窓で止まらず続く・🙋 の窓も同じ）:\n"
+            "ので、次に立つ窓にも同じ物が入る。頼みの合間に次をする:\n"
             "1. 環境の setup script を土台の docs/核の届け方.md の形（main の先端を入れる）に直す: "
             "claude-code-remote の get_environment → update_environment（直せる環境の時）。\n"
-            "2. 直せた時は、手の中の変更を push し、create_session で同じ repo・同じ環境に新しい窓を立てて引き継ぎ文"
-            "（元の頼み・済んだ事・枝と PR・未決・次の 1 手・窓の題と「古い土台の窓からの引き継ぎ」の 1 行）を渡し、"
-            "人と親の窓へ新しい窓の URL を返し、archive_session で自分の窓を閉じる。\n"
-            "3. 直せない時（他のアカウントの環境・道具が無い・この窓自身が「古い土台の窓からの引き継ぎ」で立った）は引き継がず、"
-            "UTC の環境なら連絡板の issue で setup script の直しを頼み、オーナーへ「核と守りが古い形で動いている」と 1 行知らせてから頼みを続ける。\n")
+            "2. 直せない時（他のアカウントの環境・道具が無い）は、UTC の環境なら連絡板の issue で setup script の直しを頼み、"
+            "オーナーへ「守りが古い形で動いている」と 1 行知らせる。\n"
+            + CONTINUE + tip_core_text(f))
 
 
 def unknown_at_start_text(f: dict) -> str:
@@ -644,25 +895,20 @@ def unknown_at_start_text(f: dict) -> str:
             f"この窓は main の先端より古い土台で立った（{_short(f)}）。setup の時に入れた main の先端の記録"
             "（土台の入口 scripts/setup_plugins.py が ~/.claude/af-foundation/setup.json の main_at_setup に書く）が無いので、"
             "setup script が古い物を入れたのか、setup の後に main が進んだだけなのかを見分けられない"
-            "（記録が無いのは、setup script が入口を通らない古い形か、入口が記録を書く前の版で入れた時）。この返事では頼みに手を付けず次をする:\n"
+            "（記録が無いのは、setup script が入口を通らない古い形か、入口が記録を書く前の版で入れた時）。頼みの合間に次をする:\n"
             "1. claude-code-remote の get_environment で setup script を読み、土台の docs/核の届け方.md の形（目録の取り直しと入口）と照らす。"
-            "違えば update_environment で直す（直せない環境は親の窓・連絡板へ頼み、オーナーへ 1 行知らせて頼みを続ける）。\n"
-            "2. 形が正しかった・直せた時は、手の中の変更を push し、create_session で同じ repo・同じ環境に新しい窓を立てて引き継ぎ文"
-            "（元の頼み・済んだ事・枝と PR・未決・次の 1 手・窓の題と「古い土台の窓からの引き継ぎ」の 1 行）を渡し、"
-            "人と親の窓へ新しい窓の URL を返し、archive_session で自分の窓を閉じる。"
-            "この窓自身が「古い土台の窓からの引き継ぎ」で立った時は引き継がず、オーナーへ 1 行知らせて頼みを続ける。\n")
+            "違えば update_environment で直す（直せない環境は親の窓・連絡板へ頼み、オーナーへ 1 行知らせる）。\n"
+            + CONTINUE + tip_core_text(f))
 
 
-def handover_text(f: dict) -> str:
-    return ("## 土台が新しくなった — この窓を引き継いで閉じる\n"
-            f"この窓が立った後に、土台の main の先端で窓の振る舞いが変わった（{_short(f)}）。"
-            "この窓は古い核と守りで動いているので、この返事では頼みに手を付けず次をする（人の作業は新しい窓で止まらず続く・🙋 の窓も同じ）:\n"
-            "1. 手の中の変更を枝へ commit・push する。\n"
-            "2. claude-code-remote の create_session で、同じ repo・同じ環境に新しい窓を立てる。prompt は引き継ぎ文: "
-            "元の頼み（オーナーの原文）・ここまでに済んだ事・枝と PR・未決の問い・次の 1 手・窓の題と、「古い土台の窓からの引き継ぎ」の 1 行。\n"
-            "3. 人へ 1 行で新しい窓の URL を返す。親の窓がある時は親へも send_message で URL を知らせる。\n"
-            "4. archive_session で自分の窓を閉じる。\n"
-            "窓を立てる道具が無い時（手元の CLI 等）は、人へ「土台が新しくなった・新しい窓で続けてほしい」と 1 行知らせてから頼みを続ける。\n")
+def update_text(f: dict) -> str:
+    return ("## 土台が新しくなった — 新しい核をここで読み、窓はそのまま続ける\n"
+            f"土台の main の先端が、この窓に入った物から窓の振る舞いを変えた（{_short(f)}）。"
+            + CONTINUE + tip_core_text(f))
+
+
+# 先端の核を差し込む時の文（起動の時の古さの訳ごと。無い訳＝setup の後に main が進んだ・起動の後に新しくなった）
+TOLD_TEXT = {"setup": stale_at_start_text, "unknown": unknown_at_start_text}
 
 
 def inject() -> int:
@@ -684,26 +930,24 @@ def inject() -> int:
     session = data.get("session_id")
     state = _read_json(_state_path(session)) if session else None
     if isinstance(state, dict):
-        # 同じ窓の 2 回目（文脈の圧縮・/clear・resume）: 起動の時の記録を書き直さない（途中で古くなった窓を
-        # 「起動の時から古い」と取り違えて引き継ぎを消さない）。外へも見に行かない。
-        f = state.get("start") if state.get("stale_at_start") else None
-        cause = state.get("cause") or "setup"
+        # 同じ窓の 2 回目（文脈の圧縮・/clear・resume）: 起動の時の記録を書き直さず、外へも見に行かない。
+        # 前に差し込んだ main の先端の核（told）を、もう一度差し込む（圧縮で起動の時の古い核だけが残らない）。
+        told, kind = state.get("told"), state.get("told_kind")
     else:
         try:
             f = freshness()
             cause = start_cause(f)
         except Exception:  # noqa: BLE001  新しさの見張りが壊れても核の差し込みは止めない
             f, cause = None, None
+        # 入った土台が先端より古ければ、先端の核をここで差し込む。setup が古い物を入れた・分からない時だけ setup script を
+        # 直させる（setup の後に main が進んだだけ＝作り置きの箱は直す物が無い）。
+        told, kind = (f, cause) if f and f["plugins"] else (None, None)
         if session:
-            # setup の後に main が進んだだけ（after）は setup script を直させず、引き継ぎもさせない: 箱は作り置き
-            # （setup は箱を作った時に走り、窓は後でその箱を使う）なので、引き継いだ新しい窓も作り置きの箱から立ち
-            # 新しくならない＝引き継ぎが輪になる。引き継ぐのは、この窓が立った時の main の先端（start_main）から
-            # 先端が plugin を変えた時だけ（fresh）。
-            state = {"checked": time.time(), "stale_at_start": cause in ("setup", "unknown"), "cause": cause,
-                     "comparable": f is not None, "start": f, "start_main": f["main"] if f else None}
+            state = {"checked": time.time(), "cause": cause, "comparable": f is not None, "start": f,
+                     "start_main": f["main"] if f else None, "told": told, "told_kind": kind}
             _save_state(session, state)
-    if f and f["plugins"] and cause in ("setup", "unknown"):
-        parts.append(stale_at_start_text(f) if cause == "setup" else unknown_at_start_text(f))
+    if told:
+        parts.append(TOLD_TEXT.get(kind, update_text)(told))
     if parts:
         out = {"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": "\n".join(parts)}}
         sys.stdout.write(json.dumps(out, ensure_ascii=False))
@@ -711,36 +955,35 @@ def inject() -> int:
 
 
 def fresh() -> int:
-    """起動の後に土台が新しくなったかを見る。新しくなっていれば、引き継いで閉じる手順を AI に知らせる。
-
-    起動の時から古かった窓（setup script が古い物を入れた）はここでは扱わない（inject の知らせが setup script を直してから引き継がせる）。"""
+    """起動の後に土台が新しくなったかを見る。新しくなっていれば、main の先端の核と振る舞いの既定をこの窓に差し込み、
+    窓はそのまま頼みを続ける（引き継がせない・閉じさせない）。同じ先端は 1 回だけ差し込む（問いのたびに繰り返さない）。"""
     data = _hook_input()
     session = data.get("session_id")
     if not session:
         return 0
     path = _state_path(session)
     state = _read_json(path)
-    if not isinstance(state, dict) or state.get("stale_at_start") or not state.get("comparable"):
+    if not isinstance(state, dict) or not state.get("comparable"):
         return 0
-    f = state.get("seen")
-    if not f:
-        interval = float(os.environ.get("AF_FRESH_INTERVAL") or FRESH_INTERVAL)
-        if time.time() - float(state.get("checked") or 0) < interval:
-            return 0
-        try:
-            got = freshness()
-        except Exception:  # noqa: BLE001
-            got = None
-        state["checked"] = time.time()
-        if got and got["plugins"] and state.get("start_main"):
-            # 入った版でなく、この窓が立った時の先端と比べる（作り置きの箱で立った窓を、立つ前の main の進みで替えない）
-            moved = moved_since(state["start_main"], got["main"])
-            got = dict(got, plugins=moved) if moved else None
-        if got and got["plugins"]:
-            state["seen"] = f = got
-        _save_state(session, state)
-    if f:  # 一度見つけたら、引き継ぐまで問いのたびに知らせる（外へは出ない）
-        out = {"hookSpecificOutput": {"hookEventName": "UserPromptSubmit", "additionalContext": handover_text(f)}}
+    interval = float(os.environ.get("AF_FRESH_INTERVAL") or FRESH_INTERVAL)
+    if time.time() - float(state.get("checked") or 0) < interval:
+        return 0
+    try:
+        got = freshness()
+    except Exception:  # noqa: BLE001
+        got = None
+    state["checked"] = time.time()
+    if got and got["plugins"] and state.get("start_main"):
+        # 入った版でなく、この窓が立った時の先端と比べる（作り置きの箱で立った窓を、立つ前の main の進みで数えない）
+        moved = moved_since(state["start_main"], got["main"])
+        got = dict(got, plugins=moved) if moved else None
+    text = None
+    if got and got["plugins"] and got["main"] != (state.get("told") or {}).get("main"):
+        state["told"], state["told_kind"] = got, "update"
+        text = update_text(got)
+    _save_state(session, state)
+    if text:
+        out = {"hookSpecificOutput": {"hookEventName": "UserPromptSubmit", "additionalContext": text}}
         sys.stdout.write(json.dumps(out, ensure_ascii=False))
     return 0
 

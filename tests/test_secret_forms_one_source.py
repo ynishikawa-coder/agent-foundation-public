@@ -21,6 +21,7 @@ sys.path.insert(0, str(ROOT / "plugins" / "dev-flow" / "skills" / "codex"))
 
 import guard as PG  # noqa: E402
 import codex_pack  # noqa: E402
+from uses import py_code
 
 # 作り物（形を確かめるだけ）。使う側の pixel-office の「土台へ足し待ち」の作り物と同じ形。
 FAKE = {
@@ -109,6 +110,8 @@ def test_在り処探しは_1_か所で_各_plugin_へ_symlink_で届く():
         link = ROOT / "plugins" / plugin / "lib" / "af_place.py"
         assert link.is_symlink() and link.resolve() == src.resolve(), link
     common = (ROOT / "plugins" / "guard" / "scripts" / "guard_common.py").read_text(encoding="utf-8")
-    assert "_clone_git(" not in common and "marketplaces" not in common   # 在り処探しの写しが guard の口に戻ると赤
+    common = py_code(common)                                            # 注釈・docstring の名は写しでない
+    assert "_clone_git" not in common and "marketplaces" not in common   # 在り処探しの写しが guard の口に戻ると赤
     sw = (ROOT / "plugins" / "session-watch" / "scripts" / "session_watch.py").read_text(encoding="utf-8")
+    sw = py_code(sw)
     assert '"marketplaces"' not in sw and "rev-parse" not in sw            # session-watch の写しに戻ると赤

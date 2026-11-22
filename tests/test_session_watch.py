@@ -103,18 +103,11 @@ def test_締めの2行と1行目の札を拾う():
 
 
 
-def test_あなたがやることなしは窓を閉じてよいかを書く():
+def test_あなたがやることは閉じてよいかも進めない事も求めない():
+    """畳んだ決まり文（「この窓は閉じて大丈夫です」「これが済むまで <何> に進めません」）が無くても close を拾わない。"""
     c = set_last_text(rows("child_ok.jsonl"), "✅ 終わった\nAI がこの後やること: なし\nあなたがやること: なし")
-    assert "close" in codes(c)
-    c = set_last_text(rows("child_ok.jsonl"), "✅ 終わった\nAI がこの後やること: なし\nあなたがやること: なし。この窓は閉じて大丈夫です。")
     assert "close" not in codes(c)
-
-
-def test_あなたがやることがあれば済むまで進めない事を書く():
     c = set_last_text(rows("owner_ok.jsonl"), "⏳待ち（オーナー・今日中）\n設定を頼んだ。\nAI がこの後やること: なし\nあなたがやること: 設定を 1 つ")
-    assert "close" in codes(c)
-    c = set_last_text(rows("owner_ok.jsonl"), "⏳待ち（オーナー・今日中）\n設定を頼んだ。\nAI がこの後やること: なし\n"
-                                              "あなたがやること: 設定を 1 つ。これが済むまで公開に進めません。")
     assert "close" not in codes(c)
 
 
@@ -329,9 +322,9 @@ def test_問いを出したターンは短くても札を求める():
     assert "card" in codes(rs)
 
 
-# ── 返事の形の崩れを AI へ差し戻す（Stop の hook・止まるのは AI だけ）──
+# ── 返事の形の崩れを知らせる（Stop の hook が置き、次の頼みの時に出す・差し戻さない）──
 OK_REPLY = ("✅終わった\n作り物を直した。\n根拠: 作り物の試験が緑。\nAI がこの後やること: なし\n"
-            "あなたがやること: なし。この窓は閉じて大丈夫です。")
+            "あなたがやること: なし")
 
 
 def stop_env(tmp_path, **extra):
@@ -345,21 +338,20 @@ def stop_data(text, tpath="", active=False, sid="s1"):
 
 @pytest.mark.parametrize("broken, code", [
     (OK_REPLY.replace("✅終わった\n", "", 1) + "\n作り物の続き。", "card"),         # 1 行目の札が無い
-    (OK_REPLY.replace("あなたがやること: なし。この窓は閉じて大丈夫です。", ""), "close"),  # 締めの 2 行が無い
-    (OK_REPLY.replace("この窓は閉じて大丈夫です。", ""), "close"),                    # なしで閉じてよいかが無い
+    (OK_REPLY.replace("あなたがやること: なし", ""), "close"),                       # 締めの 2 行が無い
 ])
-def test_返事の形を崩すと_AI_へ差し戻す(tmp_path, broken, code):
-    reason = sw.stop(stop_data(broken), stop_env(tmp_path))
-    assert reason and ("- %s:" % code) in reason and "書き直す" in reason
-    assert reason.strip().splitlines()[-1] == sw.ROOT_CAUSE, "差し戻しが書き直しだけを促す形に戻った"
+def test_返事の形を崩すと知らせるが書き直させない(tmp_path, broken, code):
+    note = sw.stop(stop_data(broken), stop_env(tmp_path))
+    assert note and ("- %s:" % code) in note and "書き直さない" in note and "次の返事から" in note
+    assert note.strip().splitlines()[-1] == sw.ROOT_CAUSE, "知らせが出し直しだけを促す形に戻った"
 
 
-def test_型どおりの返事と一言の返事は差し戻さない(tmp_path):
+def test_型どおりの返事と一言の返事は知らせない(tmp_path):
     assert sw.stop(stop_data(OK_REPLY), stop_env(tmp_path)) is None
     assert sw.stop(stop_data("作り物は 3 つです。"), stop_env(tmp_path)) is None
 
 
-def test_題の印の崩れも差し戻し_過ぎた事は差し戻さない(tmp_path):
+def test_題の印の崩れも知らせ_過ぎた事は知らせない(tmp_path):
     bad = set_title(rows("owner_ok.jsonl"), "🙋 作り物の続き", "作り物の続き")   # 種類の印が無い題
     log = tmp_path / "t.jsonl"
     log.write_text("\n".join(json.dumps(r, ensure_ascii=False) for r in bad) + "\n", encoding="utf-8")
@@ -370,17 +362,12 @@ def test_題の印の崩れも差し戻し_過ぎた事は差し戻さない(tmp
     assert sw.stop(stop_data(OK_REPLY, str(good)), stop_env(tmp_path)) is None
 
 
-def test_差し戻しは同じターンで上限まで_新しい締めでは数え直す(tmp_path):
+def test_知らせは回数で切らず_stop_hook_active_でも同じ(tmp_path):
+    """前の形（同じターンで上限まで差し戻して書き直させる）は回数の印を持った。知らせるだけなので数えない。"""
     e, bad = stop_env(tmp_path), "作り物を直した。\n根拠は 2 つ。\n1 つ目。\n2 つ目。"
-    assert sw.stop(stop_data(bad), e)
-    assert sw.stop(stop_data(bad, active=True), e)
-    assert sw.stop(stop_data(bad, active=True), e) is None       # 上限を越えたら通して届ける
-    assert sw.stop(stop_data(bad, active=False), e)               # 次のターンは 0 から
-
-
-def test_差し戻しは環境変数で切れる(tmp_path):
-    bad = "作り物を直した。\n根拠は 2 つ。\n1 つ目。\n2 つ目。"
-    assert sw.stop(stop_data(bad), stop_env(tmp_path, AF_SESSION_WATCH_STOP="0")) is None
+    first = sw.stop(stop_data(bad), e)
+    assert first and all(sw.stop(stop_data(bad, active=True), e) == first for _ in range(4))
+    assert not hasattr(sw, "STOP_MAX") and not hasattr(sw, "STOP_OFF")
 
 
 def test_差し戻した後は書き直した返事だけを締めとして見る():
@@ -391,20 +378,26 @@ def test_差し戻した後は書き直した返事だけを締めとして見�
     assert sw.Log(rs).closing_text() == OK_REPLY
 
 
-def test_差し戻す口は_decision_block_で返し壊れた入力では黙る(tmp_path):
+def test_Stop_の口は何も出さず_次の頼みの時に1回だけ知らせる(tmp_path):
+    """注入: Stop の口が decision=block を出す形（返事を書き直させる）に戻すと赤。"""
     import os
-    run = lambda body: subprocess.run([sys.executable, str(SCRIPT), "--stop"], input=body, capture_output=True, text=True,
-                                      env=dict({k: v for k, v in os.environ.items() if k != "CLAUDE_CODE_REMOTE"},
-                                               AF_SESSION_WATCH_TMP=str(tmp_path / "sw")))
-    out = run(json.dumps(stop_data("作り物を直した。\n根拠は 2 つ。\n1 つ目。\n2 つ目。"), ensure_ascii=False))
-    assert out.returncode == 0 and json.loads(out.stdout)["decision"] == "block"
-    assert run(json.dumps(stop_data(OK_REPLY), ensure_ascii=False)).stdout == ""
-    bad = run("壊れた")
+    env = dict({k: v for k, v in os.environ.items() if k != "CLAUDE_CODE_REMOTE"}, AF_SESSION_WATCH_TMP=str(tmp_path / "sw"))
+    run = lambda flag, body: subprocess.run([sys.executable, str(SCRIPT), flag], input=body, capture_output=True,  # noqa: E731
+                                            text=True, env=env)
+    out = run("--stop", json.dumps(stop_data("作り物を直した。\n根拠は 2 つ。\n1 つ目。\n2 つ目。"), ensure_ascii=False))
+    assert out.returncode == 0 and out.stdout == ""
+    told = run("--remind", json.dumps({"session_id": "s1"}))
+    ctx = json.loads(told.stdout)["hookSpecificOutput"]
+    assert ctx["hookEventName"] == "UserPromptSubmit" and "- card:" in ctx["additionalContext"]
+    assert run("--remind", json.dumps({"session_id": "s1"})).stdout == ""          # 1 回だけ
+    assert run("--stop", json.dumps(stop_data(OK_REPLY), ensure_ascii=False)).stdout == ""
+    assert run("--remind", json.dumps({"session_id": "s1"})).stdout == ""          # 崩れの無い返事は知らせない
+    bad = run("--stop", "壊れた")
     assert bad.returncode == 0 and bad.stdout == ""
 
 
-def test_問いの前に題を問いの印にしなかった過ぎた事は差し戻さない(tmp_path):
-    """手で回す点検は拾うが、今の題を直しても消えない事なので、差し戻すと回り続ける＝差し戻さない。"""
+def test_問いの前に題を問いの印にしなかった過ぎた事は知らせない(tmp_path):
+    """手で回す点検は拾うが、今の題を直しても消えない事なので知らせない。"""
     def tool(name, inp):
         return {"type": "assistant", "message": {"content": [{"type": "tool_use", "name": name, "input": inp}]}}
     q = {"question": "作り物の置き場を A と B のどちらにしますか", "header": "置き場",
@@ -444,4 +437,4 @@ def test_hook_の口の印は知らない印の照らしより前で通る(tmp_p
         assert p.returncode == 0 and "使い方" not in p.stderr, flag
     out = subprocess.run([sys.executable, str(SCRIPT), "--stop"], env=env, capture_output=True, text=True,
                          input=json.dumps(stop_data("作り物を直した。\n根拠は 2 つ。\n1 つ目。\n2 つ目。"), ensure_ascii=False))
-    assert json.loads(out.stdout)["decision"] == "block"            # hook_stop に届いている
+    assert out.stdout == "" and list((tmp_path / "sw").glob("*.note"))  # hook_stop に届き、知らせを置いた

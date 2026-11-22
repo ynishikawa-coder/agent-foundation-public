@@ -18,7 +18,6 @@ sys.path.insert(0, str(ROOT / "skill-values"))
 import skill_values as SV  # noqa: E402
 import guard_common as G  # noqa: E402
 import ask_shape  # noqa: E402
-import context_size  # noqa: E402
 import irreversible  # noqa: E402
 import outbound  # noqa: E402
 import paid_upstream  # noqa: E402
@@ -45,7 +44,7 @@ MATCHED_KEYS = {
     ("guard", None, k) for k in (
         "paid_markers_extra", "irreversible_bash_extra", "irreversible_tools_extra", "qa_page_exempt",
         "ask_inner_terms_extra", "ask_term_allow", "ask_shape_exempt", "ask_pick_one_exempt", "ask_rec_notice_exempt",
-        "outbound_secret_allow", "number_request_exempt", "context_handoff", "ask_prior_lookup", "ask_prior_exempt",
+        "outbound_secret_allow", "number_request_exempt", "ask_prior_lookup", "ask_prior_exempt",
         "pr_cleanup_exempt_repos", "pr_words_exempt_repos", "public_repos_extra")
 } | {("session-watch", "watch-log", "reply_exempt"), ("dev-flow", "codex", "self_allow"),
      ("dev-flow", "codex", "entropy_allow"), ("dev-flow", "spec-doc", "decision_match_allow")}
@@ -116,20 +115,6 @@ def _log(tmp_path, *rows, name="l.jsonl"):
 def test_聞く前に引いた跡は道具の名から全体に当てる(tmp_path, row, want):
     pats = G.patterns({"ask_prior_lookup": ["^Grep \\{.*問いの表.*\\}$"]}, "ask_prior_lookup")
     assert prior_ask.scan(_log(tmp_path, row), pats)[1] is want
-
-
-@pytest.mark.parametrize("row, want", [
-    (_use("mcp__claude-code-remote__create_session", {"prompt": "続き"}), True),
-    (_use("mcp__claude-code-remote__send_message", {"message": "引き継ぎ"}), True),
-    (_use("Write", {"file_path": "/x/handoff.md", "content": "続き"}), True),
-    (_use("Bash", {"command": "grep -rn send_message ."}), False),
-    (_use("Grep", {"pattern": "create_session"}), False),
-    (_use("Read", {"file_path": "/x/handoff.md"}), False),                  # 読んだだけは引き継ぎでない
-])
-def test_引き継ぎの跡は既定の形が道具の名から全体に当たる(tmp_path, row, want):
-    over = {"type": "assistant", "message": {"content": [], "usage": {"input_tokens": 10}}}
-    pats = G.patterns(G.DEFAULTS, "context_handoff")
-    assert context_size.handoff_state(_log(tmp_path, over, row), 5, pats) == (True, want)
 
 
 def _repo(tmp_path, parent="work"):

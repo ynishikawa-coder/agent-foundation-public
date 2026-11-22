@@ -234,19 +234,17 @@ def test_guard_の既定の数は_SKILL_の値と同じ():
 
 def test_SKILL_の既定を書き換えると_guard_の既定とずれて赤():
     """注入の試験。"""
-    text = _read(GUARD_SKILL).replace("（既定 60）", "（既定 61）").replace('"context_limit": 300000', '"context_limit": 300001')
+    text = _read(GUARD_SKILL).replace("（既定 60）", "（既定 61）").replace('"ask_question_max_sentences": 1', '"ask_question_max_sentences": 2')
     said, nums = _skill_defaults(text)
     assert said["ask_question_max_chars"] != GC.DEFAULTS["ask_question_max_chars"]
-    assert nums["context_limit"] != GC.DEFAULTS["context_limit"]
+    assert nums["ask_question_max_sentences"] != GC.DEFAULTS["ask_question_max_sentences"]
 
 
-# ── 6 差し戻し・止める回数（session_watch ↔ watch-log、prior_ask ↔ guard-rules）─────────────────
+# ── 6 知らせる札・止める回数（session_watch ↔ watch-log、prior_ask ↔ guard-rules）─────────────────
 
 def _watch_stop(text):
     line = next(ln for ln in text.splitlines() if "は、Stop の hook" in ln)
-    codes = re.findall(r"`(\w+)`", line.split("は、Stop の hook", 1)[0])
-    m = re.search(r"同じターンで (\d+) 回まで", line)
-    return tuple(codes), int(m.group(1)) if m else None
+    return tuple(re.findall(r"`(\w+)`", line.split("は、Stop の hook", 1)[0]))
 
 
 def _prior_max(text):
@@ -255,9 +253,8 @@ def _prior_max(text):
     return int(m.group(1)) if m else None
 
 
-def test_Stop_で差し戻す札と回数は_watch_log_の文と同じ():
-    codes, most = _watch_stop(_read(WATCH_SKILL))
-    assert codes == SW.STOP_CODES and most == SW.STOP_MAX
+def test_Stop_で知らせる札は_watch_log_の文と同じ():
+    assert _watch_stop(_read(WATCH_SKILL)) == SW.STOP_CODES
 
 
 def test_聞く前に引いた跡で止める回数は_guard_rules_の文と同じ():
@@ -266,9 +263,8 @@ def test_聞く前に引いた跡で止める回数は_guard_rules_の文と同�
 
 def test_回数と札を書き換えると道具とずれて赤():
     """注入の試験。"""
-    w = _read(WATCH_SKILL).replace("同じターンで 2 回まで", "同じターンで 3 回まで").replace("・`neighbor` は、Stop", " は、Stop")
-    codes, most = _watch_stop(w)
-    assert codes != SW.STOP_CODES and most != SW.STOP_MAX
+    w = _read(WATCH_SKILL).replace("・`neighbor` は、Stop", " は、Stop")
+    assert _watch_stop(w) != SW.STOP_CODES
     assert _prior_max(_read(GUARD_SKILL).replace("同じ頼みの中で 2 回まで", "同じ頼みの中で 5 回まで")) != PA.ASK_PRIOR_MAX
 
 
