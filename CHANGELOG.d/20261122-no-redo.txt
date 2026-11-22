@@ -5,3 +5,4 @@
 - 壊れる: 文脈の目安で後継の窓へ引き継がせるのをやめ、自動の要約に任せる。guard の context_size（目安越えの知らせと、引き継がずに締める返事の差し戻し）と guard の Stop の口を畳んだ。値の表の guard.context_limit・guard.context_stop_max・guard.context_handoff は畳んだ鍵（使う側の値の表に在れば起動の時に values_keys が名指す＝消す）（細目 §8。オーナー同意 2026-11-22）
 - 足した: 自動の要約を文脈の約 20 万 token で走らせる。setup（scripts/setup_plugins.py）が ~/.claude/settings.json に autoCompactWindow=200000 を置く（人が置いた値は替えない・置けなければ setup の知らせに出す）。細目 §4 に、レビュー・調べ・定型の直しの窓と助手は Sonnet（お金・戻せない操作・核に触れるレビューは Opus）と、話題が変われば新しい窓を勧める事を足した（オーナー同意 2026-11-22）
 - 直した: 畳んだ返事の差し戻しと文脈の見張りを今も在ると書いていた plugin の説明・README・skill・AI に出す文を直し、入れると赤になる試験を足した。核 §5 の「AI が立てた 🤖 の窓」を元に戻した
+- 直した: 合意した全体の絵（docs/全体の絵.json）を版 2026-11-22.1 に。guard の箱から文脈の量を外し、session-watch の箱の意図を「知らせるだけ・書き直させない」に替えた（オーナー同意 2026-11-22）
