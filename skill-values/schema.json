@@ -33,10 +33,6 @@
     },
     "guard": {
       "keys": {
-        "context_limit": {
-          "type": "int",
-          "default": 300000
-        },
         "unattended_env": {
           "type": "list",
           "default": [
@@ -86,8 +82,6 @@
           "type": "repo_names",
           "default": []
         },
-        "context_stop_max": {"type": "int", "default": 2},
-        "context_handoff": {"type": "patterns", "match": "whole", "against": "道具の呼び出し 1 つ（道具の名・空白 1 つ・入力の JSON〔鍵の順に並べ、区切りは「, 」と「: 」の 1 行〕）", "default": ["^mcp__[^ ]*__create_session \\{.*\\}$", "^mcp__[^ ]*__send_message \\{.*\\}$", "^(?:Write|Edit) \\{.*\"file_path\": \"[^\"]*(?:引き継ぎ|handoff)[^\"/]*\".*\\}$"]},
         "ask_prior_lookup": {"type": "patterns", "match": "whole", "default": [], "against": "道具の呼び出し 1 つ（道具の名・空白 1 つ・入力の JSON〔鍵の順に並べ、区切りは「, 」と「: 」の 1 行〕）"},
         "ask_prior_exempt": {"type": "patterns", "match": "part", "default": [], "against": "問いの文"}
       }
@@ -229,6 +223,9 @@
     }
   },
   "retired": {
+    "guard.context_limit": "畳んだ（文脈の目安で後継の窓へ引き継がせず、自動の要約に任せる）。消す",
+    "guard.context_stop_max": "畳んだ（文脈の目安で後継の窓へ引き継がせず、自動の要約に任せる）。消す",
+    "guard.context_handoff": "畳んだ（文脈の目安で後継の窓へ引き継がせず、自動の要約に任せる）。消す",
     "dev-flow.register-rule.agents_table": "v0.3.0 で畳んだ（規律の置き場は土台か各 repo の CLAUDE.md の 2 つになった）。消すか、repo 自身の欄へ移す",
     "dev-flow.register-rule.shared_rules_dir": "v0.3.0 で畳んだ（規律の置き場は土台か各 repo の CLAUDE.md の 2 つになった）。消すか、repo 自身の欄へ移す",
     "dev-flow.register-rule.db_id_check": "v0.3.0 で畳んだ（register-rule は読まない）。消すか、repo 自身の欄へ移す",

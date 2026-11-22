@@ -75,7 +75,7 @@ class GitHub:
 
 
 # 外れが在る時の最後の行（中身は土台の細目 §3 が正本＝ここは指すだけ）
-ROOT_CAUSE = "直し: 外れた repo を 1 つずつ直すだけで済ませず、外れる形になった原因を細目 §3「まず構造を疑う」で探して直す"
+ROOT_CAUSE = "直し: 1 つずつ直すだけで済ませず、意図（公開の repo が全部、公開の検査を main で通す）とのずれから入り、外れる形になった原因を細目 §3「まず構造を疑う」で探して直す"
 
 def public_repos(gh: GitHub, owner: str) -> list[dict]:
     return [r for r in gh.pages(f"/users/{owner}/repos?type=owner")

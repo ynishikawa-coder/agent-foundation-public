@@ -126,5 +126,5 @@ if [ ${#failed[@]} -eq 0 ]; then
   echo "check_all: 緑 (${note}) ${at}"
   exit 0
 fi
-echo "check_all: 赤 (落ちた ${#failed[@]} 本: ${failed[*]}・${note}) ${at} 直し: 赤の行を 1 つずつ潰さず、細目 §3「まず構造を疑う」で原因から直す"
+echo "check_all: 赤 (落ちた ${#failed[@]} 本: ${failed[*]}・${note}) ${at} 直し: 赤の行を 1 つずつ潰さず、落ちた検査の意図とのずれから入り、細目 §3「まず構造を疑う」で原因を探して直す"
 exit 1

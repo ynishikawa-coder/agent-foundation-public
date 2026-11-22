@@ -3,9 +3,11 @@
 
   python3 scripts/conflict_markers.py [--root <repo の根>]
 
-なぜ在るか: main を取り込む merge で衝突を手で解いた窓が、印を残したまま commit・push できた（PR #51 の
+意図: 衝突の印が残った木を、人や AI の目に頼らず検査の入口（check_all・CI の check）で赤にし、印のまま配られないようにする。
+課題: main を取り込む merge で衝突を手で解いた窓が、印を残したまま commit・push できた（PR #51 の
 qa-html の SKILL.md に印が残り、起動時に窓へ届く skill が 2 つの版と印のまま配られかけた）。レビューの窓も
-remerge-diff を読んで見落とした。人や AI の目に頼らず、印の残った木は検査の入口（check_all・CI の check）で赤にする。
+remerge-diff を読んで見落とした。
+原因: 印の残りを見つけるのが人や AI の目だけで、検査の入口に照らす物が無かった。
 
 見る物: git に載った file と、まだ載せていない新しい file（.gitignore の外）の全部。飛ばす物を作らない:
   - symlink は指す先の道の字（git が blob に持つ中身）を照らす（指す先の file は自分の行で照らす）。
@@ -27,7 +29,7 @@ import sys
 from pathlib import Path
 
 MARKER = re.compile(r"^(?:(?:<{7}|\|{7}|>{7})(?:[ \t].*)?|={7})\r?$")
-ROOT_CAUSE = ("直し: 印を消すだけで済ませず、両方の版を読んで 1 つの文に合わせ、なぜ印のまま commit できたか"
+ROOT_CAUSE = ("直し: 意図（配る物が 1 つの版の文だけで届く）とのずれから入り、両方の版を読んで 1 つの文に合わせ、なぜ印のまま commit できたか"
               "（衝突を解いた後に check_all を回さず push した等）を細目 §3「まず構造を疑う」で探して直す")
 BOMS = ((b"\xff\xfe\x00\x00", "utf-32-le"), (b"\x00\x00\xfe\xff", "utf-32-be"),
         (b"\xff\xfe", "utf-16-le"), (b"\xfe\xff", "utf-16-be"))

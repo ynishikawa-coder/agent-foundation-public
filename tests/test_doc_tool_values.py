@@ -1,7 +1,9 @@
 """決まりの文書（SKILL.md・README・CONTRIBUTING・細目）の値と、それを照らす道具の値が 1 つに揃っているかを見る。
 
-なぜ在るか: 決まりの文書と道具の値が別々に書かれ、片方だけ変えても赤にならなかった（「分からない」の見分け・判定の点ごとの値・
+意図: 決まりの文書と道具の値が片方だけ変わったら赤にする（「分からない」の見分け・判定の点ごとの値・
 qa-html の長さの上限・guard の既定・差し戻しの回数・変更の記録の札と枝の名・推奨の語）。
+課題: 片方だけ変えても赤にならなかった。
+原因: 決まりの文書と道具の値が別々に書かれていた。
 直し方は 2 つ: 写しを無くせる所は道具が文書を直に読む（verdict_form の点ごとの値・qa-html のなぜ聞くかの 5 文・changelog の札・
 session-watch の「分からない」は guard の ask_shape.is_dunno を直に呼ぶ）。文書と道具の両方に値が要る所は、文書から値を読んで
 道具の値と同じかを見る（片方だけ変えると赤）。各組に、値をわざとずらすと拒む注入の試験を置く。
@@ -232,19 +234,17 @@ def test_guard_の既定の数は_SKILL_の値と同じ():
 
 def test_SKILL_の既定を書き換えると_guard_の既定とずれて赤():
     """注入の試験。"""
-    text = _read(GUARD_SKILL).replace("（既定 60）", "（既定 61）").replace('"context_limit": 300000', '"context_limit": 300001')
+    text = _read(GUARD_SKILL).replace("（既定 60）", "（既定 61）").replace('"ask_question_max_sentences": 1', '"ask_question_max_sentences": 2')
     said, nums = _skill_defaults(text)
     assert said["ask_question_max_chars"] != GC.DEFAULTS["ask_question_max_chars"]
-    assert nums["context_limit"] != GC.DEFAULTS["context_limit"]
+    assert nums["ask_question_max_sentences"] != GC.DEFAULTS["ask_question_max_sentences"]
 
 
-# ── 6 差し戻し・止める回数（session_watch ↔ watch-log、prior_ask ↔ guard-rules）─────────────────
+# ── 6 知らせる札・止める回数（session_watch ↔ watch-log、prior_ask ↔ guard-rules）─────────────────
 
 def _watch_stop(text):
     line = next(ln for ln in text.splitlines() if "は、Stop の hook" in ln)
-    codes = re.findall(r"`(\w+)`", line.split("は、Stop の hook", 1)[0])
-    m = re.search(r"同じターンで (\d+) 回まで", line)
-    return tuple(codes), int(m.group(1)) if m else None
+    return tuple(re.findall(r"`(\w+)`", line.split("は、Stop の hook", 1)[0]))
 
 
 def _prior_max(text):
@@ -253,9 +253,8 @@ def _prior_max(text):
     return int(m.group(1)) if m else None
 
 
-def test_Stop_で差し戻す札と回数は_watch_log_の文と同じ():
-    codes, most = _watch_stop(_read(WATCH_SKILL))
-    assert codes == SW.STOP_CODES and most == SW.STOP_MAX
+def test_Stop_で知らせる札は_watch_log_の文と同じ():
+    assert _watch_stop(_read(WATCH_SKILL)) == SW.STOP_CODES
 
 
 def test_聞く前に引いた跡で止める回数は_guard_rules_の文と同じ():
@@ -264,9 +263,8 @@ def test_聞く前に引いた跡で止める回数は_guard_rules_の文と同�
 
 def test_回数と札を書き換えると道具とずれて赤():
     """注入の試験。"""
-    w = _read(WATCH_SKILL).replace("同じターンで 2 回まで", "同じターンで 3 回まで").replace("・`neighbor` は、Stop", " は、Stop")
-    codes, most = _watch_stop(w)
-    assert codes != SW.STOP_CODES and most != SW.STOP_MAX
+    w = _read(WATCH_SKILL).replace("・`neighbor` は、Stop", " は、Stop")
+    assert _watch_stop(w) != SW.STOP_CODES
     assert _prior_max(_read(GUARD_SKILL).replace("同じ頼みの中で 2 回まで", "同じ頼みの中で 5 回まで")) != PA.ASK_PRIOR_MAX
 
 

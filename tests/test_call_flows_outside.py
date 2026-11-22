@@ -1,8 +1,9 @@
 """scripts/call_flows.py: plugin が plugin の外の土台の部品（例 public-guard）の道具を借りる流れも拾い、
 絵に箱か矢印が無ければ赤にするか（注入の試験）。
 
-なぜ在るか: call_flows が plugin どうしの呼び出ししか拾わず、guard・session-watch が public-guard/guard.py の
-秘密の形を借りる流れを、レビューの窓が人の目で見つけるまで絵から漏らしていた（原因の台帳の行）。
+意図: guard・session-watch が public-guard/guard.py の秘密の形を借りる流れも、絵と照らせるように拾う。
+課題: その流れを、レビューの窓が人の目で見つけるまで絵から漏らしていた（原因の台帳の行）。
+原因: call_flows が plugin どうしの呼び出ししか拾っていなかった。
 """
 import importlib.util
 from pathlib import Path

@@ -205,7 +205,7 @@ def in_ci() -> bool:
 
 def secret_labels(text: str) -> list[str]:
     """秘密の形に当たった札の並び（値は返さない）。秘密の形の正本はここ 1 つ。
-    返事の差し戻し（plugin session-watch の Stop の hook）もこれを直に呼ぶ（写さない）。"""
+    返事の見張り（plugin session-watch の Stop の hook）もこれを直に呼ぶ（写さない）。"""
     text = normalize(text)
     return [label for label, pat in SECRET_PATTERNS.items() if re.search(pat, text)]
 
@@ -635,7 +635,7 @@ def main(argv=None) -> int:
 
 
 # 当たりで止まる時の最後の行（中身は土台の細目 §3 が正本＝ここは指すだけ）
-ROOT_CAUSE = "直し: 当たった物を消して出し直すだけで済ませず、置く形になった原因を細目 §3「まず構造を疑う」で探して直す"
+ROOT_CAUSE = "直し: 当たった物を消して出し直すだけで済ませず、意図（公開の repo は誰に見られてもよい）とのずれから入り、置く形になった原因を細目 §3「まず構造を疑う」で探して直す"
 
 
 def main_with_root_cause(argv=None):

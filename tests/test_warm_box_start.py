@@ -1,8 +1,8 @@
 """作り置きの箱で立つ窓の起動の判定（原因の台帳の束 F-setup）。
 
 setup は箱を作る時に走り、窓は何時間も後にその箱を使う（2026-11-20 実測 7 時間）。
-- setup の後に main が進んだだけの窓に setup script を直させず、引き継ぎもさせない（引き継いだ窓も古い箱から立ち輪になる）。
-  問いの時は窓が立った時の main の先端から plugin が変わった時だけ引き継がせる。
+- setup の後に main が進んだだけの窓に setup script を直させない（先端の核を差し込むだけ・窓は引き継がない）。
+  問いの時は窓が立った時の main の先端から plugin が変わった時だけ、先端の核をもう 1 度差し込む。
 - 起動の時に使う側の hook が入口を回し直し、setup.json と台帳が新しい版を指しても、今動いている版の記録で決める。
 """
 import json
@@ -14,23 +14,24 @@ from test_stale_compare_rest import _home
 SETUP_FIX = "update_environment"
 
 
-def test_setup_の後に_main_が進んだだけの窓に_setup_script_を直せとも引き継げとも言わない(tmp_path):
+def test_setup_の後に_main_が進んだだけの窓に_setup_script_を直せと言わず先端の核だけ差し込む(tmp_path):
     """注入 (a): setup は main の先端を入れた（記録＝入った commit）→ 窓が立つ前に main で plugin が変わる（作り置きの箱）
-    → 起動の知らせは「setup script を直せ」を出さず、問いでも引き継がせない（新しい窓も作り置きの箱から立ち新しくならない）。
-    立った後に main が plugin を変えた時だけ、その plugin の名で引き継がせる。"""
+    → 起動の知らせは「setup script を直せ」を出さず、先端の核を差し込む。立った後に main が plugin を変えた時は、
+    その plugin の名で先端の核をもう 1 度差し込む（どちらも窓は引き継がず続ける）。"""
     f = Foundation(tmp_path)
     f.install(main_at_setup=f.installed)
     _commit(f.work, {"plugins/guard/x.py": "x\n"}, "setup の後・窓が立つ前に守りを変える")
     text = f.hook("inject")
     assert "土台が古いまま立った窓" not in text and SETUP_FIX not in text, text
-    assert "# 振る舞いの核" in text                        # 核の差し込みは止めない
-    assert f.hook("fresh") == ""                            # 立つ前の進みでは替えない
+    assert "# 振る舞いの核" in text and "新しい核をここで読み" in text
+    assert f.hook("fresh") == ""                            # 起動の時に差し込んだ先端は繰り返さない
     assert "土台が古いまま立った窓" not in f.hook("inject", source="compact")
     _commit(f.work, {"plugins/checker/y.py": "y\n"}, "窓が立った後に checker を変える")
-    hand = f.hook("fresh")
-    assert "引き継いで閉じる" in hand and "checker" in hand and "create_session" in hand and SETUP_FIX not in hand
-    assert "guard" not in hand                              # 立つ前の進みは数えない
-    assert "引き継いで閉じる" in f.hook("fresh")          # 引き継ぐまで出し続ける
+    told = f.hook("fresh")
+    assert "新しい核をここで読み" in told and "checker" in told and SETUP_FIX not in told
+    assert "create_session で" not in told and "引き継いで閉じる" not in told
+    assert "guard" not in told                              # 立つ前の進みは数えない
+    assert f.hook("fresh") == ""                            # 1 回だけ
 
 
 def test_注入_作り置きの箱から立つ窓は次の窓も引き継がず輪にならない(tmp_path):
@@ -129,11 +130,12 @@ def test_並んだ入れ直しが別の版の行を後で書いても今動い�
     assert kaku.setup_record()[0]["catalog_sha"] == sha
 
 
-def test_立った後に古くなった窓は圧縮の後も引き継ぎが消えない(tmp_path):
+def test_立った後に古くなった窓は圧縮の後も先端の核をもう一度差し込む(tmp_path):
     f = Foundation(tmp_path)
     f.install(main_at_setup=f.installed)
     f.hook("inject")
     _commit(f.work, {"plugins/guard/x.py": "x\n"}, "立った後に守りを変える")
-    assert "引き継いで閉じる" in f.hook("fresh")
-    assert "土台が古いまま立った窓" not in f.hook("inject", source="compact")
-    assert "引き継いで閉じる" in f.hook("fresh")
+    assert "新しい核をここで読み" in f.hook("fresh")
+    again = f.hook("inject", source="compact")
+    assert "土台が古いまま立った窓" not in again and "新しい核をここで読み" in again
+    assert f.hook("fresh") == ""                            # 同じ先端は繰り返さない

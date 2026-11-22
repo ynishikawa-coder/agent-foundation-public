@@ -38,11 +38,35 @@ FROM_CLONE = "AF_SETUP_FROM_CLONE"  # 目録の clone の入口へ移った印�
 sys.path.insert(0, str(ROOT / "plugins" / "core" / "scripts"))
 import kaku  # noqa: E402  目録の枝・出所の先端の聞き方の正本（起動の hook と同じ物を読む・写さない）
 STATE = "setup.json"  # plugin core の kaku.py が読む印の file 名（~/.claude/af-foundation/ の下）
-ROOT_CAUSE = "直し: 入らない plugin を 1 つずつ入れ直すだけで済ませず、入らない形になった原因を細目 §3「まず構造を疑う」で探して直す"
+ROOT_CAUSE = "直し: 1 つずつ入れ直すだけで済ませず、意図（窓が土台の plugin を全部入れて立つ）とのずれから入り、入らない形になった原因を細目 §3「まず構造を疑う」で探して直す"
 
 
 def home() -> Path:
     return Path(os.environ.get("HOME") or "~").expanduser() / ".claude"
+
+
+# 自動の要約を文脈の約 20 万 token で走らせる（窓の上限 100 万のままだと要約が 80 万前後まで走らず、道具を打つたびに
+# 大きな文脈を読み直す＝費用の大半。オーナー同意 2026-11-22）。人が自分で置いた値は替えない。
+COMPACT_WINDOW = 200_000
+
+
+def compact_window() -> bool:
+    """~/.claude/settings.json に autoCompactWindow が無ければ置く。置いた・既に在る＝True、書けない＝False。"""
+    p = home() / "settings.json"
+    try:
+        cur = json.loads(p.read_text(encoding="utf-8")) if p.is_file() else {}
+        if not isinstance(cur, dict):
+            return False
+        if "autoCompactWindow" in cur:
+            return True
+        cur["autoCompactWindow"] = COMPACT_WINDOW
+        p.parent.mkdir(parents=True, exist_ok=True)
+        tmp = p.with_name(p.name + ".tmp")
+        tmp.write_text(json.dumps(cur, ensure_ascii=False, indent=2), encoding="utf-8")
+        os.replace(tmp, p)
+        return True
+    except (OSError, ValueError):
+        return False
 
 
 def catalog(manifest: Path = MANIFEST) -> tuple[str, list[str]]:
@@ -217,6 +241,8 @@ def main() -> int:
     stale = [n for n in names if n not in lack and (not tip or shas.get(n) != tip)]
     unknown = [n for n in stale if shas.get(n) is None]
     bad = []
+    if not compact_window():
+        bad.append("~/.claude/settings.json に autoCompactWindow を置けなかった（文脈が大きいまま走り費用が膨らむ）")
     if not fresh:
         bad.append(f"土台の目録 {market} を出所の先端へ取り直せなかった（claude plugin marketplace update が失敗）。"
                    "前の setup の古い名簿で入れている")
