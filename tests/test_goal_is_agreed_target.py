@@ -27,9 +27,9 @@ RULES = [
     ("plugins/core/核.md", "終わったかはオーナーと合意した目標で決め、一部は合意した目標そのものが途中で止まった時だけ使う。"),
     ("plugins/core/核.md", "目標の外で見つけた穴は直さず、終わりの報告の後に穴ごとに何が穴か・放っておくと何が起きうるか・"
                           "AI の案を添えて「どうしますか」と聞く。"),
-    ("plugins/core/振る舞い.md", "- **範囲** — 任されたゴールはオーナーと合意した目標だけで、その中を深く漏れなく取り、止まる条件は狭く"
-                              "（戻せない操作・お金・社外だけ）。"),
-    ("plugins/core/振る舞い.md", "目標の外の穴は直さず、終わりの報告で聞く（細目 §7「穴の聞き方」）。"),
+    ("plugins/core/振る舞い.md", "- **範囲** — 任されたゴールは合意した目標だけで、その中は深く漏れなく取る。"),
+    ("plugins/core/振る舞い.md", "止まる条件は狭く（戻せない操作・お金・社外だけ）、黙って縮めない・膨らませない。"),
+    ("plugins/core/振る舞い.md", "外の穴は終わりの報告で聞く（細目 §7）。"),
     ("plugins/core/細目/03-直すは根治.md", "／`オーナーの判断`（合意した目標の外の穴・終わりの報告で聞く）。"),
     ("plugins/core/細目/03-直すは根治.md", "行ごとに元の相談（どの頼みから出たか）を書く。"),
     ("plugins/core/細目/03-直すは根治.md", "直す窓は、合意した目標の中の行か、オーナーが「直して」と答えた行にだけ立て、"
@@ -125,3 +125,15 @@ def test_holes_の札は知らせる札に入る():
     import test_session_watch as T
     assert "holes" in T.sw.STOP_CODES and "holes" in T.sw.STOP_HOW
     assert json.dumps(T.sw.STOP_HOW["holes"], ensure_ascii=False).count("どうしますか") == 1
+
+
+# ── 4. 同じ file の中で古い読み（台帳の全部を AI が直す窓へ）が残らない ──
+SAME_FILE = [
+    ("plugins/core/細目/03-直すは根治.md", "（直す物を選ぶ段ではない・目標の外の行は `オーナーの判断` にしてオーナーが選ぶ）"),
+    ("plugins/core/細目/03-直すは根治.md", "全部この台帳の行にし、行き先を付ける（目標の外の物は `オーナーの判断`・"),
+]
+
+
+@pytest.mark.parametrize("rel, sentence", SAME_FILE)
+def test_台帳の行き先にオーナーの判断が入る(rel, sentence):
+    assert sentence in _read(rel), (rel, sentence)
