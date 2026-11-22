@@ -206,8 +206,12 @@ def test_知らせる口は止めず_JSON_で隣に出す():
     assert out.returncode == 0
     body = json.loads(out.stdout)["hookSpecificOutput"]
     assert body["hookEventName"] == "UserPromptSubmit" and "decision" not in out.stdout
-    bad = subprocess.run([sys.executable, str(SCRIPT), "--remind"], input="壊れた", capture_output=True, text=True)
-    assert bad.returncode == 0 and bad.stdout == ""
+    # 読めない入力は窓を止めず（exit 0）、黙りもしない＝見張りが壊れたと 1 回だけ知らせる
+    tmp = dict(os.environ, AF_SESSION_WATCH_TMP=str(Path(__import__("tempfile").mkdtemp())))
+    bad = subprocess.run([sys.executable, str(SCRIPT), "--remind"], input="壊れた", capture_output=True, text=True, env=tmp)
+    assert bad.returncode == 0 and "見張りの --remind が壊れて" in json.loads(bad.stdout)["hookSpecificOutput"]["additionalContext"]
+    again = subprocess.run([sys.executable, str(SCRIPT), "--remind"], input="壊れた", capture_output=True, text=True, env=tmp)
+    assert again.returncode == 0 and again.stdout == ""
 
 
 # ── 動かしていない AI がこの後やること（核 §5）──
