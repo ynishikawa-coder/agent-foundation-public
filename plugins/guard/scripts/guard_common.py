@@ -174,7 +174,7 @@ class Log:
 
 
 def read_log(path):
-    """会話ログを読む 1 本の口（guard と隣の session-watch が使う）。開けない時は OSError をそのまま上げる
+    """会話ログを読む guard の 1 本の口（今は guard だけが使う。session-watch は自前の読み口を持ち、写しが残る＝持ち主は直す窓）。開けない時は OSError をそのまま上げる
     （読めないを「人の行が無い」と取り違えない）。"""
     log = Log(path)
     with open(path, "rb") as f:
@@ -230,7 +230,8 @@ def is_owner_row(row):
 
 
 # 人が打った頼みの記録（会話ログの行の origin.kind。Claude Code が頼みを受けた口で付ける＝文の中身では変わらない）。
-# 正本はここ 1 か所（plugin session-watch も隣の正本としてこれを直に読む＝写さない）。
+# 正本はここ 1 か所（plugin session-watch は seeded_by_record を通してだけこれを読む。人の行の見分け〔is_owner_text〕は
+# session-watch に自前の写しが残る＝持ち主は直す窓）。
 HUMAN_ORIGINS = ("human", "person")
 # 窓の環境の CLAUDE_CODE_CHILD_SESSION は読まない: 公式の文書（code.claude.com/docs/en/env-vars）では「Claude Code が Bash・
 # hook・status line で起動する子プロセスに付く 1」で、どの窓でも hook の中では 1＝別の窓が立てた窓の見分けにならない。
