@@ -129,11 +129,11 @@
     },
     {
       "id": "values-pattern-partial",
-      "what": "値の表 guard の全体に当てる鍵（irreversible_tools_extra・qa_page_exempt・ask_term_allow・outbound_secret_allow・ask_prior_lookup・context_handoff）の正規表現が ^ で始まり $ で終わらない前の形（1 段目の間は前の読み方＝相手の一部に当てる。delete は undelete_item も止め、\\bGrep\\b.*問いの表 は Bash の echo にも当たる。2 段目で受けを畳むと全体の形の行だけが効く）",
+      "what": "値の表 guard の全体に当てる鍵（irreversible_tools_extra・qa_page_exempt・ask_term_allow・outbound_secret_allow・ask_prior_lookup）の正規表現が ^ で始まり $ で終わらない前の形（1 段目の間は前の読み方＝相手の一部に当てる。delete は undelete_item も止め、\\bGrep\\b.*問いの表 は Bash の echo にも当たる。2 段目で受けを畳むと全体の形の行だけが効く）",
       "files": [
         "config/skill-values.json"
       ],
-      "pattern": "(?s)\"(?:irreversible_tools_extra|qa_page_exempt|ask_term_allow|outbound_secret_allow|ask_prior_lookup|context_handoff)\"\\s*:\\s*\\[(?:\\s*\"(?:[^\"\\\\]|\\\\.)*\"\\s*,)*\\s*\"(?!\\^(?:[^\"\\\\]|\\\\.)*\\$\")(?:[^\"\\\\]|\\\\.)+\"",
+      "pattern": "(?s)\"(?:irreversible_tools_extra|qa_page_exempt|ask_term_allow|outbound_secret_allow|ask_prior_lookup)\"\\s*:\\s*\\[(?:\\s*\"(?:[^\"\\\\]|\\\\.)*\"\\s*,)*\\s*\"(?!\\^(?:[^\"\\\\]|\\\\.)*\\$\")(?:[^\"\\\\]|\\\\.)+\"",
       "fix": "型の正本 skill-values/schema.json の鍵の against（当てる相手）の全体に当たる形に書き直す（例: 道具の名なら ^mcp__server__delete_item$・path なら ^quiz/[^/]+\\.html$・道具の呼び出しなら ^Grep \\{.*問いの表.*\\}$）",
       "example": "\"guard\": {\"irreversible_tools_extra\": [\"delete\"]}"
     },

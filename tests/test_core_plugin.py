@@ -447,29 +447,34 @@ class Foundation:
         return json.loads(r.stdout)["hookSpecificOutput"]["additionalContext"] if r.stdout else ""
 
 
-def test_起動の後に_plugin_が変わったら引き継いで閉じるよう知らせる(tmp_path):
-    """注入: 窓が立った後に main の先端で plugin を変える → 次の問いで引き継ぎの手順が出る。"""
+def test_起動の後に_plugin_が変わったら先端の核を差し込み窓はそのまま続ける(tmp_path):
+    """注入: 窓が立った後に main の先端で plugin を変える → 次の問いで先端の核が差し込まれ、引き継ぎ・閉じは求めない。"""
     f = Foundation(tmp_path)
     f.install()
     assert "土台が古い" not in f.hook("inject")
     assert f.hook("fresh") == ""                         # まだ先端と同じ
-    _commit(f.work, {"plugins/guard/x.py": "x\n"}, "守りを変える")
+    _commit(f.work, {"plugins/guard/x.py": "x\n", "plugins/core/核.md": "核 3\n"}, "守りと核を変える")
     text = f.hook("fresh")
-    assert "引き継いで閉じる" in text and "create_session" in text and "archive_session" in text
-    assert "guard" in text and "人の作業は新しい窓で止まらず続く" in text
-    assert "引き継いで閉じる" in f.hook("fresh")        # 引き継ぐまで問いのたびに知らせる
+    assert "新しい核をここで読み" in text and "そのまま頼みを続ける" in text and "guard" in text
+    assert "### main の先端の 核.md" in text and "核 3" in text
+    for old in ("create_session", "archive_session", "引き継いで閉じる"):
+        assert old not in text.replace("create_session・archive_session をしない", ""), old
+    assert f.hook("fresh") == ""                         # 同じ先端は 1 回だけ（問いのたびに繰り返さない）
+    _commit(f.work, {"plugins/checker/y.py": "y\n"}, "また変える")
+    assert "checker" in f.hook("fresh")                  # 先端がまた進めばもう 1 度
 
 
 @pytest.mark.parametrize("source", ["compact", "clear", "resume"])
-def test_途中で古くなった窓は圧縮や_resume_を通っても引き継ぎが消えない(tmp_path, source):
-    """注入: 起動 → main を進める → SessionStart がもう 1 回（圧縮・/clear・resume）→ fresh は引き継ぎを出し続ける。"""
+def test_途中で古くなった窓は圧縮や_resume_の後も先端の核をもう一度差し込む(tmp_path, source):
+    """注入: 起動 → main を進める → 先端の核を差し込む → SessionStart がもう 1 回（圧縮・/clear・resume）→ 同じ物を差し込む。"""
     f = Foundation(tmp_path)
     f.install()
     f.hook("inject")
     _commit(f.work, {"plugins/guard/x.py": "x\n"}, "守りを変える")
+    assert "新しい核をここで読み" in f.hook("fresh")
     again = f.hook("inject", source=source)
     assert "土台が古いまま立った窓" not in again           # 「起動の時から古い」と取り違えない
-    assert "引き継いで閉じる" in f.hook("fresh")
+    assert "新しい核をここで読み" in again
 
 
 def test_起動の時から古い窓は圧縮の後も同じ知らせを出す(tmp_path):
@@ -488,15 +493,16 @@ def test_文書と試験だけの変更では窓を替えない(tmp_path):
     assert f.hook("fresh") == ""
 
 
-def test_起動の時から古い窓は_setup_script_を直してから引き継ぐよう知らせる(tmp_path):
-    """注入: setup script が古い物を入れた（版を指したまま）→ 直してから引き継ぐ。直せない時だけ引き継がない（輪にしない）。"""
+def test_起動の時から古い窓は_setup_script_を直し窓はそのまま続けるよう知らせる(tmp_path):
+    """注入: setup script が古い物を入れた（版を指したまま）→ 直させるが、引き継ぎ・閉じは求めず先端の核を差し込む。"""
     f = Foundation(tmp_path)
     tip = _commit(f.work, {"plugins/core/核.md": "核 2\n"}, "核を変える")
     f.install(main_at_setup=tip)                         # setup の時の main は tip なのに、入れたのは 1 つ前
     text = f.hook("inject")
     assert "土台が古いまま立った窓" in text and "core" in text
-    assert "update_environment" in text and "create_session" in text and "archive_session" in text
-    assert "直せない時" in text and "連絡板" in text
+    assert "update_environment" in text and "直せない時" in text and "連絡板" in text
+    assert "そのまま頼みを続ける" in text and "核 2" in text   # 先端の核を差し込む
+    assert "create_session で" not in text and "archive_session で" not in text
     assert "# 振る舞いの核" in text                       # 核の差し込みは止めない
     assert f.hook("fresh") == ""
 
@@ -669,7 +675,7 @@ FURUMAI_WORDS = {  # 既定の要の語: 振る舞い.md だけに在り、細�
     "ぼかさない": ["「たぶん」「概ね」「〜と思われます」と書かず", "前→後"],
     "逃げ場": ["「できれば」「間に合わなければ後で」と書かない"],
     "呼び出し": ["2 回で打ち方を変えるか止める"],
-    "一覧": ["削らない・選ばない"],
+    "一覧": ["削らず選ばず全部を原因の台帳へ", "直す窓は行ごとでなく関係しない束ごとに並べる"],
     "MGK": ["「MGK して」と言ったら"],
 }
 
