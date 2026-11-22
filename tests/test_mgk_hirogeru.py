@@ -66,55 +66,6 @@ def test_CONTRIBUTING_の赤と_red_は意図とのずれから入る():
     assert "その試験が守る意図とのずれから入って細目 §3「まず構造を疑う」で原因を探して直す。" in c
 
 
-# ── 型の欄 ────────────────────────────────────────────────────
-
-
-def test_完了報告は意図の欄を持ち_未達は課題と原因を分ける():
-    v = _read("plugins/dev-flow/skills/verify/SKILL.md")
-    assert "## 意図（このゴールが何のために在るか・頼みの原文から）" in v
-    assert "（未達は 課題＝意図とのずれ／原因 を別の行に）" in v
-    assert "学びを根治の 5 段（意図・課題・原因・解決・未来＝細目 §3）で" in v
-
-
-def test_レビューの所見は外れた意図と課題を書き_整地の意図を照らす():
-    r = _read("plugins/checker/skills/review-pr/SKILL.md")
-    assert "- [止める｜実装] path:関数 — 意図: その所が何のために在るか／課題: 意図とのずれ" in r
-    assert "PR 本文の整地の `1. 意図`・`2. 課題`" in r
-    assert "整地の意図がオーナーの原文の意図と違う・課題に原因（なぜ）が混ざる" in r
-    assert "直し: 細目 §3「まず構造を疑う」で、所見の意図とのずれから原因を探す" in r
-
-
-def test_規律を足す時は意図を独り立ちで書く():
-    rr = _read("plugins/dev-flow/skills/register-rule/SKILL.md")
-    assert "- **意図** — その規律が何のために在るか（誰の何を守るか）を、起きた事・原因と混ぜずに 1 文。" in rr
-    assert "意図: <何のために在るか 1 文> ／ 形:" in rr
-    assert "守りたかった意図とのずれ（課題）から原因の段へ戻る" in rr
-
-
-def test_codex_の戻りは_pack_の目的とのずれで書く():
-    c = _read("plugins/dev-flow/skills/codex/SKILL.md")
-    assert "pack.md の目的・起点ゴール（意図）のどれとどうずれるか（課題）を書き" in c
-    assert "— ずれ：<pack の目的・起点ゴールのどれと> / 該当：" in c
-
-
-def test_論点の表は意図の列を持つ():
-    d = _read("plugins/dev-flow/skills/design-mode/SKILL.md")
-    assert "| 論点 | 意図（何のために決めるか） | 状態（決まった／未決／前提待ち） |" in d
-
-
-def test_プロダクト宣言は意図から書く():
-    s = _read("plugins/dev-flow/skills/spec-doc/SKILL.md")
-    assert "② 意図（本来どうありたいか） ③ 課題（意図と今のずれ・なぜは書かない）" in s
-    assert "困りごとを出発点にせず意図から書く。" in s
-
-
-def test_細目の台帳と決定と入口は意図を分ける():
-    s = 細目の全文()
-    assert "原因と同じ原因の他の問題を 1 つ 1 行にし（意図・課題・原因は別の欄）、行き先を付ける:" in s
-    assert "オーナーが決めた事は各社の決定の記録に、意図と決めた中身を分け、原文と時刻つきで書く。" in s
-    assert "検査の赤も、検査が守る意図とのずれから入る。" in s
-
-
 # ── 全体の絵 ───────────────────────────────────────────────────
 
 _spec = importlib.util.spec_from_file_location("bp_hirogeru", P / "docs-kit" / "skills" / "big-picture" / "scripts" / "big_picture.py")

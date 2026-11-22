@@ -218,6 +218,13 @@ def seeded_by_record(row):
     return row.get("promptSource") == "system"
 
 
+def starts_turn(row):
+    """会話の番（ターン）を切る行か＝人が打った頼みの行（is_owner_row）で、別の窓・仕組みから来た知らせ
+    （seeded_by_record）でも、文脈を詰めた後の要約の行（isCompactSummary）でもない行。番の切り方の正本はここ 1 か所（plugin session-watch もこれを直に読む＝写さない）。
+    知らせの行（子の窓の返事・task の知らせ）は番を切らない＝人が次に打つまで同じ番。"""
+    return is_owner_row(row) and not row.get("isCompactSummary") and not seeded_by_record(row)
+
+
 def first_owner_row(path):
     try:
         for row in iter_rows(path):

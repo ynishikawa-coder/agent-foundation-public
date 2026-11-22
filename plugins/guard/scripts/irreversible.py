@@ -223,13 +223,14 @@ def match(tool_name, tool_input, cwd, vals):
 
 
 def owner_returned_since(tpath, since):
-    """離席の印より後に、人がタイプした行があるか（席に戻ったか）。判定できなければ False。"""
+    """離席の印より後に、人がタイプした行があるか（席に戻ったか）。判定できなければ False。
+    人の行の見分けは番の切り方の正本 G.starts_turn（別の窓・仕組みの知らせの行と要約の行は「戻った」に数えない）。"""
     t0 = G.parse_ts(since)
     if t0 is None or not tpath or not os.path.isfile(tpath):
         return False
     try:
         for row in G.iter_rows(tpath, TAIL_BYTES):
-            if G.is_owner_row(row):
+            if G.starts_turn(row):
                 ts = G.parse_ts(row.get("timestamp"))
                 if ts is not None and ts > t0:
                     return True
