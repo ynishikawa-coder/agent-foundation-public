@@ -1,7 +1,10 @@
 """scripts/pr_shape.py: 構文で読めない試験の file を「試験が無い」と読まず赤にするか（注入の試験）。
 
 原因の台帳: 読めない試験の file を空（試験が無い）と読み、移した試験を見落とした。PR では pytest が走らないので、
-PR の形の照らしで赤にする。前の形（読めなければ飛ばす）に戻すと、下の試験はどれも赤になる。
+PR の形の照らしで赤にする。
+- 足した側: 読めなければ飛ばす前の形に戻すと、足した側の 3 本が赤。
+- 消した側: 読めない時に赤にする分岐を外す（if added: を if False:）と「消して足すと赤」が赤。
+  足した file が無くても赤にする（if True:）と「消すだけなら照らさない」が赤。
 """
 import pytest
 
@@ -22,3 +25,30 @@ def test_構文の誤りの在る新しい試験の_file_は試験を移さな�
     _write(repo, "tests/test_new_broken.py", "def test_x(:\n    pass\n")
     res = run(repo)
     assert res.returncode == 1 and "tests/test_new_broken.py: 試験の file を構文で読めない" in res.stdout, res.stdout
+
+
+def _broken_on_base(repo):
+    """分かれ目（main）に構文で読めない試験の file を置き、枝をそこへ進める（main で一度合流した file が壊れている形）。"""
+    from test_pr_shape_moves import BR, git
+    git(repo, "checkout", "-q", "main")
+    _write(repo, "tests/test_gone_broken.py", "def test_a():\n    assert 1\n\n\ndef test_broken(:\n    pass\n")
+    git(repo, "add", "-A")
+    git(repo, "commit", "-qm", "壊れた試験")
+    git(repo, "checkout", "-q", BR)
+    git(repo, "merge", "-q", "--ff-only", "main")
+
+
+def test_読めない試験の_file_を消して試験の_file_を足すと赤(repo):  # noqa: F811
+    _broken_on_base(repo)
+    (repo / "tests" / "test_gone_broken.py").unlink()
+    # 足した側は読める。消した側が読めず、test_a を移したかを照らせない＝前は「試験が無い」と読んで通した
+    _write(repo, "tests/test_landed.py", "def test_a():\n    assert 1\n\n\ndef test_extra():\n    assert 1\n")
+    res = run(repo)
+    assert res.returncode == 1 and "tests/test_gone_broken.py（消した側）: 試験の file を構文で読めず" in res.stdout, res.stdout
+
+
+def test_読めない試験の_file_を消すだけなら消した側を照らさない(repo):  # noqa: F811
+    _broken_on_base(repo)
+    (repo / "tests" / "test_gone_broken.py").unlink()
+    res = run(repo)
+    assert "（消した側）" not in res.stdout, res.stdout
