@@ -208,7 +208,7 @@ def seeded_by_record(row):
     guard_common.seeded_by_record（人の印の表もそこ 1 か所＝写さない）。隣が無い時は False（文だけで子の窓と決めない。
     返事の見張りが neighbor の札で名指す）。"""
     G = neighbor("guard_common")
-    return bool(G.seeded_by_record(row)) if G is not None else False
+    return bool(G.seeded_by_record(row)) if G is not None and hasattr(G, "seeded_by_record") else False
 
 
 def is_owner_text(row):
@@ -218,9 +218,27 @@ def is_owner_text(row):
     return bool(text_of(row).strip())
 
 
+GUARD_NEEDS = ("starts_turn", "seeded_by_record", "values", "table")   # この見張りが隣の guard_common から直に呼ぶ物
+
+
+def guard_gap():
+    """隣の guard_common の欠け（無い・版がずれて要る物が無い）を名指す文か None。札はこの 1 か所で立てる
+    （締めの文が空の番でも・どの照らしの中でも同じく名指す＝欠けたまま古い切り方で黙って照らさない）。"""
+    G = neighbor("guard_common")
+    if G is None:
+        return ("値の表と番の切り方の正本（plugin guard の guard_common）が見つからず、値の表を読めないまま・"
+                "頼みの文の行を全部番の切れ目とみなして照らした（別の窓・仕組みの知らせが番を切り、答えの無い問いを見落とす）")
+    lack = [n for n in GUARD_NEEDS if not hasattr(G, n)]
+    if lack:
+        return ("plugin guard の guard_common の版がずれて %s が無く、その所を古い形で照らした"
+                "（starts_turn が無ければ頼みの文の行を全部番の切れ目とみなす）。plugin guard を session-watch と同じ版に入れ直す"
+                % "・".join(lack))
+    return None
+
+
 def starts_turn(row):
-    """番（ターン）を切る行か。正本は隣の plugin guard の guard_common.starts_turn（写さない）。隣が無い時は頼みの文の行を
-    全部番の切れ目とみなす（返事の見張りが neighbor の札で名指す）。"""
+    """番（ターン）を切る行か。正本は隣の plugin guard の guard_common.starts_turn（写さない）。隣が無い・版がずれて無い時は
+    頼みの文の行を全部番の切れ目とみなす（guard_gap が check の中で neighbor の札で必ず名指す）。"""
     G = neighbor("guard_common")
     if G is not None and hasattr(G, "starts_turn"):
         return bool(G.starts_turn(row))
@@ -600,9 +618,7 @@ def words(log, closing, data=None):
         except Exception as e:      # noqa: BLE001
             found.append(("neighbor", "%s の照らしが壊れて照らせない（%s: %s）" % (name, type(e).__name__, str(e)[:60])))
 
-    if neighbor("guard_common") is None:   # 値の表を空とみなして黙って進めない（外す形・足す形が効かないまま照らす）
-        found.append(("neighbor", "値の表の正本（plugin guard の guard_common）が見つからず、値の表の reply_exempt・"
-                                  "ask_term_allow・ask_inner_terms_extra を読めないまま照らした"))
+    # 隣の guard_common の欠けは check の guard_gap が 1 か所で名指す（ここで締めの文の有無に縛らない）
     exempt, bad = reply_exempt(data)
     if bad:
         found.append(("neighbor", "値の表 session-watch.watch-log.reply_exempt に正規表現として読めない形がある（捨てて照らした）: %s"
@@ -780,6 +796,11 @@ def check(log, closing=None, data=None):
     # 答えの無い問い（画面の答えも、閉じた画面の後のチャットの答えも、出し直した問いの答えも返っていない問い）
     for q in ask_state(log)[0]:
         found.append(("unanswered", "答えの無い問いが残っている（出し直す・残りなしで締めない）: %s" % q[:60]))
+
+    # 隣の正本の欠け（番の切り方・値の表）: 締めの文が空の番でも名指す
+    gap = guard_gap()
+    if gap:
+        found.append(("neighbor", gap))
 
     # 読めない行（黙って飛ばして判定しない）
     if log.unreadable:

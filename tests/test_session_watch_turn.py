@@ -184,3 +184,27 @@ def test_会話ログが在れば_nolog_を出さない(tmp_path):
     p = write(tmp_path, [json.dumps(human("作り物（返し先=オーナー）"), ensure_ascii=False)])
     env = {"AF_SESSION_WATCH_TMP": str(tmp_path / "w")}
     assert "nolog" not in (sw.stop({"transcript_path": str(p), "session_id": "s1", "last_assistant_message": "済んだ。"}, env) or "")
+
+
+def _log_with_notice():
+    return sw.Log([human("頼み"), notice("別の窓の知らせ")])
+
+
+def test_隣の_guard_common_に_starts_turn_が無い版でも締めの文が空でも_neighbor_で名指す(monkeypatch):
+    import types
+    old = types.SimpleNamespace(seeded_by_record=lambda r: False, values=lambda d=None: {}, table=lambda n, d=None: {})
+    monkeypatch.setitem(sw._loaded, "guard_common", old)
+    found = sw.check(_log_with_notice(), "", {})
+    hits = [m for c, m in found if c == "neighbor"]
+    assert hits and "starts_turn" in hits[0]
+
+
+def test_隣の_guard_common_が無い時も締めの文が空の番で_neighbor_で名指す(monkeypatch):
+    monkeypatch.setitem(sw._loaded, "guard_common", None)
+    found = sw.check(_log_with_notice(), "", {})
+    assert any(c == "neighbor" and "guard_common" in m for c, m in found)
+
+
+def test_隣の_guard_common_が揃っていれば番の切り方の_neighbor_を出さない():
+    assert sw.guard_gap() is None
+    assert not any(c == "neighbor" for c, _ in sw.check(_log_with_notice(), "", {}))
