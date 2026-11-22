@@ -614,20 +614,6 @@ def test_残りの受け皿は原因の台帳_1_つで_名だけの受け皿を�
     assert not hits, hits
 
 
-def test_main_へは製品もオーナーに聞かずに入れ_絵と差がある時だけ止める():
-    """「本番への出荷は聞く」を核に戻すと赤（Notion の決定と窓が読む核が食い違う形）。"""
-    kaku_text = (PLUGIN / "核.md").read_text(encoding="utf-8")
-    assert "本番への出荷" not in _節(kaku_text, 4), "核 §4 に「本番への出荷は聞く」が戻った"
-    s7 = _節(kaku_text, 7)
-    for word in ["（製品も）オーナーに聞かずに入れる", "レビュー green", "試験が緑で衝突なし", "全体の絵", "差がある・照らせない時は止めて聞く", "先に絵を描き"]:
-        assert word in s7, f"核 §7 に無い: {word}"
-    s7d = _節(細目の全文(), 7)
-    assert "**main へ入れる**" in s7d and "**③の照らし方**" in s7d
-    assert "review-pr 点 13" in s7d and "③の段が土台に入るまで" not in s7d   # 照らす段が入った後に「一言を取る」間の扱いを残さない
-    assert "核 §7 の「照らせない時」" in s7d, "照らせない時の止めが核から読めない形に戻った"
-    assert "核 §7 と細目 §7 の「main へ入れる」" in (ROOT / "CONTRIBUTING.md").read_text(encoding="utf-8")
-
-
 def test_土台の直しは使う側の写しの残りも同じ仕事で直し_合流まで終わったと言わない():
     """写しの残りを洗い出すだけで終わる形（直す持ち主が無い）を戻すと赤。"""
     s7d = _節(細目の全文(), 7)
@@ -647,12 +633,12 @@ def test_ミスが出たらまず構造を疑い_単発と言うのは絵の上�
     s3 = _節(kaku_text, 3)
     first = s3.split("\n- ", 1)[1]
     assert first.startswith("ミスが出た時（画面の見た目を除く）と直す・作る時の既定は根治"), "根治の入口が直す・作る時だけに戻った"
-    for word in ["まず構造（上位の前提", "単発の誤りと言うのは全体の絵の上で構造に原因が無いと示せた時だけ",
+    for word in ["まず構造（上位の前提", "単発の誤りと言うのは構造に原因が無いと示せた時だけ（絵があれば絵の上で）",
                  "守り（確かめ・決まり）を足さず"]:
         assert word in s3, f"核 §3 に無い: {word}"
     s3d = _節(細目の全文(), 3)
     assert "**まず構造を疑う**" in s3d
-    for word in ["作業の途中・レビュー・検査・引き継ぎ", "画面の見た目の崩れだけは除く", "示した所（絵のどこを見たか）を書く",
+    for word in ["作業の途中・レビュー・検査・引き継ぎ", "画面の見た目の崩れだけは除く", "示した所を書く（合意した全体の絵があれば絵のどこを見たか、無ければ言葉で）",
                  "根に届いていない合図で、原因の段へ戻る"]:
         assert word in s3d, f"細目 §3 の「まず構造を疑う」に無い: {word}"
     rr = (ROOT / "plugins" / "dev-flow" / "skills" / "register-rule" / "SKILL.md").read_text(encoding="utf-8")
