@@ -10,6 +10,7 @@ from pathlib import Path
 import pytest
 from entry_box import box_env, copy_entry
 from uses import sh_code
+from saimoku import 全文 as 細目の全文
 
 ROOT = Path(__file__).resolve().parent.parent
 PLUGIN = ROOT / "plugins" / "core"
@@ -61,7 +62,7 @@ def run(*args, project=None, home=None, stdin="", extra=None):
 
 
 def test_核と振る舞いと細目と_hook_が_plugin_の中に在る():
-    assert all((PLUGIN / n).is_file() for n in ["核.md", "振る舞い.md", "細目.md"])
+    assert all((PLUGIN / n).is_file() for n in ["核.md", "振る舞い.md"]) and kaku.saimoku_files()
     hooks = json.loads((PLUGIN / "hooks" / "hooks.json").read_text(encoding="utf-8"))
     cmd = hooks["hooks"]["SessionStart"][0]["hooks"][0]["command"]
     assert "${CLAUDE_PLUGIN_ROOT}/scripts/kaku.py" in cmd and cmd.endswith(" inject")
@@ -78,7 +79,7 @@ def test_写しの枠が無い_repo_には核と細目の在り処を差し込�
     ctx = out["additionalContext"]
     assert ctx.startswith((PLUGIN / "核.md").read_text(encoding="utf-8").rstrip("\n"))
     assert (PLUGIN / "振る舞い.md").read_text(encoding="utf-8").rstrip("\n") in ctx, "振る舞いの既定が毎回差し込まれない"
-    assert str(PLUGIN / "細目.md") in ctx
+    assert str(PLUGIN / "細目") + " の中の、核の節と同じ番号で始まる file" in ctx
     assert "形に迷った時" not in ctx, "細目の案内が「形の細目」と分からない言葉に戻った"
 
 
@@ -316,7 +317,7 @@ def test_核の根治は意図_課題_原因_解決_未来の_5_段で_未来は
     s3 = _節(kaku_text, 3)
     assert "意図→課題→原因→解決→未来" in s3
     assert "仕組み・設計）が悪い前提" in s3 and "別の目の助手" in s3
-    s3d = _節((PLUGIN / "細目.md").read_text(encoding="utf-8"), 3)
+    s3d = _節(細目の全文(), 3)
     assert "意図が果たされ、同じ課題と同じ原因の他の問題が起きない状態" in s3d, "細目 §3 の未来が直した後の姿でない"
     for word in ["**意図**", "**課題**", "**原因**", "**同じ原因の他の問題**", "**解決**", "**未来**",
                  "無理・無駄・重複", "聞かせ方", "混じって", "試験を足す段ではない"]:
@@ -325,7 +326,7 @@ def test_核の根治は意図_課題_原因_解決_未来の_5_段で_未来は
 
 def test_MGK_は根治の_5_段の呼び名で説明の頼みにも_5_段で答える():
     assert "意図→課題→原因→解決→未来" in _節((PLUGIN / "核.md").read_text(encoding="utf-8"), 3), "核 §3 に 5 段が無い"
-    s3d = _節((PLUGIN / "細目.md").read_text(encoding="utf-8"), 3)
+    s3d = _節(細目の全文(), 3)
     assert "（呼び名 MGK。" in s3d, "細目 §3 に MGK の呼び名が無い"
     line = next(l for l in (PLUGIN / "振る舞い.md").read_text(encoding="utf-8").splitlines() if "**MGK**" in l)
     for word in ["説明", "根治の 5 段の見出しで答える"]:
@@ -338,7 +339,7 @@ def test_問いは選ぶ問いと開いた問いに分け_分からないを置�
     for word in ["選択肢の画面", "開いた問い", "AI の読み"]:
         assert word in s4, f"核 §4 に無い: {word}"
     assert "例え話にせず" in _節(kaku_text, 2)
-    s4d = _節((PLUGIN / "細目.md").read_text(encoding="utf-8"), 4)
+    s4d = _節(細目の全文(), 4)
     for word in ["どの問いにも「分からない」の選択肢", "「分からない」が返った", "AI の今の読み", "選ぶ問いと開いた問い", "問いの言葉", "開発用語", "業界の専門用語", "決まりの言葉", "オーナーの言葉", "例え話に替えず"]:
         assert word in s4d, f"細目 §4 に無い: {word}"
 
@@ -350,7 +351,7 @@ def test_聞き方は見せてから聞き_前提の出所を分け_推奨の印
     for word in ["案と前提をチャットで先に見せ", "画面の問いは 1 文に", "推奨の印は作り方の分かれ道だけ",
                  "済んだかは AI が確かめてから", "答えを待つ間は答えに頼らない事を進める"]:
         assert word in s4, f"核 §4 に無い: {word}"
-    s4d = _節((PLUGIN / "細目.md").read_text(encoding="utf-8"), 4)
+    s4d = _節(細目の全文(), 4)
     for word in ["**見せてから聞く**", "1〜2 文まで", "選択肢の説明へ", "**前提の出所**", "オーナーの言葉／記録の事実／AI の読み",
                  "「ずれ」と決め込まない", "「なぜこの形か」を問う", "**推奨の印**", "済んだかの確認には付けない",
                  "**答えを待つ間**", "推奨で先に進めない", "「終わった」「うまくいかない」「分からない」・推奨の印は付けない"]:
@@ -376,7 +377,7 @@ def test_一言の返事は札と締めを省き_窓の役に決まった一覧�
     """同じ原因（決まりが 1 つの形に押し込める）の残り: 短い返事に 3 行を足さない・役の名を 5 つに閉じない。古い形を戻すと赤。"""
     kaku_text = (PLUGIN / "核.md").read_text(encoding="utf-8")
     assert "一言で済む返事は札と締めを省く" in _節(kaku_text, 5)
-    s5d = _節((PLUGIN / "細目.md").read_text(encoding="utf-8"), 5)
+    s5d = _節(細目の全文(), 5)
     assert "**一言で済む返事**" in s5d and "札を付けたら締めも付ける" in s5d
     olds = ["の 5 つだけ。他の名を足さない", "親・書く・レビュー・調べ・手 の 5 つ", "社内で確かめてから答える", "問いの形（3 つだけ）", "決まった 4 文"]
     hits = old_words_left(olds)
@@ -389,7 +390,7 @@ def test_核の根治は誤りが入れない形と注入の試験を持つ():
     for word in ["誤りが入れない形", "1 つの正本", "写さない", "既定で止める", "証明", "人の関所", "わざと入れて"]:
         assert word in s3, f"核 §3 に無い: {word}"
     assert "申告でなく記録" in _節(kaku_text, 7)
-    saimoku = (PLUGIN / "細目.md").read_text(encoding="utf-8")
+    saimoku = 細目の全文()
     s3d = _節(saimoku, 3)
     for word in ["写す工程を無くす", "誤った物が入れない", "正しい道だけが外へ出す", "防げない物は名指しで人の関所へ", "注入の試験", "古い道は残さず"]:
         assert word in s3d, f"細目 §3 に無い: {word}"
@@ -535,14 +536,14 @@ def test_挙げた原因は全部台帳に行き先つきで持ち_全部済む�
     s3 = _節(kaku_text, 3)
     for word in ["原因の台帳", "全部", "行き先"]:
         assert word in s3, f"核 §3 に無い: {word}"
-    s3d = _節((PLUGIN / "細目.md").read_text(encoding="utf-8"), 3)
+    s3d = _節(細目の全文(), 3)
     for word in ["1 つ 1 行", "`直す窓`", "`直した`", "`直さない`", "オーナーが決めた理由"]:
         assert word in s3d, f"細目 §3 の原因の台帳に無い: {word}"   # 行き先の細かさは細目が正本（核は芯だけ）
     s7 = _節(kaku_text, 7)
     assert "「直した」か「直さない」になるまで終わったと言わない" in s7 and "直す窓の行が残れば一部" in s7
     s4 = _節(kaku_text, 4)
     assert "並べて 1 つ選ばせる問いを出さない" in s4 and "全部やり、分け方は AI が決める" in s4
-    saimoku = (PLUGIN / "細目.md").read_text(encoding="utf-8")
+    saimoku = 細目の全文()
     assert "**原因の台帳**" in _節(saimoku, 3) and "**選ばせない**" in _節(saimoku, 4) and "**根治の終わり**" in _節(saimoku, 7)
     assert "1 本の列にせず" in (PLUGIN / "振る舞い.md").read_text(encoding="utf-8"), "引き継ぎの残りが番号の列に戻った"
     olds = ["どれを今回直す", "一番手前の未決から取る", "どれから進めますか」と聞"]
@@ -553,11 +554,11 @@ def test_挙げた原因は全部台帳に行き先つきで持ち_全部済む�
 # 残りの受け皿: 各所が自分の名の受け皿（後の便・🎯箱・他の窓へ回す・残りに書く…）を持たず、原因の台帳 1 つへ向ける。
 # (path, その所を見分ける語) — 語はちょうど 1 行に当たり、その行に「原因の台帳」が無ければ赤。
 残りの所 = [
-    ("plugins/core/細目.md", "**一時しのぎ**"),
-    ("plugins/core/細目.md", "③道具・仕組みの都合"),
-    ("plugins/core/細目.md", "どの窓にも分けなかった論点"),
-    ("plugins/core/細目.md", "**大きい仕事の並べ方**"),
-    ("plugins/core/細目.md", "| 一部 |"),
+    ("plugins/core/細目/03-直すは根治.md", "**一時しのぎ**"),
+    ("plugins/core/細目/04-聞き方.md", "③道具・仕組みの都合"),
+    ("plugins/core/細目/04-聞き方.md", "どの窓にも分けなかった論点"),
+    ("plugins/core/細目/04-聞き方.md", "**大きい仕事の並べ方**"),
+    ("plugins/core/細目/07-完了の4状態.md", "| 一部 |"),
     ("plugins/dev-flow/skills/design-mode/SKILL.md", "どちらで出る時も"),
     (".github/pull_request_template.md", "## 残り"),
     ("CONTRIBUTING.md", "1 本に入らなかった仕事"),
@@ -586,7 +587,7 @@ def test_挙げた原因は全部台帳に行き先つきで持ち_全部済む�
 
 def test_残りの受け皿は原因の台帳_1_つで_名だけの受け皿を持たない():
     """古い形（自分の名の受け皿・A/B を 1 つ選ばせて捨てる・相談を出ると論点が消える）を戻すと赤。"""
-    s3d = _節((PLUGIN / "細目.md").read_text(encoding="utf-8"), 3)
+    s3d = _節(細目の全文(), 3)
     assert "**残りの受け皿は原因の台帳 1 つ**" in s3d
     for word in ["`台帳へ` の札", "DEFER", "一時しのぎ", "「一部」の残り", "どの窓も持たなかった論点", "選ばれなかった案",
                  "1 窓 1 枝 1 PR に入らなかった仕事", "合流の後の続き", "道具の都合", "正本は台帳"]:
@@ -611,7 +612,7 @@ def test_main_へは製品もオーナーに聞かずに入れ_絵と差があ�
     s7 = _節(kaku_text, 7)
     for word in ["（製品も）オーナーに聞かずに入れる", "レビュー green", "試験が緑で衝突なし", "全体の絵", "差がある・照らせない時は止めて聞く", "先に絵を描き"]:
         assert word in s7, f"核 §7 に無い: {word}"
-    s7d = _節((PLUGIN / "細目.md").read_text(encoding="utf-8"), 7)
+    s7d = _節(細目の全文(), 7)
     assert "**main へ入れる**" in s7d and "**③の照らし方**" in s7d
     assert "review-pr 点 13" in s7d and "③の段が土台に入るまで" not in s7d   # 照らす段が入った後に「一言を取る」間の扱いを残さない
     assert "核 §7 の「照らせない時」" in s7d, "照らせない時の止めが核から読めない形に戻った"
@@ -620,7 +621,7 @@ def test_main_へは製品もオーナーに聞かずに入れ_絵と差があ�
 
 def test_土台の直しは使う側の写しの残りも同じ仕事で直し_合流まで終わったと言わない():
     """写しの残りを洗い出すだけで終わる形（直す持ち主が無い）を戻すと赤。"""
-    s7d = _節((PLUGIN / "細目.md").read_text(encoding="utf-8"), 7)
+    s7d = _節(細目の全文(), 7)
     line = [ln for ln in s7d.splitlines() if "**土台の直しの終わり**" in ln]
     assert len(line) == 1, "細目 §7 に「土台の直しの終わり」が無い"
     for word in ["使う側の repo", "同じ仕事の中で直す", "洗い出しだけで終わらせない", "使う側の写しの残り", "合流するまで「終わった」と言わない", "原因の台帳の行"]:
@@ -640,7 +641,7 @@ def test_ミスが出たらまず構造を疑い_単発と言うのは絵の上�
     for word in ["まず構造（上位の前提", "単発の誤りと言うのは全体の絵の上で構造に原因が無いと示せた時だけ",
                  "守り（確かめ・決まり）を足さず"]:
         assert word in s3, f"核 §3 に無い: {word}"
-    s3d = _節((PLUGIN / "細目.md").read_text(encoding="utf-8"), 3)
+    s3d = _節(細目の全文(), 3)
     assert "**まず構造を疑う**" in s3d
     for word in ["作業の途中・レビュー・検査・引き継ぎ", "画面の見た目の崩れだけは除く", "示した所（絵のどこを見たか）を書く",
                  "根に届いていない合図で、原因の段へ戻る"]:
@@ -655,7 +656,7 @@ def test_ミスが出たらまず構造を疑い_単発と言うのは絵の上�
 
 def test_核から細目へ移した物が細目に在る():
     """量を空けるために核から移した物が、どこにも無くならない。"""
-    saimoku = (PLUGIN / "細目.md").read_text(encoding="utf-8")
+    saimoku = 細目の全文()
     assert "「ほぼ終わった」と書かない" in _節(saimoku, 7)
     s8 = _節(saimoku, 8)
     assert "Javis は Notion と Drive" in s8 and "**またぐ連絡**" in s8
@@ -682,7 +683,7 @@ FURUMAI_WORDS = {  # 既定の要の語: 振る舞い.md だけに在り、細�
 
 def test_振る舞いの既定は全部_振る舞い_md_に在り細目に戻らない():
     furumai = (PLUGIN / "振る舞い.md").read_text(encoding="utf-8")
-    saimoku = (PLUGIN / "細目.md").read_text(encoding="utf-8")
+    saimoku = 細目の全文()
     missing = [w for ws in FURUMAI_WORDS.values() for w in ws if w not in furumai]
     assert not missing, f"振る舞いの既定に無い: {missing}"
     olds = ["自分の枝への push の前", "「無い」「止まった」と言い切る前", "間に合わなければ後で", "2 回で打ち方を変える",
@@ -774,7 +775,7 @@ def 単発の手直しの文(text):
 @pytest.mark.parametrize("rel", sorted(赤を返す所))
 def test_赤を返す所は根治の入口を指し単発の手直しの形が無い(rel):
     """赤・red・抜けを返す所が、直して出し直す・1 行足すだけの古い形に戻ると赤。指す先の正本が無くなっても赤。"""
-    assert "**まず構造を疑う**" in _節((PLUGIN / "細目.md").read_text(encoding="utf-8"), 3), "指す先の正本が無い"
+    assert "**まず構造を疑う**" in _節(細目の全文(), 3), "指す先の正本が無い"
     text = (ROOT / rel).read_text(encoding="utf-8")
     assert "細目 §3「まず構造を疑う」" in text, f"{rel} が根治の入口（細目 §3「まず構造を疑う」）を指さない"
     for old in 赤を返す所[rel]:
@@ -823,7 +824,7 @@ def test_検査の入口の赤の最後の行は根治の入口を指し緑は�
 
 
 def _git_repo(tmp_path, text, monkeypatch):
-    """作り物の git repo に 核.md と細目.md を 1 commit で置き、核.md の path を返す。
+    """作り物の git repo に 核.md と細目（節の file 1 つの dir）を 1 commit で置き、核.md の path を返す。
     grow は細目も照らす（guarded）ので、細目も作り物へ向ける（本物の作業中の細目に試験が左右されない）。"""
     g = lambda *a: subprocess.run(["git", *a], cwd=tmp_path, check=True, capture_output=True)
     g("init", "-q")
@@ -831,8 +832,9 @@ def _git_repo(tmp_path, text, monkeypatch):
     g("config", "user.name", "t")
     f = tmp_path / "核.md"
     f.write_text(text, encoding="utf-8")
-    (tmp_path / "細目.md").write_text("細目\n", encoding="utf-8")
-    monkeypatch.setattr(kaku, "SAIMOKU", tmp_path / "細目.md")
+    (tmp_path / "細目").mkdir()
+    (tmp_path / "細目" / "01-節.md").write_text("細目\n", encoding="utf-8")
+    monkeypatch.setattr(kaku, "SAIMOKU", tmp_path / "細目")
     g("add", "-A")
     g("commit", "-q", "-m", "元")
     return f

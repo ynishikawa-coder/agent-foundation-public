@@ -59,7 +59,7 @@ def test_入れた形でも名で引けて_鍵は_repo_の形と同じ(tmp_path)
     res = run(home, tool, "check", f)
     assert res.returncode == 0, res.stdout
     c = json.loads(run(home, tool, "list").stdout)
-    assert "plugins/core/細目.md" in c["docs"] and "CONTRIBUTING.md" in c["docs"]
+    assert "plugins/core/細目" in c["docs"] and "CONTRIBUTING.md" in c["docs"]
     assert c["hooks"]["plugins/guard/scripts/values_keys.py"] == {"pre": "check", "start": "resurface"}
     assert c["unread"] == []
 

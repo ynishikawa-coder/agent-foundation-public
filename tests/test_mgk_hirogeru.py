@@ -11,6 +11,7 @@ import pathlib
 import re
 
 import pytest
+from saimoku import 全文 as 細目の全文
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 P = ROOT / "plugins"
@@ -108,7 +109,7 @@ def test_プロダクト宣言は意図から書く():
 
 
 def test_細目の台帳と決定と入口は意図を分ける():
-    s = _read("plugins/core/細目.md")
+    s = 細目の全文()
     assert "原因と同じ原因の他の問題を 1 つ 1 行にし（意図・課題・原因は別の欄）、行き先を付ける:" in s
     assert "オーナーが決めた事は各社の決定の記録に、意図と決めた中身を分け、原文と時刻つきで書く。" in s
     assert "検査の赤も、検査が守る意図とのずれから入る。" in s

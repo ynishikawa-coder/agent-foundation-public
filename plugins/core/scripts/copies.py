@@ -10,7 +10,7 @@
   正本を指す字（file の path・`…` のコード・skill の名 `plugin:skill`）は字の並びから除く（_POINTER）。写しの直し方は
   「正本を指す 1 行に替える」なので、指す字が重なっただけの行を写しと呼ぶと、直した行がまた赤になる。指す字を除いて
   MIN_CHARS に足りない行（指すだけの行）は照らさない。
-土台の文: 同じ plugin の 核.md・振る舞い.md・細目.md と、並ぶ plugin の skills/*/SKILL.md
+土台の文: 同じ plugin の 核.md・振る舞い.md・細目/ の節ごとの file と、並ぶ plugin の skills/*/SKILL.md
   （repo の形 plugins/<名>/ は並ぶ plugin、入れた写しの形 cache/<市場>/<名>/<版>/ は入った版の dir だけ＝plugin_dirs）。--foundation で dir を渡せば
   その下の .md を全部使う。土台の文が 1 つも読めない時は照らさずに止める（黙って緑にしない）。
 
@@ -78,7 +78,7 @@ def plugin_dirs() -> list[Path]:
 def foundation_files(base: Path | None) -> list[Path]:
     if base is not None:
         return sorted(p for p in base.rglob("*.md") if p.is_file())
-    own = [PLUGIN / n for n in ("核.md", "振る舞い.md", "細目.md")]
+    own = [PLUGIN / n for n in ("核.md", "振る舞い.md")] + sorted((PLUGIN / "細目").glob("*.md"))   # 細目は節ごとの file
     skills = {p for d in plugin_dirs() for p in d.glob("skills/*/SKILL.md")}
     return [p for p in own if p.is_file()] + sorted(skills)
 

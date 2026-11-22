@@ -1,0 +1,1 @@
+plugins/core/細目/01-安全.md	土台の action を main の先端（`@main`）で呼ぶだけにする（版で止めない）。

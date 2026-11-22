@@ -14,7 +14,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 SCRIPT = ROOT / "plugins" / "session-watch" / "scripts" / "session_watch.py"
 SKILL = ROOT / "plugins" / "session-watch" / "skills" / "title-mark" / "SKILL.md"
-DETAIL = ROOT / "plugins" / "core" / "細目.md"
+DETAIL = ROOT / "plugins" / "core" / "細目" / "04-聞き方.md"   # 手の窓の節
 
 spec = importlib.util.spec_from_file_location("session_watch_hand_kind", SCRIPT)
 sw = importlib.util.module_from_spec(spec)

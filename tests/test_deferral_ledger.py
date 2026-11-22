@@ -7,6 +7,7 @@ import re
 from pathlib import Path
 
 import pytest
+from saimoku import 全文 as 細目の全文
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -28,7 +29,7 @@ def 台帳を指す(ln):
     ("plugins/dev-flow/skills/public-repo/SKILL.md", "歴史ごと公開してよいか"): "同上",
     ("plugins/dev-flow/skills/codex/SKILL.md", "ACCEPT/MODIFY/REJECT/DEFER"): "Codex 側の報告の札の名（行き先は同じ skill の §戻り が台帳と書く）",
     ("plugins/session-watch/skills/watch-log/SKILL.md", "| `rest` |"): "自分を後で起こす手の名（send_later）",
-    ("plugins/core/細目.md", "AI がこの後やること＝"): "後で起こす手の名",
+    ("plugins/core/細目/05-返事の形.md", "AI がこの後やること＝"): "後で起こす手の名",
     ("plugins/core/振る舞い.md", "**計画に逃げ場を書かない**"): "「後で」の逃げ場を書かない決まりそのもの",
     ("plugins/dev-flow/skills/preimpl-cleanup/SKILL.md", "受領証を仕事の箱に作る"): "受領証の置き場（残りの受け皿ではない）",
     ("plugins/guard/skills/guard-rules/SKILL.md", "は一時の箱に置く"): "窓の中だけで閉じる印の置き場",
