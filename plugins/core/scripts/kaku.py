@@ -1133,7 +1133,7 @@ def base_text(ref: str, path: Path) -> str:
 
     if not path.is_dir():
         return show(rel)
-    ls = subprocess.run(["git", "-c", "core.quotepath=off", "ls-tree", "--name-only", f"{ref}:{rel}"],
+    ls = subprocess.run(["git", "-c", "core.quotepath=off", "ls-tree", "--full-tree", "--name-only", f"{ref}:{rel}"],
                         cwd=path.parent, capture_output=True)
     names = sorted(n for n in ls.stdout.decode("utf-8").splitlines() if n.endswith(".md")) if ls.returncode == 0 else []
     if names:
