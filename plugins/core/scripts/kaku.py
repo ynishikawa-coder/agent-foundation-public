@@ -300,9 +300,16 @@ def own(rel: str, text: str) -> str:
     return md_own(text) if Path(rel).suffix.lower() in (".md", ".markdown") else code(rel, text)
 
 
-def old_view(row: dict, rel: str, text: str) -> str:
-    """古い形の行が読む所（reads の決まり）。"""
+def old_view(row: dict, rel: str, text: str, views: dict | None = None) -> str:
+    """古い形の行が読む所（reads の決まり）。views を渡すと、同じ (読み方, path, 中身) の読み口を 1 回だけ作る
+    （行ごと・main の木と checkout ごとに同じ file を読み直すと、.py の構文の読みが行の数×2 回走り、起動の時の
+    見張りの時間の上限を越える）。"""
     reads = row.get("reads", "all")
+    if views is not None and reads != "all":
+        key = (reads, rel, text)
+        if key not in views:
+            views[key] = old_view(row, rel, text)
+        return views[key]
     if reads == "commands":
         return code(rel, text)
     if reads == "prose" and Path(rel).suffix.lower() in (".md", ".markdown"):
@@ -310,9 +317,9 @@ def old_view(row: dict, rel: str, text: str) -> str:
     return text
 
 
-def old_hit(row: dict, rel: str, text: str) -> bool:
+def old_hit(row: dict, rel: str, text: str, views: dict | None = None) -> bool:
     """古い形の行が (相対 path, 中身) に当たるか（照らし方はこの 1 か所）。"""
-    return bool(row["re"].search(old_view(row, rel, text)))
+    return bool(row["re"].search(old_view(row, rel, text, views)))
 
 
 def _tracked(project: Path, specs: list[str]) -> list[Path]:
@@ -369,12 +376,13 @@ def main_ref(project: Path) -> tuple[str | None, str | None]:
     return local, (f"{note}。読んだのは手元の origin の main {local[:12]}（出所より古い）" if local else note)
 
 
-def _hits(rows: list[dict], texts) -> list[tuple[dict, str]]:
-    """(相対 path, 中身) の並びに古い形の行を当てる（照らし方はこの 1 か所）。"""
+def _hits(rows: list[dict], texts, views: dict | None = None) -> list[tuple[dict, str]]:
+    """(相対 path, 中身) の並びに古い形の行を当てる（照らし方はこの 1 か所）。読み口は views で 1 つの照らしの中で分け合う。"""
     found = []
+    views = {} if views is None else views
     for r in rows:
         for rel, text in texts(r):
-            if old_hit(r, rel, text):
+            if old_hit(r, rel, text, views):
                 found.append((r, rel))
     return found
 
@@ -477,19 +485,20 @@ def olds_scan(project: Path, rows: list[dict] | None = None) -> dict:
 
 def _olds_scan(project: Path, rows: list[dict], unread: dict[str, str]) -> dict:
     ref, note = main_ref(project)
-    checkout = _hits(rows, _checkout_texts(project, unread))
+    views: dict = {}  # checkout と main の木で中身が同じ file は、読み口を 1 回だけ作る
+    checkout = _hits(rows, _checkout_texts(project, unread), views)
     if note:  # 読んだ main が出所の今の main と確かめられない: どれも消す・直ったと言い切らない（分からないと名指す）
-        found = _hits(rows, _tree_texts(project, ref, unread=unread)) if ref else []
+        found = _hits(rows, _tree_texts(project, ref, unread=unread), views) if ref else []
         seen = {(r["id"], f) for r, f in found}
         return {"ref": ref, "note": note, "found": [], "fixed_here": [], "behind": [], "added": [],
                 "unknown": found + [(r, f) for r, f in checkout if (r["id"], f) not in seen]}
     if not ref:
         return {"ref": None, "note": None, "found": checkout, "fixed_here": [], "behind": [], "added": [], "unknown": []}
-    found = _hits(rows, _tree_texts(project, ref, unread=unread))
+    found = _hits(rows, _tree_texts(project, ref, unread=unread), views)
     seen = {(r["id"], f) for r, f in found}
     only = {(r["id"], f) for r, f in checkout} - seen
     base = _git(str(project), "merge-base", "HEAD", ref, timeout=10) if only else None
-    was = {(r["id"], f) for r, f in _hits(rows, _tree_texts(project, base, only, unread))} if base else set()
+    was = {(r["id"], f) for r, f in _hits(rows, _tree_texts(project, base, only, unread), views)} if base else set()
     rest = [(r, f) for r, f in checkout if (r["id"], f) in only]
     if not base:  # 分かれ目が読めない（浅い clone 等）: main で直ったともこの枝で足したとも言い切らない
         return {"ref": ref, "note": None, "found": found, "fixed_here": [(r, f) for r, f in found if (r["id"], f) not in
@@ -513,7 +522,8 @@ def find_olds_bounded(project: Path, budget: float = WATCH_BUDGET, table: Path =
     try:
         p = subprocess.run(cmd, capture_output=True, text=True, timeout=budget)
     except subprocess.TimeoutExpired:
-        raise TimeoutError(f"{budget} 秒で見終わらず打ち切った（古い形の照らしの途中）") from None
+        raise TimeoutError(f"{budget} 秒で見終わらず打ち切った（古い形の照らしの途中＝古い形 0 と決まったのではない）。"
+                           f"時間の上限なしで照らすのは `python3 {Path(__file__).resolve()} olds {project}`") from None
     if p.returncode not in (0, 1):
         raise ValueError((p.stdout + p.stderr).strip() or f"olds が {p.returncode} で抜けた")
     rows = {r["id"]: r for r in olds_table(table)}
