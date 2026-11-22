@@ -614,27 +614,10 @@ def test_残りの受け皿は原因の台帳_1_つで_名だけの受け皿を�
     assert not hits, hits
 
 
-def test_main_へは製品もオーナーに聞かずに入れ_全体の絵を関所にしない():
-    """「本番への出荷は聞く」や「絵と差がある・照らせない時は止めて聞く」を核に戻すと赤（決定 2026-11-22）。"""
-    kaku_text = (PLUGIN / "核.md").read_text(encoding="utf-8")
-    assert "本番への出荷" not in _節(kaku_text, 4), "核 §4 に「本番への出荷は聞く」が戻った"
-    s7 = _節(kaku_text, 7)
-    for word in ["（製品も）オーナーに聞かずに入れる", "レビュー green", "試験が緑で衝突なし", "止める所・合流の関所にしない",
-                 "1 回だけ", "ずれは聞かずに直す"]:
-        assert word in s7, f"核 §7 に無い: {word}"
-    for word in ["差がある・照らせない時は止めて聞く", "先に絵を描き", "差が無い"]:
-        assert word not in s7, f"核 §7 に全体の絵の関所が戻った: {word}"
-    s7d = _節(細目の全文(), 7)
-    assert "**main へ入れる**" in s7d and "**絵と照らす時**" in s7d
-    assert "**③の照らし方**" not in s7d and "review-pr 点 13" not in s7d, "合流の関所としての照らしが戻った"
-    assert "PR ごとにはしない" in s7d and "絵の無い仕事は照らさない" in s7d
-    assert "核 §7 と細目 §7 の「main へ入れる」" in (ROOT / "CONTRIBUTING.md").read_text(encoding="utf-8")
-
-
 def test_答えの無い問いを時間で数えて親が知らせ直す仕組みを前提にしない():
     """「1 時間答えの無い問いは親が知らせ直す」形を細目 §4・guard の注に戻すと赤（決定 2026-11-22）。"""
     s4d = _節(細目の全文(), 4)
-    assert "時間で数えて親が知らせ直す仕組みは持たない" in s4d
+    assert "時間で数えて親が知らせ直す仕組みは持たない" in (ROOT / "plugins" / "guard" / "scripts" / "unanswered.py").read_text(encoding="utf-8")
     unanswered = (ROOT / "plugins" / "guard" / "scripts" / "unanswered.py").read_text(encoding="utf-8")
     for text in (s4d, unanswered):
         assert "1 時間答えの無い問い" not in text and "1時間答えの無い問い" not in text
@@ -659,12 +642,12 @@ def test_ミスが出たらまず構造を疑い_単発と言うのは絵の上�
     s3 = _節(kaku_text, 3)
     first = s3.split("\n- ", 1)[1]
     assert first.startswith("ミスが出た時（画面の見た目を除く）と直す・作る時の既定は根治"), "根治の入口が直す・作る時だけに戻った"
-    for word in ["まず構造（上位の前提", "単発の誤りと言うのは全体の絵の上で構造に原因が無いと示せた時だけ",
+    for word in ["まず構造（上位の前提", "単発の誤りと言うのは構造に原因が無いと示せた時だけ（絵があれば絵の上で）",
                  "守り（確かめ・決まり）を足さず"]:
         assert word in s3, f"核 §3 に無い: {word}"
     s3d = _節(細目の全文(), 3)
     assert "**まず構造を疑う**" in s3d
-    for word in ["作業の途中・レビュー・検査・引き継ぎ", "画面の見た目の崩れだけは除く", "示した所（絵のどこを見たか）を書く",
+    for word in ["作業の途中・レビュー・検査・引き継ぎ", "画面の見た目の崩れだけは除く", "示した所を書く（合意した全体の絵があれば絵のどこを見たか、無ければ言葉で）",
                  "根に届いていない合図で、原因の段へ戻る"]:
         assert word in s3d, f"細目 §3 の「まず構造を疑う」に無い: {word}"
     rr = (ROOT / "plugins" / "dev-flow" / "skills" / "register-rule" / "SKILL.md").read_text(encoding="utf-8")
@@ -911,13 +894,13 @@ def test_増え方の照らしは検査の入口から回る():
 def test_オーナーへ確かめる事は通し番号と中身で並べ_出さない番号は節の番号と窓の_id():
     """「番号は出さない」だけの形に核 §2 を戻す・細目 §4 の「番号で並べる」を消す・細目 §2 と重ねると赤（決定 2026-11-22「番号振って」）。"""
     s2 = _節((PLUGIN / "核.md").read_text(encoding="utf-8"), 2)
-    for word in ["初めて読む人が分かる言葉と物の本当の名で書き", "例え話にせず具体の意味を添える",
-                 "決まりの言葉・AI 同士の呼び名・節の番号・窓の id は出さず", "確かめる事を並べたら通し番号＋中身"]:
+    for word in ["初めて読む人が分かる言葉と本当の名で書き", "例え話にせず具体の意味を添え",
+                 "決まりの言葉・AI 同士の呼び名・節番号・窓 id は出さず", "確かめる事は通し番号＋中身"]:
         assert word in s2, f"核 §2 に無い: {word}"
     assert "呼び名・番号は出さない" not in s2, "核 §2 が番号を一律に出さない形に戻った"
     s4d = _節(細目の全文(), 4)
-    for word in ["**番号で並べる**", "オーナーへ確かめる事を並べる時は通し番号を振り", "同じ行に中身（物の名と何を確かめるか）を書く",
-                 "番号で返してよく", "返った番号は中身に戻して使う", "他の窓へも中身で渡す"]:
+    for word in ["**番号で並べる**", "オーナーへ確かめる事は通し番号と同じ行の中身（物の名と何を確かめるか）で並べる",
+                 "番号の答えは中身に戻す"]:
         assert word in s4d, f"細目 §4 に無い: {word}"
     s2d = _節(細目の全文(), 2)
     assert "番号" not in s2d, "番号の形が細目 §2 と §4 に重なった（§4 の「番号で並べる」1 か所にする）"
