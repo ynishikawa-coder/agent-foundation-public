@@ -614,18 +614,30 @@ def test_残りの受け皿は原因の台帳_1_つで_名だけの受け皿を�
     assert not hits, hits
 
 
-def test_main_へは製品もオーナーに聞かずに入れ_絵と差がある時だけ止める():
-    """「本番への出荷は聞く」を核に戻すと赤（Notion の決定と窓が読む核が食い違う形）。"""
+def test_main_へは製品もオーナーに聞かずに入れ_全体の絵を関所にしない():
+    """「本番への出荷は聞く」や「絵と差がある・照らせない時は止めて聞く」を核に戻すと赤（決定 2026-11-22）。"""
     kaku_text = (PLUGIN / "核.md").read_text(encoding="utf-8")
     assert "本番への出荷" not in _節(kaku_text, 4), "核 §4 に「本番への出荷は聞く」が戻った"
     s7 = _節(kaku_text, 7)
-    for word in ["（製品も）オーナーに聞かずに入れる", "レビュー green", "試験が緑で衝突なし", "全体の絵", "差がある・照らせない時は止めて聞く", "先に絵を描き"]:
+    for word in ["（製品も）オーナーに聞かずに入れる", "レビュー green", "試験が緑で衝突なし", "止める所・合流の関所にしない",
+                 "1 回だけ", "ずれは聞かずに直す"]:
         assert word in s7, f"核 §7 に無い: {word}"
+    for word in ["差がある・照らせない時は止めて聞く", "先に絵を描き", "差が無い"]:
+        assert word not in s7, f"核 §7 に全体の絵の関所が戻った: {word}"
     s7d = _節(細目の全文(), 7)
-    assert "**main へ入れる**" in s7d and "**③の照らし方**" in s7d
-    assert "review-pr 点 13" in s7d and "③の段が土台に入るまで" not in s7d   # 照らす段が入った後に「一言を取る」間の扱いを残さない
-    assert "核 §7 の「照らせない時」" in s7d, "照らせない時の止めが核から読めない形に戻った"
+    assert "**main へ入れる**" in s7d and "**絵と照らす時**" in s7d
+    assert "**③の照らし方**" not in s7d and "review-pr 点 13" not in s7d, "合流の関所としての照らしが戻った"
+    assert "PR ごとにはしない" in s7d and "絵の無い仕事は照らさない" in s7d
     assert "核 §7 と細目 §7 の「main へ入れる」" in (ROOT / "CONTRIBUTING.md").read_text(encoding="utf-8")
+
+
+def test_答えの無い問いを時間で数えて親が知らせ直す仕組みを前提にしない():
+    """「1 時間答えの無い問いは親が知らせ直す」形を細目 §4・guard の注に戻すと赤（決定 2026-11-22）。"""
+    s4d = _節(細目の全文(), 4)
+    assert "時間で数えて親が知らせ直す仕組みは持たない" in s4d
+    unanswered = (ROOT / "plugins" / "guard" / "scripts" / "unanswered.py").read_text(encoding="utf-8")
+    for text in (s4d, unanswered):
+        assert "1 時間答えの無い問い" not in text and "1時間答えの無い問い" not in text
 
 
 def test_土台の直しは使う側の写しの残りも同じ仕事で直し_合流まで終わったと言わない():

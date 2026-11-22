@@ -206,11 +206,13 @@ def test_無い問題は説明しない():
     assert run("explain", DODAI, "無い").returncode == 1
 
 
-def test_review_pr_の点_13_が道具を指す():
-    skill = (ROOT / "plugins" / "checker" / "skills" / "review-pr" / "SKILL.md").read_text(encoding="utf-8")
-    assert "| 13 全体の絵 |" in skill
-    assert "big_picture.py compare" in skill and "docs/全体の絵.json" in skill
-    assert "書いた窓の申告" in skill
+def test_照らしは作り終えた時の_1_回で_合流の関所にしない():
+    """review-pr に全体の絵の点を戻す・照らしを PR ごとにすると赤（決定 2026-11-22）。"""
+    review = (ROOT / "plugins" / "checker" / "skills" / "review-pr" / "SKILL.md").read_text(encoding="utf-8")
+    assert "全体の絵" not in review and "big_picture.py" not in review
+    skill = (SKILL / "SKILL.md").read_text(encoding="utf-8")
+    assert "big_picture.py compare" in skill and "書いた窓の申告" in skill
+    assert "PR ごとにはしない" in skill and "止める所・合流の関所にしない" in skill
 
 
 @pytest.mark.parametrize("mutate", [
@@ -254,7 +256,7 @@ def test_main_へ入れる手を片方の_AI_に限らない():
     assert github["intent"] and "どちらの AI" in github["what"]
 
 
-# --- 1 repo に製品が複数ある形（点 13 の pick） ---
+# --- 1 repo に製品が複数ある形（作り終えた時の照らしの pick） ---
 
 def _repo(tmp_path, agreed=None, pics=("docs/全体の絵.json",)):
     for p in pics:

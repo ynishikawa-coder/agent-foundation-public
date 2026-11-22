@@ -19,7 +19,7 @@ explain: 起きた問題を、絵の箱の名を挙げたチャットの文に�
 pick:    PR が触った file から、照らす合意した絵を選ぶ。値の表 docs-kit.big-picture.agreed は
          文字列（repo 全体で 1 枚）か、[{name, path, covers: [path の頭…]}] の並び（1 repo に製品が複数）。
          無ければ docs/全体の絵.json 1 枚。選んだ絵を 1 行ずつ「絵 <名> <在り処>」と出す（exit 0）。
-         どの絵も覆わない file が 1 つでもある・値の形が誤り・絵が無い 時は exit 2（照らせない＝黙って通さない）。
+         どの絵も覆わない file が 1 つでもある・値の形が誤り・絵が無い 時は exit 2（照らせない）。
 
 標準ライブラリだけ。
 """
@@ -307,7 +307,7 @@ def pick(root, files):
             return [], ["値の表の docs-kit.big-picture.agreed が空"]
         local = Path(root) / value
         if value.endswith(".json") and not local.exists():
-            return [], ["合意した絵が無い（%s）＝先に絵を描いてオーナーの OK を取る" % value]
+            return [], ["合意した絵が無い（%s）＝絵の無い仕事は照らさない" % value]
         return [("全体", value, list(files))], []
     if not isinstance(value, list) or not value:
         return [], ["値の表の docs-kit.big-picture.agreed は文字列か {name, path, covers} の並び"]
@@ -344,7 +344,7 @@ def pick(root, files):
             chosen.append((name, path, mine))
     loose = [f for f in files if not any(hit(f, c) for _, _, cs in pics for c in cs)]
     for f in loose:
-        errs.append("どの絵も覆わない file: %s（その製品の絵を描いて OK を取るか、covers に足す）" % f)
+        errs.append("どの絵も覆わない file: %s（covers に足すか、絵の無い物として照らさない）" % f)
     return ([] if errs else chosen), errs
 
 
