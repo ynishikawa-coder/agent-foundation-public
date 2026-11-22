@@ -55,7 +55,7 @@ def _named(problems, path):
 今の表 = {
     "_readme": "注は通す",
     "common": {"glossary": {"作り物の語": "意味"}, "save_dir": "/tmp/x"},
-    "dev-flow": {"preimpl-cleanup": {"record": "PR 本文", "ledger": "1 行ずつ"}, "codex": {"clients": {"作り物": {"paths": []}}}},
+    "dev-flow": {"preimpl-cleanup": {"record": "PR 本文", "ledger": "1 行ずつ"}},
     "docs-kit": {"qa-html": {"customer": {"check_cmd": "作り物"}}, "pdf-read": {"engine_source": "作り物"}},
     "guard": {"context_limit": 1000, "_readme": "注"},
     "作り物の repo の頭": {"何でも": "repo が自分で持つ所は見ない"},
@@ -172,7 +172,6 @@ def test_values_keys_手で回す口は知らない鍵で_exit_1(tmp_path):
 # （コードが読む鍵を表が持たなければ、その鍵を書いた値の表への AI の書き込みが止まり、止めた文が土台の表に行を足す道を示す）。
 _読む口 = {   # path: その file が読む値の表の枠
     "plugins/docs-kit/skills/qa-html/check.mjs": ("docs-kit", "qa-html"),
-    "plugins/dev-flow/skills/codex/codex_pack.py": ("dev-flow", "codex"),
     "plugins/dev-flow/skills/spec-doc/seal.py": ("dev-flow", "spec-doc"),
     "plugins/docs-kit/skills/make-deck/scripts/finish_deck.py": ("docs-kit", "make-deck"),
     "plugins/docs-kit/skills/make-deck/scripts/render_prompt.py": ("docs-kit", "make-deck"),

@@ -534,10 +534,6 @@ def test_挙げた原因は全部台帳に行き先つきで持ち_全部済む�
     ("CONTRIBUTING.md", "1 本に入らなかった仕事"),
     ("CONTRIBUTING.md", "`合流済` が届いた枝"),
     ("plugins/checker/skills/review-pr/SKILL.md", "`[台帳へ｜<段>]`"),
-    # codex の値の表の `task_rule` は細目 §3 の写しなので畳んだ（受け皿は本文の 6. DEFER の行だけ）
-    ("plugins/dev-flow/skills/codex/SKILL.md", "`[DEFER]`"),
-    ("plugins/dev-flow/skills/codex/SKILL.md", "**RETURN_TO_DESIGN**"),
-    ("plugins/dev-flow/skills/codex/SKILL.md", "6. **DEFER"),
     ("plugins/dev-flow/skills/verify/SKILL.md", "**一時しのぎを含めば Partially**"),
     ("plugins/dev-flow/skills/verify/SKILL.md", "**設計と実物の差分を必ず書く**"),
     ("plugins/docs-kit/skills/qa-html/SKILL.md", "0. **聞く前に引く**"),
@@ -559,7 +555,7 @@ def test_残りの受け皿は原因の台帳_1_つで_名だけの受け皿を�
     """古い形（自分の名の受け皿・A/B を 1 つ選ばせて捨てる・相談を出ると論点が消える）を戻すと赤。"""
     s3d = _節((PLUGIN / "細目.md").read_text(encoding="utf-8"), 3)
     assert "**残りの受け皿は原因の台帳 1 つ**" in s3d
-    for word in ["`台帳へ` の札", "DEFER", "一時しのぎ", "「一部」の残り", "どの窓も持たなかった論点", "選ばれなかった案",
+    for word in ["`台帳へ` の札", "一時しのぎ", "「一部」の残り", "どの窓も持たなかった論点", "選ばれなかった案",
                  "1 窓 1 枝 1 PR に入らなかった仕事", "合流の後の続き", "道具の都合", "正本は台帳"]:
         assert word in s3d, f"細目 §3 の残りの受け皿に無い: {word}"
     missing = []

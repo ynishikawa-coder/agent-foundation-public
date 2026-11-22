@@ -132,16 +132,6 @@
       "example": "\"guard\": {\"irreversible_tools_extra\": [\"delete\"]}"
     },
     {
-      "id": "codex-glob-star-crosses",
-      "what": "値の表 dev-flow.codex の self_allow の glob の行が dir/* の形（前の読み方〔fnmatch〕では * が / をまたぎ下の dir 全部に当たった。1 段目の間は前の読み方でだけ当たる path も通して builder が名指す。2 段目で受けを畳むと dir の直下だけに当たる）",
-      "files": [
-        "config/skill-values.json"
-      ],
-      "pattern": "(?s)\"self_allow\"\\s*:\\s*\\[(?:\\s*\"[^\"]*\"\\s*,)*\\s*\"[^\"]*/\\*\"",
-      "fix": "下の dir まで許すなら dir/** に、直下だけなら dir/* のままにする（どちらのつもりかを決めて書く）。clients.<名>.paths の dir/* も同じ",
-      "example": "\"codex\": {\"self_allow\": [\"tools/*\"]}"
-    },
-    {
       "id": "public-guard-empty-deny-words",
       "what": "公開の検査の呼び口が名指す置かない語の表に、語の行が無い（コメントと空行だけ。1 段目は止めずに名指す。2 段目で exit 3 にする）",
       "files": [

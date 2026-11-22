@@ -1,0 +1,2 @@
+- 壊れる: Codex を使わない（2026-11-19 のオーナーの決定）ので、skill dev-flow:codex と渡すパックの道具 codex_pack.py・その試験を消した。値の表の欄 dev-flow.codex は畳んだ欄になり、使う側の表に在れば値の表の照らしが「畳んだ欄」と名指す（欄ごと消す）。前に畳んだ dev-flow.codex の 3 つの鍵の行は欄ごと畳んだので消した。
+- 畳んだ: 値の表の型 globs と glob_match（codex の self_allow・clients.<名>.paths だけが使っていた）・dev-flow の lib/af_place.py の symlink（codex_pack だけが読んでいた）・古い形.json の codex-glob-star-crosses・細目 §3 と PR の型の「Codex の DEFER」の受け皿の語。

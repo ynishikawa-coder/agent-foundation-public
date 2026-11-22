@@ -20,7 +20,6 @@ SCHEMA = json.loads((SOURCE / "schema.json").read_text(encoding="utf-8"))
 SV = SOURCE / "skill_values.py"
 GUARD = PLUGINS / "guard" / "scripts" / "guard.py"
 CHECK = PLUGINS / "docs-kit" / "skills" / "qa-html" / "check.mjs"
-CODEX = PLUGINS / "dev-flow" / "skills" / "codex" / "codex_pack.py"
 RENDER = PLUGINS / "docs-kit" / "skills" / "make-deck" / "scripts" / "render_prompt.py"
 GOOD_PAGE = ROOT / "tests" / "docs_kit" / "good.json"
 sys.path.insert(0, str(SOURCE))
@@ -157,7 +156,7 @@ def test_common_の鍵はどれかの_SKILL_md_が使う():
 # ── 照らし（1 本の口） ──
 def test_表が無い_鍵が無い_空なら問題なし(tmp_path):
     r = make_repo(tmp_path, {"docs-kit": {"make-deck": {"accent": ""}, "qa-html": {"limits": ""}}, "guard": {"qa_page_exempt": ""},
-                             "dev-flow": {"codex": {"self_allow": "", "pack_dir": []}}})   # 型の違う空も既定で動く
+                             "dev-flow": {"spec-doc": {"decision_match_allow": ""}}})   # 型の違う空も既定で動く
     res = sv("check", cwd=r / "sub")
     assert res.returncode == 0, res.stderr
     empty = tmp_path / "empty"
@@ -174,7 +173,7 @@ def test_repo_自身の欄と注は照らさない(tmp_path):
 
 @pytest.mark.parametrize("table,word", [
     ({"dev-flow": {"register-rule": {"agents_table": []}}}, "dev-flow.register-rule.agents_table は畳んだ鍵"),
-    ({"dev-flow": {"codex": {"pack_dri": "x"}}}, "dev-flow.codex.pack_dri は知らない鍵"),
+    ({"dev-flow": {"spec-doc": {"pack_dri": "x"}}}, "dev-flow.spec-doc.pack_dri は知らない鍵"),
     ({"docs-kit": {"qa-htm": {}}}, "docs-kit.qa-htm は知らない skill の欄"),
     ({"guard": {"context_limit": "300000"}}, "guard.context_limit の型が違う"),
     ({"guard": {"context_limt": 1}}, "guard.context_limt は知らない鍵"),
@@ -182,7 +181,7 @@ def test_repo_自身の欄と注は照らさない(tmp_path):
     ({"common": {"save_dir": ["a"]}}, "common.save_dir の型が違う"),
     ({"common": {"rules": {"no_confirm": "x"}}}, "common.rules は畳んだ鍵"),          # 束 B（PR #43）で畳んだ写し
     ({"dev-flow": {"verify": {"code_done_rule": "x"}}}, "dev-flow.verify.code_done_rule は畳んだ鍵"),
-    ({"dev-flow": {"codex": {"task_rule": "x"}}}, "dev-flow.codex.task_rule は畳んだ鍵"),          # 原因の台帳へ移した（#36）
+    ({"dev-flow": {"codex": {"self_allow": ["tools/**"]}}}, "dev-flow.codex は畳んだ欄"),          # Codex を使わない（2026-11-19 のオーナーの決定）
     ({"dev-flow": {"preimpl-cleanup": {"cleanup_followup": "x"}}}, "dev-flow.preimpl-cleanup.cleanup_followup は畳んだ鍵"),
 ])
 def test_知らない鍵_畳んだ鍵_型違いを名指しする(tmp_path, table, word):
@@ -214,7 +213,7 @@ def test_探し方は_values_と_SKILL_VALUES_と起点の順(tmp_path):
 # ── 4 つの道具が同じ表を同じ探し方で見つけ、同じ問題で止まる・知らせる ──
 BAD_EVERYWHERE = {
     "guard": {"context_limt": 1},
-    "dev-flow": {"codex": {"self_allow": ["tools/*"], "pack_dri": "x"}},
+    "dev-flow": {"spec-doc": {"pack_dri": "x"}},
     "docs-kit": {"qa-html": {"limitz": {}}, "make-deck": {"acent": "#000000"}},
 }
 
@@ -246,15 +245,6 @@ def test_qa_html_の検査は正しい表なら緑(tmp_path):
     assert res.returncode == 0, res.stdout + res.stderr
 
 
-def test_codex_pack_は知らない鍵で中止(tmp_path):
-    r = make_repo(tmp_path, BAD_EVERYWHERE)
-    res = subprocess.run([sys.executable, str(CODEX), "--task", "t1", "--purpose", "p", "--scope", "s", "--done", "d",
-                          "--file", "tools/calc.py", "--out-dir", str(tmp_path / "out"), "--today", "2026-11-11"],
-                         cwd=r / "sub", env=clean_env(), capture_output=True, text=True)
-    assert res.returncode == 1 and "dev-flow.codex.pack_dri は知らない鍵" in res.stderr, res.stderr
-    assert not (tmp_path / "out").exists()
-
-
 def test_make_deck_は知らない鍵で止まる(tmp_path):
     r = make_repo(tmp_path, BAD_EVERYWHERE)
     thin = tmp_path / "case.json"
@@ -275,7 +265,7 @@ def guard_start(r, tmp_path):
 def test_guard_は起動の時に表全体を名指しで知らせる(tmp_path):
     r = make_repo(tmp_path, {**BAD_EVERYWHERE, "dev-flow": {"register-rule": {"roster": "x"}, **BAD_EVERYWHERE["dev-flow"]}})
     ctx = guard_start(r, tmp_path)
-    for w in ("guard.context_limt は知らない鍵", "dev-flow.codex.pack_dri は知らない鍵",
+    for w in ("guard.context_limt は知らない鍵", "dev-flow.spec-doc.pack_dri は知らない鍵",
               "docs-kit.make-deck.acent は知らない鍵", "dev-flow.register-rule.roster は畳んだ鍵"):
         assert w in ctx, ctx
 

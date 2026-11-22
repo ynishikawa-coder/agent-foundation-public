@@ -26,8 +26,6 @@ import pick_one  # noqa: E402
 import prior_ask  # noqa: E402
 import qa_page  # noqa: E402
 
-sys.path.insert(0, str(ROOT / "plugins" / "dev-flow" / "skills" / "codex"))
-import codex_pack  # noqa: E402
 
 
 def specs_all():
@@ -40,22 +38,21 @@ def specs_all():
     return out
 
 
-# 字・正規表現・glob を読む鍵（道具が値を re・in・fnmatch で当てる物）。足したらここにも足す＝型の正本に当て方が無い鍵を拾う。
+# 字・正規表現を読む鍵（道具が値を re・in で当てる物）。足したらここにも足す＝型の正本に当て方が無い鍵を拾う。
 MATCHED_KEYS = {
     ("guard", None, k) for k in (
         "paid_markers_extra", "irreversible_bash_extra", "irreversible_tools_extra", "qa_page_exempt",
         "ask_inner_terms_extra", "ask_term_allow", "ask_shape_exempt", "ask_pick_one_exempt", "ask_rec_notice_exempt",
         "outbound_secret_allow", "number_request_exempt", "context_handoff", "ask_prior_lookup", "ask_prior_exempt",
         "pr_cleanup_exempt_repos", "pr_words_exempt_repos", "public_repos_extra")
-} | {("session-watch", "watch-log", "reply_exempt"), ("dev-flow", "codex", "self_allow"),
-     ("dev-flow", "codex", "entropy_allow"), ("dev-flow", "spec-doc", "decision_match_allow")}
+} | {("session-watch", "watch-log", "reply_exempt"), ("dev-flow", "spec-doc", "decision_match_allow")}
 
 
 def test_字や正規表現を読む鍵は型の正本に当てる相手と当て方を持つ():
     specs = dict(specs_all())
     for at in MATCHED_KEYS:
         s = specs[at]
-        if s["type"] in ("repo_names", "globs", "words"):
+        if s["type"] in ("repo_names", "words"):
             continue
         assert s.get("match") in ("whole", "part") and s.get("against"), at
     # 型 patterns は全部 against と match を持つ（当て方の書かれていない patterns を足すと赤）
@@ -179,23 +176,6 @@ def test_一部に当てる鍵は問いの文の一部に当たる():
     assert pick_one.classify(q, {"ask_pick_one_exempt": ["作り物の試し"]}) == ""
 
 
-@pytest.mark.parametrize("pat, path, want", [
-    ("tools/*", "tools/a.py", True),
-    ("tools/*", "tools/sub/deep/x.py", False),                 # * が / をまたぐ読み方へ戻すと赤
-    ("tools/**", "tools/sub/deep/x.py", True),
-    ("tools/**/x.py", "tools/x.py", True),
-    ("tools/?.py", "tools/a/b.py", False),
-])
-def test_glob_は_path_の全体に当て星は斜線をまたがない(pat, path, want):
-    assert SV.glob_match(pat, path) is want
-    assert codex_pack.match_any(path, [pat]) is want
-
-
-def test_顧客の物は前の読み方でも見落とさない():
-    assert codex_pack.client_hit("clients/a/deep/x.py", ["clients/a/*"])
-    assert not codex_pack.match_any("clients/a/deep/x.py", ["clients/a/*"])
-
-
 def test_値の表の照らしが前の形と読めない行を名指し_鍵は落とさない():
     table = {"guard": {"ask_prior_lookup": ["\\bGrep\\b.*問いの表", "^Grep \\{.*\\}$", "("]}}
     probs = SV.check(table)
@@ -237,12 +217,3 @@ def test_字の鍵に書き違いの行が混じっても正しい行は止め�
     assert paid_upstream.check(data, vals)
     probs = SV.check(json.loads(table.read_text()))
     assert any("paid_markers_extra" in p and "その行だけ効かない" in p for p in probs), probs
-
-
-def test_codex_の前の読み方でだけ当たる_path_は1段目の間は通して名指す(tmp_path, capsys):
-    import datetime as dt
-    vals = {"self_allow": ["tools/*"]}
-    assert codex_pack.resolve_dest("self", ["tools/sub/deep/x.py"], vals, dt.date(2026, 11, 20)) == "self"
-    assert "dir/**" in capsys.readouterr().err
-    with pytest.raises(codex_pack.Abort):
-        codex_pack.resolve_dest("self", ["other/x.py"], vals, dt.date(2026, 11, 20))

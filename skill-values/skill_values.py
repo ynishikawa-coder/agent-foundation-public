@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """値の表（使う側の repo の config/skill-values.json）を読む 1 本の口。探し方と鍵の一覧（同じ dir の schema.json）の正本。
 
-土台の道具（guard・qa-html の check.mjs・codex の codex_pack.py・make-deck の scripts）は、これを直に読む。
+土台の道具（guard・qa-html の check.mjs・spec-doc の seal.py・make-deck の scripts）は、これを直に読む。
 各 plugin の lib/ には、この file と schema.json への symlink だけを置く（plugin を入れる時に実体が写る）。
 探し方や鍵を変える時はここと schema.json だけを直す。
 
@@ -20,7 +20,7 @@
 
 使い方:
   import skill_values as SV
-  sec = SV.section("dev-flow", "codex", explicit=path)        # 欄の dict。問題があれば SV.ValuesError（名指しの文）
+  sec = SV.section("dev-flow", "spec-doc", explicit=path)        # 欄の dict。問題があれば SV.ValuesError（名指しの文）
   sec, problems = SV.section("guard", strict=False)           # 問題の鍵を落とした欄と、問題の文の並び
   python3 skill_values.py check [--values P] [--start D ...]           # 表全体を照らす（問題があれば exit 1）
   python3 skill_values.py section <plugin> [<skill>] [--values P] [--start D ...]
@@ -38,7 +38,7 @@ sys.dont_write_bytecode = True
 
 REL_PATH = os.path.join("config", "skill-values.json")
 SCHEMA_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "schema.json")
-TYPES = ("str", "int", "bool", "list", "dict", "text", "any", "repo_names", "patterns", "words", "globs")
+TYPES = ("str", "int", "bool", "list", "dict", "text", "any", "repo_names", "patterns", "words")
 
 
 class ValuesError(Exception):
@@ -203,14 +203,13 @@ def bad_repo_names(v):
     return out
 
 
-# ── 正規表現・字・glob の鍵の当て方（1 本の口） ──
+# ── 正規表現・字の鍵の当て方（1 本の口） ──
 # 値の表の字や正規表現を「何に・全体か一部か」で当てるかは、型の正本 schema.json の鍵の spec が持つ:
 #   型 patterns: {"match": "whole"|"part", "against": 当てる相手}。whole は相手の全体に当てる（各行を ^ で始め $ で終える）。
 #                part は相手の文の一部に当てる（re.search）。行は字か {"pattern": 字, …}。
 #   型 words:    字のまま相手の一部に当てる（正規表現でない。\ を含む行は正規表現のつもりの書き違いとして名指す）。
-#   型 globs:    path（repo の根から・/ 区切り）の全体に当てる glob。* と ? は / をまたがない。** は dir をまたぐ。
-# 道具はこの口（compile_patterns・hit・words_in・glob_match）だけで当てる＝鍵ごとに re.search・fullmatch・
-# 部分文字列・fnmatch を書き分けない。
+# 道具はこの口（compile_patterns・hit・words_in）だけで当てる＝鍵ごとに re.search・fullmatch・
+# 部分文字列を書き分けない。
 def _row_pattern(x):
     if isinstance(x, dict):
         x = x.get("pattern")
@@ -287,33 +286,6 @@ def words_in(words, text):
     return [w for w in (words or []) if isinstance(w, str) and w and "\\" not in w and w in text]
 
 
-def _glob_rx(pat):
-    out, i = [], 0
-    while i < len(pat):
-        c = pat[i]
-        if pat.startswith("**/", i):
-            out.append("(?:[^/]*/)*")
-            i += 3
-        elif pat.startswith("**", i):
-            out.append(".*")
-            i += 2
-        elif c == "*":
-            out.append("[^/]*")
-            i += 1
-        elif c == "?":
-            out.append("[^/]")
-            i += 1
-        else:
-            out.append(re.escape(c))
-            i += 1
-    return re.compile("".join(out))
-
-
-def glob_match(pat, path):
-    """型 globs: path（repo の根から・/ 区切り）の全体に glob を当てる。* と ? は / をまたがず、** は dir をまたぐ。"""
-    return isinstance(pat, str) and bool(pat) and bool(_glob_rx(pat).fullmatch(str(path).replace(os.sep, "/")))
-
-
 def _type_ok(t, v):
     if v is None or t == "any":
         return True
@@ -339,8 +311,6 @@ def _type_ok(t, v):
         # 書き違いの行（\ を含む）は型の違いにしない（鍵ごと落とすと、止める側の鍵 paid_markers_extra の正しい行まで
         # 黙って効かなくなる）。その行だけ words_in が捨て、照らし check が名指す（_check_keys）。型 patterns と同じ扱い。
         return isinstance(v, list) and all(isinstance(x, str) and x for x in v)
-    if t == "globs":
-        return isinstance(v, list) and all(isinstance(x, str) and x for x in v)
     return False
 
 
@@ -349,8 +319,7 @@ TYPE_WORD = {"str": "文字列", "int": "整数", "bool": "真偽", "list": "並
              "repo_names": "owner/repo の名の全体に当てる正規表現の並び（各行を ^ で始め $ で終える・"
                            "repo 1 つなら ^owner/repo$・owner ごとなら ^owner/.*$）",
              "patterns": "正規表現の並び（読める形で書く）",
-             "words": "字の並び（字のまま一部に当てる・正規表現でない＝\\ を書かない）",
-             "globs": "glob の並び（repo の根からの path の全体に当てる・* は / をまたがない・dir をまたぐのは **）"}
+             "words": "字の並び（字のまま一部に当てる・正規表現でない＝\\ を書かない）"}
 
 
 def _against(spec):
