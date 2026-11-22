@@ -88,6 +88,11 @@
     },
     "docs-kit": {
       "skills": {
+        "big-picture": {
+          "keys": {
+            "agreed": "any"
+          }
+        },
         "blueprint": {
           "keys": {}
         },

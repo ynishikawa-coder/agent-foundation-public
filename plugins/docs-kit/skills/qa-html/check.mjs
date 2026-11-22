@@ -1236,7 +1236,7 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
   const takesValue = new Set(["--values", "--prior"]);
   const KNOWN = new Set([...takesValue, "--json", "--run-prior", "--prior-input"]);
   // 知らない印・同じ印の 2 度書きは既定で止める（打ち間違えた印を黙って無視して、頼んだ検査をせずに緑にしない。
-  // checker の verdict_form.py と同じ決まり）
+  // checker の判定の形の道具と同じ決まり）
   const flags = args.filter((a, i) => a.startsWith("--") && !takesValue.has(args[i - 1]));
   const unknown = flags.filter((f) => !KNOWN.has(f));
   if (unknown.length) {
