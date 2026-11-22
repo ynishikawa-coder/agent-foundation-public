@@ -21,6 +21,13 @@
   done     … 1 行目が ✅ の返事に、終わったと言い切らない語（ほぼ・大体・たぶん・はず 等）が終わりの語と同じ文に在るか（核 §7）
   secret   … 返事に鍵・トークンの形が在るか。形の正本は公開の検査 public-guard/guard.py の secret_labels（直に呼ぶ）
   neighbor … 上の inner・secret の正本（隣の plugin guard・公開の検査）が見つからず照らせないか
+  unread   … 会話ログに読めない行（JSON として読めない・dict でない）が在るか（黙って飛ばして判定しない）
+  nolog    … hook の口で会話ログの path か file が無いか（空の会話ログとして黙って照らさない。最初の頼みの hook は
+             file がまだ無いことがあるので path だけを見る）
+  broken   … 照らしそのものが例外で壊れたか（hook の口。手で回す口は exit 2 で止まる）
+
+会話の番（ターン）は人が打った行（guard_common.starts_turn＝人の頼みで、別の窓・仕組みの知らせでも要約の行でもない行）
+だけで切る。知らせの行は番を切らない（返事の本文の区切りにはなる）。番の切り方はこの 1 つの口だけ。
 
 窓の種類＝「オーナーが相手の窓か」。誰が立てたかだけでは決めない（立てた記録は返し先の写しを数えるかの照らしにだけ使う）。
 決め方の正本は window_kind 1 つ（決まりの文 KIND_RULE を skill title-mark がそのまま載せ、細目 §4 は skill を指す。試験が照らす）:
@@ -42,7 +49,7 @@
                                                  題が無い時も〕・1 行目の札・締めの 2 行・平文の問い・中の言葉・時刻・完了の言い切り・
                                                  秘密）の崩れを、次の頼みの時に知らせる物として置くだけ（差し戻さない・書き直させない・
                                                  exit 0 で何も出さない＝返事はそのまま届く）
-読めない・壊れた記録は黙って通す。
+読めない行は黙って飛ばさず unread で名指す。照らしが壊れたら手で回す口は exit 2、hook の口は窓を止めずに broken で知らせる。
 """
 import json
 import os
@@ -163,19 +170,22 @@ ANSWER = re.compile(r"(答え|問い|選択肢)")
 
 
 # ── 記録を読む ──────────────────────────────────────────────
+UNREADABLE = "_af_unreadable"   # 読めない行の印（行の位置に置く＝黙って捨てない。Log が数えて unread で名指す）
+
+
 def read_rows(path):
+    """会話ログの行の並び。読めない行（JSON として読めない・dict でない）は {UNREADABLE: 行の番号} の印として同じ位置に残す。"""
     rows = []
     with open(path, encoding="utf-8", errors="replace") as f:
-        for line in f:
+        for n, line in enumerate(f, 1):
             line = line.strip()
             if not line:
                 continue
             try:
                 row = json.loads(line)
             except ValueError:
-                continue
-            if isinstance(row, dict):
-                rows.append(row)
+                row = None
+            rows.append(row if isinstance(row, dict) else {UNREADABLE: n})
     return rows
 
 
@@ -198,18 +208,45 @@ def seeded_by_record(row):
     guard_common.seeded_by_record（人の印の表もそこ 1 か所＝写さない）。隣が無い時は False（文だけで子の窓と決めない。
     返事の見張りが neighbor の札で名指す）。"""
     G = neighbor("guard_common")
-    return bool(G.seeded_by_record(row)) if G is not None else False
+    return bool(G.seeded_by_record(row)) if G is not None and hasattr(G, "seeded_by_record") else False
 
 
 def is_owner_text(row):
-    """ターンの境界になる頼みの文か（道具の返り・見張りの差し戻し〔isMeta〕を除く）。"""
+    """頼みの文の行か（道具の返り・見張りの差し戻し〔isMeta〕を除く）。人が打った行も、別の窓・仕組みの知らせの行も含む。"""
     if row.get("type") != "user" or row.get("isMeta") or "toolUseResult" in row:
         return False
     return bool(text_of(row).strip())
 
 
+GUARD_NEEDS = ("starts_turn", "seeded_by_record", "values", "table")   # この見張りが隣の guard_common から直に呼ぶ物
+
+
+def guard_gap():
+    """隣の guard_common の欠け（無い・版がずれて要る物が無い）を名指す文か None。札はこの 1 か所で立てる
+    （締めの文が空の番でも・どの照らしの中でも同じく名指す＝欠けたまま古い切り方で黙って照らさない）。"""
+    G = neighbor("guard_common")
+    if G is None:
+        return ("値の表と番の切り方の正本（plugin guard の guard_common）が見つからず、値の表を読めないまま・"
+                "頼みの文の行を全部番の切れ目とみなして照らした（別の窓・仕組みの知らせが番を切り、答えの無い問いを見落とす）")
+    lack = [n for n in GUARD_NEEDS if not hasattr(G, n)]
+    if lack:
+        return ("plugin guard の guard_common の版がずれて %s が無く、その所を古い形で照らした"
+                "（starts_turn が無ければ頼みの文の行を全部番の切れ目とみなす）。plugin guard を session-watch と同じ版に入れ直す"
+                % "・".join(lack))
+    return None
+
+
+def starts_turn(row):
+    """番（ターン）を切る行か。正本は隣の plugin guard の guard_common.starts_turn（写さない）。隣が無い・版がずれて無い時は
+    頼みの文の行を全部番の切れ目とみなす（guard_gap が check の中で neighbor の札で必ず名指す）。"""
+    G = neighbor("guard_common")
+    if G is not None and hasattr(G, "starts_turn"):
+        return bool(G.starts_turn(row))
+    return is_owner_text(row) and not row.get("isCompactSummary")
+
+
 def blocks(row):
-    """assistant 行の中身を出た順に [("text", str) | ("tool", (name, input))] で返す。"""
+    """assistant 行の中身を出た順に [("text", str) | ("tool", (name, input, tool_use の id))] で返す。"""
     c = _content(row)
     if isinstance(c, str):
         return [("text", c)] if c.strip() else []
@@ -221,8 +258,24 @@ def blocks(row):
             out.append(("text", b["text"]))
         elif b.get("type") == "tool_use":
             inp = b.get("input")
-            out.append(("tool", (b.get("name") or "", inp if isinstance(inp, dict) else {})))
+            out.append(("tool", (b.get("name") or "", inp if isinstance(inp, dict) else {}, str(b.get("id") or ""))))
     return out
+
+
+def _msg_id(row):
+    """assistant 行の message の id（1 つの返事の塊が何行にも分かれて載る時の目印）。無ければ None。"""
+    msg = row.get("message")
+    got = msg.get("id") if isinstance(msg, dict) else None
+    return got if isinstance(got, str) and got else None
+
+
+def _rejected_ids(row):
+    """道具の返りの行で、誤り（is_error＝人が画面を閉じた・断った）として返った tool_use の id の並び。"""
+    if row.get("type") != "user":
+        return []
+    c = _content(row)
+    return [str(b.get("tool_use_id")) for b in c if isinstance(c, list) and isinstance(b, dict)
+            and b.get("type") == "tool_result" and b.get("is_error") and b.get("tool_use_id")] if isinstance(c, list) else []
 
 
 def strip_code(text):
@@ -240,42 +293,75 @@ class Log(object):
     """記録 1 本を、見張りが読む形に 1 回だけ並べ直す。"""
 
     def __init__(self, rows):
-        self.events = []        # 出た順: ("title", str) / ("ask", [問い]) / ("answer", {問い: 答え}) / ("owner", str)
+        self.events = []        # 出た順: ("title", str) / ("ask", [問い]) / ("answer", {問い: 答え}) / ("owner", str) /
+        #                         ("notice", str)＝番を切らない知らせ / ("rejected", [問い])＝閉じられた選択肢の画面
         self.first_prompt = ""
         self.first_seeded = False   # 最初の頼みの行の記録が、人でなく別の窓・仕組みから来た頼みを示すか
         self.cloud = False
+        self.unreadable = []        # 読めない行の番号（read_rows の印）
+        asks = {}                   # 選択肢の画面の tool_use の id → 問い（閉じられた画面を見分ける）
+        msg_ask = {}                # assistant の message の id → その message の最初の問いの位置（同じ message の題を前へ）
         turn_start = 0
+        began = False               # 窓の最初の頼みを読んだか（最初の頼みは誰が打っても番の始まり）
         for row in rows:
+            if UNREADABLE in row:
+                self.unreadable.append(row[UNREADABLE])
+                continue
             if row.get("type") == "user" and row.get("isMeta") and "toolUseResult" not in row:
                 self.events.append(("meta", ""))     # 見張りの差し戻し: ターンは続くが、締めの本文はここから数え直す
                 continue
             if is_owner_text(row):
-                if not self.first_prompt:
+                if not self.first_prompt and not row.get("isCompactSummary"):
                     self.first_prompt = text_of(row)
                     self.first_seeded = seeded_by_record(row)
-                self.events.append(("owner", text_of(row)))
-                turn_start = len(self.events)
+                if starts_turn(row) or not began:
+                    began = True
+                    self.events.append(("owner", text_of(row)))   # 番の始まり（人が打った行・窓の最初の頼み）
+                    turn_start = len(self.events)
+                else:
+                    self.events.append(("notice", text_of(row)))  # 知らせ: 番を切らず、返事の本文だけ数え直す
                 continue
             tur = row.get("toolUseResult")
             if isinstance(tur, dict) and "questions" in tur:
                 ans = tur.get("answers") if isinstance(tur.get("answers"), dict) else {}
-                self.events.append(("answer", {_norm(k): v for k, v in ans.items()}))
+                if ans:   # 空の答え（人が見たかも分からない）は答えに数えない＝問いは残る
+                    self.events.append(("answer", {_norm(k): v for k, v in ans.items()}))
+                continue
+            closed = [asks[i] for i in _rejected_ids(row) if i in asks]
+            if closed:
+                self.events.append(("rejected", [q for qs in closed for q in qs]))
                 continue
             if row.get("type") != "assistant":
                 continue
+            mid = _msg_id(row)
             for kind, val in blocks(row):
                 if kind == "text":
                     self.events.append(("text", val))
                     continue
-                name, inp = val
+                name, inp, tid = val
                 if name.startswith(REMOTE_PREFIX):
                     self.cloud = True
                 if name.endswith(SET_TITLE_SUFFIX):
-                    self.events.append(("title", str(inp.get("title") or "")))
+                    ev = ("title", str(inp.get("title") or ""))
+                    at = msg_ask.get(mid) if mid else None
+                    if at is not None:
+                        # 同じ message の中で問いと並べて付けた題は、問いと同時に出る＝問いの前に置く
+                        self.events.insert(at, ev)
+                        for k2 in msg_ask:
+                            if msg_ask[k2] is not None and msg_ask[k2] >= at:
+                                msg_ask[k2] += 1
+                        turn_start += 1 if turn_start > at else 0
+                    else:
+                        self.events.append(ev)
                 elif name == ASK:
-                    items = [q for q in inp.get("questions") or [] if isinstance(q, dict)]
-                    qs = [_norm(q.get("question")) for q in items]
-                    self.events.append(("ask", [q for q in qs if q]))
+                    qlist = inp.get("questions")
+                    items = [q for q in (qlist if isinstance(qlist, list) else []) if isinstance(q, dict)]
+                    qs = [q for q in (_norm(q.get("question")) for q in items) if q]
+                    if mid and msg_ask.get(mid) is None:
+                        msg_ask[mid] = len(self.events)
+                    if tid:
+                        asks[tid] = qs
+                    self.events.append(("ask", qs))
                     idk = [(q, has_idk(q)) for q in items]
                     lack = [_norm(q.get("question")) for q, ok in idk if ok is False]
                     if lack:
@@ -292,7 +378,7 @@ class Log(object):
         """このターンの最後の道具より後ろの返事（オーナーが最後に読む締めの本文）。"""
         out = []
         for kind, val in self.turn:
-            if kind in ("tool", "title", "ask", "meta"):
+            if kind in ("tool", "title", "ask", "meta", "notice"):
                 out = []
             elif kind == "text":
                 out.append(val)
@@ -532,9 +618,7 @@ def words(log, closing, data=None):
         except Exception as e:      # noqa: BLE001
             found.append(("neighbor", "%s の照らしが壊れて照らせない（%s: %s）" % (name, type(e).__name__, str(e)[:60])))
 
-    if neighbor("guard_common") is None:   # 値の表を空とみなして黙って進めない（外す形・足す形が効かないまま照らす）
-        found.append(("neighbor", "値の表の正本（plugin guard の guard_common）が見つからず、値の表の reply_exempt・"
-                                  "ask_term_allow・ask_inner_terms_extra を読めないまま照らした"))
+    # 隣の guard_common の欠けは check の guard_gap が 1 か所で名指す（ここで締めの文の有無に縛らない）
     exempt, bad = reply_exempt(data)
     if bad:
         found.append(("neighbor", "値の表 session-watch.watch-log.reply_exempt に正規表現として読めない形がある（捨てて照らした）: %s"
@@ -592,6 +676,26 @@ NO_TITLE = "題の印が会話ログに無い"
 ASK_BEFORE = "問いを出す前に題の状態を"   # 過ぎた事（今の題を直しても消えない）＝差し戻しには使わない
 
 
+def ask_state(log):
+    """(答えの無い問いの並び, 答えが返った問いが在るか)。問いが閉じるのは次の 3 つ:
+    選択肢の画面の答えが返った（その画面とそれより前の問いを全部閉じる＝言い直して出し直した問いに答えが返った時も
+    元の問いは閉じる）／画面が答えの無いまま閉じられ、その後に人が打った行がある（チャットで答えた）。
+    知らせの行（別の窓・仕組み）は答えに数えない。"""
+    pending, rejected, closed = [], set(), False
+    for k, v in log.events:
+        if k == "ask":
+            pending.extend(q for q in v if q not in pending)
+        elif k == "answer":
+            pending, rejected, closed = [], set(), True
+        elif k == "rejected":
+            rejected |= set(v)
+        elif k == "owner" and rejected:
+            left = [q for q in pending if q not in rejected]
+            closed = closed or len(left) < len(pending)
+            pending, rejected = left, set()
+    return pending, closed
+
+
 def check(log, closing=None, data=None):
     """拾った物を [(code, 説明)] で返す。closing を渡せば、それを締めの返事として見る（Stop の hook）。
     data は hook の入力（値の表の在り処＝cwd を読む）。"""
@@ -602,8 +706,6 @@ def check(log, closing=None, data=None):
     # 題（クラウドの窓＝題の道具を使える窓だけ）
     if log.cloud:
         title = None
-        answered = set()
-        open_ask = False
         for i, (k, v) in enumerate(log.events):
             if k == "title":
                 title = v
@@ -611,10 +713,7 @@ def check(log, closing=None, data=None):
                 in_turn = i >= len(log.events) - len(log.turn)
                 if in_turn and split_title(title)[1] != ASKING:
                     found.append(("title", ASK_BEFORE + " %s にしていない（題: %s）" % (ASKING, title or "（無し）")))
-                open_ask = True
-            elif k == "answer":
-                answered |= set(v)
-                open_ask = not v
+        pending, closed_any = ask_state(log)
         if title is None and closing.strip():
             found.append(("title", NO_TITLE + "（親が窓を立てた時に付けた題は会話ログの外で照らせない）。`get_session` を "
                                    "session_id を省いて読み、今の題を `set_session_title` で `<種類><状態> <作業名>` に付け直す"
@@ -626,7 +725,7 @@ def check(log, closing=None, data=None):
             if tk is not None and kind and tk != kind:
                 found.append(("title", "題の種類が %s だが、この窓の種類は %s（題: %s・決め方は skill title-mark の種類の決め方）"
                               % (tk, kind, title)))
-            if tm == ASKING and not open_ask and answered:
+            if tm == ASKING and not pending and closed_any:
                 found.append(("title", "答えが返ったのに題に %s が残っている" % ASKING))
             # ✅ は「終わった」（核 §7）の印。AI の手が尽きた（AI がこの後やること: なし）とは結ばない。
             first = next((ln.strip() for ln in closing.splitlines() if ln.strip()), "")
@@ -636,12 +735,13 @@ def check(log, closing=None, data=None):
                     found.append(("title", "%s の窓が %s終わった で報告するのに、題の状態が %s でない" % (AI, DONE, DONE)))
                 elif not done and tm == DONE:
                     found.append(("title", "%s の窓が 終わった でない札（止まった・一部・待ち・問い）で締めるのに、題が %s" % (AI, DONE)))
-            # 手の窓（細目 §4）: 済んだ目印を確かめたら頼んだ窓へ返して閉じる。✅ で締めるのに、このターンに頼んだ窓へ
+            # 手の窓（細目 §4）: 済んだ目印を確かめたら頼んだ窓へ返して閉じる。✅ で締めるのに、この窓で頼んだ窓へ
             #   返した跡（send_message）が無ければ、済んだ手の窓が頼んだ窓に済んだと分からないまま残る。
+            #   手の窓は 1 つの頼みに 1 つの窓＝返すのは 1 回なので、跡は窓の全部で探す（返した後の頼み・知らせで消さない）。
             hand_done = bool(DONE_LINE.match(first)) and bool(HAND_TITLE.match(split_title(title)[2]))
-            if hand_done and not any(k == "move" and str(v).endswith("send_message") for k, v in log.turn):
+            if hand_done and not any(k == "move" and str(v).endswith("send_message") for k, v in log.events):
                 found.append(("title", "手の窓が %s終わった で締めるのに、頼んだ窓へ済んだ目印を返した跡（send_message）が"
-                                       "このターンに無い（返してから締め、自分を閉じる）" % DONE))
+                                       "この窓に無い（返してから締め、自分を閉じる）" % DONE))
             if tm == WAITING and HAND_TITLE.match(split_title(title)[2]) and closing.strip() and not hand_done:
                 lack = [p for p in HAND_PARTS if p not in closing]
                 if lack:
@@ -693,26 +793,27 @@ def check(log, closing=None, data=None):
     if any(k == "noidk_blind" for k, _ in log.events):
         found.append(("neighbor", "「分からない」の見分けの正本（plugin guard の ask_shape.is_dunno）が見つからず、選択肢の画面の問いを照らせない"))
 
-    # 答えの無い問い（一度も答えが返っていない問い）
-    asked, answered = [], set()
-    for k, v in log.events:
-        if k == "ask":
-            asked.extend(q for q in v if q not in asked)
-        elif k == "answer":
-            answered |= set(v)
-    for q in asked:
-        if q not in answered:
-            found.append(("unanswered", "答えの無い問いが残っている（出し直す・残りなしで締めない）: %s" % q[:60]))
+    # 答えの無い問い（画面の答えも、閉じた画面の後のチャットの答えも、出し直した問いの答えも返っていない問い）
+    for q in ask_state(log)[0]:
+        found.append(("unanswered", "答えの無い問いが残っている（出し直す・残りなしで締めない）: %s" % q[:60]))
+
+    # 隣の正本の欠け（番の切り方・値の表）: 締めの文が空の番でも名指す
+    gap = guard_gap()
+    if gap:
+        found.append(("neighbor", gap))
+
+    # 読めない行（黙って飛ばして判定しない）
+    if log.unreadable:
+        nums = log.unreadable
+        found.append(("unread", "会話ログに読めない行が %d 行ある（%s 行目%s）。その行を読まずに照らした＝落ちたのが題・問い・"
+                                "答えの行なら判定が違う" % (len(nums), "・".join(map(str, nums[:5])), " ほか" if len(nums) > 5 else "")))
     return found
 
 
 def watch(path):
-    """拾った物の並び。ログが読めなければ OSError を上げる（読めない＝拾う物なし＝緑、に化かさない）。"""
-    rows = read_rows(path)
-    try:
-        return check(Log(rows))
-    except (ValueError, TypeError, AttributeError):
-        return []
+    """拾った物の並び。ログが読めなければ OSError、照らしが壊れればその例外をそのまま上げる
+    （読めない・壊れた＝拾う物なし＝緑、に化かさない。main が exit 2 で止まる）。"""
+    return check(Log(read_rows(path)))
 
 
 # ── 知らせる（UserPromptSubmit の hook・止めない）──────────────────
@@ -751,7 +852,7 @@ def last_reply(log):
     """最後に締めた返事（最後の道具より後ろの本文）。新しい頼みが記録に載った後でも、その前の返事を返す。"""
     out, prev = [], []
     for kind, val in log.events:
-        if kind == "owner":
+        if kind in ("owner", "notice"):
             if out:
                 prev = out
             out = []
@@ -773,9 +874,9 @@ def remind(data, env=None):
     env = os.environ if env is None else env
     out = [take_note(env, data.get("session_id"))]
     if str(env.get("CLAUDE_CODE_REMOTE", "")).lower() == "true":
-        path = data.get("transcript_path") or ""
-        log = Log(read_rows(path)) if path and os.path.exists(path) else Log([])
-        out += [remind_title(log, data), remind_hand(log)]
+        log, missing = log_of(data, first_prompt=True)
+        out += [missing and nolog_note(env, data.get("session_id"), missing),
+                remind_title(log, data), remind_hand(log)]
     out = [t for t in out if t]
     return "\n".join(out) if out else None
 
@@ -806,12 +907,49 @@ def remind_hand(log):
     return HAND_REMIND
 
 
+BROKEN = ("[session-watch] 見張りの %s が壊れて、この返事の形を照らせなかった（%s）。窓は止めていない。"
+          "直し: plugin session-watch の session_watch.py を直す PR を出すか、あなたがやることに書く。この知らせは窓ごとに 1 回だけ。")
+
+
+def broken_note(env, sid, where, e):
+    """照らしの故障の知らせ（窓ごとに 1 回だけ）。故障を黙って「崩れなし」にしない。"""
+    if _seen(env, sid, "broken"):
+        return None
+    return BROKEN % (where, "%s: %s" % (type(e).__name__, str(e)[:80]))
+
+
+NOLOG = ("会話ログを読めなかった（%s）。題・問い・答え・手の窓の照らしは材料が無いので照らしていない（返事の文の形だけ照らした）。"
+         "この知らせは窓ごとに 1 回だけ。")
+
+
+def log_of(data, first_prompt=False):
+    """hook の入力から会話ログを読む。(Log, 読めなかった理由 か None)。材料が無いのを黙って空の会話ログにしない。
+    first_prompt: 最初の頼みの hook では会話ログの file がまだ作られていないことがある＝file が無いのは理由にしない
+    （path が無いのは理由にする）。Stop の hook では file が無いのも理由にする。"""
+    path = data.get("transcript_path")
+    if not isinstance(path, str) or not path:
+        return Log([]), "hook の入力に transcript_path が無い"
+    if not os.path.isfile(path):
+        return Log([]), (None if first_prompt else "file が無い: %s" % path[-80:])
+    return Log(read_rows(path)), None
+
+
+def nolog_note(env, sid, why):
+    """会話ログを読めなかった知らせ（--remind の口・窓ごとに 1 回だけ・Stop の口と印を分け合う）。"""
+    return None if _seen(env, sid, "nolog") else "[session-watch] " + NOLOG % why
+
+
 def hook_remind(stdin):
+    data = {}
     try:
         data = json.loads(stdin.read() or "{}")
-        text = remind(data if isinstance(data, dict) else {})
-    except Exception:          # noqa: BLE001  見張りの故障で窓を止めない
-        return 0
+        data = data if isinstance(data, dict) else {}
+        text = remind(data)
+    except Exception as e:     # noqa: BLE001  見張りの故障で窓を止めない（止めずに知らせる）
+        try:
+            text = broken_note(os.environ, data.get("session_id"), "--remind", e)
+        except Exception:      # noqa: BLE001
+            return 0
     if text:
         print(json.dumps({"hookSpecificOutput": {"hookEventName": "UserPromptSubmit",
                                                  "additionalContext": text}}, ensure_ascii=False))
@@ -819,9 +957,10 @@ def hook_remind(stdin):
 
 
 # ── 知らせる（Stop の hook が置き、次の頼みの時に UserPromptSubmit の hook が出す・差し戻さない）────────────────
-STOP_CODES = ("title", "card", "close", "plain", "inner", "time", "done", "secret", "neighbor")
+STOP_CODES = ("title", "card", "close", "plain", "inner", "time", "done", "secret", "neighbor", "unread", "nolog")
+ONCE_CODES = ("neighbor", "unread", "nolog")   # AI には直せない＝窓ごとに 1 回だけ知らせる
 #   知らせる札（核 §1・§2・§4・§5・§6・§7 の、AI が読み飛ばすとそのまま人に届く所）。ほか（idk・unanswered・rest・hand）は
-#   手で回す点検だけ。neighbor（隣の正本が見つからない）は窓ごとに 1 回だけ知らせる（AI には直せない）。
+#   手で回す点検だけ。neighbor（隣の正本が見つからない）・unread（会話ログに読めない行）は窓ごとに 1 回だけ知らせる（AI には直せない）。
 #   返事は差し戻さない（書き直しは同じ返事を 2 度書く無駄になる＝届いた返事はそのまま・次の返事から合わせる）。
 NOTE_HEAD = ("[session-watch] 前の返事の形が崩れていた（返事は届いている・書き直さない・差し戻していない）。次の返事から下を合わせる。"
              "形の正本は核 §4・§5（細目 §5）・skill `session-watch:title-mark`。")
@@ -834,6 +973,10 @@ STOP_HOW = {
     "done": "確かめた事だけを言い切る。確かめ切れていない所があれば 1 行目を「一部」「止めた」の形にし、何が残るかを書く（核 §7）。"
             "人の言葉を引くだけなら「」で囲む。",
     "secret": "鍵・トークンの値を以後の返事に出さず、在り処（環境の値の名・設定の場所）だけを書く。出てしまった鍵は人に作り直しを頼む（核 §1）。",
+    "nolog": "hook が渡す会話ログの path（transcript_path）か、その file が無い。AI には直せない。続くなら plugin "
+             "session-watch の hooks.json と Claude Code の版を確かめる PR を出すか、あなたがやることに書く。",
+    "unread": "会話ログの読めない行は AI には直せない。照らしはその行を除いて出したので、題・問い・答えの判定は手で確かめる"
+              "（この知らせは窓ごとに 1 回だけ）。続くなら plugin session-watch の読み口を直す PR を出す。",
     "neighbor": "上の行が名指す原因を直す: 値の表の読めない形なら、その形を直す PR を出すか、あなたがやることに書く。隣の正本が"
                 "見つからないなら、土台の plugin guard と市場の写し（公開の検査）を入れ直す（docs/核の届け方.md）。読めない形は捨てて"
                 "照らし続けているので、他の札は効いている。この知らせは窓ごとに 1 回だけ。",
@@ -878,15 +1021,17 @@ def take_note(env, sid):
 def stop(data, env=None):
     """知らせる文（str）か None。今の返事（last_assistant_message・無ければ会話ログの締め）の形を見る。"""
     env = os.environ if env is None else env
-    path = data.get("transcript_path") or ""
-    log = Log(read_rows(path)) if path and os.path.exists(path) else Log([])
+    log, missing = log_of(data)
     if str(env.get("CLAUDE_CODE_REMOTE", "")).lower() == "true":
         log.cloud = True          # クラウドの窓は題の道具を持つ（会話ログで道具を打つ前でも題を照らす）
     last = data.get("last_assistant_message")
     closing = last if isinstance(last, str) and last.strip() else None
     found = [(c, m) for c, m in check(log, closing, data) if c in STOP_CODES and not m.startswith(ASK_BEFORE)]
-    if any(c == "neighbor" for c, _ in found) and _seen(env, data.get("session_id"), "neighbor"):
-        found = [(c, m) for c, m in found if c != "neighbor"]
+    if missing:
+        found.insert(0, ("nolog", NOLOG % missing))
+    for once in ONCE_CODES:
+        if any(c == once for c, _ in found) and _seen(env, data.get("session_id"), once):
+            found = [(c, m) for c, m in found if c != once]
     if not found:
         return None
     out = [NOTE_HEAD] + ["- %s: %s" % (c, m) for c, m in found]
@@ -916,14 +1061,18 @@ def _seen(env, sid, what):
 
 def hook_stop(stdin):
     """崩れを次の頼みの時の知らせとして置くだけ。何も出さない（decision=block で差し戻さない＝返事を書き直させない）。"""
+    data = {}
     try:
         data = json.loads(stdin.read() or "{}")
         data = data if isinstance(data, dict) else {}
         note = stop(data)
-        if note:
-            put_note(os.environ, data.get("session_id"), note)
-    except Exception:          # noqa: BLE001  見張りの故障で窓を止めない
-        return 0
+    except Exception as e:     # noqa: BLE001  見張りの故障で窓を止めない（次の頼みの時に知らせる）
+        try:
+            note = broken_note(os.environ, data.get("session_id"), "--stop", e)
+        except Exception:      # noqa: BLE001
+            return 0
+    if note:
+        put_note(os.environ, data.get("session_id"), note)
     return 0
 
 
@@ -940,6 +1089,9 @@ def main(argv):
         found = watch(argv[1])
     except OSError as e:
         sys.stderr.write("ログを読めない: %s（%s）\n" % (argv[1], e.strerror or e))
+        return 2
+    except Exception as e:     # noqa: BLE001  照らしの故障を「拾う物なし」にしない
+        sys.stderr.write("照らしが壊れた: %s（%s: %s）\n" % (argv[1], type(e).__name__, str(e)[:120]))
         return 2
     for code, msg in found:
         print("%s: %s" % (code, msg))

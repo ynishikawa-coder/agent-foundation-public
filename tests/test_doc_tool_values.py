@@ -264,7 +264,7 @@ def test_聞く前に引いた跡で止める回数は_guard_rules_の文と同�
 
 def test_回数と札を書き換えると道具とずれて赤():
     """注入の試験。"""
-    w = _read(WATCH_SKILL).replace("・`neighbor` は、Stop", " は、Stop")
+    w = _read(WATCH_SKILL).replace("・`nolog` は、Stop", " は、Stop")
     assert _watch_stop(w) != SW.STOP_CODES
     assert _prior_max(_read(GUARD_SKILL).replace("同じ頼みの中で 2 回まで", "同じ頼みの中で 5 回まで")) != PA.ASK_PRIOR_MAX
 
