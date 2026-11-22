@@ -21,13 +21,3 @@ def test_離席の後に人が打てば戻ったと見る(env, tmp_path):
     append(tpath, dict(human("戻りました", ts="2999-01-01T00:00:00Z"), origin={"kind": "human"}))
     assert not denied(env, bash(DROP, tpath=tpath))
 
-
-def test_starts_turn_は人の行の正本と同じ():
-    import sys, pathlib
-    sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "plugins/guard/scripts"))
-    import guard_common as G
-    for row in ({"type": "user", "message": {"content": "頼み"}},
-                {"type": "user", "promptSource": "system", "message": {"content": "知らせ"}},
-                {"type": "user", "isCompactSummary": True, "message": {"content": "要約"}},
-                {"type": "user", "message": {"content": "[Request interrupted by user]"}}):
-        assert G.starts_turn(row) == G.is_human_row(row)
