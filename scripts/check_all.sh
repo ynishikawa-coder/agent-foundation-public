@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # 検査の入口（CI も手元もこの 1 本を呼ぶ）。
 # 1. tests/ を入口 scripts/pytest.sh で走らせ、入口の plugin が書いた構造の結果（af_tally）だけを数える。
+#    試験は file ごとに K 組（CPU の数・4 まで。AF_CHECK_SHARDS で変える）へ分けて同時に回し、数える段が K 組の結果を
+#    合わせる（組が欠けた・2 つの組で回った・どの組でも回らなかった試験があれば赤）。
 #    飛ばした・xfail の試験は数えて名指す（緑に数えない）。xpass・回らずに終わった試験・通った 0 本・知らない plugin・
 #    結果を変える conftest の hook・書いたのに集めていない試験は赤。
 # 2. scripts/checks/*.sh を名前の順に走らせる（後の窓はここに 1 本足すだけ）。scripts/checks に *.sh の外の物
@@ -37,19 +39,41 @@ else
   at="@${here}"
 fi
 [ -n "$(git status --porcelain 2>/dev/null)" ] && at="${at}+未 commit"
-tally=$(mktemp) || { echo "check_all: 赤 (試験の結果の置き場を作れない) ${at}"; exit 1; }
-trap 'rm -f "$tally" "$tally.tmp"' EXIT
-rm -f "$tally"   # 前の中身を残さない（pytest が書かなければ数える段が止まって赤）
+work=$(mktemp -d) || { echo "check_all: 赤 (試験の結果の置き場を作れない) ${at}"; exit 1; }
+trap 'rm -rf "$work"' EXIT
 
-echo "== pytest tests/"
+# 組の数: 人が渡した値は 1 以上の数だけを受け、ほかは黙って 1 組に倒さず止める（分けたつもりで分かれていない、を出さない）。
+# 渡さなければ CPU の数（4 まで・数えられなければ 1 組）。
+if [ -n "${AF_CHECK_SHARDS+x}" ]; then
+  [[ "$AF_CHECK_SHARDS" =~ ^[1-9][0-9]*$ ]] ||
+    { echo "check_all: 赤 (AF_CHECK_SHARDS は 1 以上の数で渡す。渡された値: '${AF_CHECK_SHARDS}') ${at}"; exit 1; }
+  shards=$AF_CHECK_SHARDS
+else
+  shards=$(nproc 2>/dev/null || echo 1)
+  [[ "$shards" =~ ^[1-9][0-9]*$ ]] || shards=1
+  [ "$shards" -gt 4 ] && shards=4
+fi
+echo "== pytest tests/（${shards} 組を同時に）"
 ran=$((ran + 1))
 sel=()
 [ $ci -eq 1 ] && sel=(-m "not real_claude")
-AF_PYTEST_TALLY="$tally" bash scripts/pytest.sh -q -rs "${sel[@]}" tests/
-pytest_code=$?
+pids=() tallies=()
+for ((i = 0; i < shards; i++)); do
+  # 結果の file は pytest が書くまで無い（書かなければ数える段が止まって赤）。
+  tallies+=("$work/tally.$i")
+  AF_PYTEST_TALLY="$work/tally.$i" bash scripts/pytest.sh -q -rs "${sel[@]}" --af-shard="$i/$shards" tests/ \
+    >"$work/log.$i" 2>&1 &
+  pids+=($!)
+done
+pytest_code=0
+for ((i = 0; i < shards; i++)); do
+  wait "${pids[$i]}" || pytest_code=1
+  echo "-- 組 $i/$shards"
+  cat "$work/log.$i"
+done
 # 数えるのは pytest の文でなく、入口の plugin が書いた構造の結果だけ（scripts/pytest_plugin/af_tally.py）。
-# 1 行目＝数えた値、続く行＝緑に数えない物。数える段が止まれば（結果が無い・壊れた）赤。
-report=$(python3 scripts/pytest_plugin/af_tally.py judge "$tally")
+# 1 行目＝数えた値、続く行＝緑に数えない物。数える段が止まれば（結果が無い・壊れた・組が揃わない）赤。
+report=$(python3 scripts/pytest_plugin/af_tally.py judge "${tallies[@]}")
 judge_code=$?
 summary=$(printf '%s\n' "$report" | head -n 1)
 bad=$(printf '%s\n' "$report" | sed -n 's/^赤: //p')
