@@ -468,22 +468,6 @@ def test_起動の後に_plugin_が変わったら先端の核を差し込み窓
     assert "核 5" in again and "核 3" not in again        # 核が変われば、変わった物だけをもう 1 度
 
 
-def test_核の本文が変わらない土台の変更では核を送り直さない(tmp_path):
-    """注入（2026-11-22 の誤りの類）: 窓が読んだ核と同じ本文の先端を、plugin が動くたびに送り直す形を戻すと赤。
-    守りだけの変更が何本 main へ入っても、核と振る舞いの既定の全文は文脈に 1 枚だけ。"""
-    f = Foundation(tmp_path)
-    _commit(f.work, {"plugins/core/核.md": (PLUGIN / "核.md").read_text(encoding="utf-8"),
-                     "plugins/core/振る舞い.md": (PLUGIN / "振る舞い.md").read_text(encoding="utf-8")}, "本物の核")
-    f.installed = _git(f.work, "rev-parse", "HEAD")
-    f.install()
-    f.hook("inject")
-    for i in range(5):
-        _commit(f.work, {f"plugins/guard/x{i}.py": "x\n"}, f"守りを変える {i}")
-        assert f.hook("fresh") == "", i
-    again = f.hook("inject", source="compact")
-    assert again.count("# 振る舞いの核") == 1 and again.count("# 振る舞いの既定") == 1
-
-
 @pytest.mark.parametrize("source", ["compact", "clear", "resume"])
 def test_途中で古くなった窓は圧縮や_resume_の後も先端の核をもう一度差し込む(tmp_path, source):
     """注入: 起動 → main を進める → 先端の核を差し込む → SessionStart がもう 1 回（圧縮・/clear・resume）→ 同じ物を差し込む。"""

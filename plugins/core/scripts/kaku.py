@@ -1199,6 +1199,15 @@ def effective_texts(texts: dict[str, str | None] | None) -> dict[str, str | None
 TIP_UNREADABLE = "先端で読めなかった"
 
 
+def seen_digests(texts: dict[str, str | None] | None) -> dict[str, str | None]:
+    """窓が読んだ本文の印（名→印）。先端の本文を渡した時、先端で読めなかった物は「読めなかった」と持つ
+    （入っている版の本文で差し込み、読めなかった事は差し込みの時に 1 回名指した＝fresh で名指し直さない）。"""
+    seen = core_digests(effective_texts(texts))
+    if texts is not None:
+        seen.update({name: TIP_UNREADABLE for name, text in texts.items() if text is None})
+    return seen
+
+
 def changed_core_text(main: str, new: dict[str, str | None], had: dict[str, str | None]) -> str:
     """窓が今読んでいる本文の印（had）から変わった物だけの全文。同じ物は送らない（同じ核を何枚も文脈に積まない）。"""
     parts = []
@@ -1325,7 +1334,7 @@ def inject() -> int:
         print(f"plugin core: 核.md が読めない（{e}）＝核は差し込まれていない", file=sys.stderr)
     if state is not None and broken is None and session and "core" not in state:
         try:  # この窓が読んだ本文の印（fresh が、本文の変わらない先端を送り直さないために比べる）
-            state["core"] = core_digests(effective_texts(texts))
+            state["core"] = seen_digests(texts)
         except UNREADABLE:
             pass
         _save_state(session, state)
@@ -1380,7 +1389,7 @@ def fresh() -> int:
         had = state.get("core")
         if had is None:  # 本文の印を持たない前の版の記録: 前に送った先端か、入っている版の本文を読んだと読む
             told_main = (state.get("told") or {}).get("main")
-            had = core_digests(effective_texts(tip_texts(told_main) if told_main else None))
+            had = seen_digests(tip_texts(told_main) if told_main else None)
         new = tip_texts(got["main"])
         core = changed_core_text(got["main"], new, had)
         state["told"], state["told_kind"] = got, "update"
