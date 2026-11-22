@@ -32,8 +32,8 @@
             public-guard/workflow_reader.py が正本: PR・push で走る job の step の呼び口だけを数え、語の表は全部の呼び口の with: の
             deny-words-file の和）。当たれば止める。
             検査が見つからない・壊れた時も止める（公開の repo へは、照らせない文を出さない）
-            開けない・壊れた workflow は黙って飛ばさず、出した後（PostToolUse の notice）に名と訳を知らせる（止めに変えるかは
-            オーナーの同意待ち）
+            開けない・壊れた workflow は黙って飛ばさず、名と訳を添えて出す前に止める（公開かを決められない repo へは文を出さない。
+            workflow を直して出し直させる＝聞く線のオーナー同意 2026-11-22）
 誤って止めた時: 値の表 pr_cleanup_exempt_repos・pr_words_exempt_repos（owner/repo の名の全体に当てる正規表現・^ で始め $ で終える＝
 型 repo_names）で repo ごとに外す。
 判定の形と公開の検査は外す口を持たない（直すのは文の方・判定の形の決まりは review-pr の SKILL.md が正本）。
@@ -50,7 +50,7 @@ import sys
 
 import guard_common as G
 
-HOOKS = {"pre": "check", "post": "notice"}
+HOOKS = {"pre": "check"}
 
 TIMEOUT = 30
 SHOWN = 12
@@ -450,7 +450,13 @@ def find_public_guard(top=""):
     return G.foundation_file(rel)
 
 def check_public(texts, repo, data, vals):
-    is_public, top, words = public_target(repo, data, vals)
+    unread = []
+    is_public, top, words = public_target(repo, data, vals, unread)
+    if unread:
+        # 開けない・壊れた workflow が公開の検査を呼ぶかは決められない＝公開でないと読んで黙って出さない
+        return ["出す先の取り出しの workflow %s が%s。公開の検査を呼ぶかを決められず照らせない。workflow を開ける・読める形に直して"
+                "出し直す（GitHub も壊れた workflow は走らせない）"
+                % (os.path.relpath(p, top) if top else p, why) for p, why in unread[:SHOWN]]
     if not is_public:
         return []
     missing = [w for w in words if not os.path.isfile(w)]
@@ -480,26 +486,6 @@ def check_public(texts, repo, data, vals):
         return ["公開の検査が壊れた（exit %d・`--text` を知らない古い版かもしれない）: %s" % (p.returncode, " / ".join(tail))]
     return ["公開の repo に置かない物: " + h for h in hits]
 
-
-
-def notice(data, vals):
-    """PostToolUse: 出した先の repo の取り出しに、開けない・壊れた workflow があれば名と訳を知らせる（止めない＝止めに変えるかは
-    オーナーの同意を待つ）。その workflow が公開の検査を呼ぶなら、出した文は公開の検査で照らせていない。"""
-    kind = tool_kind(data.get("tool_name"))
-    ti = data.get("tool_input")
-    if not kind or not isinstance(ti, dict):
-        return ""
-    unread = []
-    public_target(_repo_name(ti), data, vals, unread)
-    if not unread:
-        return ""
-    top = _checkout_of(_repo_name(ti), data)
-    lines = ["[guard] GitHub へ出した文の出す先 %s の取り出しに、読めない workflow がある（知らせるだけ・止めていない）。"
-             "公開の検査を呼ぶかを決められず、その workflow の分は照らしていない:" % _repo_name(ti)]
-    lines += ["- %s — %s" % (os.path.relpath(p, top) if top else p, why) for p, why in unread[:SHOWN]]
-    lines.append("直し方: workflow を開ける・読める形に直す（GitHub も壊れた workflow は走らせない）。公開の repo なら、出した文に"
-                 "置かない物が無いかを公開の検査（public-guard/guard.py --text）で確かめ、当たれば書き直す。")
-    return "\n".join(lines)
 
 HOW = {
     "broken": "一時の置き場（TMPDIR・AF_GUARD_TMP）に書けるか・入れた plugin が揃っているかを確かめ、直してから出し直す。"

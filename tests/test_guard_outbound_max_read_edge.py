@@ -4,10 +4,10 @@
 比べ方を `>` から `>=` に変える誤りが入ると、この試験が赤になる。
 """
 from test_guard import env, hook  # noqa: F401  （env は fixture）
-from test_guard_unreadable_named import notice, outbound, publish  # noqa: F401  （outbound は fixture）
+from test_guard_unreadable_named import outbound, publish, stopped  # noqa: F401  （outbound は fixture）
 
 
 def test_上限ちょうどの_file_は照らせた物として名指さない(env, tmp_path, outbound):
     (tmp_path / "ok.html").write_text("<p>報告</p>", encoding="utf-8")
     (tmp_path / "edge.json").write_text("x" * outbound.MAX_READ, encoding="utf-8")
-    assert notice(env, publish(tmp_path, file_path="ok.html", files={"data/edge.json": "edge.json"})) == ""
+    assert stopped(env, publish(tmp_path, file_path="ok.html", files={"data/edge.json": "edge.json"})) == ""
