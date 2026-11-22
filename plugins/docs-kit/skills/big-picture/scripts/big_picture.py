@@ -46,7 +46,7 @@ ID = re.compile(r"^[A-Za-z][A-Za-z0-9_-]*$")
 TEMPLATE = Path(__file__).resolve().parent.parent / "references" / "template.html"
 SLOT = "/*__BIG_PICTURE_DATA__*/null"
 ROOT_CAUSE = "直し: 形の誤りを 1 つずつ潰して出し直すだけで済ませず、意図（絵が照らせる正の形を保つ）とのずれから入り、誤りが入った原因を細目 §3「まず構造を疑う」で探して直す"
-ROOT_CAUSE_DIFF = "直し: 差は main へ入れずに止め、差を見せてオーナーに決めてもらう（実物を直す時は合意した絵の意図とのずれから入り、細目 §3「まず構造を疑う」で原因を探す）"
+ROOT_CAUSE_DIFF = "直し: 差を見せ、絵と実物のどちらに合わせるかをオーナーに決めてもらう（合流は止めない。実物を直す時は合意した絵の意図とのずれから入り、細目 §3「まず構造を疑う」で原因を探す）"
 
 
 def load(path):
@@ -233,7 +233,7 @@ def compare(agreed, actual):
     diffs += len(lines)
     out += lines or ["- 差なし"]
     out.append("")
-    out.append("差: %d 件 → %s" % (diffs, "差なし（green）" if not diffs else "差あり（red・main へ入れずに止め、差を見せてオーナーに決めてもらう）"))
+    out.append("差: %d 件 → %s" % (diffs, "差なし（green）" if not diffs else "差あり（red・差を見せてオーナーに決めてもらう。合流は止めない）"))
     return "\n".join(out), diffs
 
 
