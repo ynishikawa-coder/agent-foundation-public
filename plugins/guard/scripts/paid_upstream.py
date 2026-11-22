@@ -18,6 +18,11 @@ from __future__ import annotations
 
 import os
 import re
+import sys
+
+sys.dont_write_bytecode = True
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib"))
+import skill_values as SV  # noqa: E402  値の表の当て方の 1 本の口（土台の skill-values/ への symlink）
 
 TEST_PATH_RE = re.compile(
     r"(^|/)(tests?|e2e|__tests__|spec|specs|testing)(/|$)"
@@ -94,8 +99,7 @@ def check_bash(data, vals):
     tests = [t for t in bash_targets(cmd) if TEST_PATH_RE.search(t.replace(os.sep, "/"))]
     if not tests:
         return ""
-    markers = list(PAID_MARKERS) + [m for m in vals.get("paid_markers_extra") or [] if isinstance(m, str) and m]
-    hits = [m for m in markers if m in cmd]
+    hits = SV.words_in(list(PAID_MARKERS) + list(vals.get("paid_markers_extra") or []), cmd)
     return reason(", ".join(tests), hits) if hits else ""
 
 
@@ -114,6 +118,5 @@ def check(data, vals):
     body = _payload(tool_input)
     if not body or GUARD_MARKER in body:
         return ""
-    markers = list(PAID_MARKERS) + [m for m in vals.get("paid_markers_extra") or [] if isinstance(m, str) and m]
-    hits = [m for m in markers if m in body]
+    hits = SV.words_in(list(PAID_MARKERS) + list(vals.get("paid_markers_extra") or []), body)
     return reason(path, hits) if hits else ""

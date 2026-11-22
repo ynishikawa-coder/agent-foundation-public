@@ -32,7 +32,7 @@ HTML の型は `references/template.html`（手で直さない・外の物を読
 |---|---|---|
 | `meta.title`・`meta.problem`・`meta.goal` | 文字列 | 題・解決したい問題・完成像 |
 | `meta.kind` | `合意`／`実物` | オーナーと合意した版か、レビューの窓がコードから描いた実物か |
-| `meta.version` | `YYYY-MM-DD.n` | 版。合意した絵を変える時は必ず上げる（同じ日の 2 本目は `.2`） |
+| `meta.version` | `YYYY-MM-DD.n` | 版。合意した絵を変える時は必ず上げる（同じ日の 2 本目は `.2`）。実物の絵には書かない（どの先端から描いたかは `drawn_from`） |
 | `meta.agreed` | `{by:"owner", date, record}` | 合意の印（`合意` に要る）。`record` はオーナーの決定の在り処を名で書く（公開の repo では URL を書かない） |
 | `meta.drawn_from`・`meta.drawn_by` | 文字列 | 実物を描いた元（`<repo>@<SHA12>`）と描いた窓（`実物` に要る） |
 | `tabs.<ctx｜flow｜arch>` | `{w, h, lanes?, areas?}` | 1. 全体の文脈／2. ワークフロー／3. 仕組みの構成。4. 決めた事と意図 は箱から自動で表にする。`lanes`＝`[{t, y, h}]`（流れの帯）・`areas`＝`[{t, k, x, y, w, h}]`（共通と個別の点線の枠） |

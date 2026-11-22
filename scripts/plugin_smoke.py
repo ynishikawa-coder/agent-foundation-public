@@ -43,16 +43,22 @@ GUARD_PROBE = {"tool_name": "Write", "session_id": "smoke", "tool_input": {
     "file_path": "/smoke/tests/test_probe.py", "content": 'os.environ["OPENAI_API_KEY"]'}}
 
 
-def injected_texts(repo: Path) -> dict[str, str]:
-    """毎回差し込む物 {file 名: 中身}。一覧は正本の repo の kaku.py の injected() をそのまま読む
-    （差し込む口と照らす口が同じ 1 つの一覧を見る＝差し込む物を足しても照らしから漏れない）。"""
+def _kaku(repo: Path):
+    """正本の repo の差し込む口 kaku.py（毎回別に読む＝片方の書き換えが他へ漏れない）。"""
     path = repo / "plugins" / "core" / "scripts" / "kaku.py"
     spec = importlib.util.spec_from_file_location("af_smoke_kaku", path)
     if spec is None or spec.loader is None:
         raise ValueError(f"差し込む口が読めない: {path}")
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
-    files = tuple(mod.injected())
+    return mod
+
+
+def injected_texts(repo: Path) -> dict[str, str]:
+    """毎回差し込む物 {file 名: 中身}。一覧は正本の repo の kaku.py の injected() をそのまま読む
+    （差し込む口と照らす口が同じ 1 つの一覧を見る＝差し込む物を足しても照らしから漏れない）。"""
+    path = repo / "plugins" / "core" / "scripts" / "kaku.py"
+    files = tuple(_kaku(repo).injected())
     if not files:
         raise ValueError(f"差し込む物の一覧が空: {path}")
     return {f.name: f.read_text(encoding="utf-8").rstrip("\n") for f in files}
@@ -62,20 +68,182 @@ def expected(repo: Path) -> dict:
     plugins = sorted(p.parent.parent.name for p in repo.glob("plugins/*/.claude-plugin/plugin.json"))
     skills = sorted(f"{s.parent.parent.parent.name}:{s.parent.name}" for s in repo.glob("plugins/*/skills/*/SKILL.md"))
     hooks = sorted(p.parent.parent.name for p in repo.glob("plugins/*/hooks/hooks.json"))
-    return {"plugins": plugins, "skills": skills, "hooks": hooks, "injected": injected_texts(repo)}
+    return {"plugins": plugins, "skills": skills, "hooks": hooks, "injected": injected_texts(repo),
+            "inject": inject_pattern(repo)}
+
+
+_SAIMOKU_MARK = "\x00細目の在り処\x00"
+
+
+def inject_pattern(repo: Path) -> re.Pattern:
+    """差し込む核の部（正本の kaku.py の inject_text() そのもの）に頭から一字違わず当たる形。入った copy ごとに違う細目の
+    在り処だけを 1 行の中の任意の字にする（その字を印に揃えるのにも使う＝normalize）。"""
+    mod = _kaku(repo)
+    mod.SAIMOKU = Path(_SAIMOKU_MARK)
+    head, sep, tail = mod.inject_text().partition(_SAIMOKU_MARK)
+    return re.compile(re.escape(head) + (r"([^\n]+)" + re.escape(tail) if sep else ""))
+
+
+def normalize(text: str, pattern: re.Pattern) -> str:
+    """核の部の細目の在り処を印に揃えた text（核の部が正本どおりでなければそのまま）。"""
+    m = pattern.match(text)
+    if not m or not m.groups():
+        return text
+    return text[:m.start(1)] + _SAIMOKU_MARK + text[m.end(1):]
+
+
+def expected_context(installed_core: Path, env: dict, cwd: Path, session_id: str) -> str:
+    """差し込む口 kaku.py inject を、起動した窓と同じ箱（HOME・repo の根）・同じ窓の id・同じ在り処で回した文脈の全体。
+    同じ窓の 2 回目なので、起動の時の記録を読み外へは見に行かない＝起動した窓の hook と同じ材料で作る。
+    回すのは入った copy の口（正本の checkout の口と一字違わず同じ事を先に same_inject_code で確かめてから呼ぶ）。
+    checkout の口を回すと、口が自分の在り処（plugin の dir）で台帳の行を選ぶので、起動した窓と違う dir の材料で作ってしまう。"""
+    p = subprocess.run([sys.executable, str(installed_core / "scripts" / "kaku.py"), "inject"],
+                       input=json.dumps({"session_id": session_id, "hook_event_name": "SessionStart"}), env=env,
+                       cwd=cwd, capture_output=True, text=True, timeout=120)
+    try:
+        return json.loads(p.stdout)["hookSpecificOutput"]["additionalContext"]
+    except (ValueError, KeyError, TypeError):
+        raise ValueError(f"正本の差し込む口が文脈を出さない: {(p.stdout + p.stderr).strip()[-300:]}") from None
+
+
+def same_inject_code(repo: Path, installed_core: Path) -> bool:
+    """入った copy の差し込む口 kaku.py が、正本の checkout の物と一字違わず同じか。"""
+    rel = Path("scripts") / "kaku.py"
+    try:
+        return (repo / "plugins" / "core" / rel).read_bytes() == (installed_core / rel).read_bytes()
+    except OSError:
+        return False
+
+
+def core_problems(ctx: list[str], want: dict, expected: str) -> list[str]:
+    """起動の hook の文脈 ctx に、毎回差し込む物が正本と一字違わず届いたか。外れの名指し（空なら届いた）。
+    expected（正本の差し込む口が同じ材料で出した文脈の全体）と文脈の全体を一字違わず比べる（細目の在り処だけは揃える）。
+    核の部の頭だけを比べる弱い道は持たない（核の後ろに足された節を見逃すので、expected は必ず渡す）。"""
+    core = [c for c in ctx if c.startswith(KAKU_HEAD)]
+    if not core:
+        return ["核が起動した窓に差し込まれていない（plugin core の SessionStart の hook）"]
+    pat = want["inject"]
+    if any(normalize(c, pat) == normalize(expected, pat) for c in core):
+        return []
+    # 外れの時だけ、どの file が欠けたかを名指す（決めるのは上の全体の一致）
+    lost = [name for name, text in want["injected"].items() if not any(text in c for c in core)]
+    return ([f"{name} が起動した窓に差し込まれていない・中身が正本と違う（plugin core の SessionStart の hook）" for name in lost]
+            or ["差し込まれた文が正本の差し込む口（kaku.py inject）の出す文と一字違わず同じでない（核・振る舞いの既定の前後か間に足された物がある）"
+                + _first_diff(normalize(expected, pat), normalize(core[0], pat))])
+
+
+def _first_diff(want: str, got: str) -> str:
+    """最初に違う行（正本の口の行／届いた行）を短く名指す。"""
+    a, b = want.splitlines(), got.splitlines()
+    for i in range(max(len(a), len(b))):
+        x, y = (a[i] if i < len(a) else "（無い）"), (b[i] if i < len(b) else "（無い）")
+        if x != y:
+            return f": {i + 1} 行目 正本の口={x[:160]!r} 届いた={y[:160]!r}"
+    return ""
+
+
+def installed_rows(table: dict) -> dict[str, dict]:
+    """入った台帳 installed_plugins.json の、土台の目録（MARKET）から入った plugin だけ {名: 今読まれる行}。
+    名だけで束ねると、同じ名の plugin を別の目録から入れた行と取り違える。行の選び方（user scope と書かれた行のうち
+    dir が在る最後に入れた行）は起動の hook と同じ正本 kaku.user_rows・current_row を読む（最初の行を取らない）。"""
+    k = _kaku(ROOT)
+    out = {}
+    for name, rows in k.user_rows(table, MARKET).items():
+        row = k.current_row(rows)
+        if row is not None:
+            out[name] = row
+    return out
 
 
 DOC = "docs/核の届け方.md"
 FOUNDATION = "ynishikawa-coder/agent-foundation-public"
+# 土台の名を 1 つの語として見る（前後が名に使える字・道・版の印なら別の物＝fork や名を道に含む出所を取り違えない）
+_NAME_EDGE = r"[\w.#/-]"
+FOUNDATION_WORD = re.compile(rf"(?<!{_NAME_EDGE}){re.escape(FOUNDATION)}(?!{_NAME_EDGE})")
+# add の前に付く旗（`--scope user` のように値を取る物も）を飛ばす。古い形.json の同じ行の読み方と同じ形にする
+_ADD_FLAGS = r"(?:--?[\w-]+(?:[ =](?:user|project|local))?\s+)*"
+_ADD = re.compile(r"\bmarketplace\s+add\s+" + _ADD_FLAGS + r"([^\s;|&]+)")
+
+
+def marketplace_adds(script: str) -> list[str]:
+    """setup script の `marketplace add` に渡す出所（囲みの引用符を外した語）の並び。"""
+    return [m.group(1).strip("'\"") for m in _ADD.finditer(script)]
+
+
+def script_for(block: str, source: str) -> str:
+    """塊の土台の名（1 つの語として在る所だけ）を試す出所に替える。"""
+    return FOUNDATION_WORD.sub(lambda _m: shlex.quote(source), block)
+# クラウドの窓の道具 update_environment が setup script を運べる上限（1 行のバイト数は改行を除く）。超える行があると
+# AI の窓が環境に貼れない（2026-11-19 に 207・317 バイトの行で貼れず、人の手で貼った）。
+LINE_BYTES, MAX_LINES = 200, 100
+
+
+def over_limits(script: str) -> list[str]:
+    """setup script が道具の上限を超える所を名指す（空なら収まる）。"""
+    lines = script.splitlines()
+    bad = [f"{i} 行目が {n} バイト（上限 {LINE_BYTES}）" for i, n in
+           ((i, len(s.encode("utf-8"))) for i, s in enumerate(lines, 1)) if n > LINE_BYTES]
+    if len(lines) > MAX_LINES:
+        bad.append(f"{len(lines)} 行（上限 {MAX_LINES}）")
+    return bad
 
 
 def setup_block(repo: Path) -> str:
     """使う側が貼る setup script の塊（docs/核の届け方.md の `setup-script` の印の次の bash の塊）を正本から直に読む。"""
     text = (repo / DOC).read_text(encoding="utf-8")
     m = re.search(r"<!-- setup-script.*?-->\s*```bash\n(.*?)\n\s*```", text, re.S)
-    if not m or FOUNDATION not in m.group(1):
-        raise ValueError(f"{DOC} に setup script の塊（印 setup-script の次の bash・{FOUNDATION} を足す行）が無い")
-    return "\n".join(line.strip() for line in m.group(1).splitlines())
+    block = "\n".join(line.strip() for line in m.group(1).splitlines()) if m else ""
+    if FOUNDATION not in marketplace_adds(block):
+        raise ValueError(f"{DOC} に setup script の塊（印 setup-script の次の bash・{FOUNDATION} をそのまま足す"
+                         f" marketplace add の行）が無い")
+    bad = over_limits(block)
+    if bad:
+        raise ValueError(f"{DOC} の setup script の塊が道具（update_environment）の上限を超え、AI の窓が貼れない: " + "・".join(bad))
+    return block
+
+
+def sha_problems(rows: dict[str, dict], plugins: list[str], expect_sha: str | None) -> list[str]:
+    """入った台帳の行 rows（installed_rows）が、届くべき plugin の全部について試したい先端 expect_sha を指すか。外れの名指し。
+    台帳に行の無い plugin（台帳が空・読めない形を含む）は入った commit を照らせないので、黙って飛ばさず外れと名指す。"""
+    bad = [f"plugin {name} の行が入った台帳 installed_plugins.json に無い（入った commit を照らせない）"
+           for name in plugins if name not in rows]
+    if expect_sha:
+        for name, row in rows.items():
+            if row.get("gitCommitSha") != expect_sha:
+                bad.append(f"plugin {name} に入った commit {row.get('gitCommitSha')} が試したい先端 {expect_sha} でない")
+    return bad
+
+
+def hook_contexts(responses: list[dict]) -> tuple[list[str], list[str]]:
+    """起動の hook の出来事（hook_response）から (差し込まれた文脈の並び, 外れの名指し)。
+    終わり方が分からない（exit_code が無い）・0 でない hook は落ちたと名指す。出力が JSON の形（{ で始まる）なのに
+    読めない hook も、届けるつもりの文脈を失っているので名指す（黙って捨てない）。JSON でない字の出力は、Claude Code と
+    同じく字のまま文脈に足す。"""
+    ctx: list[str] = []
+    bad: list[str] = []
+    for e in responses:
+        name = e.get("hook_name")
+        code = e.get("exit_code")
+        if code is None:
+            bad.append(f"起動の hook {name} の終わり方（exit_code）が分からない（通ったと言えない）")
+        elif code != 0:
+            bad.append(f"起動の hook {name} が落ちた（exit {code}）: {(e.get('stderr') or '')[-200:]}")
+        out = (e.get("output") or "").strip()
+        if not out:
+            continue
+        if not out.startswith("{"):
+            ctx.append(out)
+            continue
+        try:
+            body = json.loads(out)
+        except ValueError as err:
+            bad.append(f"起動の hook {name} の出力の JSON が読めない（{err}）: {out[:200]}")
+            continue
+        hso = body.get("hookSpecificOutput") if isinstance(body, dict) else None
+        add = hso.get("additionalContext") if isinstance(hso, dict) else None
+        if isinstance(add, str):
+            ctx.append(add)
+    return ctx, bad
 
 
 def sh(args, env, timeout=300):
@@ -140,7 +308,7 @@ def smoke(source: str, repo: Path, expect_sha: str | None) -> list[str]:
                 env[k] = os.environ[k]
 
         # 1. 使う側の setup script そのもの（docs/核の届け方.md の塊を、目録の repo だけ試す物に替えて、set -e の下で回す）。
-        script = setup_block(repo).replace(FOUNDATION, shlex.quote(source))
+        script = script_for(setup_block(repo), source)
         r = sh(["bash", "-ec", script], env, timeout=900)  # 貼る先が set -e でも抜けない
         if r.returncode != 0:
             bad.append(f"setup script の塊が非 0 で抜けた（窓が起動しない）: {(r.stdout + r.stderr).strip()[-300:]}")
@@ -152,11 +320,8 @@ def smoke(source: str, repo: Path, expect_sha: str | None) -> list[str]:
             bad.append("setup script が土台の入口 scripts/setup_plugins.py を通っていない（入れた印が無い）")
         table = json.loads((home / ".claude" / "plugins" / "installed_plugins.json").read_text(encoding="utf-8")
                            if (home / ".claude" / "plugins" / "installed_plugins.json").exists() else "{}")
-        rows = {k.split("@")[0]: v[0] for k, v in (table.get("plugins") or {}).items() if v}
-        if expect_sha:
-            for name, row in rows.items():
-                if row.get("gitCommitSha") != expect_sha:
-                    bad.append(f"plugin {name} に入った commit {row.get('gitCommitSha')} が試したい先端 {expect_sha} でない")
+        rows = installed_rows(table)
+        bad += sha_problems(rows, want["plugins"], expect_sha)
 
         # 2. 起動する。
         try:
@@ -174,23 +339,19 @@ def smoke(source: str, repo: Path, expect_sha: str | None) -> list[str]:
                 bad.append(f"skill {s} が起動した窓に読み込まれていない")
 
         # 3. 毎回差し込む物（SessionStart の hook の出力）。injected() の一覧の全部が、正本と一字違わず同じ中身で届く。
-        responses = [e for e in events if e.get("subtype") == "hook_response"]
-        for e in responses:
-            if e.get("exit_code") not in (0, None):
-                bad.append(f"起動の hook {e.get('hook_name')} が落ちた: {(e.get('stderr') or '')[-200:]}")
-        ctx = []
-        for e in responses:
-            try:
-                ctx.append(json.loads(e.get("output") or "{}")["hookSpecificOutput"]["additionalContext"])
-            except (ValueError, KeyError, TypeError):
-                pass
-        core = [c for c in ctx if c.startswith(KAKU_HEAD)]
-        if not core:
-            bad.append("核が起動した窓に差し込まれていない（plugin core の SessionStart の hook）")
-        else:
-            for name, text in want["injected"].items():
-                if not any(text in c for c in core):
-                    bad.append(f"{name} が起動した窓に差し込まれていない・中身が正本と違う（plugin core の SessionStart の hook）")
+        ctx, hook_bad = hook_contexts([e for e in events if e.get("subtype") == "hook_response"])
+        bad += hook_bad
+        core_root = Path(rows.get("core", {}).get("installPath") or "/nonexistent")
+        if not same_inject_code(repo, core_root):
+            # 期待の文は、checkout の正本と一字違わず同じと確かめた入った copy の口で作る。口が違えば同じ材料でも文が違いうるので、
+            # 照らしを弱めて通さず赤にする（CI は入れる commit と同じ commit を pr-head に checkout して --repo に渡す・ci.yml の plugin-smoke）
+            return bad + ["入った copy の差し込む口 kaku.py が正本の checkout と一字違わず同じでない"
+                          "（入れる commit と同じ commit を checkout して回す。差し込む口を書き換える誤りもここで止まる）"]
+        try:
+            expect = expected_context(core_root, env, proj, str(init.get("session_id") or "smoke"))
+        except (OSError, subprocess.SubprocessError, ValueError) as e:
+            return bad + [f"正本の差し込む口を回せない: {e}"]
+        bad += core_problems(ctx, want, expect)
 
         # 4. 守りの hook: 入った copy の hooks.json に書かれた命令をそのまま回す。
         for name in want["hooks"]:

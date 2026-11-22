@@ -1,0 +1,1 @@
+- 直した: 手の窓（作業名が `手:` で始まる窓）は返し先によらず 🙋 に。最初の頼みに（親窓 session_… の子）と書いた手の窓を、Stop の見張りが 🤖 へ替えろと差し戻さなくなった（種類の決め方の正本は session_watch.py の window_kind・決まりの文 KIND_RULE を skill title-mark がそのまま載せる・土台の中だけ）

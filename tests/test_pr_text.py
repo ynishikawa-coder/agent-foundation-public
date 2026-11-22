@@ -23,7 +23,9 @@ def env(tmp_path):
     e = {k: v for k, v in os.environ.items() if not k.startswith(("AF_", "SKILL_VALUES", "CLAUDE_PROJECT_DIR"))}
     e.update({"AF_GUARD_TMP": str(tmp_path / "tmp"), "AF_GUARD_STATE": str(tmp_path / "state"),
               "CLAUDE_PROJECT_DIR": str(proj), "PYTHONDONTWRITEBYTECODE": "1",
-              "TMPDIR": str(tmp_path / "scratch")})
+              "TMPDIR": str(tmp_path / "scratch"),
+              # 判定を出す窓の本物の id の記録（harness が窓の環境に置く cse_<x>）。試験はレビューの窓に固定する
+              "CLAUDE_CODE_REMOTE_SESSION_ID": "cse_" + REVIEWER[len("session_"):]})
     return e
 
 
@@ -50,14 +52,22 @@ def gh(tool, owner="fake-owner", repo="fake-private", **ti):
 FAKE_HEAD = "0123456789ab" + "c" * 28
 
 
-def _fake_gh(env, head=FAKE_HEAD, writer=WRITER, fail=False):
-    """作り物の gh（PR の先端と本文の `書いた窓:` を返す）を PATH の頭に置く。実の GitHub へは出ない。"""
+def _fake_gh(env, head=FAKE_HEAD, writer=WRITER, fail=False, commits=None, total=None):
+    """作り物の gh を PATH の頭に置く。実の GitHub へは出ない。
+    PR を引く呼び出しには先端と本文の `書いた窓:`（写し）を、commit を引く呼び出しには各 commit の説明（`Claude-Session:` の
+    記録。既定は書いた窓の 1 本・1 本ごとに JSON の 1 行）を返す。commits の None の要素は記録の無い commit。
+    total は PR の commit の数（既定は返す commit の数。GitHub が commit の一覧を 250 本で切る時の作り物に、返す数より大きくする）。"""
     bindir = Path(env["CLAUDE_PROJECT_DIR"]).parent / "fakebin"
     bindir.mkdir(exist_ok=True)
     gh_path = bindir / "gh"
     body = "書いた窓: %s\\n" % writer if writer else "作り物の本文\\n"
+    commits = [WRITER] if commits is None else commits
+    msgs = "".join(json.dumps("作り物の commit\n\n" + ("Claude-Session: https://claude.ai/code/%s\n" % c if c else ""),
+                              ensure_ascii=False).replace("\\", "\\\\") + "\\n" for c in commits)
+    total = len(commits) if total is None else total
     gh_path.write_text("#!/bin/sh\n" + ("echo 'not found' >&2; exit 1\n" if fail else
-                       "printf '%%s\\n%%s' '%s' '%s'\n" % (head, body)), encoding="utf-8")
+                       'case "$*" in *"/commits"*) printf \'%s\' ;; *) printf \'%%s\\n%%s\\n%%s\' \'%s\' \'%s\' \'%s\' ;; esac\n'
+                       % (msgs, head, total, body)), encoding="utf-8")
     gh_path.chmod(0o755)
     env["PATH"] = str(bindir) + os.pathsep + env.get("PATH", "")
     return env
@@ -84,10 +94,10 @@ def verdict_comment(judged="green", head="0123456789ab", fail=None, stop=False, 
 
 
 def cleanup_body(extra=""):
-    return ("親窓: %s\n書いた窓: %s\njob: 20261119-fake\n触る path: a.py\n検査: check_all: 緑 (1 本)\n\n"
+    return ("書いた窓: %s\njob: 20261119-fake\n触る path: a.py\n検査: check_all: 緑 (1 本)\n\n"
             "## 何をどう変えたか\n作り物の直し。\n\n## 整地（根治の 4 段）\n\n## 1. 問題\n作り物の問題。\n\n"
             "## 2. 原因と同じ原因の他の問題\n**原因**: 作り物。\n\n## 3. 解決（足す物・畳む物・注入の試験と残る穴）\n**足す物**: 作り物。\n\n"
-            "## 4. 未来\n作り物の未来。\n%s" % (STRANGER, WRITER, extra))
+            "## 4. 未来\n作り物の未来。\n%s" % (WRITER, extra))
 
 
 PR_BAD = [
@@ -107,7 +117,7 @@ PR_BAD = [
     ("### Verdict の見出し", gh("add_issue_comment", issue_number=1,
                                 body="再レビューです。\n\n### Verdict\ngreen\n"), "[verdict]", "1 行目"),
     ("整地の欄が無い", gh("create_pull_request", title="作り物", head="b", base="main",
-                         body="親窓: x\n\n## 何をどう変えたか\n作り物。\n"), "[cleanup]", "1. 問題"),
+                         body="job: x\n\n## 何をどう変えたか\n作り物。\n"), "[cleanup]", "1. 問題"),
     ("整地の見出しが古い名", gh("create_pull_request", title="作り物", head="b", base="main",
                               body=cleanup_body().replace("## 2. 原因と同じ原因の他の問題", "## 2. 同じ原因から起きている他の問題")),
      "[cleanup]", "2. 原因と同じ原因の他の問題"),
@@ -198,7 +208,7 @@ def test_pr_text_誤って止まる_repo_は値の表で外せる(env, tmp_path)
     table = tmp_path / "values.json"
     env["SKILL_VALUES"] = str(table)
     table.write_text(json.dumps({"guard": {"pr_cleanup_exempt_repos": ["^fake-owner/fake-private$"],
-                                           "pr_words_exempt_repos": ["^fake-owner/"]}}), encoding="utf-8")
+                                           "pr_words_exempt_repos": ["^fake-owner/.*$"]}}), encoding="utf-8")
     body = "## 何をどう変えたか\n直す窓 %s\n" % STRANGER
     assert deny_reason(env, gh("create_pull_request", title="作り物", head="b", base="main", body=body)) == ""
     assert "[cleanup]" in deny_reason(env, gh("create_pull_request", repo="other", title="作り物", head="b", base="main", body=body))
@@ -206,14 +216,15 @@ def test_pr_text_誤って止まる_repo_は値の表で外せる(env, tmp_path)
     assert "[verdict]" in deny_reason(env, gh("add_issue_comment", issue_number=1, body=verdict_comment(head="")))
 
 
-def _fake_public_repo(proj, deny_word):
+def _fake_public_repo(proj, deny_word, url="https://github.com/fake-owner/fake-public.git"):
     """作り物の公開の repo の取り出し（origin が owner/repo・workflow が action public-guard を呼ぶ）。"""
     subprocess.run(["git", "init", "-q", str(proj)], check=True)
-    subprocess.run(["git", "-C", str(proj), "remote", "add", "origin", "https://github.com/fake-owner/fake-public.git"], check=True)
+    subprocess.run(["git", "-C", str(proj), "remote", "add", "origin", url], check=True)
     wf = proj / ".github" / "workflows"
     wf.mkdir(parents=True)
     (wf / "public-guard.yml").write_text(
-        "jobs:\n  public-guard:\n    steps:\n      - uses: fake/agent-foundation-public/public-guard@v0.0.1\n"
+        "on: [pull_request]\njobs:\n  public-guard:\n    steps:\n"
+        "      - uses: ynishikawa-coder/agent-foundation-public/public-guard@main\n"
         "        with:\n          deny-words-file: data/deny.txt\n", encoding="utf-8")
     (proj / "data").mkdir()
     (proj / "data" / "deny.txt").write_text(deny_word + "\n", encoding="utf-8")
@@ -283,8 +294,10 @@ def test_pr_text_判定の材料は_PR_から引き_引けなければ止め_先
     assert "[verdict]" in deny_reason(env, p) and "先端" in deny_reason(env, p)
     _fake_gh(env, writer=REVIEWER)                                 # 書いた窓が自分の PR に判定を付けた
     assert "[verdict]" in deny_reason(env, p)
-    _fake_gh(env, writer="")                                       # PR 本文に書いた窓が無い
-    assert "書いた窓" in deny_reason(env, p)
+    _fake_gh(env, writer="")                                       # PR 本文に書いた窓が無い（写しが無くても記録で照らす）
+    assert deny_reason(env, p) == ""
+    _fake_gh(env, commits=[None])                                  # commit に書き手の記録が無い（本文の写しだけでは決めない）
+    assert "判定の材料" in deny_reason(env, p) and "Claude-Session" in deny_reason(env, p)
     _fake_gh(env, fail=True)                                       # PR を引けない
     assert "判定の材料" in deny_reason(env, p)
     env["PATH"] = str(Path(env["CLAUDE_PROJECT_DIR"]).parent / "空")   # gh が無い
@@ -294,13 +307,14 @@ def test_pr_text_判定の材料は_PR_から引き_引けなければ止め_先
 
 
 def test_pr_text_の値の鍵は値の表の知らない鍵の見張りが知っている():
-    """値の表に pr_text の鍵を書いても、知らない鍵の見張り（values_keys）が止めない（鍵の正本は guard_common.DEFAULTS）。"""
+    """値の表に pr_text の鍵を書いても、知らない鍵の見張り（values_keys）が止めない（鍵の正本は値の表の 1 本の口の鍵の一覧 skill-values/schema.json）。"""
     sys.path.insert(0, str(ROOT / "plugins" / "guard" / "scripts"))
     import values_keys  # noqa: E402
     table = {"guard": {"pr_cleanup_exempt_repos": ["^作り物/repo$"], "pr_words_exempt_repos": [],
                        "public_repos_extra": ["^作り物/公開$"]}}
     assert values_keys.unknown(table) == []
-    assert values_keys.unknown({"guard": {"pr_作り物の知らない鍵": []}}) == ["guard.pr_作り物の知らない鍵"]
+    got = values_keys.unknown({"guard": {"pr_作り物の知らない鍵": []}})
+    assert len(got) == 1 and got[0].startswith("guard.pr_作り物の知らない鍵 は知らない鍵")
 
 
 def test_pr_text_の照らす物は_plugin_の説明と一覧に欠けずに書いてある():

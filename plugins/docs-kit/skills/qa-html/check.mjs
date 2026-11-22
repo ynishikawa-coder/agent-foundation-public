@@ -1,6 +1,7 @@
 #!/usr/bin/env node
-// qa-html の確認ページの検査（外部依存ゼロ・node だけで動く）。決まりの表はこのファイルの頭の RULES の 1 か所。
-//   repo ごとに足す語・上限は repo の根の config/skill-values.json の docs-kit.qa-html.internal_words・limits。
+// qa-html の確認ページの検査（外部依存ゼロ・node と python3 で動く）。決まりの表はこのファイルの頭の RULES の 1 か所（なぜ聞くかの 5 文だけは SKILL.md の表を直に読む）。
+//   repo ごとに足す語・上限は repo の根の config/skill-values.json の docs-kit.qa-html.internal_words・limits
+//   （表の探し方と鍵の一覧は土台の 1 本の口 ../../lib/skill_values.py が持つ）。
 // 赤にする物（形の約束は SKILL.md §型の約束）:
 //   型: 宛先の印（data-dest＝send・copy・artifact）が無い／qa:css・qa:js・qa:foot が型（references/template.html）と違う
 //     （qa:foot は「この後のこと」だけ差してよい）／型の外に許す物の表（ALLOW）に無い要素・属性・URL を書いた
@@ -31,15 +32,37 @@
 //   前の答えを照らす（作り方 0）: 値の表の docs-kit.qa-html.prior_check_cmd を --run-prior で走らせ、引いた結果をページの隣の
 //   <名>.prior.json（--prior で替える）に書いてから検査する。--prior-input は命令へ渡す JSON を出すだけ。
 //   別の検査（配る口の検査など）からは import { checkQa, checkQaJson, checkFile } で呼ぶ。
+// 使う側（別の repo の作る道具・配る口）は型・検査・答えの形を写さず、この dir の物を直に読む（SKILL.md §配り方）:
+//   node check.mjs --template            … 型（references/template.html）をそのまま標準出力へ（作る道具が雛形として読む）
+//   node check.mjs --answer <file|-> [--extra 鍵,鍵] … 答えの形（qa-html/2）の JSON を照らす（配る口・貼り戻しの道具が作った・受けた答え。
+//                                           配る口が足す自分の印の鍵は --extra で名指しした物だけ許す）。
+//                                           知らない形・知らない鍵・欠けた鍵・形の違う値は赤＝写した古い形のままなら止まる
 import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 // ── 問いの決まりの表（1 か所）。会社ごとに足す語は config/skill-values.json の docs-kit.qa-html.internal_words
 //    （文字列か {語, 正規表現, 言い換え}）、上限は docs-kit.qa-html.limits で上書きする。
 // 外した欄（差出人・連絡先の欄は要らない）。HTML の class と JSON の鍵が同じ名。
 const DROPPED = [["from", "差出人"], ["contact", "連絡先"]];
+// なぜ聞くかの決まった 5 文の正本は SKILL.md の表（「なぜ聞くかの決まった 5 文」の下の `| \`鍵\` | 文 |` の行）。ここに写さず直に読む。
+// 読めない時は止まる（決まった文を知らずに照らさない）。
+const SKILL_MD = fileURLToPath(new URL("./SKILL.md", import.meta.url));
+export function loadWhy(text = readFileSync(SKILL_MD, "utf8")) {
+  const lines = text.split("\n");
+  const at = lines.findIndex((l) => l.startsWith("なぜ聞くかの決まった 5 文"));
+  const why = {};
+  if (at >= 0) {
+    for (const l of lines.slice(at + 1)) {
+      if (why && Object.keys(why).length && !l.startsWith("|")) break;
+      const m = /^\| `(\w+)` \| ([^|]+?) \|/.exec(l);
+      if (m) why[m[1]] = m[2];
+    }
+  }
+  if (!Object.keys(why).length) throw new Error(`なぜ聞くかの決まった文の表が読めない: ${SKILL_MD}`);
+  return why;
+}
 const ROOT_CAUSE = "  直し: 赤の行を 1 つずつ潰さず、細目 §3「まず構造を疑う」で原因（問いの元の表・前提の写し方）から直す";
 
 export const RULES = {
@@ -65,14 +88,8 @@ export const RULES = {
     "basis_chars": 60,
     "rec_chars": 40
   },
-  // なぜ聞くか（決まった 5 文）。会社の表の docs-kit.qa-html.why で文だけ替えられる（例 once を「この月だけの事を確かめます」）
-  "why": {
-    "mismatch": "資料どうしで食い違っています",
-    "missing": "資料に書いてありません",
-    "law": "今の決まりが法律の決まりと合っていません",
-    "once": "今回だけの事を確かめます",
-    "ambiguous": "資料の書き方が 2 通りに読めます"
-  },
+  // なぜ聞くか（決まった 5 文）。正本は SKILL.md の表（loadWhy が直に読む）。会社の表の docs-kit.qa-html.why で文だけ替えられる
+  "why": loadWhy(),
   // この答えで変わる事を書かなくてよい選択肢＝ひとことに書かせる逃げ道だけ（鍵と見出しの両方が合う時）
   "free_options": { "other": ["ほかの答え", "別の決め方"], "none": ["当てはまらない"] },
   // ひとことに書かせる選択肢＝鍵が free_options.other（ほかの答え・別の決め方）か、字（見出し・添え書き・変わる事）がこれに当たる物。data-supp="need"（JSON は "supp": "need"）が要る
@@ -97,7 +114,8 @@ export const RULES = {
   //   「推奨」の字は型の CSS が出す・JSON は "recommended": "理由"）。お客さん宛て（send）と事実を聞く問いは印なし＝見込みは .estimate の枠だけ
   "rec": { "dests": ["copy", "artifact"], "kinds": ["judge"] },
   // 印の字は型が出す＝ページの文に書いたこの言葉は赤（印は small.rec・"recommended" で付ける）
-  "recommend": "おすすめ|お勧め|お薦め|オススメ|推奨",
+  // 語の並びは選択肢の画面の見張り（plugin guard の ask_shape の _REC_WORD・大小を問わない）と同じ（tests/test_doc_tool_values.py が照らす）
+  "recommend": "推奨|おすすめ|お勧め|お薦め|オススメ|おススメ|イチオシ|recommend|suggested",
   "estimate_word": "見込み|予測",
   // 1 画面 1 問＝ほかの問いの答えに頼らない（「前の問いの答えで決まります」の類は赤）
   "prior_ref": "(?:前|上|ひとつ前|1\\s*つ前|さっき)の(?:問(?!い合)|質問|設問|答え|回答)|前問",
@@ -193,28 +211,29 @@ const UNKNOWN = RULES.unknown.value;
 const WHYS = Object.keys(RULES.why);
 const TEMPLATE = fileURLToPath(new URL("./references/template.html", import.meta.url));
 
-// 会社の表（config/skill-values.json）を、渡した path か、ファイルの dir と今の dir から上へ探す。
-export function findValues(...starts) {
-  for (const s of starts.filter(Boolean)) {
-    let d = resolve(s);
-    for (;;) {
-      const p = join(d, "config", "skill-values.json");
-      if (existsSync(p)) return p;
-      const up = dirname(d);
-      if (up === d) break;
-      d = up;
+// 会社の表（config/skill-values.json）の docs-kit.qa-html の欄。探し方と鍵の一覧は土台の 1 本の口（plugin の lib/skill_values.py
+// ＝正本 skill-values/ への symlink）が持つ＝ここに写さない。知らない鍵・畳んだ鍵・型の違う値は { error } で名指しする（黙って捨てない）。
+const VALUES_PY = fileURLToPath(new URL("../../lib/skill_values.py", import.meta.url));
+export function loadValues({ explicit = null, starts = [] } = {}) {
+  const argv = [VALUES_PY, "section", "docs-kit", "qa-html"];
+  if (explicit) argv.push("--values", explicit);
+  for (const s of starts.filter(Boolean)) argv.push("--start", s);
+  const r = spawnSync("python3", argv, { encoding: "utf8" });
+  if (r.error) return { path: explicit, company: {}, error: `値の表を読む口（python3 ${VALUES_PY}）が走らない: ${r.error.message}` };
+  if (r.status !== 0) return { path: explicit, company: {}, error: String(r.stderr ?? "").trim() || `値の表を読む口が ${r.status} で終わった` };
+  const got = JSON.parse(r.stdout);
+  const company = got.values ?? {};
+  // limits・why の中の鍵は、この検査の表（RULES）が正本＝ここで照らす
+  const bad = [];
+  for (const k of ["limits", "why"]) {
+    for (const [kk, v] of Object.entries(company[k] ?? {})) {
+      if (kk.startsWith("_")) continue;
+      if (!(kk in RULES[k])) bad.push(`docs-kit.qa-html.${k}.${kk} は知らない鍵（効かない）。この欄の鍵: ${Object.keys(RULES[k]).join("・")}`);
+      else if (typeof v !== typeof RULES[k][kk]) bad.push(`docs-kit.qa-html.${k}.${kk} の型が違う（${typeof RULES[k][kk]} で書く）`);
     }
   }
-  return null;
-}
-
-function loadCompany(valuesPath) {
-  if (!valuesPath) return {};
-  try {
-    return JSON.parse(readFileSync(valuesPath, "utf8"))?.["docs-kit"]?.["qa-html"] ?? {};
-  } catch {
-    return {};
-  }
+  if (bad.length) return { path: got.path, company: {}, error: `値の表 ${got.path} に直す所がある:\n${bad.map((b) => `  - ${b}`).join("\n")}` };
+  return { path: got.path, company };
 }
 
 const mask = (s) => s.replace(/<!--[\s\S]*?(-->|$)/g, (m) => " ".repeat(m.length));
@@ -835,12 +854,14 @@ function checkRec(q, id, dest, format, limits, red) {
 }
 
 // ── 決まり: 問いの形（HTML でも JSON でも同じ物）を 1 か所で見る
-export function checkPage(page, { valuesPath = null, prior = null } = {}) {
-  const company = loadCompany(valuesPath);
+export function checkPage(page, { valuesPath = null, valuesStarts = [], values = null, prior = null } = {}) {
+  const loaded = values ?? loadValues({ explicit: valuesPath, starts: valuesStarts });
+  const company = loaded.company;
   const limits = { ...RULES.limits, ...(company.limits ?? {}) };
   const words = compileWords(company);
-  const rx = (k) => new RegExp(RULES[k], "u");
+  const rx = (k) => new RegExp(RULES[k], k === "recommend" ? "iu" : "u");
   const red = [...page.shape];
+  if (loaded.error) red.push(loaded.error);
   const warn = [];
   const { dest, holes, questions: qs } = page;
 
@@ -1035,6 +1056,51 @@ export function checkPage(page, { valuesPath = null, prior = null } = {}) {
 //   {"answered": {"問いの鍵": "前の答えの ID か URL"}, "checked": {"問いの鍵": "引いた結果（ID・URL・引いた言葉）"}} を返す。
 //   answered に在る鍵が問いに残っていれば赤。値の表に命令が在る時だけ、引いた結果（answered か checked）の無い問いも赤。
 //   値の表に命令が無く --prior も無ければ何も見ない（今までどおり）。
+// ── 答えの形（qa-html/2）。型の JS（references/template.html の payload）が作る形の正本。配る口・貼り戻しの道具はこれで照らす。
+export const ANSWER_FORM = "qa-html/2";
+const ANSWER_ROOT_CAUSE = "  直し: 赤の行を 1 つずつ潰さず、細目 §3「まず構造を疑う」で原因（答えを作る・受ける道具が形を写していないか）から直す";
+export const ANSWER_KEYS = ["form", "title", "version", "receipt", "answered_at", "answers", "labels", "supp", "free"];
+const ANSWER_KEY_RE = /^[A-Za-z0-9_]+$/;
+const isObj = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
+const strList = (v) => Array.isArray(v) && v.every((x) => typeof x === "string");
+// extra: 配る口が答えに足す自分の印（例 答えた方の名）の鍵。名指しした鍵だけ許す（名指しの無い鍵は知らない鍵＝赤）。
+export function checkAnswer(ans, { extra = [] } = {}) {
+  const red = [];
+  if (!isObj(ans)) return { ok: false, red: ["答えが JSON の物（{…}）でない"] };
+  for (const k of extra) if (ANSWER_KEYS.includes(k)) red.push(`足す鍵 ${k} は答えの形 ${ANSWER_FORM} の鍵と重なる`);
+  if (ans.form !== ANSWER_FORM) red.push(`答えの形が ${ANSWER_FORM} でない（今 ${JSON.stringify(ans.form)}）＝写した古い形か知らない形`);
+  for (const k of Object.keys(ans)) if (!ANSWER_KEYS.includes(k) && !extra.includes(k)) red.push(`答えに知らない鍵 ${k}（形 ${ANSWER_FORM} の鍵は ${ANSWER_KEYS.join("・")}）`);
+  for (const k of ANSWER_KEYS) if (!(k in ans)) red.push(`答えに鍵 ${k} が無い`);
+  for (const k of ["title", "free"]) if (k in ans && typeof ans[k] !== "string") red.push(`${k} が文字でない`);
+  if ("version" in ans && !(typeof ans.version === "string" && /^[0-9A-Za-z._-]+$/.test(ans.version))) red.push(`版（version）は半角英数字と . _ - だけ（今 ${JSON.stringify(ans.version)}）`);
+  if ("receipt" in ans && !(typeof ans.receipt === "string" && /^R[0-9]{6}-[A-Z0-9]{4}$/.test(ans.receipt))) red.push(`受付番号（receipt）が R<YYMMDD>-<英数 4 字> でない（今 ${JSON.stringify(ans.receipt)}）`);
+  if ("answered_at" in ans && !(typeof ans.answered_at === "string" && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(Z|[+-]\d{2}:\d{2})$/.test(ans.answered_at))) red.push(`答えた時（answered_at）がタイムゾーン付きの時刻でない（今 ${JSON.stringify(ans.answered_at)}）`);
+  const answers = isObj(ans.answers) ? ans.answers : null;
+  if ("answers" in ans && !answers) red.push("answers が {問いの鍵: [選択肢の鍵…]} でない");
+  for (const [k, v] of Object.entries(answers ?? {})) {
+    if (!ANSWER_KEY_RE.test(k)) red.push(`answers の問いの鍵 ${k} が半角英数字と _ でない`);
+    if (!strList(v)) red.push(`answers.${k} が文字の並びでない`);
+  }
+  if ("labels" in ans) {
+    if (!isObj(ans.labels)) red.push("labels が {問いの鍵: [選んだ見出し…]} でない");
+    else {
+      for (const [k, v] of Object.entries(ans.labels)) {
+        if (answers && !(k in answers)) red.push(`labels に answers に無い問いの鍵 ${k}`);
+        else if (!strList(v) || (answers && strList(answers[k]) && v.length !== answers[k].length)) red.push(`labels.${k} が answers.${k} と同じ数の文字の並びでない`);
+      }
+      for (const k of Object.keys(answers ?? {})) if (!(k in ans.labels)) red.push(`labels に問いの鍵 ${k} が無い`);
+    }
+  }
+  if ("supp" in ans) {
+    if (!isObj(ans.supp)) red.push("supp が {問いの鍵: 文} でない");
+    else for (const [k, v] of Object.entries(ans.supp)) {
+      if (answers && !(k in answers)) red.push(`supp に answers に無い問いの鍵 ${k}`);
+      if (typeof v !== "string") red.push(`supp.${k} が文字でない`);
+    }
+  }
+  return { ok: red.length === 0, red };
+}
+
 export const PRIOR_FORMAT = "qa-prior/1";
 export function priorInput(page) {
   return {
@@ -1129,6 +1195,44 @@ export function checkFile(path, { priorPath, priorExplicit = false, ...opts } = 
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const args = process.argv.slice(2);
+  // 使う側が写さずに直に読む口（型・答えの形）。ページの検査とは別の入口
+  if (args[0] === "--template") {
+    if (args.length > 1) {
+      console.error(`--template は引数を取らない（知らない引数: ${args.slice(1).join(" ")}）`);
+      process.exit(2);
+    }
+    process.stdout.write(readFileSync(TEMPLATE, "utf8"));
+    process.exit(0);
+  }
+  if (args[0] === "--answer") {
+    // 知らない引数は黙って捨てず止める（--json・--extra 鍵,鍵・file か - の 1 つだけ）
+    const rest = args.slice(1);
+    const extraAt = rest.indexOf("--extra");
+    const known = rest.filter((x, i) => !(x === "--json" || x === "--extra" || (extraAt >= 0 && i === extraAt + 1)));
+    if (known.length > 1 || known.some((x) => x.startsWith("--") && x !== "-") || (extraAt >= 0 && (rest[extraAt + 1] == null || rest[extraAt + 1].startsWith("--")))) {
+      console.error(`使い方: check.mjs --answer <file|-> [--extra 鍵,鍵] [--json]（知らない引数: ${rest.join(" ")}）`);
+      process.exit(2);
+    }
+    if (!known.length && process.stdin.isTTY) {
+      console.error("--answer: 答えの file か - を渡す（標準入力が端末のまま待たない）");
+      process.exit(2);
+    }
+    let res;
+    try {
+      const src = !known.length || known[0] === "-" ? readFileSync(0, "utf8") : readFileSync(known[0], "utf8");
+      const ex = args.indexOf("--extra") >= 0 ? String(args[args.indexOf("--extra") + 1] ?? "").split(",").map((x) => x.trim()).filter(Boolean) : [];
+      res = checkAnswer(JSON.parse(src), { extra: ex });
+    } catch (e) {
+      res = { ok: false, red: [`答えの JSON が読めない: ${e.message}`] };
+    }
+    if (args.includes("--json")) console.log(JSON.stringify({ form: ANSWER_FORM, ...res }, null, 2));
+    else {
+      console.log(`${res.ok ? "🟢 緑" : "🔴 赤"}  答えの形 ${ANSWER_FORM}`);
+      for (const r of res.red) console.log(`  ✗ ${r}`);
+      if (!res.ok) console.log(ANSWER_ROOT_CAUSE);
+    }
+    process.exit(res.ok ? 0 : 1);
+  }
   const takesValue = new Set(["--values", "--prior"]);
   const KNOWN = new Set([...takesValue, "--json", "--run-prior", "--prior-input"]);
   // 知らない印・同じ印の 2 度書きは既定で止める（打ち間違えた印を黙って無視して、頼んだ検査をせずに緑にしない。
@@ -1147,7 +1251,7 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
   // file は全部照らす（1 つ目だけ照らして残りを黙って通さない）
   const files = args.filter((a, i) => !a.startsWith("--") && !takesValue.has(args[i - 1]));
   if (!files.length) {
-    console.error("使い方: check.mjs <file.html|file.json> [<file> …] [--json] [--values <skill-values.json>] [--prior <引いた結果.json>] [--run-prior] [--prior-input]");
+    console.error("使い方: check.mjs <file.html|file.json> [<file> …] [--json] [--values <skill-values.json>] [--prior <引いた結果.json>] [--run-prior] [--prior-input]／check.mjs --template／check.mjs --answer <file|-> [--extra 鍵,鍵] [--json]");
     process.exit(2);
   }
   const perPage = ["--prior", "--run-prior", "--prior-input"].filter((f) => args.includes(f));
@@ -1164,9 +1268,9 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
     }
   }
   // guard の qa_page は cwd をページの dir にして呼ぶ＝ページが repo の外（窓の scratchpad）でも値の表を見つけるため、窓の repo も起点に足す
-  const valuesPath = at("--values") ?? findValues(dirname(resolve(file)), process.cwd(), process.env.CLAUDE_PROJECT_DIR);
+  const values = loadValues({ explicit: at("--values"), starts: [dirname(resolve(file))] });
   const priorPath = at("--prior") ?? priorPathFor(file);
-  let opts = { valuesPath, priorPath, priorExplicit: args.includes("--prior") };
+  let opts = { values, priorPath, priorExplicit: args.includes("--prior") };
   if (args.includes("--prior-input") || args.includes("--run-prior")) {
     const page = readPage(file);
     if (page.error) {
@@ -1177,19 +1281,23 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
       console.log(JSON.stringify(priorInput(page), null, 2));
       process.exit(0);
     }
-    const cmd = String(loadCompany(valuesPath).prior_check_cmd ?? "").trim();
+    if (values.error) {
+      console.error(values.error);
+      process.exit(2);
+    }
+    const cmd = String(values.company.prior_check_cmd ?? "").trim();
     if (!cmd) {
       console.error("--run-prior: 値の表（config/skill-values.json）に docs-kit.qa-html.prior_check_cmd が無い");
       process.exit(2);
     }
-    const got = runPrior(page, cmd, { cwd: valuesPath ? dirname(dirname(resolve(valuesPath))) : process.cwd() });
+    const got = runPrior(page, cmd, { cwd: values.path ? dirname(dirname(resolve(values.path))) : process.cwd() });
     // 落ちた時も書き換える（前の回の結果を残すと、後でページの path だけで呼ぶ guard が古い結果で緑にする）
     writeFileSync(priorPath, JSON.stringify(got.raw ? { ...got.raw, page_version: page.version } : { error: got.error }, null, 2) + "\n");
-    opts = { valuesPath, prior: { ...got, from: `prior_check_cmd → ${priorPath}` } };
+    opts = { values, prior: { ...got, from: `prior_check_cmd → ${priorPath}` } };
   }
   const results = files.map((f) => {
-    const v = at("--values") ?? findValues(dirname(resolve(f)), process.cwd(), process.env.CLAUDE_PROJECT_DIR);
-    const o = f === file ? opts : { valuesPath: v, priorPath: priorPathFor(f), priorExplicit: false };
+    const o = f === file ? opts
+      : { values: loadValues({ explicit: at("--values"), starts: [dirname(resolve(f))] }), priorPath: priorPathFor(f), priorExplicit: false };
     return { file: resolve(f), ...checkFile(f, o) };
   });
   if (args.includes("--json")) console.log(JSON.stringify(results.length === 1 ? results[0] : results, null, 2));

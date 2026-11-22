@@ -8,6 +8,7 @@ import sys
 from pathlib import Path
 
 import pytest
+from entry_box import box_env, copy_entry
 
 ROOT = Path(__file__).resolve().parent.parent
 PLUGIN = ROOT / "plugins" / "core"
@@ -25,8 +26,10 @@ def old_words_left(olds):
     hits = []
     for p in sorted(ROOT.rglob("*")):
         rel = p.relative_to(ROOT)
-        # 古い形.json は使う側に残る古い形を見つける一覧＝古い名を持つのが役目（見つけ方の正しさは古い形の試験が照らす）
-        if rel.parts[0] in {".git", "tests"} or p == PLUGIN / "古い形.json":
+        # 古い形.json は使う側に残る古い形を見つける一覧＝古い名を持つのが役目（見つけ方の正しさは古い形の試験が照らす）。
+        # 値の表の鍵の一覧（skill-values/schema.json と plugin の lib/ の symlink）も畳んだ鍵を名指す所（retired）なので同じ
+        if rel.parts[0] in {".git", "tests"} or p == PLUGIN / "古い形.json" or p.name == "schema.json" and (
+                rel.parts[0] == "skill-values" or "lib" in rel.parts):
             continue
         if p.is_file() and p.suffix in {".md", ".py", ".json", ".mjs", ".html"}:
             text = p.read_text(encoding="utf-8")
@@ -117,7 +120,7 @@ def test_plugin_を入れる行は綴りが違っても古い形に当たる(lin
 
 
 def test_入口を呼ぶ_setup_は古い形に当たらない():
-    """入口 scripts/setup_plugins.py を通る形（docs の 3 行）は、目録を足していても古い形ではない。"""
+    """入口 scripts/setup_plugins.py を通る形（docs の塊）は、目録を足していても古い形ではない。"""
     row = next(r for r in kaku.olds_table() if r["id"] == "plugin-name-copy")
     doc = (ROOT / "docs" / "核の届け方.md").read_text(encoding="utf-8")
     block = re.search(r"<!-- setup-script.*?-->\s*```bash\n(.*?)\n\s*```", doc, re.S).group(1)
@@ -136,7 +139,7 @@ def test_古い形の見張りは時間の上限で打ち切り_黙って一部�
     with pytest.raises(TimeoutError):
         kaku.find_olds_bounded(tmp_path / "p", budget=1, table=table)
     assert time.monotonic() - t0 < 10
-    found = kaku.find_olds_bounded(tmp_path / "p", budget=60)
+    found = kaku.find_olds_bounded(tmp_path / "p", budget=60)["found"]
     assert [(r["id"], f) for r, f in found] == [("af-core-frame", "CLAUDE.md")]
 
 
@@ -171,8 +174,19 @@ def test_plugin_の名を写した_setup_の行が在る_repo_を名指しする
     assert "古い形（写し）" not in _ctx(run("inject", project=proj))
 
 
-def test_土台そのものに古い形が残らない():
-    r = run("olds", ROOT)
+def test_土台そのものに古い形が残らない(tmp_path):
+    """照らすのはこの commit の中身（olds は使う側の main を読むので、ROOT のままだと土台の main を照らし、古い形を消して
+    古い形の行を足す 1 段目の PR が合流まで赤になる）。HEAD の木を main に置いた作り物の repo で照らす。"""
+    import io
+    import tarfile
+    arc = subprocess.run(["git", "-C", str(ROOT), "archive", "HEAD"], capture_output=True, check=True).stdout
+    with tarfile.open(fileobj=io.BytesIO(arc)) as t:
+        t.extractall(tmp_path, filter="data")
+    g = ["git", "-C", str(tmp_path), "-c", "user.name=t", "-c", "user.email=t@example.invalid"]
+    for a in (["init", "-q", "-b", "main"], ["add", "-A"], ["commit", "-q", "-m", "x"],
+              ["update-ref", "refs/remotes/origin/main", "HEAD"]):
+        subprocess.run(g + a, capture_output=True, check=True)
+    r = run("olds", tmp_path)
     assert r.returncode == 0, r.stdout
 
 
@@ -184,6 +198,16 @@ def test_CLAUDE_md_が上限を越えた_repo_は起動の時に名指しする(
     assert "量の上限を越えている" not in _ctx(run("inject", project=tmp_path))
 
 
+def catalog_commit(loc):
+    """作り物の目録の clone を git にして今の中身を 1 commit にし、その commit（入った版）を返す。"""
+    g = lambda *a: subprocess.run(["git", "-C", str(loc), "-c", "user.name=t", "-c", "user.email=t@example.invalid", *a],
+                                  check=True, capture_output=True, text=True).stdout.strip()
+    g("init", "-q")
+    g("add", "-A")
+    g("commit", "-qm", "名簿")
+    return g("rev-parse", "HEAD")
+
+
 def _installed_home(tmp_path, names, have, entry):
     """GitHub から目録を足した窓の home（目録の clone・入った plugin の台帳・入口の印）を作る。"""
     home = tmp_path / "home"
@@ -192,12 +216,18 @@ def _installed_home(tmp_path, names, have, entry):
     (loc / ".claude-plugin" / "marketplace.json").write_text(json.dumps(
         {"name": "agent-foundation", "plugins": [{"name": n} for n in names]}), encoding="utf-8")
     (home / ".claude" / "plugins" / "known_marketplaces.json").write_text(json.dumps({"agent-foundation": {
-        "source": {"source": "github", "repo": "o/r"}, "installLocation": str(loc)}}), encoding="utf-8")
+        "source": {"source": "github", "repo": kaku.UPSTREAM}, "installLocation": str(loc)}}), encoding="utf-8")
+    sha = catalog_commit(loc)  # 名簿は入った版（commit）の物を読む＝目録の clone は git
     (home / ".claude" / "plugins" / "installed_plugins.json").write_text(json.dumps(
-        {"version": 2, "plugins": {f"{n}@agent-foundation": [{}] for n in have}}), encoding="utf-8")
+        {"version": 2, "plugins": {f"{n}@agent-foundation": [{"scope": "user", "installPath": str(PLUGIN), "gitCommitSha": sha,
+                                                              "lastUpdated": "2026-11-19T11:57:05.000Z"}] for n in have}}),
+        encoding="utf-8")
+    (home / ".claude" / "settings.json").write_text(json.dumps(
+        {"enabledPlugins": {f"{n}@agent-foundation": True for n in have}}), encoding="utf-8")
     if entry:
         (home / ".claude" / "af-foundation").mkdir(parents=True)
-        (home / ".claude" / "af-foundation" / "setup.json").write_text("{}", encoding="utf-8")
+        (home / ".claude" / "af-foundation" / "setup.json").write_text(json.dumps(
+            {"catalog_sha": sha, "at": "2026-11-19T20:57:09+0900"}), encoding="utf-8")
     return home
 
 
@@ -205,7 +235,7 @@ def test_古い形の_setup_script_と入っていない_plugin_を名指しす�
     """注入: 土台が plugin を足したのに、名を写した古い setup script がそれを入れない → 窓の起動で名指し。"""
     home = _installed_home(tmp_path, ["core", "guard", "new-one"], ["core", "guard"], entry=False)
     ctx = _ctx(run("inject", project=tmp_path / "proj", home=home))
-    assert "setup script が古い形" in ctx and "入っていない: new-one" in ctx
+    assert "setup script が古い形" in ctx and "enabled になっていない: new-one" in ctx
 
 
 def test_入口で全部入った窓には入れ方の知らせを出さない(tmp_path):
@@ -370,16 +400,22 @@ class Foundation:
         subprocess.run(["git", "clone", "-q", str(self.remote), str(self.work)], check=True, capture_output=True)
         self.installed = _commit(self.work, {"plugins/core/核.md": "核 1\n", "docs/a.md": "1\n"}, "始め")
 
-    def install(self, source="github"):
-        """窓が立つ時に setup script が入れた形を作る（marketplace の clone と台帳）。"""
+    def install(self, source="github", main_at_setup=None):
+        """窓が立つ時に setup script が入れた形を作る（marketplace の clone と台帳）。main_at_setup を渡すと、
+        入口が書く setup の時の main の先端の記録（setup.json）も置く。"""
         loc = self.home / ".claude" / "plugins" / "marketplaces" / "agent-foundation"
         subprocess.run(["git", "clone", "-q", str(self.remote), str(loc)], check=True, capture_output=True)
         _git(loc, "checkout", "-q", self.installed)
         plugins = self.home / ".claude" / "plugins"
         (plugins / "known_marketplaces.json").write_text(json.dumps({"agent-foundation": {
-            "source": {"source": source, "repo": "o/agent-foundation-public"}, "installLocation": str(loc)}}))
+            "source": {"source": source, "repo": kaku.UPSTREAM}, "installLocation": str(loc)}}))
         (plugins / "installed_plugins.json").write_text(json.dumps({"version": 2, "plugins": {"core@agent-foundation": [
             {"installPath": str(PLUGIN), "gitCommitSha": self.installed}]}}))
+        if main_at_setup:
+            (self.home / ".claude" / "af-foundation").mkdir(parents=True, exist_ok=True)
+            (self.home / ".claude" / "af-foundation" / "setup.json").write_text(json.dumps(
+                {"entry": "scripts/setup_plugins.py", "main_at_setup": main_at_setup, "catalog_sha": self.installed,
+                 "at": "2026-11-19T20:57:09+0900"}))
 
     def hook(self, event, sid="s1", source="startup"):
         r = run(event, project=self.tmp, home=self.home, stdin=json.dumps({"session_id": sid, "source": source}),
@@ -415,8 +451,8 @@ def test_途中で古くなった窓は圧縮や_resume_を通っても引き継
 
 def test_起動の時から古い窓は圧縮の後も同じ知らせを出す(tmp_path):
     f = Foundation(tmp_path)
-    _commit(f.work, {"plugins/core/核.md": "核 2\n"}, "核を変える")
-    f.install()
+    tip = _commit(f.work, {"plugins/core/核.md": "核 2\n"}, "核を変える")
+    f.install(main_at_setup=tip)
     f.hook("inject")
     assert "土台が古いまま立った窓" in f.hook("inject", source="compact")
 
@@ -432,8 +468,8 @@ def test_文書と試験だけの変更では窓を替えない(tmp_path):
 def test_起動の時から古い窓は_setup_script_を直してから引き継ぐよう知らせる(tmp_path):
     """注入: setup script が古い物を入れた（版を指したまま）→ 直してから引き継ぐ。直せない時だけ引き継がない（輪にしない）。"""
     f = Foundation(tmp_path)
-    _commit(f.work, {"plugins/core/核.md": "核 2\n"}, "核を変える")
-    f.install()                                          # 入れたのは 1 つ前（f.installed）
+    tip = _commit(f.work, {"plugins/core/核.md": "核 2\n"}, "核を変える")
+    f.install(main_at_setup=tip)                         # setup の時の main は tip なのに、入れたのは 1 つ前
     text = f.hook("inject")
     assert "土台が古いまま立った窓" in text and "core" in text
     assert "update_environment" in text and "create_session" in text and "archive_session" in text
@@ -684,7 +720,8 @@ def test_失敗で終わる道具は一覧に載せなくても全部根治の�
     tools = [r for r in out.stdout.split() if r.endswith((".py", ".sh", ".mjs", ".js"))]
     found = [r for r in tools if 失敗で終わる.search((ROOT / r).read_text(encoding="utf-8"))]
     assert "public-guard/guard.py" in found and "plugins/guard/scripts/guard.py" in found, "拾い方が壊れた"
-    missing = [r for r in found if "細目 §3「まず構造を疑う」" not in (ROOT / r).read_text(encoding="utf-8")]
+    entry = re.compile(r"細目(?:\s*§\s*\d+)?「まず構造を疑う」")  # 番号は付けても付けなくても（合うかは refs.py が照らす）
+    missing = [r for r in found if not entry.search((ROOT / r).read_text(encoding="utf-8"))]
     assert not missing, f"失敗で終わるのに根治の入口を指さない道具: {missing}"
 
 
@@ -742,11 +779,11 @@ def test_読めない_CLAUDE_md_でも_inject_は落ちない(tmp_path):
 
 def test_検査の入口の赤の最後の行は根治の入口を指し緑は指さない(tmp_path):
     """check_all.sh の赤が落ちた本の名だけを返す古い形（赤を 1 つずつ潰させる）に戻すと赤。"""
-    (tmp_path / "scripts").mkdir()
-    (tmp_path / "scripts" / "check_all.sh").write_text((ROOT / "scripts" / "check_all.sh").read_text(encoding="utf-8"), encoding="utf-8")
+    copy_entry(tmp_path)
     (tmp_path / "tests").mkdir()
     test = tmp_path / "tests" / "test_x.py"
-    run = lambda: subprocess.run(["bash", str(tmp_path / "scripts" / "check_all.sh")], capture_output=True, text=True)
+    run = lambda: subprocess.run(["bash", str(tmp_path / "scripts" / "check_all.sh")], capture_output=True, text=True,
+                                 env=box_env())
     test.write_text("def test_x():\n    assert False\n", encoding="utf-8")
     red = run()
     last = red.stdout.strip().splitlines()[-1]

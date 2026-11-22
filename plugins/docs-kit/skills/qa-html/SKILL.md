@@ -30,18 +30,19 @@ description: お客さんなど選択肢の画面を使えない相手に判断�
 
 ## repo ごとの値（config/skill-values.json）
 
-repo の根（`git rev-parse --show-toplevel`）の `config/skill-values.json` の `docs-kit.qa-html.<鍵>` と `common.<鍵>` から読む（skill の鍵が common に勝つ）。**鍵が無い・値が空なら右の既定で動く**。
+repo の根（`git rev-parse --show-toplevel`）の `config/skill-values.json` の `docs-kit.qa-html.<鍵>` と `common.<鍵>` から読む（skill の鍵が common に勝つ）。**鍵が無い・値が空なら右の既定で動く**。知らない鍵・畳んだ鍵・型の違う値は黙って捨てない（道具は名指しで止まり、窓の起動の時に guard が名指しで知らせる。表の探し方と鍵の一覧の正本は土台の `skill-values/`。鍵を足す時はそこへ足す）。
 
 | 鍵 | 使う所 | 無い時の既定 |
 |---|---|---|
 | `docs-kit.qa-html.save_dir`（無ければ `common.save_dir`）/ `common.save_dir_avoid` | 作り方 6 の置き場・置かない所 | 窓の scratchpad（git の外） |
 | `docs-kit.qa-html.delivery`（無ければ `common.delivery`） | 写す形の渡し方 | `file:///…` の絶対パスを 1 行 |
-| `docs-kit.qa-html.customer.*` | 送る形の口（設計 `design_doc`・配る口 `service`・回答の置き場 `answers_to`・検査 `check_cmd`・出す道具 `publish_cmd`/`publish_does`） | 送る形は使えない（写す形だけ） |
+| `docs-kit.qa-html.customer.*` | 送る形の口（設計 `design_doc`・配る口 `service`・回答の置き場 `answers_to`・検査 `check_cmd`〔土台のこの `check.mjs` を直に呼ぶ物・§配り方〕・出す道具 `publish_cmd`/`publish_does`） | 送る形は使えない（写す形だけ） |
 | `docs-kit.qa-html.internal_words` | 検査が赤にする内部の言葉に会社の語を足す（文字列か `{語, 正規表現, 言い換え}`） | `check.mjs` の頭の表 `RULES` の語だけ |
 | `docs-kit.qa-html.limits` | 長さ・問いの数の上限を上書き | 下の §長さの上限 |
 | `docs-kit.qa-html.prior_check_cmd` | 作り方 0 の「聞く前に引く」を機械にする道具の命令（repo ごとの決定の記録・問いの表を引く物）。下の §前の答えを照らす口 | 無し＝作り方 0 は手で引く（検査は前の答えを見ない・今までどおり） |
 | `docs-kit.qa-html.later_lead` | 先に決めておきたい事（later）の最初のまとまりの 1 行の決まった文を替える | `check.mjs` の `RULES.later_lead` |
-| `docs-kit.qa-html.why` | なぜ聞くかの決まった文を替える（例 `{"once": "この月だけの事を確かめます"}`） | `check.mjs` の `RULES.why` |
+| `docs-kit.qa-html.why` | なぜ聞くかの決まった文を替える（例 `{"once": "この月だけの事を確かめます"}`） | 下の §前提の 3 段のなぜ聞くかの 5 文の表 |
+| `docs-kit.qa-html.later_lead` | 先に決めておきたい事（later）の最初のまとまりの 1 行 | `check.mjs` の `RULES.later_lead` |
 | `common.glossary` | 本文の語の意味 | 語の一般の意味 |
 | `docs-kit.qa-html.distribution` | この skill の配り方 | 無し |
 
@@ -63,7 +64,7 @@ repo の根（`git rev-parse --show-toplevel`）の `config/skill-values.json` �
 | 根拠 | `.evidence` の `li[data-doc][data-where]`（原文の引用は中の `.quote`） | どの資料（一覧の鍵）のどこ（ページ・欄・行、シートならタブ名とセル範囲）。実物＝切り抜きか引用が 1 つ以上 | 3 つまで・場所 60 字・引用 80 字 |
 | くわしく | `details.more`（資料の原文は中の `.orig`） | 決まり・計算の元・語の説明 | 3 行＋原文 |
 
-なぜ聞くかの決まった 5 文（`check.mjs` の `RULES.why`・会社の表の `docs-kit.qa-html.why` で文だけ替えられる）:
+なぜ聞くかの決まった 5 文（この表が正本・`check.mjs` が直に読む・会社の表の `docs-kit.qa-html.why` で文だけ替えられる）:
 
 | `data-why` | 文 | 見つけた事に書く物 | 選択肢の形 |
 |---|---|---|---|
@@ -166,7 +167,7 @@ repo の根（`git rev-parse --show-toplevel`）の `config/skill-values.json` �
 2. **header（前提の 1 段目）**: 宛名（`.to`）・件名（`h1`）・前書き 1 文・**読んだ資料の一覧**（`.docs` の `li[data-doc][data-url]`＋同じ URL の `<a href>`・リンクが無い資料は `data-no-url`）・**答えるまでの扱い**（`.hold`）・期限。差出人・連絡先の欄は書かない。全 N 問・目安の分は型が出す。
 3. **版**: `<input type="hidden" name="__版__" value="…">` に版（例 `2026-11-13.1`）を入れる。**問いを直したら版を上げる**（どの問いの形への答えかを後から辿るため）。
 4. **問いの箱を組む**（1 問＝1 つの `fieldset.q`・前提の 2・3 段目）: `data-qkey`＝問いの鍵（半角英数字と `_`・答えの `name` と同じ・元の表の行の鍵と同じにする）／`data-qlabel`＝一言の見出し／`data-kind`＝上の形／`data-group`＝並べ方／まとまりの最初の問いだけ `.glead`＝まとまりの 1 行／`.about`＝何について／`legend`＝問い 1 行／`.why`＝なぜ聞くか／`.reading`＝AI の読み／`.known`＝見つけた事（`data-docs`・数字は `<table>`）／`.evidence`＝根拠（`li[data-doc][data-where]`・`.quote`）／`.clips`＝切り抜き／`details.more`＝くわしく／選択肢 `label.opt`（`value`＝選択肢の鍵・半角英数字と `_`・最初の 1 つに `required`・`small.chg`＝この答えで変わる事・オーナー宛ての作り方の分かれ道の問いだけ 1 つ目に `small.rec`＝推奨の印と推す理由）／「または」と「分からない」／根拠がある時だけ `.estimate[data-basis]`＝AI の今の見込み／ひとこと `name="supp_鍵"`。前提は問いの元の表（対象・理由・資料・探した資料・選択肢ごとの変わる事）から写す＝ページの側で作文しない。最後に `name="__自由記入__"` の箱を 1 つ。選択肢は radio を使う（checkbox は required を付けられず、JS が切られた端末では答えずに送れる＝幾つも選ばせる時だけ）。
-5. **検査**: `node <この skill の dir>/check.mjs <file.html>`（ページの隣の `<名>.prior.json` が在れば、前の答えも照らす。Artifact 型に問いをデータで渡す時は `<file.json>`。知らない印・同じ印の 2 度書きは exit 2 で止まる＝打ち間違えた印で頼んだ検査をせずに緑にしない。送る形は表の `customer.check_cmd`＝この検査に配る口の契約と画面の写真を足した物）。**緑でなければ渡さない**。赤の行は 1 つずつ手で潰さず細目 §3「まず構造を疑う」で原因（問いの元の表・前提の写し方）から直す（Artifact の publish の前は guard の `qa_page` も同じ検査をかけて赤なら止める）。
+5. **検査**: `node <この skill の dir>/check.mjs <file.html>`（ページの隣の `<名>.prior.json` が在れば、前の答えも照らす。Artifact 型に問いをデータで渡す時は `<file.json>`。知らない印・同じ印の 2 度書きは exit 2 で止まる＝打ち間違えた印で頼んだ検査をせずに緑にしない。送る形は表の `customer.check_cmd`＝この検査を直に呼び、配る口の契約と画面の写真を足した物・検査を写して持たない）。**緑でなければ渡さない**。赤の行は 1 つずつ手で潰さず細目 §3「まず構造を疑う」で原因（問いの元の表・前提の写し方）から直す（Artifact の publish の前は guard の `qa_page` も同じ検査をかけて赤なら止める）。
 6. **送る前の別の目**: 窓の中の助手（Agent ツール）に、作った文脈を渡さず **HTML と、問いごとの引いた結果（作り方 0）だけ**を渡し、答える人の立場で 1 問ずつ読ませる。見る点は 4 つ: ①**ほかの資料を開かずに、何を聞かれているか分かるか**（前提の 4 欄・根拠の場所と実物・AI の読みだけで足りるか・見込みに引っ張られないか） ②どう答えても聞き直さずに済むか ③選択肢とひとことで答えが 1 つに決まるか ④既に答えた事・資料で決まる事（資料から計算できる数を、資料の外の事実として書かせていないか）・道具の都合を聞いていないか（引いた結果に照らす。引いた結果の無い問いは差し戻す）。直したら 5 からやり直す。
 7. **保存と渡し方**: 置き場は表の `save_dir`（無ければ窓の scratchpad・`common.save_dir_avoid` には置かない）、名前は `確認_<件名>_<YYYYMMDD>.html`。写す形は表の `delivery` で 1 行＋「特に判断が要る点」を数行（HTML の中身をチャットに再展開しない）。送る形は表の `customer.publish_cmd` で配る URL を作り、お客さんにその URL だけを渡す。
 
@@ -201,7 +202,7 @@ repo の根（`git rev-parse --show-toplevel`）の `config/skill-values.json` �
 
 ### 答えの形（qa-html/2・機械で戻す JSON）
 
-型の JS が作る形。写す形では貼り戻しの最後の行 `qa-json: {…}` に、確認のページでは `qa:submit` の `detail` に入る。配る口が JSON で受ける時もこの形にそろえる。
+型の JS が作る形。正本は `check.mjs` の `ANSWER_FORM`・`ANSWER_KEYS`・`checkAnswer` の 1 か所（型の JS とこの例が合わなければ土台の試験が赤）。配る口・貼り戻しの道具は形を写して合わせず、自分が作る・受ける答えを `node check.mjs --answer <file|->`（配る口が足す自分の印の鍵は `--extra 鍵,鍵` で名指し）で照らす試験を持つ（知らない形・知らない鍵・欠けた鍵・形の違う値は赤＝写した古い形のままなら止まる）。写す形では貼り戻しの最後の行 `qa-json: {…}` に、確認のページでは `qa:submit` の `detail` に入る。配る口が JSON で受ける時もこの形にそろえる。
 
 ```json
 {
@@ -277,10 +278,19 @@ repo の根（`git rev-parse --show-toplevel`）の `config/skill-values.json` �
 ## 配り方（単一ソース）
 
 - **正本** = この skill の dir（plugin の中）。直す時はここだけ直す。SKILL.md・`references/template.html`・`check.mjs` は常に 1 組で運ぶ。
+- **使う側（別の repo の作る道具・配る口・その検査）は型・検査・答えの形を写して持たない**。毎回この dir の物を直に読む:
+  - 型 … `node <この dir>/check.mjs --template`（標準出力に型そのもの）。repo に雛形の写しを置かない
+  - 検査 … `node <この dir>/check.mjs <file>`（`customer.check_cmd` もこれを呼んで足す・import してもよい）。repo に `check.mjs` の写しを置かない
+  - 答えの形 … `node <この dir>/check.mjs --answer <file|->`
+- **この dir の見つけ方**（別の版の dir を拾わない＝型と検査の版を食い違わせない）:
+  - 窓の中: `claude plugin list --json` の `docs-kit@<市場>` で scope が user・enabled の行の `installPath`（Claude Code が今読む 1 つ）。台帳 installed_plugins.json を直に読まない（行が複数ある時に、どの行かが決まらない）。plugin の cache の中の「新しい物」を探して拾わない。見つからなければ止まって、docs-kit を入れるよう名指しする
+  - 同じ土台の plugin の中（guard の `qa_page`）: guard と同じ commit の docs-kit だけ（repo の形なら隣、入れた形なら同じ版の dir）
+  - CI: 土台の公開の repo の main の先端を取り（`git clone --depth 1 https://github.com/ynishikawa-coder/agent-foundation-public`）、その `plugins/docs-kit/skills/qa-html`。版の印で止めない
+- 写しを消せない所（業務の都合で置いた物）は、その repo の試験がこの dir の物と突き合わせ、食い違えば赤にする。
 - repo の中での配り方は表の `docs-kit.qa-html.distribution`。repo ごとの値はこの dir に書かない。
 
 ## 関連
 
 - `references/template.html` — 1 つの型の正本（はじめ・1 画面 1 問・送る前の確認・受付・保存・答えの形を作る JS）
-- `check.mjs` — 検査（node だけで動く・HTML と問いの JSON の両方を読む・前の答えを照らす口 `--run-prior`／`--prior`・`import { checkQa, checkQaJson, checkFile }` でほかの検査からも呼べる）。頭の `RULES` が問いの決まりの表の 1 か所。`qa:css`・`qa:js`・`qa:foot`（「この後のこと」を除く）は型と突き合わせる
+- `check.mjs` — 検査（node だけで動く・HTML と問いの JSON の両方を読む・前の答えを照らす口 `--run-prior`／`--prior`・型を出す口 `--template`・答えの形を照らす口 `--answer`・`import { checkQa, checkQaJson, checkFile, checkAnswer }` でほかの検査からも呼べる）。頭の `RULES` が問いの決まりの表の 1 か所（なぜ聞くかの 5 文だけは §前提の 3 段の表を直に読む）。`qa:css`・`qa:js`・`qa:foot`（「この後のこと」を除く）は型と突き合わせる
 - theory-mock（画面を見ながら決める時）・mindmap（構造そのものを組み替える時）

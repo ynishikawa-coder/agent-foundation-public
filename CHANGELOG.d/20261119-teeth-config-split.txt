@@ -1,0 +1,3 @@
+- 直した: 試験はどこからも 1 つの入口 `scripts/pytest.sh` で回し、入口が pytest の設定の file（pytest.ini・pyproject.toml・tox.ini・setup.cfg）と PYTEST_ADDOPTS を読まない。設定の addopts（`--co`・`-k`・`--deselect`・`--ignore`）で 1 本も回さないまま check_all が緑になる道を無くした（check_all・conftest_teeth・CI の job plugin-smoke）。
+- 直した: setup script の塊の試験（tests/test_setup_stale_catalog_source.py）の字の照らしを試験 1 本に分け、動きの試験が字の照らしで先に止まらないようにした。片方ずつ壊して照らす試験を足した。
+- 直した: 入口 `scripts/pytest.sh` は tests/ の外の conftest.py・PYTEST_PLUGINS・plugin の自動の読み込みも読まない（同じ道で試験を絞れた）。setup script の塊の動きの試験は外す行の書き方に頼らず、python の書き損じ（SyntaxError）も拾う。

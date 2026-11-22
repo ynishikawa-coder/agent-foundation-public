@@ -110,7 +110,7 @@ const $=id=>document.getElementById(id);
 const stage=$('stage'),side=$('side'),table=$('table'),pick=$('pick');
 const m=PIC.meta;
 $('title').textContent=m.title;document.title=m.title;
-$('meta').textContent=(m.kind==='合意'?`合意した版 ${m.version}（${m.agreed.by} ${m.agreed.date}・${m.agreed.record}）`:`実物の絵 ${m.version}（${m.drawn_from} から ${m.drawn_by}）`);
+$('meta').textContent=(m.kind==='合意'?`合意した版 ${m.version}（${m.agreed.by} ${m.agreed.date}・${m.agreed.record}）`:`実物の絵（${m.drawn_from} から ${m.drawn_by}）`);
 $('problem').textContent=m.problem;$('goal').textContent=m.goal;
 $('legend').innerHTML=Object.values(KC).map(c=>`<span><span class="sw" style="border-color:var(${c[0]});background:var(${c[1]})"></span>${c[2]}</span>`).join('')+'<span>点線の枠＝共通／個別の境</span>';
 $('tabs').innerHTML=Object.entries(TABS).map(([k,t])=>`<button role="tab" data-v="${k}" aria-selected="false">${t}</button>`).join('');

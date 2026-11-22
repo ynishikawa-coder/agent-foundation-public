@@ -14,24 +14,32 @@ AI が自分で回すか、出した後に CI やレビューが拾うだけだ�
   commit … merge_pull_request（commit_title・commit_message）・push_files・create_or_update_file・delete_file（message）
            ＝MCP から出す commit の説明。公開の検査だけを当てる
 照らす物（見分けは正本を直に読む・呼ぶ。ここに決まりを写さない）:
-  verdict … （材料: 出す先の PR の先端と、PR 本文の頭の `書いた窓:` を gh で引き、--writer・--head で渡す。引けなければ止める）
+  verdict … （材料は記録から: 出す先の PR の先端と、PR の commit 全部の `Claude-Session:` の窓（書いた窓の組）を gh で引き
+            --head・--writer で、判定を出す窓の本物の id を窓の環境の記録（CLAUDE_CODE_REMOTE_SESSION_ID）から読み --reviewer で
+            渡す。本文の `書いた窓:`・判定の 1 行目の名乗りは手で書いた写しで、照らされる側。どれかが引けなければ止める）
             コメントがレビューの判定（どの行かに `レビューした窓: … 判定: green|red` が揃うか、verdict の見出しが在る）なら、checker の
             `scripts/verdict_form.py` をそのまま呼ぶ。赤なら止める。道具が見つからない・壊れた時も止める
   cleanup … PR の本文（本文を渡す時だけ）に、dev-flow の preimpl-cleanup の `整地受領証.template.md` の 4 つの見出し
             （`## 1.`〜`## 4.`。見出しの名は雛形から読む）が全部在り、雛形の `〔…〕` が残っていない事。整地の要らない PR
             （振る舞いを変えない: 誤字・記録だけ・版だけ等）は本文に `整地: 不要（<訳>）` の 1 行を書く（訳はレビューが照らす）
-  words   … PR の題・本文に、窓の id（`session_01…`）がそのまま出ていない事。頭の決まった欄（親窓・書いた窓・job・
-            触る path・検査）・コードの囲み・`…` の字・URL の中は数えない
+  words   … PR の題・本文に、窓の id（`session_01…`）がそのまま出ていない事。本文の頭の欄の塊（1 行目から最初の空行まで）の
+            窓の id を書く欄（書いた窓＝commit の記録と照らす写し。畳んだ親窓の欄も 2 段目までは）・コードの囲み・`…` の字・URL の中は
+            数えない（job・検査 等の欄や、頭の塊の外で同じ字で始まる行は数える。親窓は照らせない写しなので PR の型に置かない＝
+            窓の親はサーバの記録 get_session を読む）
   public  … 公開の repo（窓の repo の取り出しの workflow が action public-guard を呼ぶ／値の表 public_repos_extra）なら、
-            題・本文を `public-guard/guard.py --text` に渡す（置かない語の表はその workflow の deny-words-file）。当たれば止める。
+            題・本文を `public-guard/guard.py --text` に渡す（呼び口の見分けと置かない語の表は workflow の読み手
+            public-guard/workflow_reader.py が正本: PR・push で走る job の step の呼び口だけを数え、語の表は全部の呼び口の with: の
+            deny-words-file の和）。当たれば止める。
             検査が見つからない・壊れた時も止める（公開の repo へは、照らせない文を出さない）
-誤って止めた時: 値の表 pr_cleanup_exempt_repos・pr_words_exempt_repos（owner/repo に当てる正規表現）で repo ごとに外す。
+誤って止めた時: 値の表 pr_cleanup_exempt_repos・pr_words_exempt_repos（owner/repo の名の全体に当てる正規表現・^ で始め $ で終える＝
+型 repo_names）で repo ごとに外す。
 判定の形と公開の検査は外す口を持たない（直すのは文の方・判定の形の決まりは review-pr の SKILL.md が正本）。
 値の表は PR とレビューを通る＝窓の一存では外れない。
 """
 from __future__ import annotations
 
 import glob
+import json
 import os
 import re
 import subprocess
@@ -61,7 +69,8 @@ VERDICT_HEAD = re.compile(r"^[ \t]*#{1,6}\s*verdict\s*$", re.M | re.I)
 NOT_NEEDED = re.compile(r"^\s*(?:[-*]\s*)?\**整地\**\s*[:：]\s*(?:不要|要らない)\s*[（(]\s*(?![<＜〔])\S[^)）]*[)）]", re.M)
 TEMPLATE_HEAD = re.compile(r"^## (\d+)\. (.+?)\s*$", re.M)
 PLACEHOLDER = re.compile(r"〔[^〕\n]{4,}〕")
-HEAD_FIELD = re.compile(r"^\s*(?:親窓|書いた窓|job|触る path|検査)\s*[:：]")
+HEAD_FIELD = re.compile(r"^\s*(?:書いた窓|親窓)\s*[:：]")   # 窓の id を書く頭の欄（本文の頭の塊の中だけ数えない）。
+# 親窓は畳んだ欄（照らせない写し）。使う側の PR の型に残る間は古い本文も通す（壊れる 1 段目・古い形 pr-parent-field）
 SESSION_ID = re.compile(r"(?<![A-Za-z0-9_/])session_0[A-Za-z0-9]{15,}")
 URL = re.compile(r"https?://\S+")
 FENCE = re.compile(r"^\s*(```|~~~).*?^\s*\1", re.M | re.S)
@@ -82,8 +91,48 @@ def _repo_name(ti):
     return "%s/%s" % (owner, repo) if owner and repo else ""
 
 
-def _matches(patterns, text):
-    return any(isinstance(p, str) and p and re.search(p, text) for p in patterns or [])
+def _matches(patterns, repo):
+    """repo（owner/repo）の名の全体が、値の表の正規表現のどれかに当たるか（大小を問わない＝GitHub の名と同じ）。
+    一部に当たるだけでは当てない（`o/r` が `o/r-fork`・`xo/r` を外さない）。owner ごとなら `^o/.*$` と書く。"""
+    for p in patterns or []:
+        try:
+            if isinstance(p, str) and p and re.fullmatch(p, repo, re.I):
+                return True
+        except re.error:
+            continue
+    return False
+
+
+def _repo_rows(key, data, vals):
+    """値の表 guard の repo の名の鍵（型 repo_names）の (名の全体の形の行, 形の違う行)。
+    値の表の照らしは形の違う行が 1 つでも在ると鍵ごと落とす（既定の [] に戻る）ので、生の行を読み、行ごとに分ける
+    （形の違う行が混じっても、同じ並びの正しい行は効く）。生の表が読めない時は vals の値を使う。"""
+    raw = G.table("guard", data or {}).get(key)
+    rows = raw if isinstance(raw, list) else (vals.get(key) or [])
+    bad = G.SV.bad_repo_names(rows)
+    return [r for r in rows if r not in bad], bad
+
+
+def _exempt(key, repo, data, vals):
+    """外す側の鍵（pr_cleanup_exempt_repos・pr_words_exempt_repos）に repo が在るか。名の全体の形の行だけで当てる
+    （形の違う行は外さず照らす向き＝値の表の照らしが名指す）。"""
+    good, _ = _repo_rows(key, data, vals)
+    return _matches(good, repo)
+
+
+def _public_extra(repo, data, vals):
+    """値の表 public_repos_extra に repo が在るか。名の全体の形の行は全体の一致で当てる。形の違う行は、名の一部にでも
+    当たれば公開と見る（公開の照らしを黙って外さない＝安全の守り。形の違いは値の表の照らしが名指す）。"""
+    good, bad = _repo_rows("public_repos_extra", data, vals)
+    if _matches(good, repo):
+        return True
+    for p in bad:
+        try:
+            if isinstance(p, str) and p and re.search(p, repo, re.I):
+                return True
+        except re.error:
+            continue
+    return False
 
 
 def _find_sibling(plugin, rel, env_name, data):
@@ -108,6 +157,11 @@ def _tmp_file(text, name):
     return path
 
 
+def _read(path):
+    with open(path, encoding="utf-8") as f:
+        return f.read()
+
+
 def _run(cmd, cwd=None):
     return subprocess.run(cmd, capture_output=True, text=True, timeout=TIMEOUT, cwd=cwd)
 
@@ -121,6 +175,10 @@ def looks_verdict(body):
 
 
 WRITER_LINE = re.compile(r"^\s*書いた窓\s*[:：]\s*(session_[A-Za-z0-9]+)", re.M)
+# commit の書き手の記録（窓が commit の度に付ける行）。PR の commit 全部から読み、書いた窓の組にする
+COMMIT_SESSION = re.compile(r"^Claude-Session:\s*\S*?(session_[A-Za-z0-9]+)\s*$", re.M)
+# 窓の環境の記録（harness が hook に渡す。cse_<x> → session_<x>）。道具の呼び出しの文では変えられない
+REMOTE_ID = re.compile(r"^cse_([A-Za-z0-9]+)$")
 NUMBER_KEYS = ("issue_number", "pullNumber", "pull_number")
 
 
@@ -128,35 +186,64 @@ def _gh(args):
     return subprocess.run(["gh", "api", *args], capture_output=True, text=True, timeout=TIMEOUT)
 
 
-def pr_facts(repo, ti):
-    """判定を出す先の PR の (先端の SHA, 書いた窓, 誤り)。GitHub から引く（判定の形の道具が要る材料・写さない）。
+def poster_id(env=None):
+    """判定を出す窓の本物の session id（窓の環境の記録 CLAUDE_CODE_REMOTE_SESSION_ID の cse_<x> → session_<x>）か ""。
+    hook の入力の session_id は手元の会話ログの id（UUID）で、commit の Claude-Session・判定の名乗りの形と違うので使えない。"""
+    m = REMOTE_ID.match(str((os.environ if env is None else env).get("CLAUDE_CODE_REMOTE_SESSION_ID") or "").strip())
+    return "session_" + m.group(1) if m else ""
 
-    書いた窓は PR 本文の頭の決まった欄 `書いた窓: <session id>`（CONTRIBUTING §1 の PR の型）から読む。
+
+def pr_facts(repo, ti):
+    """判定を出す先の PR の (先端の SHA, 書いた窓の組, 誤り)。GitHub から引く（判定の形の道具が要る材料・写さない）。
+
+    書いた窓の組は PR の commit 全部の `Claude-Session:` の窓（記録）と、本文の頭の `書いた窓:`（写し）を合わせた物。
+    途中の commit を書いた窓も入る。commit に記録が 1 つも無ければ誤り（本文の写しだけで書いた窓を決めない）。
     引けない時は誤りを返す（欠けた材料で判定を通さない）。"""
     if not repo:
-        return "", "", "出す先の repo（owner・repo）が道具の入力に無い"
+        return "", [], "出す先の repo（owner・repo）が道具の入力に無い"
     number = next((ti.get(k) for k in NUMBER_KEYS if ti.get(k)), None)
     try:
         if not number and ti.get("comment_id"):
             p = _gh(["repos/%s/issues/comments/%s" % (repo, ti["comment_id"]), "--jq", ".issue_url"])
             number = p.stdout.strip().rsplit("/", 1)[-1] if p.returncode == 0 else None
         if not number:
-            return "", "", "判定を出す先の PR の番号が分からない"
-        p = _gh(["repos/%s/pulls/%s" % (repo, number), "--jq", '.head.sha + "\\n" + (.body // "")'])
+            return "", [], "判定を出す先の PR の番号が分からない"
+        p = _gh(["repos/%s/pulls/%s" % (repo, number), "--jq",
+                 '.head.sha + "\\n" + (.commits | tostring) + "\\n" + (.body // "")'])
     except FileNotFoundError:
-        return "", "", "GitHub の CLI（gh）が無く、PR の先端と書いた窓を引けない"
+        return "", [], "GitHub の CLI（gh）が無く、PR の先端と書いた窓を引けない"
     except (OSError, subprocess.SubprocessError) as e:
-        return "", "", "PR を引けなかった（%s）" % e.__class__.__name__
+        return "", [], "PR を引けなかった（%s）" % e.__class__.__name__
     if p.returncode != 0:
-        return "", "", "PR #%s を引けなかった（判定は PR に出す・gh の認証か網を確かめる）: %s" % (
+        return "", [], "PR #%s を引けなかった（判定は PR に出す・gh の認証か網を確かめる）: %s" % (
             number, (p.stderr or "").strip().splitlines()[-1:] or "")
-    head, _, body = p.stdout.partition("\n")
-    m = WRITER_LINE.search(body)
+    head, _, rest = p.stdout.partition("\n")
+    total, _, body = rest.partition("\n")
     if not re.fullmatch(r"[0-9a-f]{40}", head.strip()):
-        return "", "", "PR #%s の先端の SHA が読めない" % number
-    if not m:
-        return head.strip(), "", "PR #%s の本文の頭に `書いた窓: <session id>` が無く、別の目を照らせない（PR の型どおりに書く）" % number
-    return head.strip(), m.group(1), ""
+        return "", [], "PR #%s の先端の SHA が読めない" % number
+    try:
+        c = _gh(["--paginate", "repos/%s/pulls/%s/commits" % (repo, number), "--jq", ".[].commit.message | @json"])
+    except (OSError, subprocess.SubprocessError) as e:
+        return "", [], "PR #%s の commit を引けなかった（%s）" % (number, e.__class__.__name__)
+    if c.returncode != 0:
+        return "", [], "PR #%s の commit を引けなかった: %s" % (number, (c.stderr or "").strip().splitlines()[-1:] or "")
+    try:
+        msgs = [json.loads(ln) for ln in c.stdout.splitlines() if ln.strip()]
+    except ValueError:
+        return "", [], "PR #%s の commit の説明が読めない" % number
+    if not total.strip().isdigit() or len(msgs) < int(total):
+        # GitHub の PR の commit の一覧は 250 本で切れる。引けなかった commit を書いた窓を組から落としたまま通さない
+        return "", [], ("PR #%s の commit を全部は引けない（%s 本のうち %d 本・GitHub の一覧の上限）。書いた窓の組が欠けるので"
+                        "判定を通さない。PR を小さく分けるか、手元の取り出しで plugin checker の pr_writer.py --writers を回して照らす"
+                        % (number, total.strip() or "?", len(msgs)))
+    writers = list(dict.fromkeys(w for m in msgs for w in COMMIT_SESSION.findall(m)))
+    if not writers:
+        return head.strip(), [], ("PR #%s の commit に `Claude-Session:` の行が 1 つも無く、書いた窓が記録から決まらない"
+                                  "（本文の `書いた窓:` の写しだけで別の目を照らさない）" % number)
+    m = WRITER_LINE.search(body)
+    if m and m.group(1) not in writers:
+        writers.append(m.group(1))
+    return head.strip(), writers, ""
 
 
 def check_verdict(body, data):
@@ -167,11 +254,16 @@ def check_verdict(body, data):
         return ["判定の形の道具（checker の verdict_form.py）が見つからず、形を確かめられない。plugin checker を入れる"
                 "（または AF_VERDICT_FORM に path）"]
     ti = data.get("tool_input") or {}
-    head, writer, err = pr_facts(_repo_name(ti), ti)
+    poster = poster_id()
+    if not poster:
+        return ["判定の材料: 判定を出す窓の id が窓の環境の記録（CLAUDE_CODE_REMOTE_SESSION_ID）に無く、名乗りを照らせない"
+                "（判定はクラウドの窓で出す）"]
+    head, writers, err = pr_facts(_repo_name(ti), ti)
     if err:
         return ["判定の材料: " + err]
     try:
-        p = _run([sys.executable, tool, _tmp_file(body, "verdict"), "--writer", writer, "--head", head])
+        p = _run([sys.executable, tool, _tmp_file(body, "verdict"), "--writer", ",".join(writers), "--head", head,
+                  "--reviewer", poster])
     except (OSError, subprocess.SubprocessError) as e:
         return ["判定の形の道具が走らなかった: %s" % e.__class__.__name__]
     if p.returncode == 0:
@@ -196,7 +288,7 @@ def template_parts(path):
 
 
 def check_cleanup(body, repo, data, vals):
-    if repo and _matches(vals.get("pr_cleanup_exempt_repos"), repo):
+    if repo and _exempt("pr_cleanup_exempt_repos", repo, data, vals):
         return []
     body = FENCE.sub(" ", COMMENT.sub(" ", body))      # 注記（雛形の説明）とコードの囲みの中は数えない
     if NOT_NEEDED.search(body):
@@ -222,14 +314,20 @@ def check_cleanup(body, repo, data, vals):
 
 # ── words（PR の題・本文の言葉）──
 def visible_prose(body):
-    """数えない所（頭の決まった欄・コード・URL・注記）を除いた文。"""
+    """数えない所（本文の頭の塊の窓の id の欄・コード・URL・注記）を除いた文。"""
     body = FENCE.sub(" ", COMMENT.sub(" ", body))
-    lines = [ln for ln in body.splitlines() if not HEAD_FIELD.match(ln)]
+    lines, top = [], True
+    for ln in body.splitlines():
+        if not ln.strip():
+            top = False
+        if top and HEAD_FIELD.match(ln):
+            continue
+        lines.append(ln)
     return URL.sub(" ", INLINE.sub(" ", "\n".join(lines)))
 
 
-def check_words(texts, repo, vals):
-    if repo and _matches(vals.get("pr_words_exempt_repos"), repo):
+def check_words(texts, repo, vals, data=None):
+    if repo and _exempt("pr_words_exempt_repos", repo, data, vals):
         return []
     out = []
     for where, text in texts:
@@ -241,12 +339,43 @@ def check_words(texts, repo, vals):
 
 # ── public（公開の repo に置かない物）──
 WORKFLOW_DIR = os.path.join(".github", "workflows")
-DENY_FILE = re.compile(r"deny-words-file\s*:\s*[\"']?([^\s\"'#]+)")
-USES_GUARD = re.compile(r"(?:uses\s*:\s*\S*public-guard\b|^\s*public-guard\s*:)", re.M)
+# 取り出しの origin の URL（https・ssh://・scp の形 <利用者>@github.com:o/r）から owner/repo を読む。host は github.com だけ。
+REMOTE = re.compile(r"^(?:(?:https?|ssh|git)://(?:[^@/]+@)?github\.com(?::\d+)?/|(?:[^@/:]+@)?github\.com:)"
+                    r"([^/\s]+)/([^/\s]+?)(?:\.git)?/*$", re.I)
+
+
+def _reader():
+    """workflow の読み手（正本 public-guard/workflow_reader.py・見回りと手元の検査も同じ物を読む）。見つからなければ例外
+    （公開の repo の取り出しで照らせない時は、黙って通さず止める＝check の broken）。"""
+    path = G.foundation_file(os.path.join("public-guard", "workflow_reader.py"))
+    if not path:
+        raise RuntimeError("workflow の読み手（public-guard/workflow_reader.py）が見つからない")
+    return G.load_module("af_pr_text_workflow_reader", path)
+
+
+def _foundation():
+    """土台の repo の名（owner/repo）。正本は workflow の読み手の FOUNDATION（写さない）。読めなければ ""。"""
+    try:
+        return str(_reader().FOUNDATION)
+    except Exception:  # noqa: BLE001  読めない時は呼ぶ側が多く照らす向きに倒す
+        return ""
+
+
+def calls_public_guard(raw, foundation=None):
+    """workflow の text に、数える public-guard の呼び口（PR・push で走る job の step）が在るか。見分けは読み手の counted。"""
+    found = _foundation() if foundation is None else foundation
+    return bool(_reader().counted(raw, found))
+
+
+def github_repo(url):
+    """git の remote の URL の owner/repo（github.com のでなければ ""）。末尾の .git・/ は外す。"""
+    m = REMOTE.match(str(url or "").strip())
+    return "%s/%s" % m.groups() if m else ""
 
 
 def _checkout_of(repo, data):
-    """窓の repo の取り出しが owner/repo なら、その根。"""
+    """窓の repo の取り出しが owner/repo なら、その根。origin の URL を owner/repo に読み、名の全体で比べる（GitHub と同じく
+    大小を問わない）。"""
     root = G.project_dir(data)
     if not root or not repo:
         return ""
@@ -257,26 +386,33 @@ def _checkout_of(repo, data):
                              timeout=10).stdout.strip()
     except (OSError, subprocess.SubprocessError):
         return ""
-    path = re.sub(r"\.git$", "", url.rstrip("/")).lower()
-    return top if top and path.endswith("/" + repo.lower()) else ""
+    return top if top and github_repo(url).lower() == repo.lower() else ""
 
 
 def public_target(repo, data, vals):
-    """(公開か, 取り出しの根, 置かない語の表の path)。"""
+    """(公開か, 取り出しの根, 置かない語の表の path の並び)。取り出しの workflow の全部を読み手で読み、数える呼び口
+    （PR・push で走り、job と step の if: が字どおりの false でない）が 1 つでも在れば公開。語の表は数える呼び口の全部の和。"""
     top = _checkout_of(repo, data)
     if top:
+        reader, found, words, public = None, None, [], False
         for wf in sorted(glob.glob(os.path.join(top, WORKFLOW_DIR, "*.y*ml"))):
             try:
                 with open(wf, encoding="utf-8") as f:
                     raw = f.read()
             except OSError:
                 continue
-            if USES_GUARD.search(raw):
-                m = DENY_FILE.search(raw)
-                return True, top, (os.path.join(top, m.group(1)) if m else "")
-    if repo and _matches(vals.get("public_repos_extra"), repo):
-        return True, top, ""
-    return False, top, ""
+            if reader is None:
+                reader = _reader()
+                found = str(getattr(reader, "FOUNDATION", "") or "")
+            if reader.counted(raw, found):
+                public = True
+                words += [os.path.join(top, n) for n in reader.deny_words_files(raw, found)
+                          if os.path.join(top, n) not in words]
+        if public:
+            return True, top, words
+    if repo and _public_extra(repo, data, vals):
+        return True, top, []
+    return False, top, []
 
 
 def find_public_guard(top=""):
@@ -294,9 +430,10 @@ def check_public(texts, repo, data, vals):
     is_public, top, words = public_target(repo, data, vals)
     if not is_public:
         return []
-    if words and not os.path.isfile(words):
+    missing = [w for w in words if not os.path.isfile(w)]
+    if missing:
         return ["公開の repo の workflow が名指す置かない語の表 %s が無く、照らせない（CI も同じ時に止まる）。表を置くか"
-                "workflow を直す" % os.path.relpath(words, top or None)]
+                "workflow を直す" % os.path.relpath(missing[0], top or None)]
     tool = find_public_guard(top)
     if not tool:
         return ["公開の repo だが、公開の検査（土台の public-guard/guard.py）が見つからず照らせない。土台の marketplace を"
@@ -305,7 +442,9 @@ def check_public(texts, repo, data, vals):
     for i, (where, text) in enumerate(texts):
         cmd += ["--text", "%s=%s" % (where, _tmp_file(text, "public%d" % i))]
     if words:
-        cmd += ["--deny-words-file", words]
+        # 数える呼び口が 2 つ以上の表を名指せば、全部の和で照らす（guard.py の --deny-words-file は 1 つ）
+        joined = words[0] if len(words) == 1 else _tmp_file("\n".join(_read(w) for w in words), "deny-words")
+        cmd += ["--deny-words-file", joined]
     try:
         p = _run(cmd)
     except (OSError, subprocess.SubprocessError) as e:
@@ -328,7 +467,7 @@ HOW = {
                "書く（中身は頭が書く・`〔…〕` を残さない）。振る舞いを変えない PR（誤字・記録だけ・版だけ等）なら、4 欄の代わりに "
                "`整地: 不要（<なぜ要らないか>）` の 1 行を書く（訳はレビューが照らす）。",
     "words": "窓の id は、読む人が開けるリンク（https://claude.ai/code/<id>）にして役の名を添える（例: 「直す窓（リンク）」）か、役の名だけに"
-             "する。決まった欄（親窓・書いた窓）とコードの囲みの中は数えない。",
+             "する。決まった欄（頭の塊の書いた窓）とコードの囲みの中は数えない。親窓の欄は PR の型から畳んだ（窓の親はサーバの記録 get_session の parent_session_id）。",
     "public": "当たった所を書き直す（秘密・個人の情報は消す・作り物の例は example.com などにする・置かない語と顧客の語は一般の言葉に言い換える）。"
               "GitHub の本文は書き替えても古い版が編集の履歴に公開で残るので、出す前に直す。",
 }
@@ -366,7 +505,7 @@ def findings(data, vals):
     if kind == "pr":
         if body.strip():
             out += [("cleanup", m) for m in check_cleanup(body, repo, data, vals)]
-        out += [("words", m) for m in check_words(texts, repo, vals)]
+        out += [("words", m) for m in check_words(texts, repo, vals, data)]
     out += [("public", m) for m in check_public(texts, repo, data, vals)]
     return out
 
@@ -390,6 +529,6 @@ def check(data, vals):
     lines.append("直し方:")
     lines += ["- [%s] %s" % (c, HOW[c]) for c in codes]
     lines.append("誤って止めた時: 整地を PR 本文の外に置く repo・言葉の照らしが合わない repo は、値の表の guard.pr_cleanup_exempt_repos・"
-                 "guard.pr_words_exempt_repos（owner/repo に当てる正規表現）に足す（PR とレビューを通す）。判定の形と公開の検査は"
+                 "guard.pr_words_exempt_repos（owner/repo の名の全体に当てる正規表現・repo 1 つなら ^owner/repo$・owner ごとなら ^owner/.*$）に足す（PR とレビューを通す）。判定の形と公開の検査は"
                  "外さない（決まりの正本を直す）。細目は skill `guard:guard-rules`。")
     return "\n".join(lines)

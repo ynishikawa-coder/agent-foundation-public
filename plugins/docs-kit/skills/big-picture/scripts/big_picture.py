@@ -27,8 +27,13 @@ from __future__ import annotations
 
 import json
 import re
+import os
 import sys
 from pathlib import Path
+
+sys.dont_write_bytecode = True
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "..", "lib"))
+import skill_values  # noqa: E402  値の表の 1 本の口（plugin の lib/＝土台の skill-values/ への symlink）
 
 FORM = "big-picture/1"
 TABS = {"ctx": "1. 全体の文脈", "flow": "2. ワークフロー", "arch": "3. 仕組みの構成"}
@@ -67,6 +72,8 @@ def check(pic):
         errs.append("form が %s でない" % FORM)
     meta = pic.get("meta") or {}
     for k in ("title", "kind", "version", "problem", "goal"):
+        if k == "version" and meta.get("kind") == "実物":
+            continue                                 # 実物は版を持たない（どの先端から描いたかは drawn_from）
         if not _text(meta.get(k)):
             errs.append("meta.%s が無い（%s）" % (k, {"problem": "解決したい問題", "goal": "完成像"}.get(k, "欄")))
     kind = meta.get("kind")
@@ -269,24 +276,23 @@ def render(pic):
     return tpl.replace(SLOT, data).replace("<title>全体の絵</title>", "<title>%s</title>" % title)
 
 
-VALUES = Path("config") / "skill-values.json"
 DEFAULT_AGREED = "docs/全体の絵.json"
 
 
 def _agreed_value(root):
-    vp = Path(root) / VALUES
-    if not vp.exists():
-        return None
-    table = json.loads(vp.read_text(encoding="utf-8"))
-    values = (table.get("docs-kit") or {}).get("big-picture") or {}
-    return values.get("agreed")
+    """repo の根から値の表の docs-kit.big-picture.agreed を読む。表の探し方と読み口は plugin の lib/skill_values.py
+    （土台の正本）に任せる。表の欄に問題があれば skill_values.ValuesError（名指しの文）。"""
+    return skill_values.section("docs-kit", "big-picture", starts=(str(root),)).get("agreed")
 
 
 def pick(root, files):
     """PR が触った file から照らす絵を選ぶ。返り値 (選んだ [(名, 在り処, [file])], 誤り [文])。"""
     if not files:
         return [], ["PR が触った file が渡されていない"]
-    value = _agreed_value(root)
+    try:
+        value = _agreed_value(root)
+    except skill_values.ValuesError as e:
+        return [], ["値の表が読めない: %s" % e]
     errs = []
     if value in (None, ""):
         value = DEFAULT_AGREED

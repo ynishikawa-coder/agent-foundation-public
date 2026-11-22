@@ -23,14 +23,22 @@
 """
 from __future__ import annotations
 
+import os
 import re
+import sys
+
+sys.dont_write_bytecode = True
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib"))
+import skill_values as SV  # noqa: E402  値の表の当て方の 1 本の口（土台の skill-values/ への symlink）
 
 ASK_TOOL = "AskUserQuestion"
 
 _URL = re.compile(r"https?://\S+")
 # AI の中の言葉らしい字（名 → 形）。人に向けた問いに出るなら日常の言葉に替える。
 INNER = (
-    ("番号", re.compile(r"(?<![A-Za-z0-9])[A-Z]{1,5}\d{2,}(?:[-_]\d+)*(?![A-Za-z0-9])")),       # E02・Q202611-67
+    # 番号の頭は 1〜2 字（E02・Q202611-67・PR12）。3 字以上の頭に数の続く名（COVID19・SHA256・ISO9001）は固有名として数えない。
+    #   3 字以上の頭でも [-_] で数が続けば番号（ABC123-4）。
+    ("番号", re.compile(r"(?<![A-Za-z0-9])(?:[A-Z]{1,2}\d{2,}(?:[-_]\d+)*|[A-Z]{3,5}\d{2,}(?:[-_]\d+)+)(?![A-Za-z0-9])")),
     ("番号", re.compile(r"[#＃]\d+")),                                                            # #616
     ("版の番号", re.compile(r"(?<![A-Za-z0-9])[vV]\d+(?:\.\d+)+")),                              # v0.21.0
     ("file 名", re.compile(r"[\w\-]+\.(?:py|md|json|jsonl|mjs|cjs|js|ts|tsx|jsx|html|ya?ml|sh|txt|csv|tsv|xlsx|toml|ini|cfg)"
@@ -51,6 +59,15 @@ _REC_CANON = re.compile(r"\s*[(（]\s*(?:推奨|recommended)\s*[)）]\s*$", re.I
 # 「分からない」の選択肢: 見出しの頭がそれである物だけ（「不明点を先に洗う」「unknowns を洗う」は数えない）
 _DUNNO = re.compile(r"^\s*(?:(?:よく|まだ|今は)?\s*(?:分から|わから|判ら)(?:ない|ん|ず)|(?:分かり|わかり)ません|知らない|知りません"
                     r"|不明\s*(?:$|[(（])|unknown\s*(?:$|[(（])|(?:i\s+)?don'?t\s+know|not\s+sure)", re.I)
+
+
+def is_dunno(label):
+    """選択肢の見出しが「分からない」の選択肢か（細目 §4）。見分けの正本はこの 1 か所: session-watch の「分からない」の無い問いの
+    見張り（has_idk）も直に呼び、qa-html の型が出す「分からない」の見出し（check.mjs の RULES.unknown.label）もこれに当たる
+    （tests/test_doc_tool_values.py が照らす）。"""
+    return bool(_DUNNO.search(str(label or "")))
+
+
 _SENT = re.compile(r"[^。．？?！!]+[。．？?！!]*")
 # 送り仮名（置き場・作り物・取り扱い）を詰めて 1 語にする。助詞（の・を・が…）を挟む所は詰めない。
 _OKURI = re.compile(r"(?<=[一-龠々])(?:(?![のをがはにでともへやかよ])[ぁ-ゔ]){1,2}(?=[一-龠々])")
@@ -71,7 +88,7 @@ def _text(v):
     return re.sub(r"\s+", " ", str(v or "")).strip()
 
 
-# 返事の本文（人への文）で数える物。核 §2「コード・パス・固有名は英語でよい」に背かないよう、file 名・path・版・
+# 返事の本文（人への文）で数える物。細目 §2「コード・パス・固有名は英語でよい」に背かないよう、file 名・path・版・
 # 英字の識別子・`…` の字は数えない（返事ではコードの囲みと `…` を外してから当てる）。選択肢の画面は全部を数える。
 REPLY_KINDS = ("番号", "窓の id", "識別子", "commit の印", "中の言葉")
 
@@ -101,14 +118,14 @@ def bad_patterns(vals):
 
 
 def _inner_hits(text, vals):
-    allow = _patterns(vals, "ask_term_allow")[0]
+    allow = SV.patterns_of("guard", None, "ask_term_allow", vals)
     extra = [("中の言葉", p) for p in _patterns(vals, "ask_inner_terms_extra")[0]]
     body = _URL.sub(" ", text)
     hits = []
     for name, pat in INNER + tuple(extra):
         for m in re.finditer(pat, body):
             tok = m.group(0).strip()
-            if not tok or any(a.search(tok) for a in allow):
+            if not tok or SV.hit(allow, tok) is not None:
                 continue
             if (name, tok) not in hits:
                 hits.append((name, tok))
@@ -171,14 +188,14 @@ def _rec_findings(q):
     late = [lb for i, lb in marked if i != 0]
     if late:
         why.append("1 つ目でない選択肢に在る（%s）" % "・".join("「%s」" % lb[:20] for lb in late))
-    dunno = [lb for _, lb in marked if _DUNNO.search(lb)]
+    dunno = [lb for _, lb in marked if is_dunno(lb)]
     if dunno:
         why.append("「分からない」の選択肢に在る（%s）" % "・".join("「%s」" % lb[:20] for lb in dunno))
     return why
 
 
 def _exempt(text, vals):
-    return any(isinstance(p, str) and p and re.search(p, text) for p in (vals.get("ask_shape_exempt") or []))
+    return SV.hit(SV.patterns_of("guard", None, "ask_shape_exempt", vals), text) is not None
 
 
 def findings(qs, vals):
@@ -266,13 +283,14 @@ def rec_kind_notes(qs, vals, bad=None):
     kinds = vals.get("ask_rec_notice_kinds")
     if not isinstance(kinds, dict) or not kinds:
         kinds = REC_NOTICE_KINDS
-    exempt = [p for p in (vals.get("ask_rec_notice_exempt") or []) if isinstance(p, str) and p]
+    exempt = SV.patterns_of("guard", None, "ask_rec_notice_exempt", vals)
+    bad += [p for p in SV.bad_pattern_rows(vals.get("ask_rec_notice_exempt") or []) if isinstance(p, str) and p and p not in bad]
     out = []
     for q in qs:
         if not isinstance(q, dict):
             continue
         text = _text(q.get("question"))
-        if not text or any(_search(p, text, bad) for p in exempt):
+        if not text or SV.hit(exempt, text) is not None:
             continue
         labels = [_text(o.get("label")) for o in (q.get("options") or []) if isinstance(o, dict)]
         if not any(_REC_WORD.search(lb) for lb in labels):
