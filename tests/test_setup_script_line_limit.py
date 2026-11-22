@@ -27,24 +27,39 @@ def _doc_with(tmp_path, extra: list[str]) -> Path:
     return dst
 
 
+def _over(n: int) -> str:
+    """ちょうど n バイトの 1 行（ASCII で埋める）。"""
+    return "echo " + "x" * (n - 5)
+
+
+def _ja(n: int) -> str:
+    """日本語（3 バイトの字）を入れて、ちょうど n バイトにする 1 行。"""
+    k, r = divmod(n - 5, 3)
+    return "echo " + "x" * r + "あ" * k
+
+
 def test_使う側に貼る塊は道具の上限に収まる():
     block = smoke.setup_block(ROOT)
     assert smoke.over_limits(block) == []
-    assert all(len(s.encode("utf-8")) <= 200 for s in block.splitlines()) and len(block.splitlines()) <= 100
+    lines = block.splitlines()
+    assert all(len(s.encode("utf-8")) <= smoke.LINE_BYTES for s in lines) and len(lines) <= smoke.MAX_LINES
 
 
-def test_注入_201_バイトの行を足すと赤(tmp_path):
-    with pytest.raises(ValueError, match=r"行目が 201 バイト（上限 200）"):
-        smoke.setup_block(_doc_with(tmp_path, ["echo " + "x" * 196]))
+def test_注入_上限より1バイト長い行を足すと赤(tmp_path):
+    b = smoke.LINE_BYTES
+    with pytest.raises(ValueError, match=r"行目が %d バイト（上限 %d）" % (b + 1, b)):
+        smoke.setup_block(_doc_with(tmp_path, [_over(b + 1)]))
 
 
-def test_200_バイトの行は収まる_日本語はバイトで数える(tmp_path):
-    assert smoke.setup_block(_doc_with(tmp_path, ["echo " + "あ" * 65]))           # 5+195=200
-    with pytest.raises(ValueError, match="201 バイト"):
-        smoke.setup_block(_doc_with(tmp_path / "b", ["echo x" + "あ" * 65]))      # 6+195=201
+def test_上限ちょうどの行は収まる_日本語はバイトで数える(tmp_path):
+    b = smoke.LINE_BYTES
+    assert "あ" in _ja(b) and len(_ja(b).encode("utf-8")) == b
+    assert smoke.setup_block(_doc_with(tmp_path, [_ja(b)]))
+    with pytest.raises(ValueError, match="%d バイト" % (b + 1)):
+        smoke.setup_block(_doc_with(tmp_path / "b", [_ja(b + 1)]))
 
 
-def test_注入_101_行の塊は赤(tmp_path):
-    n = len(smoke.setup_block(ROOT).splitlines())
-    with pytest.raises(ValueError, match="101 行（上限 100）"):
-        smoke.setup_block(_doc_with(tmp_path, ["true"] * (101 - n)))
+def test_注入_上限より1行多い塊は赤(tmp_path):
+    n, m = len(smoke.setup_block(ROOT).splitlines()), smoke.MAX_LINES
+    with pytest.raises(ValueError, match="%d 行（上限 %d）" % (m + 1, m)):
+        smoke.setup_block(_doc_with(tmp_path, ["true"] * (m + 1 - n)))

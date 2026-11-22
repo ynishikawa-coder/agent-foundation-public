@@ -1,4 +1,5 @@
 """守りの hook（plugins/guard）が、止めるべき入力で止まり、通すべき入力で通るかを見る。入力は全部作り物。"""
+import ast
 import json
 import os
 import subprocess
@@ -24,6 +25,16 @@ def env(tmp_path):
               "CLAUDE_PROJECT_DIR": str(proj), "PYTHONDONTWRITEBYTECODE": "1",
               "TMPDIR": str(tmp_path / "scratch")})     # 作業場を tmp_path の下の 1 か所に絞る（repo は作業場の外）
     return e
+
+
+def guard_limit(env, module, name):
+    """guard の script の上限（RED_SHOWN など）を、env が回す guard（_AF_TEST_GUARD か正本）の source から直に読む。
+    試験に数を写さない＝正本の値が変わっても、作り物は境目のすぐ上で作られ続ける。"""
+    src = Path(env.get("_AF_TEST_GUARD") or GUARD).parent / (module + ".py")
+    for node in ast.parse(src.read_text(encoding="utf-8")).body:
+        if isinstance(node, ast.Assign) and any(isinstance(t, ast.Name) and t.id == name for t in node.targets):
+            return ast.literal_eval(node.value)
+    raise AssertionError(f"{src} に {name} が無い（上限の正本が読めない）")
 
 
 def hook(env, event, payload):
@@ -311,11 +322,12 @@ def test_人のいない窓は台帳が無ければ作らない(env, tmp_path):
 
 
 def test_まだ知らせていない控えは上限で黙って落ちない(env, tmp_path):
+    keep = guard_limit(env, "unanswered", "ANSWERED_KEEP")
     hook(env, "post", ask_result())
     ledger = next((tmp_path / "state").rglob("unanswered-questions.json"))
     data = json.loads(ledger.read_text(encoding="utf-8"))
     data["expired_recent"] = [{"key": "k%d" % i, "question": "作り物の古い問い %d" % i, "notified": True,
-                               "expired_at": "2000-01-01T00:00:00.000000Z"} for i in range(25)]
+                               "expired_at": "2000-01-01T00:00:00.000000Z"} for i in range(keep + 5)]   # 上限を越える控え
     ledger.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
     _age_ledger(tmp_path)
     env["AF_UNATTENDED"] = "1"
@@ -356,24 +368,28 @@ def many_questions(n, sid="s1", start=1):
 
 
 def test_出し直しは頭の4件で切らず_5件目まで全部渡す(env):
-    hook(env, "post", many_questions(4))
-    hook(env, "post", many_questions(1, sid="s1b", start=5))        # 4＋1＝5 件（モーダル 1 回の数を 1 つ越える）
+    batch = guard_limit(env, "unanswered", "ASK_BATCH")
+    hook(env, "post", many_questions(batch))
+    hook(env, "post", many_questions(1, sid="s1b", start=batch + 1))   # モーダル 1 回の数を 1 つ越える
     note = hook(env, "start", {"session_id": "s2"})["additionalContext"]
-    assert "5 件" in note and "4 問ずつ続けて出す" in note and "下の 5 件を全部" in note
-    for i in range(1, 6):
+    assert "%d 件" % (batch + 1) in note and "%d 問ずつ続けて出す" % batch in note and "下の %d 件を全部" % (batch + 1) in note
+    for i in range(1, batch + 2):
         assert "作り物の問い %d 番はどちらにしますか" % i in note
     assert "次の機会に" not in note
 
 
 def test_閉じた問いが5つでも隣の1行に全部の文面が載る(env):
-    note = hook(env, "post", many_questions(5))["additionalContext"]
-    assert "（5 件）" in note and "作り物の問い 5 番" in note
+    n = guard_limit(env, "unanswered", "ASK_BATCH") + 1                 # モーダル 1 回の数を 1 つ越える
+    note = hook(env, "post", many_questions(n))["additionalContext"]
+    assert "（%d 件）" % n in note and "作り物の問い %d 番" % n in note
 
 
 def test_離席の止めは閉じた問いが多い時ほか何件と置き場を出す(env):
-    hook(env, "post", many_questions(4))
+    shown = guard_limit(env, "irreversible", "STEMS_SHOWN")
+    hook(env, "post", many_questions(shown + 1))                        # 載せる数のすぐ上
     why = deny_reason(env, bash(DROP))
-    assert "4 件" in why and "ほか 1 件" in why and "unanswered-questions.json" in why
+    assert "%d 件" % (shown + 1) in why and "ほか 1 件" in why and "unanswered-questions.json" in why
+    assert "作り物の問い %d 番" % shown in why and "作り物の問い %d 番" % (shown + 1) not in why
 
 
 def test_子の窓の問いも台帳に積み離席の止めが働く(env, tmp_path):
@@ -583,15 +599,17 @@ def test_qa_page_入れた_plugin_の形では同じ版の検査だけを見つ�
 def test_qa_page_赤が多い時ほか何件と全部の出し方を出す(env, tmp_path):
     needs.node()   # 飛ばす条件は試験の頭で（作り物の file を書く前に）
     fake = tmp_path / "fake_check.mjs"
-    fake.write_text('console.log(JSON.stringify({ok: false, red: Array.from({length: 13}, (_, i) => "作り物の赤 " + (i + 1))}));'
-                    "process.exit(1);\n", encoding="utf-8")
     page = tmp_path / "kakunin.html"
     page.write_text(STATE_PAGE, encoding="utf-8")
     env = without_check(env, tmp_path, ver="v1", docs_kit_ver="v1")
+    shown = guard_limit(env, "qa_page", "RED_SHOWN")                    # 赤は載せる数のすぐ上の件数で作る
+    fake.write_text('console.log(JSON.stringify({ok: false, red: Array.from({length: %d}, (_, i) => "作り物の赤 " + (i + 1))}));'
+                    "process.exit(1);\n" % (shown + 1), encoding="utf-8")
     real = tmp_path / "cache" / "market" / "docs-kit" / "v1" / "skills" / "qa-html" / "check.mjs"
     shutil.copyfile(fake, real)                                        # 同じ版の検査の在り処に作り物を置く
     why = deny_reason(env, publish(page))
-    assert "検査の赤 13 件" in why and "作り物の赤 12" in why and "ほか 1 件" in why and str(real) in why
+    assert "検査の赤 %d 件" % (shown + 1) in why and "作り物の赤 %d" % shown in why and "ほか 1 件" in why and str(real) in why
+    assert "作り物の赤 %d" % (shown + 1) not in why
 
 
 def test_qa_page_51個目に在る問いの並びも見分ける(tmp_path):
