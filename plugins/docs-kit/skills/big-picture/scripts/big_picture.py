@@ -301,7 +301,8 @@ def pick(root, files):
             return [], ["値の表の docs-kit.big-picture.agreed が空"]
         local = Path(root) / value
         if value.endswith(".json") and not local.exists():
-            return [], ["合意した絵が無い（%s）＝先に絵を描いてオーナーの OK を取る" % value]
+            return [], ["合意した絵が無い（%s）＝絵の正が案件のページなら値の表 docs-kit.big-picture.agreed にそのページの名を書く。"
+                         "絵がまだ無ければ先に絵を描いてオーナーの OK を取る" % value]
         return [("全体", value, list(files))], []
     if not isinstance(value, list) or not value:
         return [], ["値の表の docs-kit.big-picture.agreed は文字列か {name, path, covers} の並び"]

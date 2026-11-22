@@ -1,0 +1,1 @@
+- 直した: 全体の絵の skill（big-picture）を合意の版に固めたら、その製品の repo の値の表 `docs-kit.big-picture.agreed` に在り処を書く段を足した。`big_picture.py pick` の「合意した絵が無い」の知らせに、絵の正が案件のページなら値の表にページの名を書く道を添えた
