@@ -1168,9 +1168,17 @@ CONTINUE = ("窓は立て直さず・引き継がず・閉じず、そのまま�
 
 
 def tip_texts(main: str) -> dict[str, str | None]:
-    """main の先端の核と振る舞いの既定の本文（名→本文・読めない物は None）。入れた時の目録の clone から読む。"""
+    """main の先端の核と振る舞いの既定の本文（名→本文・読めない物は None）。入れた時の目録の clone から読む。
+    空の本文も None（読めない）と読む＝差し込む本文（effective_texts）と送った本文の印（core_digests）の選び方を揃える。"""
     loc = catalog_source()[0].get("installLocation")
-    return {path.name: (_git(loc, "show", f"{main}:plugins/core/{path.name}") if loc else None) for path in injected()}
+    return {path.name: ((_git(loc, "show", f"{main}:plugins/core/{path.name}") if loc else None) or None)
+            for path in injected()}
+
+
+def unreadable_tip_text(texts: dict[str, str | None] | None) -> str:
+    """起動の時に先端で読めなかった file の名指し（入っている版の本文で差し込んだ事を file ごとに 1 回言う）。"""
+    return "".join(f"（main の先端の {name} を読めなかった。入っている版の本文で差し込んだ）\n"
+                   for name, text in (texts or {}).items() if text is None)
 
 
 def installed_texts() -> dict[str, str | None]:
@@ -1328,6 +1336,8 @@ def inject() -> int:
             texts = tip_texts(told["main"])
         except Exception as e:  # noqa: BLE001  先端が読めなくても入っている版の核は差し込む。壊れた事は名指しする
             parts.append(_broken_text("先端の核の読み", e))
+        if unreadable_tip_text(texts):  # 先端で読めなかった file を起動の時に 1 回名指す（seen_digests が「名指した」と持つ）
+            parts.append(unreadable_tip_text(texts).rstrip("\n"))
     try:
         parts.insert(0, inject_text(texts))
     except UNREADABLE as e:
@@ -1386,19 +1396,23 @@ def fresh() -> int:
     if got and got["plugins"] and got["main"] != (state.get("told") or {}).get("main"):
         # 守りの hook は先端の版へ入れ直す。核と振る舞いの既定は、この窓が読んだ本文から変わった物だけを 1 回送る
         # （plugin のどこかが動くたびに同じ核を送り直さない＝同じ核を文脈に何枚も積まない）。
-        had = state.get("core")
-        if had is None:  # 本文の印を持たない前の版の記録: 前に送った先端か、入っている版の本文を読んだと読む
-            told_main = (state.get("told") or {}).get("main")
-            had = seen_digests(tip_texts(told_main) if told_main else None)
-        new = tip_texts(got["main"])
-        core = changed_core_text(got["main"], new, had)
-        state["told"], state["told_kind"] = got, "update"
-        state["core"] = {**had, **{k: v or TIP_UNREADABLE for k, v in core_digests(new).items()}}
-        text = update_text(got, core) if core else None
+        try:
+            had = state.get("core")
+            if had is None:  # 本文の印を持たない前の版の記録: 前に送った先端か、入っている版の本文を読んだと読む
+                told_main = (state.get("told") or {}).get("main")
+                had = seen_digests(tip_texts(told_main) if told_main else None)
+            new = tip_texts(got["main"])
+            core = changed_core_text(got["main"], new, had)
+        except Exception as e:  # noqa: BLE001  先端の核を読めなくても問いは止めない。名指しし、told を進めず次の問いで読み直す
+            text = _broken_text("先端の核の読み", e)
+        else:
+            state["told"], state["told_kind"] = got, "update"
+            state["core"] = {**had, **{k: v or TIP_UNREADABLE for k, v in core_digests(new).items()}}
+            text = update_text(got, core) if core else None
         try:
             start_refresh(got["main"])
         except Exception as e:  # noqa: BLE001  入れ直しが壊れても問いは止めない。壊れた事は名指しする
-            text += _broken_text("裏の入れ直し", e)
+            text = (text or "") + _broken_text("裏の入れ直し", e)
     _save_state(session, state)
     return _say(text)
 
