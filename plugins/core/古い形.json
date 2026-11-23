@@ -134,7 +134,7 @@
         ".github/pull_request_template.md"
       ],
       "pattern": "^(?:書いた窓|検査)\\s*[:：]",
-      "fix": "PR の型から `書いた窓:`・`検査:` の行を消し、頭は `job:` だけにする。書いた窓は plugins/checker/scripts/pr_writer.py --writers（commit の記録）、検査は CI の job check かスモークの記録を読む。走らせた命令は本文の「検証」に書く",
+      "fix": "PR の型から `書いた窓:`・`検査:` の行を消し、頭は `job:` だけにする。書いた窓は commit の `Claude-Session:` の記録、検査は CI の job check かスモークの記録を読む。走らせた命令は本文の「検証」に書く",
       "example": "書いた窓: <session id>"
     },
     {
