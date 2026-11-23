@@ -121,7 +121,8 @@ def test_入口は_PR_で本文が違えば赤(tmp_path):
     repo, head = repo_with(tmp_path, [A, B])
     (repo / "scripts" / "checks").mkdir(parents=True)
     (repo / "plugins" / "checker" / "scripts").mkdir(parents=True)
-    for p in (TOOL, CHECK, ROOT / "scripts" / "pr_shape.py", ROOT / "scripts" / "af_unchecked.sh"):  # pr_shape.py の fresh_main が出所の今の main を出す
+    (repo / "plugins" / "checker" / "lib").mkdir(parents=True)
+    for p in (TOOL, CHECK, ROOT / "plugins" / "checker" / "lib" / "af_place.py", ROOT / "scripts" / "pr_shape.py", ROOT / "scripts" / "af_unchecked.sh"):  # pr_shape.py の fresh_main が出所の今の main を出す
         (repo / p.relative_to(ROOT)).write_bytes(p.read_bytes())
     subprocess.run(["git", "init", "-q", "--bare", "-b", "main", str(tmp_path / "出所.git")], check=True)
     git(repo, "remote", "add", "origin", str(tmp_path / "出所.git"))
