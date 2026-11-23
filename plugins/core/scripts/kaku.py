@@ -19,6 +19,7 @@
                                       核の写しの枠を持たないかも照らす。
   python3 kaku.py grow --base REF     増やさない物（guarded() の一覧＝毎回差し込む物と形の細目）が git の REF の時より
                                       増えていないかを照らす。足すなら同じ変更で同じだけ畳む（上限の内で足し続けて満杯にしない）。
+                                      守りの数（guard の見張り・scripts/checks の検査・review-pr の点。安全の守りは除く）も REF と比べる。
   python3 kaku.py olds DIR...         使う側の repo の main（origin の既定の枝）の中身に古い形.json の古い形が残っていないかを照らす
                                       （main を持たない dir は checkout を読む）
                                       （「壊れる（2 段目）」の前に、使う側が移ったのを記録で確かめる口）。
@@ -27,6 +28,7 @@ exit: inject と fresh は何が起きても 0（窓の起動も人の作業も�
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -299,9 +301,16 @@ def own(rel: str, text: str) -> str:
     return md_own(text) if Path(rel).suffix.lower() in (".md", ".markdown") else code(rel, text)
 
 
-def old_view(row: dict, rel: str, text: str) -> str:
-    """古い形の行が読む所（reads の決まり）。"""
+def old_view(row: dict, rel: str, text: str, views: dict | None = None) -> str:
+    """古い形の行が読む所（reads の決まり）。views を渡すと、同じ (読み方, path, 中身) の読み口を 1 回だけ作る
+    （行ごと・main の木と checkout ごとに同じ file を読み直すと、.py の構文の読みが行の数×2 回走り、起動の時の
+    見張りの時間の上限を越える）。"""
     reads = row.get("reads", "all")
+    if views is not None and reads != "all":
+        key = (reads, rel, text)
+        if key not in views:
+            views[key] = old_view(row, rel, text)
+        return views[key]
     if reads == "commands":
         return code(rel, text)
     if reads == "prose" and Path(rel).suffix.lower() in (".md", ".markdown"):
@@ -309,15 +318,21 @@ def old_view(row: dict, rel: str, text: str) -> str:
     return text
 
 
-def old_hit(row: dict, rel: str, text: str) -> bool:
+def old_hit(row: dict, rel: str, text: str, views: dict | None = None) -> bool:
     """古い形の行が (相対 path, 中身) に当たるか（照らし方はこの 1 か所）。"""
-    return bool(row["re"].search(old_view(row, rel, text)))
+    return bool(row["re"].search(old_view(row, rel, text, views)))
 
 
 def _tracked(project: Path, specs: list[str]) -> list[Path]:
     """照らす file の全部。数で切らない（切ると残りを照らさず緑を返す）。時間の上限は find_olds_bounded が
     process の外から掛け、越えたら打ち切ったと名指す。"""
-    out = _git(str(project), "ls-files", "-z", "--", *specs, timeout=10)
+    try:
+        out = _git_run(str(project), "ls-files", "-z", "--", *specs, timeout=10)
+    except GitFailed as e:
+        if (project / ".git").exists() or _git(str(project), "rev-parse", "--git-dir", timeout=5) is not None:
+            # git の repo なのに一覧を読めない: 名で書いた file だけに縮めて「0」と言わない（照らせないと名指す）
+            raise OSError(f"照らす file の一覧（git ls-files）を読めない: {e}") from None
+        out = None
     if out is not None:
         return [project / n for n in out.split("\0") if n]
     return [project / s for s in specs if "*" not in s]  # git でない dir は、名で書いた file だけ見る
@@ -362,38 +377,68 @@ def main_ref(project: Path) -> tuple[str | None, str | None]:
     return local, (f"{note}。読んだのは手元の origin の main {local[:12]}（出所より古い）" if local else note)
 
 
-def _hits(rows: list[dict], texts) -> list[tuple[dict, str]]:
-    """(相対 path, 中身) の並びに古い形の行を当てる（照らし方はこの 1 か所）。"""
+def _hits(rows: list[dict], texts, views: dict | None = None) -> list[tuple[dict, str]]:
+    """(相対 path, 中身) の並びに古い形の行を当てる（照らし方はこの 1 か所）。読み口は views で 1 つの照らしの中で分け合う。"""
     found = []
+    views = {} if views is None else views
     for r in rows:
         for rel, text in texts(r):
-            if old_hit(r, rel, text):
+            if old_hit(r, rel, text, views):
                 found.append((r, rel))
     return found
 
 
-def _checkout_texts(project: Path):
+TEXT_LIMIT = 1_000_000  # 照らす 1 つの file の上限（バイト）。越えた file は読まず、照らせないと名指す（黙って飛ばさない）。
+
+
+def _checkout_texts(project: Path, unread: dict[str, str] | None = None):
+    """checkout の中身。読めない file（上限越え・普通の file でない・開けない）は unread（{相対 path: 訳}）へ名指す。
+    無い file（git でない dir で名で書いた物が無い）だけが「無い」。"""
+    note = (lambda rel, why: unread.setdefault(rel, why)) if unread is not None else (lambda rel, why: None)
+
     def texts(r):
         for f in _tracked(project, r["files"]):
+            rel = str(f.relative_to(project))
             try:
-                if f.is_file() and f.stat().st_size <= 1_000_000:
-                    yield str(f.relative_to(project)), f.read_text(encoding="utf-8", errors="replace")
-            except OSError:
-                pass
+                if not f.exists() and not f.is_symlink():
+                    continue
+                if not f.is_file():
+                    note(rel, "checkout で普通の file でない（dir・壊れた link など）")
+                    continue
+                n = f.stat().st_size
+                if n > TEXT_LIMIT:
+                    note(rel, f"checkout で {n} バイト＝照らす上限 {TEXT_LIMIT} を越える")
+                    continue
+                text = f.read_text(encoding="utf-8", errors="replace")
+            except OSError as e:
+                note(rel, f"checkout で開けない: {type(e).__name__}: {e}")
+                continue
+            yield rel, text
     return texts
 
 
-def _tree_texts(project: Path, ref: str, only: set[tuple[str, str]] | None = None):
+def _tree_texts(project: Path, ref: str, only: set[tuple[str, str]] | None = None, unread: dict[str, str] | None = None):
     """ref の木の中身（checkout でなく git の物を読む）。path の選び方は checkout と同じ pathspec（git が解く）。
-    only を渡すと、その (行の id, path) だけを読む。"""
-    empty = _git(str(project), "hash-object", "-t", "tree", "/dev/null", timeout=10)
+    only を渡すと、その (行の id, path) だけを読む。木に在るのに読めない物（中身が無い・blob でない・上限越え）は
+    unread（{相対 path: 訳}）へ名指す（黙って飛ばして「古い形 0」にしない）。"""
+    note = (lambda rel, why: unread.setdefault(rel, why)) if unread is not None else (lambda rel, why: None)
+    try:
+        empty = _git_run(str(project), "hash-object", "-t", "tree", "/dev/null", timeout=10)
+    except GitFailed as e:
+        empty, why = None, e
 
     def texts(r):
-        out = _git(str(project), "diff", "--name-only", "-z", "--no-renames", "--diff-filter=A", empty or "", ref,
-                   "--", *r["files"], timeout=10)
-        if empty is None or out is None:
-            raise OSError(f"main（{ref[:12]}）の木を読めない")
-        names = [n for n in out.split("\0") if n and "\n" not in n and (only is None or (r["id"], n) in only)]
+        try:
+            if empty is None:
+                raise why
+            out = _git_run(str(project), "diff", "--name-only", "-z", "--no-renames", "--diff-filter=A", empty, ref,
+                           "--", *r["files"], timeout=10)
+        except GitFailed as e:
+            raise OSError(f"main（{ref[:12]}）の木を読めない: {e}") from None
+        names = [n for n in out.split("\0") if n and (only is None or (r["id"], n) in only)]
+        for n in [n for n in names if "\n" in n]:  # cat-file --batch に 1 行で渡せない名＝読めないと名指す
+            note(n, "名に改行を含み、git から中身を引けない")
+        names = [n for n in names if "\n" not in n]
         if not names:
             return
         try:
@@ -408,12 +453,17 @@ def _tree_texts(project: Path, ref: str, only: set[tuple[str, str]] | None = Non
                 raise OSError(f"main（{ref[:12]}）の中身を読めない（{n}）")
             head = buf[i:head_end].split()
             i = head_end + 1
-            if len(head) != 3 or not head[2].isdigit():
-                continue                       # missing など（中身が続かない）
+            if len(head) != 3 or not head[2].isdigit():  # missing など（中身が続かない）
+                note(n, f"{ref[:12]} の木に在るのに中身を読めない（{b' '.join(head[1:]).decode('utf-8', 'replace') or '答えが空'}）")
+                continue
             n_bytes = int(head[2])
             body = buf[i:i + n_bytes]
             i += n_bytes + 1
-            if head[1] == b"blob" and n_bytes <= 1_000_000:
+            if head[1] != b"blob":
+                note(n, f"{ref[:12]} の木で普通の file でない（{head[1].decode('utf-8', 'replace')}）")
+            elif n_bytes > TEXT_LIMIT:
+                note(n, f"{ref[:12]} の木で {n_bytes} バイト＝照らす上限 {TEXT_LIMIT} を越える")
+            else:
                 yield n, body.decode("utf-8", errors="replace")
     return texts
 
@@ -426,22 +476,30 @@ def olds_scan(project: Path, rows: list[dict] | None = None) -> dict:
     「この仕事で消す」と言い切らない）。main を持たない repo（git でない・origin の main が無い）は checkout を読む。
     checkout にだけ残る物は、枝と main の分かれ目の中身で分ける（中身で決める）: 分かれ目に在った＝main で直った
     （behind・枝が main より古い）／無かった＝この枝で足した（added・この仕事で消す）。
-    {"ref": main の commit か None, "found": main に残る (行, path), "behind": [...], "added": [...]}。"""
+    {"ref": main の commit か None, "found": main に残る (行, path), "behind": [...], "added": [...],
+     "unread": 照らす file のうち読めなかった [(相対 path, 訳)]（在れば古い形 0 と言い切らない）}。"""
     rows = rows if rows is not None else olds_table()
+    unread: dict[str, str] = {}
+    scan = _olds_scan(project, rows, unread)
+    return dict(scan, unread=sorted(unread.items()))
+
+
+def _olds_scan(project: Path, rows: list[dict], unread: dict[str, str]) -> dict:
     ref, note = main_ref(project)
-    checkout = _hits(rows, _checkout_texts(project))
+    views: dict = {}  # checkout と main の木で中身が同じ file は、読み口を 1 回だけ作る
+    checkout = _hits(rows, _checkout_texts(project, unread), views)
     if note:  # 読んだ main が出所の今の main と確かめられない: どれも消す・直ったと言い切らない（分からないと名指す）
-        found = _hits(rows, _tree_texts(project, ref)) if ref else []
+        found = _hits(rows, _tree_texts(project, ref, unread=unread), views) if ref else []
         seen = {(r["id"], f) for r, f in found}
         return {"ref": ref, "note": note, "found": [], "fixed_here": [], "behind": [], "added": [],
                 "unknown": found + [(r, f) for r, f in checkout if (r["id"], f) not in seen]}
     if not ref:
         return {"ref": None, "note": None, "found": checkout, "fixed_here": [], "behind": [], "added": [], "unknown": []}
-    found = _hits(rows, _tree_texts(project, ref))
+    found = _hits(rows, _tree_texts(project, ref, unread=unread), views)
     seen = {(r["id"], f) for r, f in found}
     only = {(r["id"], f) for r, f in checkout} - seen
     base = _git(str(project), "merge-base", "HEAD", ref, timeout=10) if only else None
-    was = {(r["id"], f) for r, f in _hits(rows, _tree_texts(project, base, only))} if base else set()
+    was = {(r["id"], f) for r, f in _hits(rows, _tree_texts(project, base, only, unread), views)} if base else set()
     rest = [(r, f) for r, f in checkout if (r["id"], f) in only]
     if not base:  # 分かれ目が読めない（浅い clone 等）: main で直ったともこの枝で足したとも言い切らない
         return {"ref": ref, "note": None, "found": found, "fixed_here": [(r, f) for r, f in found if (r["id"], f) not in
@@ -465,12 +523,14 @@ def find_olds_bounded(project: Path, budget: float = WATCH_BUDGET, table: Path =
     try:
         p = subprocess.run(cmd, capture_output=True, text=True, timeout=budget)
     except subprocess.TimeoutExpired:
-        raise TimeoutError(f"{budget} 秒で見終わらず打ち切った（古い形の照らしの途中）") from None
+        raise TimeoutError(f"{budget} 秒で見終わらず打ち切った（古い形の照らしの途中＝古い形 0 と決まったのではない）。"
+                           f"時間の上限なしで照らすのは `python3 {Path(__file__).resolve()} olds {project}`") from None
     if p.returncode not in (0, 1):
         raise ValueError((p.stdout + p.stderr).strip() or f"olds が {p.returncode} で抜けた")
     rows = {r["id"]: r for r in olds_table(table)}
     got = json.loads(p.stdout)
-    return {"ref": got["ref"], "note": got.get("note"), **{k: [(rows[i], f) for i, f in got.get(k) or []] for k in SCAN_KEYS}}
+    return {"ref": got["ref"], "note": got.get("note"), **{k: [(rows[i], f) for i, f in got.get(k) or []] for k in SCAN_KEYS},
+            "unread": [(f, why) for f, why in got.get("unread") or []]}
 
 
 def olds_text(scan: dict, project: Path) -> str | None:
@@ -482,7 +542,7 @@ def olds_text(scan: dict, project: Path) -> str | None:
     if remove:
         src = f"main（{ref[:12]}）の中身" if ref else "checkout"
         lines += [f"## この repo（{project.name}）に土台の古い形（写し）が残っている — この仕事で消す\n",
-                  f"読んだ物: {src}。写しは土台が変わっても古いまま残り、誰も止めない。土台を直した同じ仕事で使う側も直す決まり（オーナー決定 2026-11-19）なので、"
+                  f"読んだ物: {src}。写しは土台が変わっても古いまま残り、誰も止めない。土台を直した同じ仕事で使う側も直す決まり（CONTRIBUTING「使う側が移る」）なので、"
                   "この repo の手順（CONTRIBUTING・CLAUDE.md）で 1 枝 1 PR を出して消す。頼みの仕事が別なら、その仕事を止めずに並べて出す:\n"]
         lines += [f"- {f}: {r['what']} → {r['fix']}{note}\n" for r, f, note in remove]
     if scan.get("behind"):
@@ -500,15 +560,25 @@ def olds_text(scan: dict, project: Path) -> str | None:
                   "main で直った物（枝を main に追いつかせれば消える）か、この枝で足した物（この仕事で消す）かを言い切れない。"
                   "`git fetch --unshallow`（または `--deepen`）で分かれ目を取ってから見分ける: "
                   + "・".join(f"{f}（{r['id']}）" for r, f in scan["unknown"]) + "\n"]
+    if scan.get("unread"):
+        lines += [f"## この repo（{project.name}）に照らせない file が在る — 古い形 0 と言い切れない\n",
+                  "次は照らす file なのに読めなかった（無いのではない）。中に古い形が残るかは分からない。中身・大きさ・権限を見て、"
+                  "読める形にしてから土台の kaku.py olds でこの repo を照らし直す: "
+                  + "・".join(f"{f}（{why}）" for f, why in scan["unread"]) + "\n"]
     return "".join(lines) or None
 
 
 def claude_md_text(project: Path) -> str | None:
-    """開いた repo の根の CLAUDE.md が各社固有の上限を越えていれば知らせる文。"""
+    """開いた repo の根の CLAUDE.md が各社固有の上限を越えていれば知らせる文。無ければ照らす物が無い（None）。
+    在るのに読めない時は「上限の内」と読まず、量を照らしていないと名指す。"""
+    path = project / "CLAUDE.md"
     try:
-        n = size((project / "CLAUDE.md").read_text(encoding="utf-8"))
-    except UNREADABLE:
+        n = size(path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
         return None
+    except UNREADABLE as e:
+        return (f"## この repo の CLAUDE.md が読めず、常に読まれる量の上限を照らしていない\n"
+                f"{path}: {type(e).__name__}: {e}。上限の内と決まったのではない。中身（UTF-8 か）と権限を見て直す。\n")
     if n <= LIMITS["各社固有"]:
         return None
     return (f"## この repo の CLAUDE.md が常に読まれる量の上限を越えている\n"
@@ -529,28 +599,45 @@ def source_ref(m: dict) -> str:
 
 def source_tip(loc: str, ref: str) -> str | None:
     """出所（origin）の枝 ref の今の先端を出所へ直に聞く（共用の FETCH_HEAD や手元の ref を読まない）。
-    枝が無い（版の tag で止めた目録など）時は出所の main と比べる（止めた版を「古くない」と見ない）。聞けなければ None。"""
+    枝が無い（版の tag で止めた目録など）時は出所の main と比べる（止めた版を「古くない」と見ない）。
+    出所に聞けない・どの枝の先端も読めない時は Incomparable（「古くない」と読ませない）。"""
+    whys = []
     for name in dict.fromkeys((ref, "main")):
-        out = _git(loc, "ls-remote", "--quiet", "origin", f"refs/heads/{name}") or ""
+        try:
+            out = _git_run(loc, "ls-remote", "--quiet", "origin", f"refs/heads/{name}")
+        except GitFailed as e:
+            whys.append(f"{name}: {e}")
+            continue
         sha = out.split()[0] if out.split() else ""
         if re.fullmatch(r"[0-9a-f]{40}|[0-9a-f]{64}", sha):
             return sha
-    return None
+        whys.append(f"{name}: 出所に枝が無い" if not out else f"{name}: 先端の答えを読めない（{out[:40]}）")
+    raise Incomparable("出所（origin）の先端を聞けない — " + "／".join(whys))
 
 
 def catalog_source() -> tuple[dict, str | None]:
     """目録 agent-foundation の登録（known_marketplaces.json の行）と、土台の出所でない時の名指し。
     ({}, None)＝目録が無い・手元から入れた（照らさない）/ (行, None)＝土台の repo の GitHub から入った /
     ({}, 名指し)＝別の出所（fork・別の git）から入った＝その main を正と見ない。"""
-    m = (_read_json(_home() / "plugins" / "known_marketplaces.json", dict) or {}).get(MARKET) or {}
-    src = m.get("source") if isinstance(m.get("source"), dict) else {}
-    if not m.get("installLocation") or src.get("source") in LOCAL_SOURCES or not src:
+    path = _home() / "plugins" / "known_marketplaces.json"
+    m = (_read_json(path, dict) or {}).get(MARKET)
+    if m is None:
         return {}, None
+    # 行が在るのに形が違う時は「目録が無い」と読まない（新しさ・入れ方を黙って照らさなくなる）
+    if not isinstance(m, dict):
+        raise Unreadable(path, f"目録 {MARKET} の行の形が dict でない（{type(m).__name__}）")
+    src = m.get("source")
+    if not isinstance(src, dict) or not src.get("source"):
+        raise Unreadable(path, f"目録 {MARKET} の行に出所（source）が無い・形が違う")
+    if src.get("source") in LOCAL_SOURCES:
+        return {}, None
+    if not m.get("installLocation"):
+        raise Unreadable(path, f"目録 {MARKET} の行に入れた所（installLocation）が無い")
     where = src.get("repo") or src.get("url") or src.get("source")
     if src.get("source") != "github" or str(src.get("repo") or "").lower() != UPSTREAM.lower():
         return {}, (f"- 土台の目録 {MARKET} が土台の repo {UPSTREAM} でない出所（{where}）から入っている（同じ名の fork・別の git）。"
                     "その出所の main を正として古さ・入れ損ねを照らさない＝この窓の核と守りが土台の今の物か分からない。"
-                    "最初にオーナーへ知らせ、setup script を土台の docs/核の届け方.md の形（土台の repo を足す）に直す。\n")
+                    "AI が setup script を土台の docs/核の届け方.md の形（土台の repo を足す）に直す。\n")
     return m, None
 
 
@@ -567,7 +654,7 @@ def user_rows(table: dict | None = None, market: str = MARKET) -> dict[str, list
     """{plugin の名: 入った台帳の user scope の行の並び}（目録 market の物だけ）。scope の欄が user と書かれた行だけを
     数える（欄の無い行を user と見ない）。台帳を読む所（新しさ・入れ方・写しの見張り・plugin-smoke）はこの 1 つを通す。"""
     if table is None:
-        table = _read_json(_home() / "plugins" / "installed_plugins.json", dict) or {}
+        table = _ledger()
     plugins = table.get("plugins") if isinstance(table, dict) else None
     out = {}
     for key, rows in plugins.items() if isinstance(plugins, dict) else []:
@@ -576,6 +663,25 @@ def user_rows(table: dict | None = None, market: str = MARKET) -> dict[str, list
         if at and m == market and user:
             out[name] = user
     return out
+
+
+LEDGER = ("plugins", "installed_plugins.json")
+
+
+def _ledger() -> dict:
+    """入った台帳（~/.claude/plugins/installed_plugins.json）を読む 1 本の口。無い＝{}。在るのに読めない・
+    形が違う（plugins が dict でない・行の並びが list でない・行が dict でない）＝Unreadable（黙って行を落とさない）。"""
+    path = _home().joinpath(*LEDGER)
+    table = _read_json(path, dict) or {}
+    plugins = table.get("plugins", {})
+    if not isinstance(plugins, dict):
+        raise Unreadable(path, f"plugins の形が dict でない（{type(plugins).__name__}）")
+    for key, rows in plugins.items():
+        if not isinstance(rows, list):
+            raise Unreadable(path, f"{key} の行の並びが list でない（{type(rows).__name__}）")
+        if not all(isinstance(r, dict) for r in rows):
+            raise Unreadable(path, f"{key} の行に dict でない物が在る")
+    return table
 
 
 def current_row(rows: list[dict]) -> dict | None:
@@ -632,12 +738,26 @@ def setup_record() -> tuple[dict | None, str | None]:
 
 def _enabled() -> set[str]:
     """user scope で enabled の plugin（~/.claude/settings.json の enabledPlugins。入口の listed() と同じ見方）。"""
-    on = (_read_json(_home() / "settings.json", dict) or {}).get("enabledPlugins") or {}
-    return {k for k, v in on.items() if v is True} if isinstance(on, dict) else set()
+    path = _home() / "settings.json"
+    on = (_read_json(path, dict) or {}).get("enabledPlugins") or {}
+    if not isinstance(on, dict):  # 形の違う欄を「どれも enabled でない」と読まない
+        raise Unreadable(path, f"enabledPlugins の形が dict でない（{type(on).__name__}）")
+    return {k for k, v in on.items() if v is True}
 
 
 def setup_text() -> str | None:
-    """GitHub から土台を入れた窓で、古い形の setup script（入口を通っていない）・入っていない plugin・土台でない出所を知らせる文。"""
+    """GitHub から土台を入れた窓で、古い形の setup script（入口を通っていない）・入っていない plugin・土台でない出所を知らせる文。
+    照らす元の file（目録の一覧・入った台帳・settings.json・入った版の名簿）が在るのに読めない時は、
+    「入れ方に欠けが無い」と読ませず、どの file がなぜ読めないかを名指す。"""
+    try:
+        return _setup_text()
+    except Unreadable as e:
+        return ("## 土台の入れ方を照らせない — 欠けが無いと決まったのではない\n"
+                f"- {e}。入っていない plugin・古い形の setup script・土台の古さを照らしていない。"
+                "その file の中身と権限を見て直す。直せない時は親の窓・オーナーへ 1 行知らせる。\n")
+
+
+def _setup_text() -> str | None:
     m, other = catalog_source()
     if other:
         return "## 土台の入れ方が古い・欠けている\n" + other
@@ -647,7 +767,7 @@ def setup_text() -> str | None:
     if installed_sha() is None:  # 別の dir の行の版で古さを決めない＝分からない事をそのまま名指す
         parts.append(f"- この窓に入った plugin core の版が分からない（入った台帳 installed_plugins.json に installPath が"
                      f"この plugin の dir {PLUGIN} と同じ行が無い）。土台の古さを照らしていない＝核と守りが土台の今の物か分からない。"
-                     "最初にオーナーへ知らせ、setup script を土台の docs/核の届け方.md の形に直す。\n")
+                     "AI が setup script を土台の docs/核の届け方.md の形に直す。\n")
     try:
         state, why = setup_record()
     except Unreadable as e:
@@ -659,33 +779,45 @@ def setup_text() -> str | None:
                      "土台が plugin を足しても入らず、入れ損ねの見張りにも入らない。土台の docs/核の届け方.md の形に貼り替える"
                      "（Javis の環境は get_environment → update_environment。直せない環境は親の窓・連絡板へ頼み、オーナーへ 1 行知らせる）。\n")
     # 名簿は setup が入れた版（入った core の commit）の物を読む（目録の clone の今の作業の木は setup の後に進みうる）
-    want = catalog_at(m["installLocation"], installed_sha())
+    try:
+        want = catalog_at(m["installLocation"], installed_sha())
+    except Unreadable as e:  # 1 つ読めない物で、ほかに見つけた欠け（上の入口の記録など）を消さない＝並べて名指す
+        want = None
+        parts.append(f"- 入った版の土台の名簿が読めない: {e}。入っていない plugin を照らしていない（入っていないと決まったのでも、"
+                     "全部入ったと決まったのでもない）。目録の clone（git）の中身を見て直す。直せない時は親の窓・オーナーへ 1 行知らせる。\n")
     have, on = set(_foundation_rows()), _enabled()
     lack = [p.get("name") for p in (want or {}).get("plugins") or []
             if isinstance(p, dict) and (p.get("name") not in have or f"{p.get('name')}@{MARKET}" not in on)]
-    if want is None:
+    if want is None and not any("名簿が読めない" in x for x in parts):
         parts.append("- 入った版の土台の名簿（.claude-plugin/marketplace.json）が目録の clone から読めず、入っていない plugin を照らしていない。"
-                     "最初にオーナーへ知らせ、setup script を土台の docs/核の届け方.md の形に直す。\n")
+                     "AI が setup script を土台の docs/核の届け方.md の形に直す。\n")
     if lack:
         parts.append(f"- 土台の plugin が user scope で入って enabled になっていない: {' '.join(map(str, lack))}。その plugin の決まりと守りの hook がこの窓で効いていない。"
-                     "最初にオーナーへ知らせ、setup script を土台の docs/核の届け方.md の形に直す。\n")
+                     "AI が setup script を土台の docs/核の届け方.md の形に直す。\n")
     state = state or {}
     if state.get("refreshed") is False or state.get("stale"):
         parts.append(f"- 土台の目録を先端へ取り直せず、または名簿の版に揃わずに入った（揃わない plugin: {' '.join(map(str, state.get('stale') or [])) or 'なし'}）。"
-                     "古い決まりと守りの hook で動いている。最初にオーナーへ知らせ、setup script を土台の docs/核の届け方.md の形に直す。\n")
+                     "古い決まりと守りの hook で動いている。AI が setup script を土台の docs/核の届け方.md の形に直す。\n")
     return ("## 土台の入れ方が古い・欠けている\n" + "".join(parts)) if parts else None
 
 
 def catalog_at(loc: str, sha: str | None) -> dict | None:
-    """目録の clone の、commit sha の時の名簿（.claude-plugin/marketplace.json）。読めなければ None。"""
+    """目録の clone の、commit sha の時の名簿（.claude-plugin/marketplace.json）。版が分からなければ None。
+    在るはずの名簿を読めない（git が引けない・壊れた JSON・形が違う）時は Unreadable（訳つき）。"""
     if not sha:
         return None
-    text = _git(loc, "show", f"{sha}:.claude-plugin/marketplace.json")
+    path = Path(loc) / ".claude-plugin" / f"marketplace.json（{sha[:12]} の時）"
     try:
-        data = json.loads(text) if text else None
-    except ValueError:
-        return None
-    return data if isinstance(data, dict) else None
+        text = _git_run(loc, "show", f"{sha}:.claude-plugin/marketplace.json")
+    except GitFailed as e:
+        raise Unreadable(path, str(e)) from None
+    try:
+        data = json.loads(text)
+    except ValueError as e:
+        raise Unreadable(path, f"JSON として壊れている: {e}") from None
+    if not isinstance(data, dict):
+        raise Unreadable(path, f"中身の形が dict でない（{type(data).__name__}）")
+    return data
 
 
 def injected() -> tuple[Path, ...]:
@@ -713,16 +845,23 @@ def read_guarded(path: Path) -> str:
     return saimoku_text(path) if path.is_dir() else path.read_text(encoding="utf-8")
 
 
-def inject_text() -> str:
+def inject_text(texts: dict[str, str | None] | None = None) -> str:
+    """毎回差し込む物の本文。texts（名→本文）を渡すと、在る名はその本文で差し込む（起動の時から古い窓に先端の本文を
+    1 枚だけ差し込む＝入っている古い本文と先端の本文の 2 枚を並べない）。"""
+    texts = texts or {}
+
+    def read(path: Path) -> str:
+        return texts.get(path.name) or path.read_text(encoding="utf-8")
+
     head, *rest = injected()
-    parts = [head.read_text(encoding="utf-8").rstrip("\n")]
+    parts = [read(head).rstrip("\n")]
     for path in rest:
         try:
-            parts.append(path.read_text(encoding="utf-8").rstrip("\n"))
+            parts.append(read(path).rstrip("\n"))
         except UNREADABLE as e:
             # 欠けたまま黙って核だけにしない: 窓の起動は止めず、欠けた事を文脈に名指しで出す
             print(f"plugin core: {path.name} が読めない（{e}）", file=sys.stderr)
-            parts.append(f"（毎回差し込む {path} が読めず、差し込まれていない。最初にオーナーへ知らせる）")
+            parts.append(f"（毎回差し込む {path} が読めず、差し込まれていない。土台の plugin を入れ直し、直せない時は返事の締めに 1 行書く）")
     return ("\n\n".join(parts) + "\n\n"
             + "（この核と振る舞いの既定は土台の plugin core が起動時に差し込んだ。"
             + f"返事・問い・手の窓などの形の細目は {SAIMOKU} の中の、核の節と同じ番号で始まる file（例: 03-直すは根治.md）。"
@@ -768,6 +907,13 @@ def _broken_text(name: str, e: Exception) -> str:
             "土台の plugin core の不具合か壊れた記録として親の窓へ知らせる（止めずに頼みは続ける）。\n")
 
 
+def _incomparable_text(e: Exception) -> str:
+    """入った土台と先端をその時は比べられなかった事の知らせ（「古くない」と読ませない）。"""
+    return ("## 土台の新しさを比べられなかった — 古くないと決まったのではない\n"
+            f"{str(e).rstrip('。.')}。この窓の核と守りが土台の今の物かは分からない。次の問いの時にもう一度見る"
+            "（続けて比べられない時は、目録の clone と出所へ出られるかを見て、親の窓へ知らせる）。\n")
+
+
 def _state_broken_text(e: "Unreadable", where: str) -> str:
     """窓の記録（~/.claude/af-foundation/<session>.json）が在るのに読めない時の知らせ。記録は書き直さない。"""
     return ("## この窓の土台の記録が読めない — 記録は書き直していない\n"
@@ -777,13 +923,35 @@ def _state_broken_text(e: "Unreadable", where: str) -> str:
             "直せない時は親の窓へ知らせる。\n")
 
 
-def _git(loc: str, *args: str, timeout: int = 20) -> str | None:
+class GitFailed(OSError):
+    """git を呼べなかった・git が失敗した（訳を持つ）。「何も無い」（空の出力）と分ける。"""
+
+
+class Incomparable(Exception):
+    """入った土台と先端を、その時は比べられなかった（出所に出られない・取って来られない・差分を読めない）。
+    「古くない」と分ける＝比べられなかった事を名指し、次の問いの時にもう一度見る。"""
+
+
+def _git_run(loc: str, *args: str, timeout: int = 20) -> str:
+    """git を走らせ出力を返す。呼べない・失敗した時は GitFailed（訳つき）。失敗を「空」と読ませない 1 本の口。"""
     try:
         p = subprocess.run(["git", "-c", "core.quotepath=off", "-C", loc, *args], capture_output=True, text=True, timeout=timeout,
                            env=dict(os.environ, GIT_TERMINAL_PROMPT="0"))  # 鍵を問う画面で止まらない
-    except (OSError, subprocess.SubprocessError):
+    except (OSError, subprocess.SubprocessError) as e:
+        raise GitFailed(f"git {args[0] if args else ''} を呼べない: {type(e).__name__}: {e}") from None
+    if p.returncode != 0:
+        why = (p.stderr or "").strip().splitlines()
+        raise GitFailed(f"git {args[0] if args else ''} が {p.returncode} で失敗した" + (f": {why[-1]}" if why else ""))
+    return p.stdout.strip()
+
+
+def _git(loc: str, *args: str, timeout: int = 20) -> str | None:
+    """失敗を None で返す口。在るかを問う（cat-file -e など、失敗が「無い」という答えそのもの）時だけ使う。
+    読んだ物を照らす時は _git_run（失敗を「無い」と読まない）。"""
+    try:
+        return _git_run(loc, *args, timeout=timeout)
+    except GitFailed:
         return None
-    return p.stdout.strip() if p.returncode == 0 else None
 
 
 def installed_sha() -> str | None:
@@ -791,10 +959,9 @@ def installed_sha() -> str | None:
 
     読むのは installPath がこの plugin の dir（今動いている kaku.py の在り処）と同じ行だけ。合う行が無ければ None
     （＝分からない）。行が 1 つでも別の dir（project scope で入った・前に別の所へ入った）の行の版で古さを決めない。"""
-    table = _read_json(_home() / "plugins" / "installed_plugins.json", dict) or {}
-    rows = (table.get("plugins") or {}).get(f"core@{MARKET}") or []
-    for row in rows if isinstance(rows, list) else []:
-        if isinstance(row, dict) and row.get("installPath") and Path(row["installPath"]).resolve() == PLUGIN:
+    rows = (_ledger().get("plugins") or {}).get(f"core@{MARKET}") or []
+    for row in rows:
+        if row.get("installPath") and Path(row["installPath"]).resolve() == PLUGIN:
             return row.get("gitCommitSha") or None
     return _running_from_record()
 
@@ -820,7 +987,9 @@ def _carrier_names(names: str) -> set[str]:
 
 
 def freshness() -> dict | None:
-    """{installed, main, ref, shas, plugins}（plugins が空でなければ古い）。比べられない時は None。
+    """{installed, main, ref, shas, plugins}（plugins が空でなければ古い）。比べる物が無い（GitHub から入れていない・
+    入った版が分からない）時は None。比べる物は在るのにその時は比べられない（出所に出られない・先端を取って来られない）
+    時は Incomparable（「古くない」と読ませず、次の問いの時にもう一度見る）。
 
     GitHub から入れた時だけ見る（手元の dir から入れた試し・CI は main の先端と比べる物が無い）。
     先端は、目録が追う枝（source_ref・ふつうは main）の今の先端を出所へ直に聞き（共用の FETCH_HEAD を読まない）、
@@ -834,13 +1003,16 @@ def freshness() -> dict | None:
         return None
     have = installed_sha()
     ref = source_ref(m)
-    tip = source_tip(loc, ref) if have else None
-    if not tip:
+    if not have:
         return None
+    tip = source_tip(loc, ref)
     if _git(loc, "cat-file", "-e", f"{tip}^{{commit}}") is None:
-        _git(loc, "fetch", "--quiet", "--depth=1", "origin", tip)
+        try:
+            _git_run(loc, "fetch", "--quiet", "--depth=1", "origin", tip)
+        except GitFailed as e:
+            raise Incomparable(f"先端 {tip[:12]} を目録の clone へ取って来られない — {e}") from None
         if _git(loc, "cat-file", "-e", f"{tip}^{{commit}}") is None:
-            return None
+            raise Incomparable(f"先端 {tip[:12]} を取って来たのに目録の clone に無い")
     shas = {name: str(row.get("gitCommitSha") or "") or None for name, row in _foundation_rows().items()}
     shas["core"] = have  # core は今動いている dir の行（installed_sha）の版
     plugins: set[str] = set()
@@ -862,17 +1034,24 @@ def freshness() -> dict | None:
 
 
 def moved_since(base: str, tip: str) -> list[str]:
-    """base（窓が立った時の先端）から tip（今の先端）までに変わった plugin の名。比べられなければ空（知らない値で
-    人の作業を止めない）。目録の clone が浅く取り直されて base が無ければ base だけを取って来る。"""
+    """base（窓が立った時の先端）から tip（今の先端）までに変わった plugin の名。空＝本当に変わっていない時だけ。
+    目録の clone が浅く取り直されて base が無ければ base だけを取って来る。取って来られない・差分を読めない時は
+    Incomparable（「変わっていない」と読ませない・人の作業は止めず、比べられなかった事を名指す）。"""
     if base == tip:
         return []
     loc = catalog_source()[0].get("installLocation")
     if not loc:
         return []
     if _git(loc, "cat-file", "-e", f"{base}^{{commit}}") is None:
-        _git(loc, "fetch", "--quiet", "--depth=1", "origin", base)
-    names = _git(loc, "diff", "--name-only", base, tip, "--", *CARRIERS)
-    return sorted(_carrier_names(names)) if names else []
+        try:
+            _git_run(loc, "fetch", "--quiet", "--depth=1", "origin", base)
+        except GitFailed as e:
+            raise Incomparable(f"窓が立った時の先端 {base[:12]} を取って来られない — {e}") from None
+    try:
+        names = _git_run(loc, "diff", "--name-only", base, tip, "--", *CARRIERS)
+    except GitFailed as e:
+        raise Incomparable(f"{base[:12]} から {tip[:12]} の差分を読めない — {e}") from None
+    return sorted(_carrier_names(names))
 
 
 REFRESH_TIMEOUT = 600  # 裏の入れ直し（入口 setup_plugins.py）を待つ上限（秒）
@@ -945,7 +1124,7 @@ def refresh_failed_text(state: dict) -> str | None:
         return None
     state["refresh_told"] = r.get("at")
     return (f"## 土台の hook を先端へ入れ直せなかった\n入口 scripts/setup_plugins.py が {r.get('code')} で抜けた"
-            f"（{r.get('line') or '訳は出ていない'}）。守りの hook は前の版のまま動く（止めない）。最初にオーナーへ 1 行知らせる。\n")
+            f"（{r.get('line') or '訳は出ていない'}）。守りの hook は前の版のまま動く（止めない）。訳を見て setup script を直し、直せない時は返事の締めに 1 行書く。\n")
 
 
 def _state_path(session: str) -> Path:
@@ -999,23 +1178,65 @@ CONTINUE = ("窓は立て直さず・引き継がず・閉じず、そのまま�
             "守りの hook は裏で先端の版を入れ直し、済んだ後の呼び出しから先端の版で動く（hook の足し・外しと skill は次に立つ窓から）。\n")
 
 
-def tip_core_text(f: dict) -> str:
-    """main の先端の核と振る舞いの既定の今の本文（入れた時の目録の clone から読む）。差し込まれた物と同じなら 1 行だけ。"""
+def tip_texts(main: str) -> dict[str, str | None]:
+    """main の先端の核と振る舞いの既定の本文（名→本文・読めない物は None）。入れた時の目録の clone から読む。
+    空の本文も None（読めない）と読む＝差し込む本文（effective_texts）と送った本文の印（core_digests）の選び方を揃える。"""
     loc = catalog_source()[0].get("installLocation")
-    parts = []
+    return {path.name: ((_git(loc, "show", f"{main}:plugins/core/{path.name}") if loc else None) or None)
+            for path in injected()}
+
+
+def unreadable_tip_text(texts: dict[str, str | None] | None) -> str:
+    """起動の時に先端で読めなかった file の名指し（入っている版の本文で差し込んだ事を file ごとに 1 回言う）。"""
+    return "".join(f"（main の先端の {name} を読めなかった。入っている版の本文で差し込んだ）\n"
+                   for name, text in (texts or {}).items() if text is None)
+
+
+def installed_texts() -> dict[str, str | None]:
+    """この窓に入っている核と振る舞いの既定の本文（名→本文・読めない物は None）。"""
+    out = {}
     for path in injected():
-        new = _git(loc, "show", f"{f['main']}:plugins/core/{path.name}") if loc else None
         try:
-            now = path.read_text(encoding="utf-8")
+            out[path.name] = path.read_text(encoding="utf-8")
         except UNREADABLE:
-            now = None
-        if new is None:
-            parts.append(f"（main の先端の {path.name} を読めなかった。起動の時に差し込まれた物で続ける）")
-        elif now is not None and new.strip() == now.strip():
-            parts.append(f"（main の先端の {path.name} は差し込まれた物と同じ）")
-        else:
-            parts.append(f"### main の先端の {path.name}（{f['main'][:12]}）\n" + new.rstrip("\n"))
-    return "\n\n".join(parts) + "\n"
+            out[path.name] = None
+    return out
+
+
+def core_digests(texts: dict[str, str | None]) -> dict[str, str | None]:
+    """差し込んだ本文の印（名→印）。窓が今読んでいる核と同じかを、送った本文そのもので比べる（版の印や plugin の動きでは比べない）。"""
+    return {name: (hashlib.sha256(text.strip().encode("utf-8")).hexdigest() if text is not None else None)
+            for name, text in texts.items()}
+
+
+def effective_texts(texts: dict[str, str | None] | None) -> dict[str, str | None]:
+    """差し込む本文（名→本文）。先端の本文が在ればそれ、読めない物は入っている版の本文（inject_text と同じ選び方）。"""
+    texts = texts or {}
+    return {name: texts.get(name) or text for name, text in installed_texts().items()}
+
+
+TIP_UNREADABLE = "先端で読めなかった"
+
+
+def seen_digests(texts: dict[str, str | None] | None) -> dict[str, str | None]:
+    """窓が読んだ本文の印（名→印）。先端の本文を渡した時、先端で読めなかった物は「読めなかった」と持つ
+    （入っている版の本文で差し込み、読めなかった事は差し込みの時に 1 回名指した＝fresh で名指し直さない）。"""
+    seen = core_digests(effective_texts(texts))
+    if texts is not None:
+        seen.update({name: TIP_UNREADABLE for name, text in texts.items() if text is None})
+    return seen
+
+
+def changed_core_text(main: str, new: dict[str, str | None], had: dict[str, str | None]) -> str:
+    """窓が今読んでいる本文の印（had）から変わった物だけの全文。同じ物は送らない（同じ核を何枚も文脈に積まない）。"""
+    parts = []
+    now = core_digests(new)
+    for name, text in new.items():
+        if text is None and had.get(name) != TIP_UNREADABLE:  # 読めない事は 1 回だけ名指す
+            parts.append(f"（main の先端の {name} を読めなかった。今読んでいる物で続ける）")
+        elif text is not None and had.get(name) != now[name]:
+            parts.append(f"### main の先端の {name}（{main[:12]}）\n" + text.rstrip("\n"))
+    return "\n\n".join(parts) + "\n" if parts else ""
 
 
 def stale_at_start_text(f: dict) -> str:
@@ -1031,7 +1252,7 @@ def stale_at_start_text(f: dict) -> str:
             "claude-code-remote の get_environment → update_environment（直せる環境の時）。\n"
             "2. 直せない時（他のアカウントの環境・道具が無い）は、UTC の環境なら連絡板の issue で setup script の直しを頼み、"
             "オーナーへ「守りが古い形で動いている」と 1 行知らせる。\n"
-            + CONTINUE + tip_core_text(f))
+            + START_CONTINUE)
 
 
 def unknown_at_start_text(f: dict) -> str:
@@ -1042,27 +1263,37 @@ def unknown_at_start_text(f: dict) -> str:
             "（記録が無いのは、setup script が入口を通らない古い形か、入口が記録を書く前の版で入れた時）。頼みの合間に次をする:\n"
             "1. claude-code-remote の get_environment で setup script を読み、土台の docs/核の届け方.md の形（目録の取り直しと入口）と照らす。"
             "違えば update_environment で直す（直せない環境は親の窓・連絡板へ頼み、オーナーへ 1 行知らせる）。\n"
-            + CONTINUE + tip_core_text(f))
+            + START_CONTINUE)
 
 
-def update_text(f: dict) -> str:
+def update_text(f: dict, core: str) -> str:
+    """起動の後に核か振る舞いの既定の文が変わった時の知らせ。core＝変わった物だけの全文（changed_core_text）。"""
     return ("## 土台が新しくなった — 新しい核をここで読み、窓はそのまま続ける\n"
-            f"土台の main の先端が、この窓に入った物から窓の振る舞いを変えた（{_short(f)}）。"
-            + CONTINUE + tip_core_text(f))
+            f"土台の main の先端で、窓が読んでいる核か振る舞いの既定の文が変わった（{_short(f)}）。"
+            + CONTINUE + core)
+
+
+# 起動の時の知らせの締め（核は上に先端の本文で 1 枚だけ差し込んでいるので、ここでは本文を重ねない）
+START_CONTINUE = ("窓は立て直さず・引き継がず・閉じず、そのまま頼みを続ける（create_session・archive_session をしない）。"
+                  "上の核と振る舞いの既定は main の先端の本文（読めなかった物だけ入っている版の本文）。"
+                  "守りの hook は裏で先端の版を入れ直し、済んだ後の呼び出しから先端の版で動く（hook の足し・外しと skill は次に立つ窓から）。\n")
+
+
+def after_setup_text(f: dict) -> str:
+    """setup の後に main が進んだだけの窓（作り置きの箱）の起動の知らせ。直す物は無い。"""
+    return f"（土台は setup の後に main が進んでいた（{_short(f)}）。{START_CONTINUE}"
 
 
 # 先端の核を差し込む時の文（起動の時の古さの訳ごと。無い訳＝setup の後に main が進んだ・起動の後に新しくなった）
 TOLD_TEXT = {"setup": stale_at_start_text, "unknown": unknown_at_start_text}
+# 起動の後に新しくなった窓の圧縮・resume の後の知らせ（本文は上に 1 枚だけ差し込む）
+RESTART_TEXT = ("## 土台は起動の後に新しくなっている — 上の核と振る舞いの既定は main の先端の本文\n" + START_CONTINUE)
 
 
 def inject() -> int:
     data, bad_input = _hook_input()
     project = Path(os.environ.get("CLAUDE_PROJECT_DIR") or os.getcwd())
     parts = []
-    try:  # 核はいつも正本を差し込む（使う側の写しの枠が在っても、写しでなく正本が効く）
-        parts.append(inject_text())
-    except UNREADABLE as e:
-        print(f"plugin core: 核.md が読めない（{e}）＝核は差し込まれていない", file=sys.stderr)
     for name, make in (("古い形", lambda: olds_text(find_olds_bounded(project), project)),
                        ("CLAUDE.md の量", lambda: claude_md_text(project)), ("入れ方", setup_text)):
         try:
@@ -1084,9 +1315,14 @@ def inject() -> int:
         # 前に差し込んだ main の先端の核（told）を、もう一度差し込む（圧縮で起動の時の古い核だけが残らない）。
         told, kind = state.get("told"), state.get("told_kind")
     else:
+        comparable = True
         try:
             f = freshness()
             cause = start_cause(f)
+            comparable = f is not None
+        except Incomparable as e:  # その時だけ比べられない＝古くないと読まず、問いの時の見張り（fresh）が比べ直す
+            f, cause = None, None
+            parts.append(_incomparable_text(e))
         except Exception as e:  # noqa: BLE001  新しさの見張りが壊れても核の差し込みは止めない。壊れた事は名指しする
             f, cause = None, None
             parts.append(_broken_text("新しさ", e))
@@ -1101,11 +1337,31 @@ def inject() -> int:
         if broken is not None:
             parts.append(_state_broken_text(broken, "起動の時の記録（start_main・told）を今の値で書き直していない"))
         elif session:
-            state = {"checked": time.time(), "cause": cause, "comparable": f is not None, "start": f,
+            state = {"checked": time.time(), "cause": cause, "comparable": comparable, "start": f,
                      "start_main": f["main"] if f else None, "told": told, "told_kind": kind}
-            _save_state(session, state)
+    # 核はいつも正本を 1 枚だけ差し込む（使う側の写しの枠が在っても、写しでなく正本が効く）。土台が入った版より新しい窓は
+    # 先端の本文で差し込み、入っている古い本文と先端の本文の 2 枚を並べない。
+    texts = None
     if told:
-        parts.append(TOLD_TEXT.get(kind, update_text)(told))
+        try:
+            texts = tip_texts(told["main"])
+        except Exception as e:  # noqa: BLE001  先端が読めなくても入っている版の核は差し込む。壊れた事は名指しする
+            parts.append(_broken_text("先端の核の読み", e))
+        if unreadable_tip_text(texts):  # 先端で読めなかった file を起動の時に 1 回名指す（seen_digests が「名指した」と持つ）
+            parts.append(unreadable_tip_text(texts).rstrip("\n"))
+    try:
+        parts.insert(0, inject_text(texts))
+    except UNREADABLE as e:
+        print(f"plugin core: 核.md が読めない（{e}）＝核は差し込まれていない", file=sys.stderr)
+    if state is not None and broken is None and session and "core" not in state:
+        try:  # この窓が読んだ本文の印（fresh が、本文の変わらない先端を送り直さないために比べる）
+            state["core"] = seen_digests(texts)
+        except UNREADABLE:
+            pass
+        _save_state(session, state)
+    if told:
+        parts.append(TOLD_TEXT[kind](told) if kind in TOLD_TEXT else RESTART_TEXT if kind == "update"
+                     else after_setup_text(told))
     if parts:
         out = {"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": "\n".join(parts)}}
         sys.stdout.write(json.dumps(out, ensure_ascii=False))
@@ -1114,7 +1370,8 @@ def inject() -> int:
 
 def fresh() -> int:
     """起動の後に土台が新しくなったかを見る。新しくなっていれば、main の先端の核と振る舞いの既定をこの窓に差し込み、
-    窓はそのまま頼みを続ける（引き継がせない・閉じさせない）。同じ先端は 1 回だけ差し込む（問いのたびに繰り返さない）。"""
+    窓はそのまま頼みを続ける（引き継がせない・閉じさせない）。同じ先端は 1 回だけ見る（問いのたびに繰り返さない）。
+    核と振る舞いの既定は、この窓が読んだ本文から変わった物だけを送る（本文が同じなら守りの入れ直しだけで黙る）。"""
     data, bad_input = _hook_input()
     session = data.get("session_id")
     if bad_input:
@@ -1135,24 +1392,38 @@ def fresh() -> int:
     interval = float(os.environ.get("AF_FRESH_INTERVAL") or FRESH_INTERVAL)
     if time.time() - float(state.get("checked") or 0) < interval:
         return 0
-    broken = None
+    text = None
     try:
         got = freshness()
+        if got and got["plugins"] and state.get("start_main"):
+            # 入った版でなく、この窓が立った時の先端と比べる（作り置きの箱で立った窓を、立つ前の main の進みで数えない）
+            moved = moved_since(state["start_main"], got["main"])
+            got = dict(got, plugins=moved) if moved else None
+    except Incomparable as e:  # 比べられない時は「新しくなっていない」と読まず名指す（間を置いて 1 回）
+        got, text = None, _incomparable_text(e)
     except Exception as e:  # noqa: BLE001  見張りが壊れても問いは止めない。壊れた事は名指しする（間を置いて 1 回）
-        got, broken = None, e
+        got, text = None, _broken_text("新しさ", e)
     state["checked"] = time.time()
-    if got and got["plugins"] and state.get("start_main"):
-        # 入った版でなく、この窓が立った時の先端と比べる（作り置きの箱で立った窓を、立つ前の main の進みで数えない）
-        moved = moved_since(state["start_main"], got["main"])
-        got = dict(got, plugins=moved) if moved else None
-    text = _broken_text("新しさ", broken) if broken else None
     if got and got["plugins"] and got["main"] != (state.get("told") or {}).get("main"):
-        state["told"], state["told_kind"] = got, "update"
-        text = update_text(got)
+        # 守りの hook は先端の版へ入れ直す。核と振る舞いの既定は、この窓が読んだ本文から変わった物だけを 1 回送る
+        # （plugin のどこかが動くたびに同じ核を送り直さない＝同じ核を文脈に何枚も積まない）。
+        try:
+            had = state.get("core")
+            if had is None:  # 本文の印を持たない前の版の記録: 前に送った先端か、入っている版の本文を読んだと読む
+                told_main = (state.get("told") or {}).get("main")
+                had = seen_digests(tip_texts(told_main) if told_main else None)
+            new = tip_texts(got["main"])
+            core = changed_core_text(got["main"], new, had)
+        except Exception as e:  # noqa: BLE001  先端の核を読めなくても問いは止めない。名指しし、told を進めず次の問いで読み直す
+            text = _broken_text("先端の核の読み", e)
+        else:
+            state["told"], state["told_kind"] = got, "update"
+            state["core"] = {**had, **{k: v or TIP_UNREADABLE for k, v in core_digests(new).items()}}
+            text = update_text(got, core) if core else None
         try:
             start_refresh(got["main"])
         except Exception as e:  # noqa: BLE001  入れ直しが壊れても問いは止めない。壊れた事は名指しする
-            text += _broken_text("裏の入れ直し", e)
+            text = (text or "") + _broken_text("裏の入れ直し", e)
     _save_state(session, state)
     return _say(text)
 
@@ -1233,7 +1504,90 @@ def base_text(ref: str, path: Path) -> str:
     raise OSError(f"{ref}:{rel} に .md が無い")
 
 
+# 守りの数（オーナー同意 2026-11-23: 守るための守りを足し続けない）。見張り（guard の hook）・CI の検査・レビューの点の数が
+# REF より増えたら赤（足すなら同じ変更で 1 つ畳む）。安全の守り（戻せない操作・秘密と外への送信・お金・公開の検査）は数えない。
+# 試験は数を出すだけで止めない。
+REPO = PLUGIN.parent.parent
+GUARD_HOOKS = "plugins/guard/scripts"
+CHECKS = "scripts/checks"
+WORKFLOWS = ".github/workflows"
+REVIEW_POINTS = "plugins/checker/skills/review-pr/SKILL.md"
+SAFETY = frozenset({"irreversible.py", "outbound.py", "paid_upstream.py", "public_guard.sh"})
+COUNT_FIX = "直し: 守りを足すなら同じ変更で同じ種類を 1 つ畳む（近い見張り・検査・点へ寄せる）。安全の守りは数えない（SAFETY）"
+
+
+def guard_counts(ref: str | None = None, root: Path | None = None) -> dict[str, int]:
+    """守りの数。ref が None なら手元の中身、在れば git の ref の時の中身を数える。読めない時は OSError で止める。"""
+    root = root or REPO
+
+    def names(rel: str) -> list[str]:
+        if ref is None:
+            d = root / rel
+            if not d.is_dir():
+                raise OSError(f"{rel} が無い")
+            return sorted(x.name for x in d.iterdir())
+        r = subprocess.run(["git", "-c", "core.quotepath=off", "ls-tree", "--full-tree", "--name-only", f"{ref}:{rel}"],
+                           cwd=root, capture_output=True)
+        if r.returncode != 0:
+            raise OSError(f"{ref}:{rel} が読めない: {r.stderr.decode('utf-8', 'replace').strip()}")
+        return sorted(r.stdout.decode("utf-8").splitlines())
+
+    def has(rel: str) -> bool:
+        if ref is None:
+            return (root / rel).is_file()
+        return subprocess.run(["git", "cat-file", "-e", f"{ref}:{rel}"], cwd=root, capture_output=True).returncode == 0
+
+    def text(rel: str) -> str:
+        if ref is None:
+            return (root / rel).read_text(encoding="utf-8")
+        r = subprocess.run(["git", "show", f"{ref}:{rel}"], cwd=root, capture_output=True)
+        if r.returncode != 0:
+            raise OSError(f"{ref}:{rel} が読めない: {r.stderr.decode('utf-8', 'replace').strip()}")
+        return r.stdout.decode("utf-8")
+
+    hooks = sum(1 for n in names(GUARD_HOOKS) if n.endswith(".py") and n not in SAFETY
+                and re.search(r"^HOOKS\b\s*(:[^=\n]*)?=", text(f"{GUARD_HOOKS}/{n}"), re.M))
+    entries = 0  # plugin の hooks.json に登録した hook の口（guard の外に見張りを置いても数える）
+    for plug in names("plugins"):
+        rel = f"plugins/{plug}/hooks/hooks.json"
+        if has(rel):
+            entries += sum(len(m.get("hooks", [])) for arr in json.loads(text(rel)).get("hooks", {}).values() for m in arr)
+    checks = sum(1 for n in names(CHECKS) if n.endswith(".sh") and n not in SAFETY)
+    steps = sum(1 for n in names(WORKFLOWS) if n.endswith((".yml", ".yaml"))
+                for line in text(f"{WORKFLOWS}/{n}").splitlines()
+                if re.match(r"\s*(- )?run:", line) and not re.search(r"public[-_]guard", line))
+    points = len(re.findall(r"^\| *\d+ ", text(REVIEW_POINTS), re.M))
+    return {"守りの見張り（guard の hook）": hooks, "hook の口（plugin の hooks.json）": entries,
+            "CI の検査（scripts/checks）": checks, "CI の段（workflow の run）": steps, "レビューの点（review-pr）": points}
+
+
+def test_count(root: Path | None = None) -> str:
+    """試験の数（出すだけ・止めない）。"""
+    files = sorted((root or REPO).glob("tests/test_*.py"))
+    funcs = sum(len(re.findall(r"^def test_", f.read_text(encoding="utf-8"), re.M)) for f in files)
+    return f"・試験: {len(files)} file・{funcs} 本（数えるだけ・止めない）"
+
+
 def grow(ref: str) -> int:
+    over = []
+    try:
+        now_n, before_n = guard_counts(), guard_counts(ref)
+    except UNREADABLE as e:
+        print(f"✗ 守りの数を照らせない: {e}")
+        return 2
+    for k, now in now_n.items():
+        if now > before_n[k]:
+            over.append(f"{k} が {ref} より増えた: {before_n[k]} → {now}（+{now - before_n[k]}）")
+        else:
+            print(f"・{k}: {before_n[k]} → {now}")
+    for b in over:
+        print(f"✗ {b}")
+    if over:
+        print(COUNT_FIX)
+    try:
+        print(test_count())
+    except UNREADABLE:
+        pass  # 数を出すだけ（止めない）
     bad = []
     for path in guarded():
         try:
@@ -1251,8 +1605,9 @@ def grow(ref: str) -> int:
         print(f"✗ {b}")
     if bad:
         print(GROW_FIX)
+    if bad or over:
         return 1
-    print("✅ 毎回差し込む物と細目は増えていない")
+    print("✅ 毎回差し込む物・細目・守りの数は増えていない")
     return 0
 
 
@@ -1274,8 +1629,8 @@ def olds(dirs: list[Path], table: Path = OLDS, as_json: bool = False) -> int:
             return 2
         found = scan["found"]
         if as_json:
-            print(json.dumps({"ref": scan["ref"], "note": scan.get("note"), **{k: [[r["id"], f] for r, f in scan[k]] for k in SCAN_KEYS}},
-                             ensure_ascii=False))
+            print(json.dumps({"ref": scan["ref"], "note": scan.get("note"), **{k: [[r["id"], f] for r, f in scan[k]] for k in SCAN_KEYS},
+                              "unread": [[f, why] for f, why in scan["unread"]]}, ensure_ascii=False))
             bad += len(found)
             continue
         src = f"main {scan['ref'][:12]} の中身" if scan["ref"] else "checkout"
@@ -1286,6 +1641,10 @@ def olds(dirs: list[Path], table: Path = OLDS, as_json: bool = False) -> int:
             return 2
         for r, f in found:
             print(f"✗ {d.name}/{f}: {r['id']}（{r['what']}・読んだ物: {src}）")
+        if scan["unread"]:  # 照らす file を読めなかった: 古い形 0 とも言い切らない（照らせない）
+            for f, why in scan["unread"]:
+                print(f"✗ {d.name}/{f}: 照らせない — {why}")
+            return 2
         if not found:
             print(f"✅ {d.name}: 古い形 0（読んだ物: {src}・見た形: {'・'.join(r['id'] for r in rows)}）")
         bad += len(found)

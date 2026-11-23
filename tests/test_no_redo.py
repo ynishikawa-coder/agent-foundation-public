@@ -43,7 +43,7 @@ RULES = [
     ("plugins/core/細目/03-直すは根治.md", "直す窓は直しが合流したら自分の行を全部 `直した` に替え、立てた窓へ返す。"),
     ("plugins/core/細目/04-聞き方.md", "1 窓 1 枝 1 PR に入らなかった仕事は原因の台帳の行にし、互いに関係しないまとまりごとに立てた窓を `直す窓` に付ける。"),
     ("plugins/core/細目/07-完了の4状態.md", "この窓から触れない repo は、原因の台帳の行にして repo ごとに 1 つの直す窓を `直す窓` に付ける。"),
-    ("plugins/core/細目/07-完了の4状態.md", "揃える物は 3 つ: ①書いた窓と別の窓のレビュー（合流の前に 1 回）が今の先端に green（red を直した後は"
+    ("plugins/core/細目/07-完了の4状態.md", "揃える物は 2 つ: ①書いた窓と別の窓のレビュー（合流の前に 1 回）が今の先端に green（red を直した後は"
                             "同じレビューの窓の見直しで付ける）"),
     ("plugins/core/細目/07-完了の4状態.md", "- **判定を頼む** — 書いた窓が PR に 1 つだけレビューの窓を立てて頼み、返しを受けて合流まで運ぶ。"),
     ("plugins/core/細目/07-完了の4状態.md", "red を直したら新しいレビューの窓を立てず、同じレビューの窓へ `send_message` で見直しを頼む。"),
@@ -113,13 +113,21 @@ def test_注入_引き継いで閉じる文を入れると見分けが拾う():
     assert HANDOVER.search(old)
 
 
-@pytest.mark.parametrize("make", ["update_text", "stale_at_start_text", "unknown_at_start_text"])
+def _update(f):
+    return kaku.update_text(f, kaku.changed_core_text(f["main"], kaku.tip_texts(f["main"]), {}))
+
+
+@pytest.mark.parametrize("make", [_update, kaku.stale_at_start_text, kaku.unknown_at_start_text,
+                                  kaku.after_setup_text, lambda f: kaku.RESTART_TEXT])
 def test_土台の新しさの知らせは窓をそのまま続けさせる(monkeypatch, tmp_path, make):
     monkeypatch.setenv("HOME", str(tmp_path))       # 目録が無い＝先端の本文は読めない（読めない事を 1 行で名指す）
-    text = getattr(kaku, make)(_f())
+    text = make(_f())
     assert not HANDOVER.search(text), text
     assert "そのまま頼みを続ける" in text and "create_session・archive_session をしない" in text
-    assert "（main の先端の 核.md を読めなかった" in text
+    if make is _update:
+        assert "（main の先端の 核.md を読めなかった" in text
+    else:                                            # 起動の時は核を上に 1 枚だけ差し込み、知らせに本文を重ねない
+        assert "### main の先端の" not in text
 
 
 def test_起動の後の知らせは同じ先端で繰り返さない():

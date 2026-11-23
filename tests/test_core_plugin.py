@@ -454,7 +454,10 @@ def test_起動の後に_plugin_が変わったら先端の核を差し込み窓
         assert old not in text.replace("create_session・archive_session をしない", ""), old
     assert f.hook("fresh") == ""                         # 同じ先端は 1 回だけ（問いのたびに繰り返さない）
     _commit(f.work, {"plugins/checker/y.py": "y\n"}, "また変える")
-    assert "checker" in f.hook("fresh")                  # 先端がまた進めばもう 1 度
+    assert f.hook("fresh") == ""                         # 核の本文が同じなら、plugin が動いても送り直さない
+    _commit(f.work, {"plugins/core/核.md": "核 5\n"}, "核をまた変える")
+    again = f.hook("fresh")
+    assert "核 5" in again and "核 3" not in again        # 核が変われば、変わった物だけをもう 1 度
 
 
 @pytest.mark.parametrize("source", ["compact", "clear", "resume"])
@@ -467,7 +470,8 @@ def test_途中で古くなった窓は圧縮や_resume_の後も先端の核を
     assert "新しい核をここで読み" in f.hook("fresh")
     again = f.hook("inject", source=source)
     assert "土台が古いまま立った窓" not in again           # 「起動の時から古い」と取り違えない
-    assert "新しい核をここで読み" in again
+    assert "起動の後に新しくなっている" in again
+    assert again.startswith("核 1") and "# 振る舞いの核" not in again   # 先端の核を 1 枚だけ（入っている古い核と並べない）
 
 
 def test_起動の時から古い窓は圧縮の後も同じ知らせを出す(tmp_path):
@@ -496,12 +500,15 @@ def test_起動の時から古い窓は_setup_script_を直し窓はそのまま
     assert "update_environment" in text and "直せない時" in text and "連絡板" in text
     assert "そのまま頼みを続ける" in text and "核 2" in text   # 先端の核を差し込む
     assert "create_session で" not in text and "archive_session で" not in text
-    assert "# 振る舞いの核" in text                       # 核の差し込みは止めない
+    assert text.startswith("核 2") and text.count("核 2") == 1   # 先端の核を 1 枚だけ差し込む
+    assert "# 振る舞いの核" not in text                   # 入っている古い核と 2 枚並べない
+    assert "# 振る舞いの既定" in text                     # 先端で読めない物だけ入っている版で差し込む
     assert f.hook("fresh") == ""
 
 
 def test_比べられない時は窓を替えない(tmp_path):
-    """手元の dir から入れた試し・remote に出られない時は、知らない値で人の作業を止めない。"""
+    """手元の dir から入れた試し・remote に出られない時は、知らない値で人の作業を止めない（窓を替えさせない）。
+    remote に出られない時は「古くない」と黙らず、比べられなかった事だけを名指す（次の問いでまた見る）。"""
     f = Foundation(tmp_path)
     f.install(source="directory")
     f.hook("inject")
@@ -512,7 +519,9 @@ def test_比べられない時は窓を替えない(tmp_path):
     g.hook("inject", sid="s2")
     _commit(g.work, {"plugins/core/核.md": "核 3\n"}, "核を変える")
     g.remote.rename(g.tmp / "gone.git")                 # remote に出られない
-    assert g.hook("fresh", sid="s2") == ""
+    text = g.hook("fresh", sid="s2")
+    assert "比べられなかった" in text and "出所（origin）の先端を聞けない" in text and "。。" not in text
+    assert "create_session で" not in text               # 知らない値で窓を替えさせない
 
 
 def test_起動の記録が無い窓は見に行かない(tmp_path):
@@ -595,20 +604,6 @@ def test_残りの受け皿は原因の台帳_1_つで_名だけの受け皿を�
     assert not hits, hits
 
 
-def test_main_へは製品もオーナーに聞かずに入れ_絵と差がある時だけ止める():
-    """「本番への出荷は聞く」を核に戻すと赤（Notion の決定と窓が読む核が食い違う形）。"""
-    kaku_text = (PLUGIN / "核.md").read_text(encoding="utf-8")
-    assert "本番への出荷" not in _節(kaku_text, 4), "核 §4 に「本番への出荷は聞く」が戻った"
-    s7 = _節(kaku_text, 7)
-    for word in ["（製品も）オーナーに聞かずに入れる", "レビュー green", "試験が緑で衝突なし", "全体の絵", "差がある・照らせない時は止めて聞く", "先に絵を描き"]:
-        assert word in s7, f"核 §7 に無い: {word}"
-    s7d = _節(細目の全文(), 7)
-    assert "**main へ入れる**" in s7d and "**③の照らし方**" in s7d
-    assert "review-pr 点 13" in s7d and "③の段が土台に入るまで" not in s7d   # 照らす段が入った後に「一言を取る」間の扱いを残さない
-    assert "核 §7 の「照らせない時」" in s7d, "照らせない時の止めが核から読めない形に戻った"
-    assert "核 §7 と細目 §7 の「main へ入れる」" in (ROOT / "CONTRIBUTING.md").read_text(encoding="utf-8")
-
-
 def test_土台の直しは使う側の写しの残りも同じ仕事で直し_合流まで終わったと言わない():
     """写しの残りを洗い出すだけで終わる形（直す持ち主が無い）を戻すと赤。"""
     s7d = _節(細目の全文(), 7)
@@ -628,12 +623,12 @@ def test_ミスが出たらまず構造を疑い_単発と言うのは絵の上�
     s3 = _節(kaku_text, 3)
     first = s3.split("\n- ", 1)[1]
     assert first.startswith("ミスが出た時（画面の見た目を除く）と直す・作る時の既定は根治"), "根治の入口が直す・作る時だけに戻った"
-    for word in ["まず構造（上位の前提", "単発の誤りと言うのは全体の絵の上で構造に原因が無いと示せた時だけ",
+    for word in ["まず構造（上位の前提", "単発の誤りと言うのは構造に原因が無いと示せた時だけ（絵があれば絵の上で）",
                  "守り（確かめ・決まり）を足さず"]:
         assert word in s3, f"核 §3 に無い: {word}"
     s3d = _節(細目の全文(), 3)
     assert "**まず構造を疑う**" in s3d
-    for word in ["作業の途中・レビュー・検査・引き継ぎ", "画面の見た目の崩れだけは除く", "示した所（絵のどこを見たか）を書く",
+    for word in ["作業の途中・レビュー・検査・引き継ぎ", "画面の見た目の崩れだけは除く", "示した所を書く（合意した全体の絵があれば絵のどこを見たか、無ければ言葉で）",
                  "根に届いていない合図で、原因の段へ戻る"]:
         assert word in s3d, f"細目 §3 の「まず構造を疑う」に無い: {word}"
     rr = (ROOT / "plugins" / "dev-flow" / "skills" / "register-rule" / "SKILL.md").read_text(encoding="utf-8")

@@ -23,12 +23,15 @@ def test_setup_の後に_main_が進んだだけの窓に_setup_script_を直せ
     _commit(f.work, {"plugins/guard/x.py": "x\n"}, "setup の後・窓が立つ前に守りを変える")
     text = f.hook("inject")
     assert "土台が古いまま立った窓" not in text and SETUP_FIX not in text, text
-    assert "# 振る舞いの核" in text and "新しい核をここで読み" in text
+    assert text.startswith("核 1") and "# 振る舞いの核" not in text   # 先端の核を 1 枚だけ（入っている古い核と並べない）
+    assert "setup の後に main が進んでいた" in text
     assert f.hook("fresh") == ""                            # 起動の時に差し込んだ先端は繰り返さない
     assert "土台が古いまま立った窓" not in f.hook("inject", source="compact")
     _commit(f.work, {"plugins/checker/y.py": "y\n"}, "窓が立った後に checker を変える")
+    assert f.hook("fresh") == ""                            # 核の本文が同じなら送り直さない
+    _commit(f.work, {"plugins/checker/y.py": "y2\n", "plugins/core/核.md": "核 2\n"}, "checker と核を変える")
     told = f.hook("fresh")
-    assert "新しい核をここで読み" in told and "checker" in told and SETUP_FIX not in told
+    assert "新しい核をここで読み" in told and "核 2" in told and "checker" in told and SETUP_FIX not in told
     assert "create_session で" not in told and "引き継いで閉じる" not in told
     assert "guard" not in told                              # 立つ前の進みは数えない
     assert f.hook("fresh") == ""                            # 1 回だけ
@@ -134,8 +137,9 @@ def test_立った後に古くなった窓は圧縮の後も先端の核をも�
     f = Foundation(tmp_path)
     f.install(main_at_setup=f.installed)
     f.hook("inject")
-    _commit(f.work, {"plugins/guard/x.py": "x\n"}, "立った後に守りを変える")
+    _commit(f.work, {"plugins/guard/x.py": "x\n", "plugins/core/核.md": "核 2\n"}, "立った後に守りと核を変える")
     assert "新しい核をここで読み" in f.hook("fresh")
     again = f.hook("inject", source="compact")
-    assert "土台が古いまま立った窓" not in again and "新しい核をここで読み" in again
+    assert "土台が古いまま立った窓" not in again and "起動の後に新しくなっている" in again
+    assert again.startswith("核 2") and "# 振る舞いの核" not in again
     assert f.hook("fresh") == ""                            # 同じ先端は繰り返さない
