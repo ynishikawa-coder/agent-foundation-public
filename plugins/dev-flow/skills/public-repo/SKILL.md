@@ -1,6 +1,6 @@
 ---
 name: public-repo
-description: 公開の repo を作る・非公開の repo を公開で出し直す・外れた公開 repo を直す時の手順。綺麗な新しい repo に照らした中身を置き、土台の公開の検査（action public-guard）を main の先端で呼び、secret と main の守りを持ち主に頼む。「公開の repo を作って」「public にしたい」「公開で出し直して」「見回りで外れと出た」で起動。合言葉:「公開する」「public にして」「公開の検査を付けて」。
+description: 公開の repo を作る・出し直す・直す手順。「公開の repo を作って」「public にしたい」「公開で出し直して」「見回りで外れと出た」「公開する」「public にして」「公開の検査を付けて」で起動。
 ---
 
 # /public-repo — 公開の repo を作る

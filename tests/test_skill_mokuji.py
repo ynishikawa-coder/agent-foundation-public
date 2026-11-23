@@ -19,6 +19,13 @@ spec.loader.exec_module(measure_load)
 
 DESC_MAX = 150     # 説明文の上限（字）。1〜2 行
 BODY_MAX = 3000    # SKILL.md の本文（頭の後）の上限（字）。目次＋いつも要る事だけ
+# 道具が SKILL.md から直に読む節を持つ skill だけ、理由つきで上限を広げる（理由の無い広げは置かない）。
+BODY_ALLOW = {
+    # 「見る点」「判定の形」の節は verdict_form.py・kaku.py が SKILL.md から読む（動かさない約束）
+    "checker:review-pr": (4400, "verdict_form.py と kaku.py が「見る点」「判定の形」をこの file から読む"),
+    # 見張りの目次の表と値の表は、試験と guard の値の照らしが SKILL.md の行を読む
+    "guard:guard-rules": (4400, "見張りの目次の表・値の表の行を試験と値の照らしが SKILL.md から読む"),
+}
 
 # 起動の言葉: 説明文に残す語（合言葉・「〜で起動」「〜と言われた時」の語）。前の説明文から写した。
 TRIGGERS = {
@@ -47,8 +54,9 @@ def problems(name: str, text: str, siblings: set[str]) -> list[str]:
         out.append(f"{name}: 説明文が無い")
     if len(desc) > DESC_MAX:
         out.append(f"{name}: 説明文 {len(desc)} 字 > {DESC_MAX}")
-    if len(body) > BODY_MAX:
-        out.append(f"{name}: SKILL.md の本文 {len(body)} 字 > {BODY_MAX}（細目は同じ dir の file へ）")
+    limit = BODY_ALLOW.get(name, (BODY_MAX, ""))[0]
+    if len(body) > limit:
+        out.append(f"{name}: SKILL.md の本文 {len(body)} 字 > {limit}（細目は同じ dir の file へ）")
     for w in TRIGGERS.get(name, []):
         if w not in desc:
             out.append(f"{name}: 起動の言葉「{w}」が説明文に無い")
@@ -69,6 +77,17 @@ def _check(name: str):
 @pytest.mark.parametrize("name", sorted(TRIGGERS))
 def test_skill_is_small_and_keeps_triggers(name):
     assert _check(name) == []
+
+
+def test_allowances_have_reason_and_name_real_skills():
+    """広げた上限は理由を持ち、在る skill だけを名指す（広げを黙って足さない）。"""
+    assert set(BODY_ALLOW) <= set(skill_dirs())
+    assert all(n > BODY_MAX and why for n, why in BODY_ALLOW.values())
+
+
+def test_allowance_is_still_a_limit():
+    bad = GOOD + "う" * (BODY_ALLOW["checker:review-pr"][0] + 1)
+    assert any("本文" in p for p in problems("checker:review-pr", bad, {"細目.md"}))
 
 
 def test_triggers_name_real_skills():
