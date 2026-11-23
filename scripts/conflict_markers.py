@@ -30,7 +30,7 @@ from pathlib import Path
 
 MARKER = re.compile(r"^(?:(?:<{7}|\|{7}|>{7})(?:[ \t].*)?|={7})\r?$")
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "skill-values"))
-from root_cause import root_cause  # noqa: E402  根治の 1 文（細目 §3「まず構造を疑う」へ入る）の 1 本の口（写さない）
+from root_cause import root_cause  # noqa: E402  根治の 1 文の 1 本の口＝skill-values/root_cause.py の root_cause（写さない）
 ROOT_CAUSE = root_cause("配る物が 1 つの版の文だけで届く", cause="印のまま commit できた（衝突を解いた後に check_all を回さず push した等）",
                         shortcut="両方の版を読んで 1 つの文に合わせる")
 BOMS = ((b"\xff\xfe\x00\x00", "utf-32-le"), (b"\x00\x00\xfe\xff", "utf-32-be"),

@@ -16,7 +16,7 @@ ROOT = Path(__file__).resolve().parents[1]
 RULESET = ROOT / ".github/rulesets/main.json"
 ENV = "rulesets"
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "skill-values"))
-from root_cause import root_cause  # noqa: E402  根治の 1 文（細目 §3「まず構造を疑う」へ入る）の 1 本の口（写さない）
+from root_cause import root_cause  # noqa: E402  根治の 1 文の 1 本の口＝skill-values/root_cause.py の root_cause（写さない）
 FIX = root_cause("main の守りが決まりどおり掛かる", cause="赤になった", shortcut="赤の訳を 1 つずつ潰す")
 
 

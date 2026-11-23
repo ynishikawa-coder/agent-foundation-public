@@ -49,7 +49,7 @@ TOOL_SUFFIX = (".py", ".mjs", ".js", ".sh")
 CODE_SUFFIX = (".py", ".mjs", ".js", ".sh", ".md", ".json")   # 呼ぶ形を読める file（.html・.txt は道具を呼ばない）
 OUTSIDE_SKIP = {"plugins", "tests", "scripts", "docs", "CHANGELOG.d"}  # 配らない・道具でない dir（. で始まる dir も外す）
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "skill-values"))
-from root_cause import root_cause  # noqa: E402  根治の 1 文（細目 §3「まず構造を疑う」へ入る）の 1 本の口（写さない）
+from root_cause import root_cause  # noqa: E402  根治の 1 文の 1 本の口＝skill-values/root_cause.py の root_cause（写さない）
 ROOT_CAUSE = (root_cause("合意した絵が実物の流れを全部持つ", cause="流れが絵から漏れた", shortcut="1 本ずつ足す")
               + "（絵は合意の版＝足すならオーナーに差を見せて決めてもらう）")
 

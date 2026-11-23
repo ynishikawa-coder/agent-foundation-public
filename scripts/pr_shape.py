@@ -41,7 +41,7 @@ BRANCH = re.compile(r"^claude/(\d{8}-[0-9A-Za-z][0-9A-Za-z._-]*)$")
 def root_cause_line():
     """赤の時だけ読む根治の 1 文（1 本の口 skill-values/root_cause.py。この file だけを写して使う照らしでも赤までは読まない）。"""
     sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "skill-values"))
-    from root_cause import root_cause  # 根治の 1 文（細目 §3「まず構造を疑う」へ入る）の 1 本の口
+    from root_cause import root_cause  # 根治の 1 文の 1 本の口＝skill-values/root_cause.py の root_cause
     return root_cause("並ぶ PR が互いに衝突しない", cause="同じ所へ足す形になった", shortcut="足す所を動かして通す")
 
 

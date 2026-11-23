@@ -59,7 +59,7 @@ CONTAIN_MIN = 16       # 文面の含有で同じ問いとみなす最低の長�
 ASK_BATCH = 4          # モーダル 1 回に載る問いの数（出し直しはこの数ずつ続けて出させる）
 LEDGER_TTL_HOURS = 24  # 台帳の寿命（最後に出てから）
 def root_cause_line():
-    """根治の 1 文（細目 §3「まず構造を疑う」へ入る）の 1 本の口（lib/ の symlink・止める・知らせる時だけ読む＝写した見張りの照らしは読まずに動く）"""
+    """根治の 1 文の 1 本の口＝skill-values/root_cause.py の root_cause（lib/ の symlink・止める・知らせる時だけ読む＝写した見張りの照らしは読まずに動く）"""
     from root_cause import root_cause
     return root_cause("オーナーの答えを得て進む", cause="答えが返らなかった", shortcut="出し直す") + "（見る所: 聞く時・問いの形・聞き方）。"
 

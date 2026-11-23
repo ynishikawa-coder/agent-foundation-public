@@ -54,7 +54,7 @@ def format_problems(path, problems):
     here = os.path.dirname(os.path.abspath(__file__))   # 同じ dir の正本（lib/ では同じ symlink）
     if here not in sys.path:
         sys.path.insert(0, here)
-    from root_cause import root_cause  # 根治の 1 文（細目 §3「まず構造を疑う」へ入る）の 1 本の口
+    from root_cause import root_cause  # 根治の 1 文の 1 本の口＝skill-values/root_cause.py の root_cause
     head = ("値の表 %s に直す所がある（鍵の一覧の正本は土台の skill-values/schema.json。%s）:"
             % (path or "（不明）", root_cause("値の表の鍵が全部読まれて効く", cause="写しや古い鍵が残った", shortcut="鍵を 1 つずつ消す")))
     return "\n".join([head] + ["  - " + p for p in problems])

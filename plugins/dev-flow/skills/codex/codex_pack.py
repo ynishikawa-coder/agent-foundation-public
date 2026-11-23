@@ -118,7 +118,7 @@ OUTPUT_CONTRACT = [
 
 
 # 中止の時の最後の行（中身は細目 §3 が正本＝ここは指すだけ）
-from root_cause import root_cause  # noqa: E402  根治の 1 文（細目 §3「まず構造を疑う」へ入る）の 1 本の口（plugin の lib/ の symlink）
+from root_cause import root_cause  # noqa: E402  根治の 1 文の 1 本の口＝skill-values/root_cause.py の root_cause（plugin の lib/ の symlink）
 ROOT_CAUSE = root_cause("外へ渡す物に秘密と顧客の物が入らない", cause="混じった", shortcut="file を差し替えて出し直す", where="（渡す物の選び方）")
 
 class Abort(Exception):

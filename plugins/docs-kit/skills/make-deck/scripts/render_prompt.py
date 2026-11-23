@@ -40,7 +40,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."
 import skill_values  # noqa: E402  値の表の 1 本の口（plugin の lib/＝土台の skill-values/ への symlink）
 
 # 止まる時の最後の行（中身は細目 §3 が正本＝ここは指すだけ）
-from root_cause import root_cause  # noqa: E402  根治の 1 文（細目 §3「まず構造を疑う」へ入る）の 1 本の口（plugin の lib/ の symlink）
+from root_cause import root_cause  # noqa: E402  根治の 1 文の 1 本の口＝skill-values/root_cause.py の root_cause（plugin の lib/ の symlink）
 ROOT_CAUSE = root_cause("事実が確かな材料だけで資料を作る", cause="欠けた", shortcut="欠けを埋めて出し直す", where="（材料の受け方・型の欄）")
 SKILL_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DEFAULT_TEMPLATE = os.path.join(SKILL_ROOT, "prompts", "base.txt")

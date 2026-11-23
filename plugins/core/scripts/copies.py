@@ -36,7 +36,7 @@ _POINTER = re.compile(r"`[\x20-\x7e]*`"                              # 英数字
                       r"|[\w~-]+\.(?:md|py|json|sh|ya?ml|mjs|js|txt|toml)\b"  # 名だけの file（CONTRIBUTING.md）
                       r"|\b[a-z][\w-]*:[a-z][\w-]*\b", re.A)              # skill の名（dev-flow:verify）
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
-from root_cause import root_cause  # noqa: E402  根治の 1 文（細目 §3「まず構造を疑う」へ入る）の 1 本の口（plugin の lib/ の symlink）
+from root_cause import root_cause  # noqa: E402  根治の 1 文の 1 本の口＝skill-values/root_cause.py の root_cause（plugin の lib/ の symlink）
 ROOT_CAUSE = (root_cause("正本が 1 つで使う側は指すだけ", cause="写しが要る形になった", shortcut="写しの文を言い換えて逃がす")
               + "。写しは土台の正本を指す 1 行（どの file のどの節か。節は番号でなく名で指し、refs.py check で照らす）に替える")
 

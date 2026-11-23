@@ -38,7 +38,7 @@ MARKET = "agent-foundation"
 KAKU_HEAD = "# 振る舞いの核（agent-foundation）"
 # 守りの hook が止めるべき作り物の入力（試験の file から有料の上流の鍵を読む線）。guard の pre は必ず deny を返す。
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "skill-values"))
-from root_cause import root_cause  # noqa: E402  根治の 1 文（細目 §3「まず構造を疑う」へ入る）の 1 本の口（写さない）
+from root_cause import root_cause  # noqa: E402  根治の 1 文の 1 本の口＝skill-values/root_cause.py の root_cause（写さない）
 ROOT_CAUSE = (root_cause("土台の物が入れた窓へ全部届く", cause="届かない形になった", shortcut="1 つずつ足し直す")
               + "（届くべき物は正本を直に読む形か・配りの器と正本が 2 つになっていないか）")
 GUARD_PROBE = {"tool_name": "Write", "session_id": "smoke", "tool_input": {

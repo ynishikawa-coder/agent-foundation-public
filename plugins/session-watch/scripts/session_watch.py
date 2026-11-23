@@ -112,7 +112,7 @@ def neighbor(name):
 ASK = "AskUserQuestion"
 SET_TITLE_SUFFIX = "set_session_title"
 REMOTE_PREFIX = "mcp__claude-code-remote__"
-from root_cause import root_cause  # noqa: E402  根治の 1 文（細目 §3「まず構造を疑う」へ入る）の 1 本の口（lib/ の symlink）
+from root_cause import root_cause  # noqa: E402  根治の 1 文の 1 本の口＝skill-values/root_cause.py の root_cause（lib/ の symlink）
 ROOT_CAUSE = root_cause("オーナーが返事を読んで迷わない", cause="拾われた形が出た", shortcut="拾われた所を出し直す")
 
 # ── 題の印の表（正本はここ 1 か所・オーナーの決定 2026-11-22）──────────────────

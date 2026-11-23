@@ -745,9 +745,26 @@ def test_失敗で終わる道具は一覧に載せなくても全部根治の�
     tools = [r for r in out.stdout.split() if r.endswith((".py", ".sh", ".mjs", ".js"))]
     found = [r for r in tools if 失敗で終わる.search((ROOT / r).read_text(encoding="utf-8"))]
     assert "public-guard/guard.py" in found and "plugins/guard/scripts/guard.py" in found, "拾い方が壊れた"
-    entry = re.compile(r"細目(?:\s*§\s*\d+)?「まず構造を疑う」")  # 番号は付けても付けなくても（合うかは refs.py が照らす）
-    missing = [r for r in found if not entry.search((ROOT / r).read_text(encoding="utf-8"))]
+    missing = [r for r in found if not 根治の入口を指す((ROOT / r).read_text(encoding="utf-8"))]
     assert not missing, f"失敗で終わるのに根治の入口を指さない道具: {missing}"
+
+
+入口 = re.compile(r"細目(?:\s*§\s*\d+)?「まず構造を疑う」")  # 番号は付けても付けなくても（合うかは refs.py が照らす）
+口を呼ぶ = re.compile(r"^\s*from root_cause import root_cause\b", re.M)
+
+
+def 根治の入口を指す(text):
+    """入口の字を自分で持つか、入口を持つ 1 本の口（skill-values/root_cause.py）を呼ぶ。口を呼ぶ道具は字を写さない（写すと数える道具の写しが増える）。"""
+    if 入口.search(text):
+        return True
+    return bool(口を呼ぶ.search(text)) and 入口.search((ROOT / "skill-values" / "root_cause.py").read_text(encoding="utf-8")) is not None
+
+
+def test_注入_入口の字も口の呼び出しも無い道具は入口を指さない():
+    """口を呼ぶ道具を字の無いままで通す代わりに、字も口も無い道具・注に書いただけの import は通さない。"""
+    assert not 根治の入口を指す('print("赤")\nsys.exit(1)\n')
+    assert not 根治の入口を指す('# from root_cause import root_cause\nsys.exit(1)\n')
+    assert 根治の入口を指す('    from root_cause import root_cause  # noqa: E402\n')
 
 
 # 古い形の類（直した文だけでなく、同じ file のどこに残っても拾う）
@@ -763,7 +780,7 @@ def 単発の手直しの文(text):
     for s in re.split(r"[。\n]", text):
         if 単発の語.search(s):
             yield s
-        elif ミスの語.search(s) and その場の直し.search(s) and "まず構造を疑う" not in s:
+        elif ミスの語.search(s) and その場の直し.search(s) and "まず構造を疑う" not in s and "root_cause(" not in s:
             yield s
 
 
@@ -772,7 +789,7 @@ def test_赤を返す所は根治の入口を指し単発の手直しの形が�
     """赤・red・抜けを返す所が、直して出し直す・1 行足すだけの古い形に戻ると赤。指す先の正本が無くなっても赤。"""
     assert "**まず構造を疑う**" in _節(細目の全文(), 3), "指す先の正本が無い"
     text = (ROOT / rel).read_text(encoding="utf-8")
-    assert "細目 §3「まず構造を疑う」" in text, f"{rel} が根治の入口（細目 §3「まず構造を疑う」）を指さない"
+    assert 根治の入口を指す(text), f"{rel} が根治の入口（細目 §3「まず構造を疑う」）を指さず、1 本の口も呼ばない"
     for old in 赤を返す所[rel]:
         assert old not in text, f"{rel} に単発の手直しの古い形が残る: {old}"
     left = list(単発の手直しの文(text))
