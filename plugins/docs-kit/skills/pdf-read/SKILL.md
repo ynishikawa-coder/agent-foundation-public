@@ -51,7 +51,7 @@ engine 置き場: engine を持つ製品の repo の中の engine の dir。ど�
 
 ## repo ごとの値（config/skill-values.json）
 
-repo の根（`git rev-parse --show-toplevel`）の `config/skill-values.json` の `docs-kit.pdf-read.<鍵>` から読む。**鍵が無い・値が空なら右の既定で動く**。
+`config/skill-values.json` の `docs-kit.pdf-read.<鍵>` から読む。**鍵が無い・値が空なら右の既定で動く**。表の探し方・既定・知らない鍵の扱いの正本は土台の `skill-values/skill_values.py` の冒頭（「探し方」「照らし」）。
 
 | 鍵 | 使う所 | 無い時の既定 |
 |---|---|---|

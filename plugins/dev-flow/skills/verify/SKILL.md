@@ -9,7 +9,7 @@ description: 主張を真実源で 1 度確かめる。着手前は受けた sel
 
 ## repo ごとの値（config/skill-values.json）
 
-repo ごとに違う値は、repo の根（`git rev-parse --show-toplevel`）の `config/skill-values.json` の `dev-flow.verify.<鍵>` と `common.<鍵>` から読む。**鍵が無い・値が空なら右の既定で動く**。知らない鍵・畳んだ鍵・型の違う値は黙って捨てない（道具は名指しで止まり、窓の起動の時に guard が名指しで知らせる。表の探し方と鍵の一覧の正本は土台の `skill-values/`。鍵を足す時はそこへ足す）。
+`config/skill-values.json` の `dev-flow.verify.<鍵>` と `common.<鍵>` から読む。**鍵が無い・値が空なら右の既定で動く**。表の探し方・既定・知らない鍵の扱いの正本は土台の `skill-values/skill_values.py` の冒頭（「探し方」「照らし」）。
 
 | 鍵 | 使う所 | 無い時の既定 |
 |---|---|---|

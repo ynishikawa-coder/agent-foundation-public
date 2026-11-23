@@ -29,6 +29,9 @@ import re
 import sys
 import urllib.request
 
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "skill-values"))
+from root_cause import root_cause  # noqa: E402  根治の 1 文（細目 §3「まず構造を疑う」へ入る）の 1 本の口（写さない）
+
 CONTEXT = 3
 UNSEEN = 3  # 見ていない（緑に数えない）
 HUNK = re.compile(r"^@@ -(\d+)(?:,(\d+))? \+\d+(?:,\d+)? @@", re.M)
@@ -147,7 +150,7 @@ def main_files(repo: str, declared: list[str]) -> int:
         print(f"✗ {pr} が {f} を書き換えている")
     if hits:
         print("pr_overlap: 重なる — 同じ file を取る窓は並べず列にする（重なる PR が入ってから main を取り込んで始める）")
-        print("直し: 1 つの file を多くの窓が取り合うなら、意図（窓どうしが互いに待たずに進む）とのずれから入り、分け方の原因を細目 §3「まず構造を疑う」で探す")
+        print(root_cause("窓どうしが互いに待たずに進む", cause="1 つの file を多くの窓が取り合う分け方になった", shortcut="取り合う窓を待たせる"))
         return 1
     print(f"pr_overlap: 重ならない — 宣言した {len(declared)} file を開いている PR {len(others)} 本のどれも書き換えていない")
     return 0

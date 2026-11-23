@@ -36,6 +36,7 @@ from __future__ import annotations
 import argparse
 import ast
 import json
+import os
 import re
 import shlex
 import subprocess
@@ -47,8 +48,10 @@ ROOT = Path(__file__).resolve().parent.parent
 TOOL_SUFFIX = (".py", ".mjs", ".js", ".sh")
 CODE_SUFFIX = (".py", ".mjs", ".js", ".sh", ".md", ".json")   # 呼ぶ形を読める file（.html・.txt は道具を呼ばない）
 OUTSIDE_SKIP = {"plugins", "tests", "scripts", "docs", "CHANGELOG.d"}  # 配らない・道具でない dir（. で始まる dir も外す）
-ROOT_CAUSE = ("直し: 意図（合意した絵が実物の流れを全部持つ）とのずれから入り、流れが絵から漏れた原因を細目 §3「まず構造を疑う」で探して直す（1 本ずつ足して済ませない）"
-              "（絵は合意の版＝足すならオーナーに差を見せて決めてもらう）")
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "skill-values"))
+from root_cause import root_cause  # noqa: E402  根治の 1 文（細目 §3「まず構造を疑う」へ入る）の 1 本の口（写さない）
+ROOT_CAUSE = (root_cause("合意した絵が実物の流れを全部持つ", cause="流れが絵から漏れた", shortcut="1 本ずつ足す")
+              + "（絵は合意の版＝足すならオーナーに差を見せて決めてもらう）")
 
 
 def tracked(repo: Path) -> list[str]:

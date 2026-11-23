@@ -14,6 +14,7 @@
 from __future__ import annotations
 
 import hashlib
+import os
 import re
 import subprocess
 import sys
@@ -21,6 +22,8 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "skill-values"))
+from root_cause import root_cause  # noqa: E402  根治の 1 文（細目 §3「まず構造を疑う」へ入る）の 1 本の口（写さない）
 DIR_NAME = "CHANGELOG.d"
 # 断片へ移す前の記録（そのまま移した経緯・札の形を照らさない）。
 OLD_FILE = "00000000-断片へ移す前.txt"
@@ -172,7 +175,7 @@ def main(argv: list[str]) -> int:
         errs = check()
         for e in errs:
             print(e)
-        print("changelog: 赤 直し: 赤の行を 1 つずつ潰さず、意図（使う側が変更の記録だけで追える）とのずれから入り、細目 §3「まず構造を疑う」で原因を探して直す" if errs else "changelog: 緑")
+        print("changelog: 赤 " + root_cause("使う側が変更の記録だけで追える", cause="赤になった", shortcut="赤の行を 1 つずつ潰す") if errs else "changelog: 緑")
         return 1 if errs else 0
     for name, when, body in entries():
         print(f"## {name.removesuffix('.txt')}（{when}）\n\n{body}\n")

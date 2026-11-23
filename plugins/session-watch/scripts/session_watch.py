@@ -112,7 +112,8 @@ def neighbor(name):
 ASK = "AskUserQuestion"
 SET_TITLE_SUFFIX = "set_session_title"
 REMOTE_PREFIX = "mcp__claude-code-remote__"
-ROOT_CAUSE = "直し: 拾われた所を出し直すだけで済ませず、意図（オーナーが返事を読んで迷わない）とのずれから入り、細目 §3「まず構造を疑う」で原因を探して直す"
+from root_cause import root_cause  # noqa: E402  根治の 1 文（細目 §3「まず構造を疑う」へ入る）の 1 本の口（lib/ の symlink）
+ROOT_CAUSE = root_cause("オーナーが返事を読んで迷わない", cause="拾われた形が出た", shortcut="拾われた所を出し直す")
 
 # ── 題の印の表（正本はここ 1 か所・オーナーの決定 2026-11-22）──────────────────
 #  題は `<種類><状態> <作業名>`。種類は 1 文字目、状態は 2 文字目（無し＝AI が動いている）。表に無い印・表に無い組み合わせは
@@ -896,23 +897,39 @@ def watch(path):
 
 
 # ── 知らせる（UserPromptSubmit の hook・止めない）──────────────────
-REMIND = (
-    "[session-watch] この窓の題にまだ種類の印（%s／%s／%s）が無い。最初の返事を書く前に、"
-    "%s の `set_session_title` で題を `<種類><状態> <作業名>` に付ける（自分の session id は `get_session` を "
-    "session_id を省いて読む）。種類: %s。形の細目は skill `session-watch:title-mark`。")
+def title_forms(table=None):
+    """付けてよい題の印の短い文（正本は TITLE_TABLE。REMIND の 3 つはここから作る＝種類×状態を手で写さない）。
+    同じ状態の並びを持つ種類は 1 つにまとめる（例: 🙋・🤖 は 無し・❓・💤・🛑・✅／✋ は 無し・✅）。"""
+    table = TITLE_TABLE if table is None else table
+    groups = {}
+    for k in sorted(table, key=lambda k: KINDS.index(k) if k in KINDS else len(KINDS)):
+        groups.setdefault(tuple(table[k]), []).append(k)
+    return "／".join("%s は %s" % ("・".join(ks), "・".join("無し" if s == MOVING else s for s in sts))
+                    for sts, ks in groups.items())
 
 
-REMIND_PARENT = ("[session-watch] 最初の頼みの文の返し先が別の窓を指すが、頼みの行の記録をまだ読めない（文は人が貼った写しかもしれない）。"
-                 "最初の返事の前に `get_session` を session_id を省いて読み、`parent_session_id` が在れば（別の窓が立てた記録）🤖 の窓"
-                 "として、今の題を skill `session-watch:title-mark` の表（種類 🙋／✋／🤖 × 状態 無し・❓・💤・🛑・✅）に照らして"
-                 " `set_session_title` で付ける（親が付けた題は会話ログに載らず、返事の見張りが照らせない。親の題を写さない・表に無い"
-                 "印と組み合わせは直して付ける）。`parent_session_id` が無ければ人が立てた窓なので 🙋 で題を付ける。")
+def remind_texts(table=None):
+    """題の知らせ 3 つ（人の窓・返し先が別の窓・子の窓）。表の印は title_forms から差す。"""
+    forms = title_forms(table)
+    table = TITLE_TABLE if table is None else table
+    kinds = "／".join(sorted(table, key=lambda k: KINDS.index(k) if k in KINDS else len(KINDS)))
+    human = ("[session-watch] この窓の題にまだ種類の印（" + kinds + "）が無い。最初の返事を書く前に、"
+             "%s の `set_session_title` で題を `<種類><状態> <作業名>` に付ける（自分の session id は `get_session` を "
+             "session_id を省いて読む）。種類: %s。付けてよい印（種類 は 状態）: " + forms
+             + "。形の細目は skill `session-watch:title-mark`。")
+    parent = ("[session-watch] 最初の頼みの文の返し先が別の窓を指すが、頼みの行の記録をまだ読めない（文は人が貼った写しかもしれない）。"
+              "最初の返事の前に `get_session` を session_id を省いて読み、`parent_session_id` が在れば（別の窓が立てた記録）" + AI
+              + " の窓として、今の題を表（" + forms + "）に照らして `set_session_title` で付ける（親が付けた題は会話ログに載らず、"
+              "返事の見張りが照らせない。親の題を写さない・表に無い印と組み合わせは直して付ける）。`parent_session_id` が無ければ"
+              "人が立てた窓なので " + HUMAN + " で題を付ける。形の細目は skill `session-watch:title-mark`。")
+    child = ("[session-watch] 親が付けた題は会話ログに載らず、返事の見張り（Stop）が照らせない。最初の返事の前に "
+             "`get_session` を session_id を省いて読み、今の題を表（" + forms + "）に照らして `set_session_title` で付ける。"
+             "表に無い印・表に無い組み合わせは直して付ける（親の題を写さない。崩れた題は付ける口で止まる）。"
+             "形の細目は skill `session-watch:title-mark`。")
+    return human, parent, child
 
 
-REMIND_CHILD = ("[session-watch] 親が付けた題は会話ログに載らず、返事の見張り（Stop）が照らせない。最初の返事の前に "
-                "`get_session` を session_id を省いて読み、今の題を skill `session-watch:title-mark` の表（種類 🙋／✋／🤖 × 状態 "
-                "無し・❓・💤・🛑・✅）に照らして `set_session_title` で付ける。表に無い印・表に無い組み合わせは直して付ける"
-                "（親の題を写さない。崩れた題は付ける口で止まる）。")
+REMIND, REMIND_PARENT, REMIND_CHILD = remind_texts()
 
 
 HAND_ASK = ("あなたがやることに人の手の手順を直に書いた。人の手は手の窓（題 ✋ <何を>・1 つの頼みに 1 つの窓）"
@@ -978,7 +995,7 @@ def remind_title(log, data):
         return REMIND_CHILD   # 親が create_session で付けた題は会話ログに無い＝返事の見張りで照らせないので、付け直させる
     which = ("%s（最初の頼みの返し先から）" % kind) if kind else (
         "オーナーと話す窓なら %s・オーナーの操作を頼む窓なら %s・別の窓へ返す窓なら %s" % (HUMAN, HAND, AI))
-    return REMIND % (HUMAN, HAND, AI, REMOTE_PREFIX.rstrip("_"), which)
+    return REMIND % (REMOTE_PREFIX.rstrip("_"), which)
 
 
 def remind_hand(log):
@@ -1063,6 +1080,8 @@ STOP_HOW = {
                 "見つからないなら、土台の plugin guard と市場の写し（公開の検査）を入れ直す（docs/核の届け方.md）。読めない形は捨てて"
                 "照らし続けているので、他の札は効いている。この知らせは窓ごとに 1 回だけ。",
 }
+# 誤って当たった時の外し方は、値の表の reply_exempt が外せる札（返事の本文で照らす inner・time・done）にだけ付ける。
+STOP_FOOT_CODES = ("inner", "time", "done")
 STOP_FOOT = ("誤って当たった時（引いた言葉・記録の写しに当たった等）: 当たる行の形を値の表 config/skill-values.json の "
              "session-watch.watch-log.reply_exempt（行に当てる正規表現の並び）に、中の言葉の字は guard.ask_term_allow に足す（PR とレビューを"
              "通す）。")
@@ -1121,7 +1140,8 @@ def stop(data, env=None):
     if hows:
         out.append("直し方:")
         out += ["- [%s] %s" % (c, STOP_HOW[c]) for c in hows]
-    out.append(STOP_FOOT)
+    if any(c in STOP_FOOT_CODES for c, _ in found):
+        out.append(STOP_FOOT)
     out.append(ROOT_CAUSE)
     return "\n".join(out)
 

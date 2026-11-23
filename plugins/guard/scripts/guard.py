@@ -21,11 +21,12 @@ sys.dont_write_bytecode = True    # 写しの置き場に __pycache__ を作ら�
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 
-import guard_common as G  # noqa: E402
+import guard_common as G  # noqa: E402  （lib/ を道に足す）
+from root_cause import root_cause  # noqa: E402  根治の 1 文（細目 §3「まず構造を疑う」へ入る）の 1 本の口（lib/ の symlink）
 
 EVENTS = {"pre": "PreToolUse", "post": "PostToolUse", "start": "SessionStart"}
 # 止めた時の最後の行（どの見張りの止めにも 1 か所で付ける。中身は細目 §3 が正本＝ここは指すだけ）
-ROOT_CAUSE = "直し: 止められた所を直して出し直すだけで済ませず、止めた守りの意図とのずれから入り、その形が出た原因を細目 §3「まず構造を疑う」で探して直す"
+ROOT_CAUSE = root_cause("止めた守りが守る物", shortcut="止められた所を直して出し直す")
 
 
 def _run(module, func, data, vals):

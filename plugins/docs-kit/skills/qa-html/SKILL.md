@@ -30,7 +30,7 @@ description: お客さんなど選択肢の画面を使えない相手に判断�
 
 ## repo ごとの値（config/skill-values.json）
 
-repo の根（`git rev-parse --show-toplevel`）の `config/skill-values.json` の `docs-kit.qa-html.<鍵>` と `common.<鍵>` から読む（skill の鍵が common に勝つ）。**鍵が無い・値が空なら右の既定で動く**。知らない鍵・畳んだ鍵・型の違う値は黙って捨てない（道具は名指しで止まり、窓の起動の時に guard が名指しで知らせる。表の探し方と鍵の一覧の正本は土台の `skill-values/`。鍵を足す時はそこへ足す）。
+`config/skill-values.json` の `docs-kit.qa-html.<鍵>` と `common.<鍵>` から読む（skill の鍵が common に勝つ）。**鍵が無い・値が空なら右の既定で動く**。表の探し方・既定・知らない鍵の扱いの正本は土台の `skill-values/skill_values.py` の冒頭（「探し方」「照らし」）。
 
 | 鍵 | 使う所 | 無い時の既定 |
 |---|---|---|
@@ -42,7 +42,6 @@ repo の根（`git rev-parse --show-toplevel`）の `config/skill-values.json` �
 | `docs-kit.qa-html.prior_check_cmd` | 作り方 0 の「聞く前に引く」を機械にする道具の命令（repo ごとの決定の記録・問いの表を引く物）。下の §前の答えを照らす口 | 無し＝作り方 0 は手で引く（検査は前の答えを見ない・今までどおり） |
 | `docs-kit.qa-html.later_lead` | 先に決めておきたい事（later）の最初のまとまりの 1 行の決まった文を替える | `check.mjs` の `RULES.later_lead` |
 | `docs-kit.qa-html.why` | なぜ聞くかの決まった文を替える（例 `{"once": "この月だけの事を確かめます"}`） | 下の §前提の 3 段のなぜ聞くかの 5 文の表 |
-| `docs-kit.qa-html.later_lead` | 先に決めておきたい事（later）の最初のまとまりの 1 行 | `check.mjs` の `RULES.later_lead` |
 | `common.glossary` | 本文の語の意味 | 語の一般の意味 |
 | `docs-kit.qa-html.distribution` | この skill の配り方 | 無し |
 

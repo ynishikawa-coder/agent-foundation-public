@@ -36,7 +36,13 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 BRANCH = re.compile(r"^claude/(\d{8}-[0-9A-Za-z][0-9A-Za-z._-]*)$")
-ROOT_CAUSE = "直し: 足す所を動かして通すだけで済ませず、意図（並ぶ PR が互いに衝突しない）とのずれから入り、同じ所へ足す形になった原因を細目 §3「まず構造を疑う」で探して直す"
+
+
+def root_cause_line():
+    """赤の時だけ読む根治の 1 文（1 本の口 skill-values/root_cause.py。この file だけを写して使う照らしでも赤までは読まない）。"""
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "skill-values"))
+    from root_cause import root_cause  # 根治の 1 文（細目 §3「まず構造を疑う」へ入る）の 1 本の口
+    return root_cause("並ぶ PR が互いに衝突しない", cause="同じ所へ足す形になった", shortcut="足す所を動かして通す")
 
 
 def git(root: Path, *args: str) -> str:
@@ -279,7 +285,7 @@ def main(argv=None) -> int:
         print(f"✗ {e}")
     if errs:
         print(f"pr_shape: 赤 ({len(errs)} 件)")
-        print(ROOT_CAUSE)
+        print(root_cause_line())
         return 1
     print("pr_shape: 緑")
     return 0

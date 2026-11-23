@@ -11,7 +11,7 @@ description: 規律を足す・直す時の 1 本。最初に「これは止め�
 
 ## repo ごとの値（config/skill-values.json）
 
-repo の根の `config/skill-values.json` の `dev-flow.register-rule.<鍵>` から読む。**鍵が無い・値が空なら右の既定で動く**。知らない鍵・畳んだ鍵・型の違う値は黙って捨てない（道具は名指しで止まり、窓の起動の時に guard が名指しで知らせる。表の探し方と鍵の一覧の正本は土台の `skill-values/`。鍵を足す時はそこへ足す）。
+`config/skill-values.json` の `dev-flow.register-rule.<鍵>` から読む。**鍵が無い・値が空なら右の既定で動く**。表の探し方・既定・知らない鍵の扱いの正本は土台の `skill-values/skill_values.py` の冒頭（「探し方」「照らし」）。
 
 | 鍵 | 使う所 | 無い時の既定 |
 |---|---|---|
@@ -74,7 +74,7 @@ grep -rn "<語 1>\|<語 2>" CLAUDE.md .claude/ plugins/ 2>/dev/null
 
 - 読み返して直す: 言い換えの無い専門用語・説明の無い ID・5 段以上の手順・80 字以上の文の連続。
 - 書いた後、常時読む物（核・細目・`CLAUDE.md`・skill の description）を見て、重複は 1 か所に寄せ、死んだ参照は消す。食い違いは決定の記録が決めていればそれに従い、記録に無く意味が変わる物だけオーナーに聞く。
-- 失敗・学びは根治の 5 段（意図・課題・原因・解決・未来）で `learning_record` へ（無ければ各社の原因の台帳＝細目 §3・核 §8。repo の md に積まない）。
+- 失敗・学びは根治の 5 段（核 §3）で `learning_record` へ（無ければ各社の原因の台帳＝細目 §3・核 §8。repo の md に積まない）。
 
 ## 出力の形
 

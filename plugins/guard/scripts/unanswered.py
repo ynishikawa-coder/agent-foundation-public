@@ -50,6 +50,7 @@ sys.dont_write_bytecode = True
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import guard_common as G  # noqa: E402
+from root_cause import root_cause  # noqa: E402  根治の 1 文（細目 §3「まず構造を疑う」へ入る）の 1 本の口（lib/ の symlink・guard_common が道に足す）
 
 ASK_TOOL = "AskUserQuestion"
 SCHEMA = "af-guard/unanswered/v1"
@@ -58,8 +59,7 @@ ANSWERED_KEEP = 20     # 観測用に残す「答えが返った問い」「降�
 CONTAIN_MIN = 16       # 文面の含有で同じ問いとみなす最低の長さ（短い問い同士の取り違えを防ぐ）
 ASK_BATCH = 4          # モーダル 1 回に載る問いの数（出し直しはこの数ずつ続けて出させる）
 LEDGER_TTL_HOURS = 24  # 台帳の寿命（最後に出てから）
-ROOT_CAUSE = ("出し直すだけで済ませず、意図（オーナーの答えを得て進む）とのずれから入り、答えが返らなかった原因（聞く時・問いの形・聞き方）を"
-              "細目 §3「まず構造を疑う」で探して直してください。")
+ROOT_CAUSE = root_cause("オーナーの答えを得て進む", cause="答えが返らなかった", shortcut="出し直す") + "（見る所: 聞く時・問いの形・聞き方）。"
 _WS = re.compile(r"\s+")
 
 
