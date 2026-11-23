@@ -98,7 +98,7 @@ def test_壊れた_workflow_は名と訳を知らせる(env, name, text, why):
 
 
 def test_開けない_workflow_は名と訳を知らせ_公開の判定から黙って落とさない(env):
-    """公開の検査を呼ぶ唯一の workflow が開けないと、今は公開でないと読まれ文が照らされずに出る。その時に名と訳を知らせる。"""
+    """公開の検査を呼ぶ唯一の workflow が開けない時、出す前は公開として照らし（test_pr_text_fail_closed）、出した後に名と訳を知らせる。"""
     proj = Path(env["CLAUDE_PROJECT_DIR"])
     _fake_public_repo(proj, PUBLIC_WORD)
     wf = proj / ".github" / "workflows" / "public-guard.yml"
@@ -107,7 +107,7 @@ def test_開けない_workflow_は名と訳を知らせ_公開の判定から黙
     p = gh("add_issue_comment", issue_number=1, body="作り物の確かめ", repo="fake-public")
     got = notice(env, p)
     assert os.path.join(".github", "workflows", "public-guard.yml") in got and "開けない" in got
-    assert "照らしていない" in got
+    assert "公開として照らした" in got and "読めていない" in got
 
 
 def test_読める_workflow_だけなら何も知らせない(env):

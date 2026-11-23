@@ -26,7 +26,7 @@ import pr_text as P  # noqa: E402
 import workflow_reader as W  # noqa: E402
 
 # 作り物の箱と GitHub の道具の入力（守りの hook の入口から当てる）は test_pr_text の物を共に使う
-from test_pr_text import MAIL, PUBLIC_WORD, _fake_public_repo, deny_reason, env, gh  # noqa: E402,F401
+from test_pr_text import MAIL, PUBLIC_WORD, _fake_gh, _fake_public_repo, deny_reason, env, gh  # noqa: E402,F401
 from entry_box import box_env
 
 F = W.FOUNDATION
@@ -155,6 +155,7 @@ def test_ssh_の取り出しでも公開の_repo_と見分けて照らす(env, u
 def test_似た名の取り出しは別の_repo(env, url):  # noqa: F811
     _raw_remote(env)
     _fake_public_repo(Path(env["CLAUDE_PROJECT_DIR"]), PUBLIC_WORD, url=url)
+    _fake_gh(env)                                          # 手元は別の repo＝GitHub の記録を引く（作り物は private と答える）
     assert deny_reason(env, gh("add_issue_comment", issue_number=1, body="連絡は %s へ" % MAIL, repo="fake-public")) == ""
 
 
