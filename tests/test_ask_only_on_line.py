@@ -74,7 +74,7 @@ def test_注入_線を戻すと赤():
         assert not saimoku_ok(s03, s04.replace(line, line.replace(t, "")), s05), t
     # §3・§5 に聞く線の短い写しを置く（正本が 2 つになる）
     copy = "「直さない」をオーナーに聞くのは仕上がり・顧客側に効く行だけ（AI の中の形・道具の行は直す）。"
-    assert not saimoku_ok(s03.replace("「直さない」をオーナーに聞くかは §4 の聞く線で決める（当たらない行は直す）。", copy), s04, s05)
+    assert not saimoku_ok(s03.replace("「直さない」をオーナーに聞くかは §4 の聞く線で決める。", copy), s04, s05)
     assert not saimoku_ok(s03, s04, s05 + "\n- オーナーに聞くのは顧客側の時だけ。")
     assert not saimoku_ok(s03, s04.replace("（中の形だけの前提は AI が決める・", "（"), s05)
     assert not saimoku_ok(s03, s04, s05.replace("AI が外せる止めは直して続ける（🛑 にしない）。", ""))

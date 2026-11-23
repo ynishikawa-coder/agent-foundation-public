@@ -1,19 +1,24 @@
 """チェック役: 書いた窓が立てた助手の判定を別の目と取り違えない・札と段を SKILL.md 1 か所から読む（注入の試験）。"""
+import os
 import subprocess
 import sys
 
 import pytest
 
-from test_checker import GREEN, PLUGIN, vf
+from test_checker import GREEN, PLUGIN, rules_git, vf
 
 FORM = PLUGIN / "scripts" / "verdict_form.py"
 SKILL = PLUGIN / "skills" / "review-pr" / "SKILL.md"
 
 
 def run(tmp_path, text, *args):
+    """作り物の決まりの git（今の SKILL.md の 1 版）を置き、判定の 3 行目をその版にして、初めの判定として照らす。"""
+    clone, sha = rules_git.make(tmp_path)
     f = tmp_path / "判定.md"
-    f.write_text(text, encoding="utf-8")
-    return subprocess.run([sys.executable, "-B", str(FORM), str(f), *args], capture_output=True, text=True)
+    f.write_text(text.replace("決まりの版: 0123456789ab", "決まりの版: " + sha[:12]), encoding="utf-8")
+    first = [] if "--writer" not in args or "--head" not in args else ["--first", "なし"]
+    return subprocess.run([sys.executable, "-B", str(FORM), str(f), *args, *first], capture_output=True, text=True,
+                          env=dict(os.environ, AF_RULES_GIT=str(clone)))
 
 
 @pytest.mark.parametrize("args", [[], ["--head", "0123456789ab"], ["--writer", "session_WRITER01"],
