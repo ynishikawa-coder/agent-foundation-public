@@ -26,7 +26,9 @@
         },
         "watch-log": {
           "keys": {
-            "reply_exempt": {"type": "patterns", "match": "part", "against": "返事の本文の 1 行"}
+            "reply_exempt": {"type": "patterns", "match": "part", "against": "返事の本文の 1 行"},
+            "context_note_tokens": {"type": "int", "default": 150000},
+            "big_output_chars": {"type": "int", "default": 30000}
           }
         }
       }

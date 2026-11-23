@@ -85,6 +85,8 @@ def every_turn(plugins: Path = PLUGINS) -> dict:
         "頼みの文が別の窓を指す窓（REMIND_PARENT）": sw.REMIND_PARENT,
         "Stop の知らせの頭（NOTE_HEAD）": sw.NOTE_HEAD,
         "Stop の知らせの足（STOP_FOOT）": sw.STOP_FOOT,
+        "器の量の知らせ（CONTEXT_NOTE・窓に 1 回）": sw.CONTEXT_NOTE % 150000,
+        "大きな出力の知らせ（BIG_NOTE・窓に 1 回）": sw.BIG_NOTE % 30000,
     }
     return {k: size(v) for k, v in texts.items()}
 

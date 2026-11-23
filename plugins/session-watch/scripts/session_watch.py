@@ -965,6 +965,10 @@ def remind(data, env=None):
     持つ窓）でまだ種類の印を付けていない時の知らせ。"""
     env = os.environ if env is None else env
     out = [take_note(env, data.get("session_id"))]
+    try:
+        out += load_notes(data, env)
+    except Exception as e:     # noqa: BLE001  器の照らしの故障で他の知らせを落とさない（止めずに知らせる）
+        out.append(broken_note(env, data.get("session_id"), "--remind（器の量）", e))
     if str(env.get("CLAUDE_CODE_REMOTE", "")).lower() == "true":
         log, missing = log_of(data, first_prompt=True)
         out += [missing and nolog_note(env, data.get("session_id"), missing),
@@ -997,6 +1001,176 @@ def remind_hand(log):
     if in_hand_window(log) or not owner_steps(last_reply(log)):
         return None
     return HAND_REMIND
+
+
+# ── 要約を起こさない窓（器の量・大きな出力・要約の回数）──────────────────
+#  自動の要約（compact）は器があふれた時の非常口で、節約の道具でない（要約の後は AI の読みが落ちる）。要約の線
+#  （scripts/setup_plugins.py の COMPACT_WINDOW）は動かさず、その手前で区切って新しい窓へ渡す・大きな出力を器へ入れない、
+#  を知らせる（止めない・窓ごとに 1 回だけ）。線の値は値の表 session-watch.watch-log の鍵（既定は schema.json）だけから読む。
+LOAD_KEYS = ("context_note_tokens", "big_output_chars")
+CONTEXT_NOTE = ("[session-watch] この窓の器が %d token を使った（自動の要約の線より手前の知らせ・この窓で 1 回だけ）。"
+                "要約が起きると AI の読みが落ちる。今の区切りで、AI が書いた引き継ぎ（目標・済んだ事・残り・触る file）を付けて"
+                "新しい窓へ渡す。読むだけの調べは助手（Agent）へ出し、結論だけを受け取る。")
+BIG_NOTE = ("[session-watch] 前の番で道具の出力が 1 つで %d 字あった（この窓で 1 回だけ知らせる）。大きな出力は file へ書き出して"
+            "要る所だけ読む（grep・sed -n・Read の offset で絞る）か、読むだけの調べは助手（Agent）へ出して結論だけを受け取る。")
+TAIL_BYTES = 8 * 1024 * 1024   # 器の量と前の番は会話ログの終わりだけで足りる（長い窓でも全部は読まない）
+
+
+def load_values(data=None):
+    """{鍵: 整数} 値の表 session-watch.watch-log の LOAD_KEYS を schema の既定に重ねた物。整数でない値は既定のまま。
+    値の表の正本（schema・読み口）が無ければ {}（線を写して持たない＝知らせない。guard_gap が隣の欠けを名指す）。"""
+    G = neighbor("guard_common")
+    if G is None or not hasattr(G, "SV"):
+        return {}
+    out = {k: v for k, v in (G.SV.defaults("session-watch", "watch-log") or {}).items() if k in LOAD_KEYS}
+    got = G.table("session-watch", data).get("watch-log") if hasattr(G, "table") else None
+    for k, v in (got.items() if isinstance(got, dict) else ()):
+        if k in out and isinstance(v, int) and not isinstance(v, bool) and v > 0:
+            out[k] = v
+    return out
+
+
+def tail_rows(path, limit=TAIL_BYTES):
+    """会話ログの終わり limit バイトの行（途中で切れた最初の行は捨てる）。"""
+    with open(path, "rb") as f:
+        f.seek(0, os.SEEK_END)
+        size = f.tell()
+        f.seek(max(0, size - limit))
+        raw = f.read()
+    lines = raw.decode("utf-8", errors="replace").splitlines()
+    if size > limit and lines:
+        lines = lines[1:]
+    out = []
+    for line in lines:
+        try:
+            row = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(row, dict):
+            out.append(row)
+    return out
+
+
+def used_tokens(row):
+    """assistant 行の器の量（入力＋キャッシュに書いた・読んだ token）か None。"""
+    if row.get("type") != "assistant" or row.get("isSidechain"):
+        return None
+    msg = row.get("message")
+    u = msg.get("usage") if isinstance(msg, dict) else None
+    if not isinstance(u, dict):
+        return None
+    n = [u.get(k) for k in ("input_tokens", "cache_creation_input_tokens", "cache_read_input_tokens")]
+    n = [x for x in n if isinstance(x, int) and not isinstance(x, bool)]
+    return sum(n) if n else None
+
+
+def last_used(rows):
+    """最後の assistant 行の器の量か None（要約の印より後に返事が無ければ None＝要約の前の量で知らせない）。"""
+    for row in reversed(rows):
+        if is_compact_mark(row):
+            return None
+        n = used_tokens(row)
+        if n is not None:
+            return n
+    return None
+
+
+def _result_chars(block):
+    c = block.get("content")
+    if isinstance(c, str):
+        return len(c)
+    if isinstance(c, list):
+        return sum(len(b.get("text") or "") for b in c if isinstance(b, dict))
+    return 0
+
+
+def biggest_output(rows):
+    """前の番（最後の番を切る行の後）の道具の出力の 1 つの最大の字数。"""
+    last = max((i for i, r in enumerate(rows) if used_tokens(r) is not None), default=-1)
+    start = max((i for i in range(last) if starts_turn(rows[i])), default=0)
+    big = 0
+    for row in rows[start:]:
+        if row.get("type") != "user" or row.get("isSidechain"):
+            continue
+        c = _content(row)
+        for b in c if isinstance(c, list) else ():
+            if isinstance(b, dict) and b.get("type") == "tool_result":
+                big = max(big, _result_chars(b))
+    return big
+
+
+def load_notes(data, env):
+    """器の量の知らせと大きな出力の知らせ（どちらも窓ごとに 1 回だけ・止めない）。"""
+    path = data.get("transcript_path")
+    if not isinstance(path, str) or not os.path.isfile(path):
+        return []
+    vals = load_values(data)
+    if not vals:
+        return []
+    rows = tail_rows(path)
+    sid = data.get("session_id")
+    out = []
+    used, line = last_used(rows), vals.get("context_note_tokens")
+    if line and used is not None and used >= line and not _seen(env, sid, "context"):
+        out.append(CONTEXT_NOTE % used)
+    big, line = biggest_output(rows), vals.get("big_output_chars")
+    if line and big >= line and not _seen(env, sid, "bigout"):
+        out.append(BIG_NOTE % big)
+    return out
+
+
+def is_compact_mark(row):
+    """要約の印の行か（system の compact_boundary・要約の文の行 isCompactSummary）。"""
+    return (row.get("type") == "system" and row.get("subtype") == "compact_boundary") or bool(row.get("isCompactSummary"))
+
+
+def compacts(rows):
+    """1 窓の要約の回数。compact_boundary の行で 1 回。その後の要約の文の行（isCompactSummary）は同じ回として数えない。
+    印の行が無く要約の文の行だけ在る時もその行で 1 回（片方の形を落とさない）。"""
+    n, pending = 0, False
+    for row in rows:
+        if row.get("isSidechain"):
+            continue
+        if row.get("type") == "system" and row.get("subtype") == "compact_boundary":
+            n, pending = n + 1, True
+        elif row.get("isCompactSummary"):
+            if not pending:
+                n += 1
+            pending = False
+    return n
+
+
+def compact_files(paths):
+    """会話ログの file の並び（dir は中の *.jsonl・助手の会話ログ subagents/ は除く）。"""
+    out = []
+    for p in paths:
+        if os.path.isdir(p):
+            for root, dirs, files in os.walk(p):
+                dirs[:] = sorted(d for d in dirs if d != "subagents")
+                out += [os.path.join(root, f) for f in sorted(files) if f.endswith(".jsonl")]
+        else:
+            out.append(p)
+    return out
+
+
+def main_compacts(paths):
+    """窓ごとの要約の回数を出す（目標は 0）。読めない file は名指して 2。"""
+    files = compact_files(paths)
+    if not files:
+        sys.stderr.write("会話ログが無い: %s\n" % " ".join(paths))
+        return 2
+    bad, hit = 0, 0
+    for f in files:
+        try:
+            n = compacts(read_rows(f))
+        except OSError as e:
+            sys.stderr.write("ログを読めない: %s（%s）\n" % (f, e.strerror or e))
+            bad += 1
+            continue
+        hit += n > 0
+        print("%d\t%s" % (n, f))
+    print("要約の起きた窓: %d / %d（目標 0）" % (hit, len(files) - bad))
+    return 2 if bad else 0
 
 
 BROKEN = ("[session-watch] 見張りの %s が壊れて、この返事の形を照らせなかった（%s）。窓は止めていない。"
@@ -1176,9 +1350,11 @@ def main(argv):
         return hook_remind(sys.stdin)
     if argv[1:] == ["--stop"]:
         return hook_stop(sys.stdin)
+    if len(argv) > 2 and argv[1] == "--compacts":
+        return main_compacts(argv[2:])
     # 知らない印・数の違う引数・読めないログは既定で止める（打ち間違いを「拾う物なし＝緑」にしない）
     if len(argv) != 2 or argv[1].startswith("--"):
-        sys.stderr.write("使い方: session_watch.py <transcript.jsonl> ／ session_watch.py --remind ／ session_watch.py --stop\n")
+        sys.stderr.write("使い方: session_watch.py <transcript.jsonl> ／ session_watch.py --remind ／ session_watch.py --stop ／ session_watch.py --compacts <会話ログ・dir…>\n")
         return 2
     try:
         found = watch(argv[1])
