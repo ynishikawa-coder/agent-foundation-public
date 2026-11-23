@@ -12,6 +12,8 @@
                                       （記録が無ければ分からないと名指す）。古ければ先端の核と振る舞いの既定も差し込む。
   python3 kaku.py fresh               UserPromptSubmit の hook が呼ぶ。窓が立った時の main の先端から plugin が変わったら、
                                       先端の核と振る舞いの既定をこの窓に差し込む（窓は引き継がず閉じず、そのまま続ける）。
+                                      あわせて、器の量（前の返事の入力＋キャッシュ）が CONTEXT_LINE を越えたら、
+                                      引き継ぎを書いて新しい窓へ・読むだけの調べは助手へと窓に 1 回だけ知らせる（止めない）。
   python3 kaku.py refresh TIP ENTRY    inject・fresh が古さを見つけた時に裏で回す。目録の clone の入口 ENTRY（setup_plugins.py）で
                                       先端の版を入れ直し、結果を ~/.claude/af-foundation/refresh.json に書く（hook の入口 hook_run.py が
                                       次の呼び出しから入れ直した版を回す・失敗は fresh が 1 行で名指す）。
@@ -65,6 +67,8 @@ WATCH_BG_BUDGET = 600
 
 # 読めない時の類（無い・権限・UTF-8 でない中身）を 1 か所で受ける。どの読みもこれで受け、欠けを名指しする。
 UNREADABLE = (OSError, UnicodeDecodeError)
+CONTEXT_LINE = 150_000  # 器の量の知らせの線（token）。自動の要約の線 200000 より手前で 1 回だけ区切りを知らせる。
+CONTEXT_TAIL = 8 * 1024 * 1024  # 器の量は会話ログの終わりだけで足りる（長い窓でも全部は読まない）
 
 
 def size(text: str) -> int:
@@ -1479,25 +1483,30 @@ def fresh() -> int:
     窓はそのまま頼みを続ける（引き継がせない・閉じさせない）。同じ先端は 1 回だけ見る（問いのたびに繰り返さない）。
     核と振る舞いの既定は、この窓が読んだ本文から変わった物だけを送る（本文が同じなら守りの入れ直しだけで黙る）。"""
     data, bad_input = _hook_input()
-    session = data.get("session_id")
     if bad_input:
         return _say(_broken_text("hook の入力", bad_input))
+    texts = [_fresh_text(data), context_note(data)]
+    return _say("\n".join(t for t in texts if t) or None)
+
+
+def _fresh_text(data: dict) -> str | None:
+    session = data.get("session_id")
     if not session:
-        return 0
+        return None
     path = _state_path(session)
     try:
         state = _read_json(path, dict)
     except Unreadable as e:  # 読めない記録で黙って 0 を返さない（新しくなった土台を差し込めない事を名指す）
-        return _say(_state_broken_text(e, "記録を書き直していない"))
+        return _state_broken_text(e, "記録を書き直していない")
     if state is None or not state.get("comparable"):
-        return 0
+        return None
     failed = refresh_failed_text(state)
     if failed:
         _save_state(session, state)
-        return _say(failed)
+        return failed
     interval = float(os.environ.get("AF_FRESH_INTERVAL") or FRESH_INTERVAL)
     if time.time() - float(state.get("checked") or 0) < interval:
-        return 0
+        return None
     text = None
     try:
         got = freshness()
@@ -1536,7 +1545,69 @@ def fresh() -> int:
         except Exception as e:  # noqa: BLE001  入れ直しが壊れても問いは止めない。壊れた事は名指しする
             text = (text or "") + _broken_text("裏の入れ直し", e)
     _save_state(session, state)
-    return _say(text)
+    return text
+
+
+CONTEXT_NOTE = ("[core] この窓の器が {n} token を使った（自動の要約の線より手前の知らせ・この窓で 1 回だけ・作業は止めない）。"
+                "要約が起きると AI の読みが落ちる。今の区切りで引き継ぎ（目標・済んだ事・残り・触る file）を書いて新しい窓へ渡す。"
+                "読むだけの調べは助手（Agent）へ出し、結論だけを受け取る。")
+
+
+def _used(row: dict) -> int | None:
+    """本筋の assistant 行の器の量（入力＋キャッシュに書いた・読んだ token）か None（助手の行 isSidechain は数えない）。"""
+    if row.get("type") != "assistant" or row.get("isSidechain"):
+        return None
+    msg = row.get("message")
+    u = msg.get("usage") if isinstance(msg, dict) else None
+    if not isinstance(u, dict):
+        return None
+    n = [u.get(k) for k in ("input_tokens", "cache_creation_input_tokens", "cache_read_input_tokens")]
+    n = [x for x in n if isinstance(x, int) and not isinstance(x, bool)]
+    return sum(n) if n else None
+
+
+def last_used(path: str, limit: int = CONTEXT_TAIL) -> int | None:
+    """会話ログの最後の返事の器の量。要約の印（compact_boundary・isCompactSummary）より後に返事が無ければ None
+    （要約の前の量で知らせない）。"""
+    with open(path, "rb") as f:
+        f.seek(0, os.SEEK_END)
+        end = f.tell()
+        f.seek(max(0, end - limit))
+        lines = f.read().decode("utf-8", errors="replace").splitlines()
+    if end > limit:
+        lines = lines[1:]  # 途中で切れた最初の行
+    for line in reversed(lines):
+        try:
+            row = json.loads(line)
+        except ValueError:
+            continue
+        if not isinstance(row, dict) or row.get("isSidechain"):
+            continue
+        if (row.get("type") == "system" and row.get("subtype") == "compact_boundary") or row.get("isCompactSummary"):
+            return None
+        n = _used(row)
+        if n is not None:
+            return n
+    return None
+
+
+def context_note(data: dict) -> str | None:
+    """器の量が線（CONTEXT_LINE）を越えたら窓に 1 回だけ知らせる（止めない）。会話ログを読めない時は黙る。"""
+    session, path = data.get("session_id"), data.get("transcript_path")
+    if not session or not isinstance(path, str):
+        return None
+    mark = _state_path(session).with_suffix(".context")
+    try:
+        if mark.exists():
+            return None
+        n = last_used(path)
+        if n is None or n <= CONTEXT_LINE:
+            return None
+        mark.parent.mkdir(parents=True, exist_ok=True)
+        mark.write_text(str(n), encoding="utf-8")
+    except (OSError, ValueError):
+        return None
+    return CONTEXT_NOTE.format(n=n)
 
 
 def _say(text: str | None) -> int:
