@@ -1,11 +1,11 @@
-"""守りの hook が、秘密・公開の検査で照らせなかった file を「照らした」扱いで黙って通さず、名と訳を添えて出す前に止めるか（注入の試験）。
+"""守りの hook が、秘密・公開の検査で照らせなかった file を「照らした」扱いで黙って通さず、名と訳を知らせるか（注入の試験）。
 
 意図: 秘密の検査は安全の守り。照らせなかった物を照らした物と同じに通すと、鍵が入った file も黙って外へ出る。
 課題: outbound の secret_hits は大きすぎる・開けない Artifact の file を、pr_text の public_target は開けない・壊れた workflow を、
 黙って飛ばしていた。
 原因: 読めない物を「飛ばす」で済ませ、照らせなかった事を誰にも渡さない形だった。
-各類（大きすぎる file・開けない file・開けない workflow・壊れた workflow）をわざと入れ、出す前（PreToolUse）に止まり、
-止めた文に名と訳が出るのを見る（知らせるだけの道は畳んだ＝聞く線のオーナー同意 2026-11-22）。入力は全部作り物。
+各類（大きすぎる file・開けない file・開けない workflow・壊れた workflow）をわざと入れ、名と訳が出るのを見る。
+止めに変えるかはオーナーの同意待ちなので、ここでは知らせる（PostToolUse）だけを約束にする。入力は全部作り物。
 """
 import os
 import subprocess
@@ -34,31 +34,29 @@ def publish(cwd, **ti):
     return {"tool_name": "Artifact", "session_id": "s1", "cwd": str(cwd), "tool_input": ti}
 
 
-def stopped(env, payload):
-    """出す前に止めた文（止めなければ ""）。"""
-    out = hook(env, "pre", payload)
-    return out.get("permissionDecisionReason", "") if out.get("permissionDecision") == "deny" else ""
+def notice(env, payload):
+    return hook(env, "post", payload).get("additionalContext", "")
 
 
-def test_大きすぎる_Artifact_の_file_は出す前に止め名と訳を添える(env, tmp_path, outbound):
+def test_大きすぎる_Artifact_の_file_は名と訳を知らせる(env, tmp_path, outbound):
     (tmp_path / "ok.html").write_text("<p>報告</p>", encoding="utf-8")
     (tmp_path / "big.json").write_text("x" * (outbound.MAX_READ + 1), encoding="utf-8")     # 上限のすぐ上
     p = publish(tmp_path, file_path="ok.html", files={"data/big.json": "big.json"})
-    got = stopped(env, p)
+    got = notice(env, p)
     assert "照らせなかった" in got and str(tmp_path / "big.json") in got and "大きすぎる" in got
     assert str(tmp_path / "ok.html") not in got            # 照らせた file は名指さない
 
 
-def test_開けない_Artifact_の_file_は出す前に止め名と訳を添える(env, tmp_path):
+def test_開けない_Artifact_の_file_は名と訳を知らせる(env, tmp_path):
     (tmp_path / "ok.html").write_text("<p>報告</p>", encoding="utf-8")
     p = publish(tmp_path, file_path="ok.html", files={"data/gone.json": "無い.json"})
-    got = stopped(env, p)
+    got = notice(env, p)
     assert str(tmp_path / "無い.json") in got and "開けない" in got
 
 
-def test_照らせた_file_だけの_Artifact_は止めない(env, tmp_path):
+def test_照らせた_file_だけの_Artifact_は何も知らせない(env, tmp_path):
     (tmp_path / "ok.html").write_text("<p>報告</p>", encoding="utf-8")
-    assert stopped(env, publish(tmp_path, file_path="ok.html")) == ""
+    assert notice(env, publish(tmp_path, file_path="ok.html")) == ""
 
 
 def test_鍵で止める時も照らせなかった_file_を止めた文に添える(env, tmp_path):
@@ -90,32 +88,32 @@ def _add_workflow(proj, name, text):
     ("broken.yml", ":::\n- - x\n  y: [\n", "壊れている"),                  # 読み手が形を読めない
     ("nojobs.yml", "on: [pull_request]\nname: 作り物\n", "jobs が無い"),
 ])
-def test_壊れた_workflow_は出す前に止め名と訳を添える(env, name, text, why):
+def test_壊れた_workflow_は名と訳を知らせる(env, name, text, why):
     proj = Path(env["CLAUDE_PROJECT_DIR"])
     _fake_public_repo(proj, PUBLIC_WORD)
     _add_workflow(proj, name, text)
-    got = stopped(env, gh("add_issue_comment", issue_number=1, body="作り物の確かめ", repo="fake-public"))
-    assert "workflow" in got and os.path.join(".github", "workflows", name) in got and why in got
+    got = notice(env, gh("add_issue_comment", issue_number=1, body="作り物の確かめ", repo="fake-public"))
+    assert "読めない workflow" in got and os.path.join(".github", "workflows", name) in got and why in got
     assert "public-guard.yml" not in got                  # 読めた workflow は名指さない
 
 
-def test_開けない_workflow_は出す前に止め_公開の判定から黙って落とさない(env):
-    """公開の検査を呼ぶ唯一の workflow が開けないと、公開でないと読まれ文が照らされずに出る。その時は出す前に止め名と訳を添える。"""
+def test_開けない_workflow_は名と訳を知らせ_公開の判定から黙って落とさない(env):
+    """公開の検査を呼ぶ唯一の workflow が開けないと、今は公開でないと読まれ文が照らされずに出る。その時に名と訳を知らせる。"""
     proj = Path(env["CLAUDE_PROJECT_DIR"])
     _fake_public_repo(proj, PUBLIC_WORD)
     wf = proj / ".github" / "workflows" / "public-guard.yml"
     wf.unlink()
     wf.mkdir()                                            # 開けない（file でない＝IsADirectoryError）
     p = gh("add_issue_comment", issue_number=1, body="作り物の確かめ", repo="fake-public")
-    got = stopped(env, p)
+    got = notice(env, p)
     assert os.path.join(".github", "workflows", "public-guard.yml") in got and "開けない" in got
-    assert "照らせない" in got
+    assert "照らしていない" in got
 
 
-def test_読める_workflow_だけなら止めない(env):
+def test_読める_workflow_だけなら何も知らせない(env):
     _fake_public_repo(Path(env["CLAUDE_PROJECT_DIR"]), PUBLIC_WORD)
     _add_workflow(Path(env["CLAUDE_PROJECT_DIR"]), "only-comments.yml", "# 中身の無い作り物\n\n")
-    assert stopped(env, gh("add_issue_comment", issue_number=1, body="作り物の確かめ", repo="fake-public")) == ""
+    assert notice(env, gh("add_issue_comment", issue_number=1, body="作り物の確かめ", repo="fake-public")) == ""
 
 
 def test_壊れた_workflow_があっても読める呼び口で公開の検査は止める(env):

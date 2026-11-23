@@ -11,8 +11,8 @@
   secret  … MCP の道具（名が mcp__ で始まる物）・Artifact・SendMessage の入力の全部の字と、Artifact で出す file の中身に、
             鍵・トークンの形がある。形の正本は公開の検査（public-guard/guard.py の SECRET_PATTERNS）。
             見つからない時は止める（照らせない物は外へ出さない）。在り処は AF_PUBLIC_GUARD → 土台の repo の根 → 市場の取り出し。
-            大きすぎる（MAX_READ 超）・開けない file は「照らした」扱いにせず、名と訳を添えて出す前に止める（照らせない物は外へ出さない。
-            AI の呼び出しだけを止め、file を小さく分けるか path を直して出し直させる＝聞く線のオーナー同意 2026-11-22）。
+            大きすぎる（MAX_READ 超）・開けない file は「照らした」扱いにせず、出した後（PostToolUse の notice）に名と訳を知らせる
+            （止めに変えるかはオーナーの同意待ち）。
   number  … send_message（MCP）・SendMessage の文と create_session の頼みの文に、番号（E02・#3 の形）だけで中身の
             名の無い文がある（「#3 やって」「E02 の件」）。番号の見分けは ask_shape の中の言葉の見分け（INNER の「番号」）、
             中身の語の見分けは ask_shape の話題の語（_words）を直に呼ぶ。
@@ -30,7 +30,7 @@ import re
 import ask_shape
 import guard_common as G
 
-HOOKS = {"pre": "check"}
+HOOKS = {"pre": "check", "post": "notice"}
 
 SEND_TOOLS = ("SendMessage",)
 SEND_SUFFIX = "__send_message"
@@ -106,6 +106,14 @@ def _unreadable(path):
     return ""
 
 
+def unread_files(data):
+    """[(path, 訳)]。Artifact の publish で出す file のうち、鍵の形を照らせない物。"""
+    ti = data.get("tool_input")
+    if str(data.get("tool_name") or "") != "Artifact" or not isinstance(ti, dict):
+        return []
+    return [(p, why) for p, why in ((p, _unreadable(p)) for p in _artifact_files(ti, data)) if why]
+
+
 def secret_hits(data, vals, pg, unread=None):
     """[(場所, 札)]。当たった字そのものは返さない（止めた文にも鍵を出さない）。
     照らせなかった file は黙って飛ばさず、unread（渡されれば）に (path, 訳) で積む。"""
@@ -155,25 +163,18 @@ def check_secret(data, vals):
                 " guard.py の path を入れる。" % ((": " + err) if err else ""))
     unread = []
     hits = secret_hits(data, vals, pg, unread)
-    if not hits and not unread:
+    if not hits:
         return ""
-    lines = []
-    if hits:
-        lines.append("[guard] 外へ渡す道具（%s）の入力に鍵・認証情報の形があるので、出す前に止めた（核 §1・オーナー同意 2026-11-19・"
-                     "人の操作は止めていない）。" % name)
-        lines += ["- %s に %s の形" % (w, label) for w, label in hits[:8]]
-        lines.append("直し方: 鍵の値を文から抜き、「<鍵の名> は環境の秘密に入れた」のように名だけで書いて出し直す。鍵が要る相手には"
-                     "値を渡さず、環境の秘密（request_credential）で渡す。Artifact の file に入っていれば file から抜く。")
-    else:
-        lines.append("[guard] 外へ渡す道具（%s）で出す file に、鍵・認証情報の形を照らせなかった物があるので、出す前に止めた"
-                     "（照らせない物は外へ出さない・人の操作は止めていない）。" % name)
+    lines = ["[guard] 外へ渡す道具（%s）の入力に鍵・認証情報の形があるので、出す前に止めた（核 §1・オーナー同意 2026-11-19・"
+             "人の操作は止めていない）。" % name]
+    lines += ["- %s に %s の形" % (w, label) for w, label in hits[:8]]
+    lines.append("直し方: 鍵の値を文から抜き、「<鍵の名> は環境の秘密に入れた」のように名だけで書いて出し直す。鍵が要る相手には"
+                 "値を渡さず、環境の秘密（request_credential）で渡す。Artifact の file に入っていれば file から抜く。")
     lines += unread_lines(unread)
-    if unread:
-        lines.append("直し方（照らせなかった file）: 大きすぎる物は小さくするか分けて出し直す・開けない物は path と権限を直して"
-                     "出し直す（照らせた file だけを外へ出す）。")
     lines.append("誤って止めた時（作り物の見本の字が形に当たった等）: 値の表の guard.outbound_secret_allow に、その字に当てる"
                  "正規表現を足す（PR とレビューを通す）。細目は skill `guard:guard-rules`。")
     return "\n".join(lines)
+
 
 
 def unread_lines(unread):
@@ -185,6 +186,19 @@ def unread_lines(unread):
         out.append("  - （ほか %d 件）" % (len(unread) - 8))
     return out
 
+
+def notice(data, vals):
+    """PostToolUse: Artifact で出した file に、鍵の形を照らせなかった物があれば名と訳を知らせる（止めない＝止めに変えるかは
+    オーナーの同意を待つ）。照らせなかった file を「照らした」扱いで黙って通さない。"""
+    unread = unread_files(data)
+    if not unread:
+        return ""
+    lines = ["[guard] Artifact で出した file のうち、鍵・認証情報の形を照らせなかった物がある（知らせるだけ・止めていない。"
+             "照らせた物だけを照らした）:"]
+    lines += unread_lines(unread)[1:]
+    lines.append("直し方: その file に鍵が無いかを自分で確かめる（大きすぎる物は分けるか小さくして出し直す・開けない物は path と"
+                 "権限を直して出し直す）。鍵が入っていれば file から抜き、出した Artifact を出し直す。")
+    return "\n".join(lines)
 
 # ── number ──
 def number_only(text, vals):
