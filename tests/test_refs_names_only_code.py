@@ -49,7 +49,7 @@ def test_md_でない_file_も土台の節を番号だけで指さない():
 def test_注入_コードの注釈と出力の文に番号だけの指しを入れると赤():
     """注入: コードの注釈・文字列・schema の説明に番号だけの指しを置く → 拾う。名で指せば通る。印の行だけ外す。"""
     c = R.contract(ROOT)
-    for planted in ('# 中身は細目 §3 が正本\n', 'print("核 §4 に従う")\n', '{"description": "CONTRIBUTING.md §8 を見る"}\n'):
+    for planted in ('# 中身は細目 §3 が正本\n', 'print("核 §4 に従う")\n', '{"description": "CONTRIBUTING.md §8 を見る"}\n'):  # 番号の見本
         assert number_only(c, planted), planted
     assert number_only(c, '# 中身は細目「直すは根治」が正本\n') == []
     assert number_only(c, 'x = "細目 §3"  # 番号の見本\n') == []
