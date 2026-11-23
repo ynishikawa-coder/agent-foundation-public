@@ -46,6 +46,7 @@ def _github(rules_err, wf_status="completed", wf_conclusion="success"):
 
 
 def test_必須の検査を持てない_repo_は_workflow_の走りが終わって緑になるまで通さない(monkeypatch):
+    monkeypatch.setattr(rg, "TIP", "fedcba987654")   # main の先端の版（判定が従う決まりの版）
     monkeypatch.setattr(rg, "_get", _github(_http(403, PLAN_403), "in_progress", None))
     assert rg.main(["--repo", "o/r", "--pr", "1"]) == 1          # 速い検査 lint だけ緑・workflow ci は走り中
     monkeypatch.setattr(rg, "_get", _github(_http(403, PLAN_403), "completed", "failure"))

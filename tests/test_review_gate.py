@@ -86,7 +86,8 @@ def test_記録が読めない時は入ってよいと言わず_exit_2(capsys):
     assert "読めない" in capsys.readouterr().out
 
 
-def test_入口の_exit_は入ってよいが_0_まだが_1(capsys):
+def test_入口の_exit_は入ってよいが_0_まだが_1(capsys, monkeypatch):
+    monkeypatch.setattr(rg, "TIP", "fedcba9876543210" * 2 + "fedcba98")
     ok = lambda *a: (pr(), REQ, GREEN, [])                                    # noqa: E731
     red = lambda *a: (pr(mergeable_state="dirty"), REQ, GREEN, [])            # noqa: E731
     assert rg.main(["--repo", "o/r", "--pr", "1"], read=ok) == 0
@@ -99,3 +100,4 @@ def test_材料を_file_で受ける口が無い():
     src = (ROOT / "plugins" / "checker" / "scripts" / "review_gate.py").read_text(encoding="utf-8")
     assert "add_argument(\"--repo\"" in src and "add_argument(\"--pr\"" in src
     assert src.count("add_argument(") == 2
+

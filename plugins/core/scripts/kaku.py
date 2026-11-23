@@ -49,7 +49,7 @@ SAIMOKU_ONE_FILE = "細目.md"
 SAIMOKU_EXAMPLE = "**見せてから聞く**"
 OLDS = PLUGIN / "古い形.json"
 FRAME_BEGIN = "<!-- AF-CORE:BEGIN"
-# 越えた時の最後の行（中身は細目 §3 が正本＝ここは指すだけ）
+# 越えた時の最後の行（中身は細目「直すは根治」が正本＝ここは指すだけ）
 ROOT_CAUSE = "直し: 文を移して量を合わせるだけで済ませず、意図（常に読まれる決まりが少なく保たれる）とのずれから入り、決まりが増えた原因を細目 §3「まず構造を疑う」で探して畳む"
 # 常に読まれる量の上限（バイト・UTF-8）。数はここの 1 か所だけに置く。
 LIMITS = {"核": 4800, "振る舞い": 2400, "各社固有": 3000}
@@ -63,6 +63,9 @@ CARRIERS = ("plugins", ".claude-plugin")
 FRESH_INTERVAL = 900  # 起動の後に main の先端を見に行く間（秒）。毎回の問いごとに外へ出ない。
 # 起動の時の古い形の見張りに使ってよい時間（秒）。越えたら打ち切って名指しする（hook の上限に当たって核の差し込みごと落ちない）。
 WATCH_BUDGET = 5
+# 打ち切った照らしを裏で最後まで回す上限（秒）。結果は照らした物の版（HEAD・作業の木の変わり・表・この file）を鍵に取って置き、
+# 次の起動は同じ版なら取って置いた結果を出す（照らしの重さが repo の file の数で伸びても、2 度目の起動で必ず照らし終える）。
+WATCH_BG_BUDGET = 600
 
 
 # 読めない時の類（無い・権限・UTF-8 でない中身）を 1 か所で受ける。どの読みもこれで受け、欠けを名指しする。
@@ -518,21 +521,108 @@ def find_olds(project: Path, rows: list[dict] | None = None) -> list[tuple[dict,
     return olds_scan(project, rows)["found"]
 
 
-def find_olds_bounded(project: Path, budget: float = WATCH_BUDGET, table: Path = OLDS) -> dict:
-    """olds_scan を別の process で走らせ、budget 秒で殺す。1 つの file の正規表現の照らしは途中で止められないので、
-    時間の上限は file の合間でなく process の外から掛ける。越えたら TimeoutError（黙って一部だけにしない）。"""
+def _olds_cache_dir() -> Path:
+    """取って置いた照らしの結果の置き場（AF_KAKU_OLDS_CACHE で差し替える＝試験）。"""
+    import tempfile
+    return Path(os.environ.get("AF_KAKU_OLDS_CACHE") or Path(tempfile.gettempdir()) / "af-kaku-olds")
+
+
+def _olds_key(project: Path, table: Path, budget: float) -> str | None:
+    """照らした物の版の鍵: HEAD・作業の木の変わり（未記録・未追跡を含む）・表の中身・この file の中身。git で読めない時は None
+    （取って置かない＝毎回照らす。古い結果を別の版に出さない）。"""
+    env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+    h = hashlib.sha256()
+    try:
+        for args in (["rev-parse", "HEAD"], ["status", "--porcelain=v1", "-z", "--untracked-files=all"]):
+            r = subprocess.run(["git", "-C", str(project), *args], capture_output=True, timeout=max(budget, 1), env=env)
+            if r.returncode != 0:
+                return None
+            h.update(r.stdout + b"\0")
+        h.update(Path(table).read_bytes() + b"\0")
+        h.update(Path(__file__).resolve().read_bytes() + b"\0" + str(Path(project).resolve()).encode("utf-8"))
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return h.hexdigest()
+
+
+def olds_cache(project: Path, table: Path, out: Path, budget: float = WATCH_BG_BUDGET) -> int:
+    """裏の照らし（起動で打ち切った分を最後まで）。済んだら out へ字を書いて置き換える（途中の file を読ませない）。
+    上限を越えた・読めない時は取って置かない（次の起動がまた打ち切りを名指す）。"""
     cmd = [sys.executable, str(Path(__file__).resolve()), "olds", "--json", "--table", str(table), str(project)]
     try:
         p = subprocess.run(cmd, capture_output=True, text=True, timeout=budget)
-    except subprocess.TimeoutExpired:
-        raise TimeoutError(f"{budget} 秒で見終わらず打ち切った（古い形の照らしの途中＝古い形 0 と決まったのではない）。"
-                           f"時間の上限なしで照らすのは `python3 {Path(__file__).resolve()} olds {project}`") from None
-    if p.returncode not in (0, 1):
-        raise ValueError((p.stdout + p.stderr).strip() or f"olds が {p.returncode} で抜けた")
+        if p.returncode in (0, 1):
+            json.loads(p.stdout)
+            tmp = out.with_suffix(".tmp%d" % os.getpid())
+            tmp.write_text(p.stdout, encoding="utf-8")
+            os.replace(tmp, out)
+    except (subprocess.TimeoutExpired, OSError, ValueError):
+        pass
+    finally:
+        try:
+            out.with_suffix(".run").unlink()
+        except OSError:
+            pass
+    return 0
+
+
+def _olds_bg(project: Path, table: Path, out: Path) -> bool:
+    """裏の照らしを 1 本だけ立てる（同じ鍵で走っている間は立てない）。立てた・走っているなら True。"""
+    run = out.with_suffix(".run")
+    try:
+        if run.exists() and time.time() - run.stat().st_mtime < WATCH_BG_BUDGET + 60:
+            return True
+        out.parent.mkdir(parents=True, exist_ok=True)
+        run.write_text(str(os.getpid()), encoding="utf-8")
+        subprocess.Popen([sys.executable, str(Path(__file__).resolve()), "olds-cache", "--table", str(table),
+                          "--out", str(out), str(project)],
+                         stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                         start_new_session=True)
+        return True
+    except OSError:
+        return False
+
+
+def _olds_parse(stdout: str, table: Path) -> dict:
     rows = {r["id"]: r for r in olds_table(table)}
-    got = json.loads(p.stdout)
+    got = json.loads(stdout)
     return {"ref": got["ref"], "note": got.get("note"), **{k: [(rows[i], f) for i, f in got.get(k) or []] for k in SCAN_KEYS},
             "unread": [(f, why) for f, why in got.get("unread") or []]}
+
+
+def find_olds_bounded(project: Path, budget: float = WATCH_BUDGET, table: Path = OLDS) -> dict:
+    """olds_scan を別の process で走らせ、budget 秒で殺す。1 つの file の正規表現の照らしは途中で止められないので、
+    時間の上限は file の合間でなく process の外から掛ける。越えたら TimeoutError（黙って一部だけにしない）。
+    越えた時は裏で上限なしに近い長さ（WATCH_BG_BUDGET）で最後まで照らし、結果を照らした物の版の鍵で取って置く。
+    次の起動は同じ版なら取って置いた結果を出す（照らしの重さが file の数で伸びても、打ち切りが続いて照らし終えない形にしない）。"""
+    t0 = time.monotonic()
+    key = _olds_key(project, table, budget)
+    out = _olds_cache_dir() / f"{key}.json" if key else None
+    if out is not None:
+        try:
+            return _olds_parse(out.read_text(encoding="utf-8"), table)
+        except (OSError, ValueError, KeyError, TypeError):
+            pass                       # 無い・壊れた取り置きは使わず照らし直す
+    cmd = [sys.executable, str(Path(__file__).resolve()), "olds", "--json", "--table", str(table), str(project)]
+    try:
+        p = subprocess.run(cmd, capture_output=True, text=True, timeout=max(budget - (time.monotonic() - t0), 0.01))
+    except subprocess.TimeoutExpired:
+        bg = out is not None and _olds_bg(project, table, out)
+        raise TimeoutError(f"{budget} 秒で見終わらず打ち切った（古い形の照らしの途中＝古い形 0 と決まったのではない）。"
+                           + ("裏で最後まで照らしていて、同じ版のままなら次の起動で結果を出す。" if bg else "")
+                           + f"時間の上限なしで照らすのは `python3 {Path(__file__).resolve()} olds {project}`") from None
+    if p.returncode not in (0, 1):
+        raise ValueError((p.stdout + p.stderr).strip() or f"olds が {p.returncode} で抜けた")
+    got = _olds_parse(p.stdout, table)
+    if out is not None:
+        try:
+            out.parent.mkdir(parents=True, exist_ok=True)
+            tmp = out.with_suffix(".tmp%d" % os.getpid())
+            tmp.write_text(p.stdout, encoding="utf-8")
+            os.replace(tmp, out)
+        except OSError:
+            pass
+    return got
 
 
 def olds_text(scan: dict, project: Path) -> str | None:
@@ -1056,6 +1146,40 @@ def moved_since(base: str, tip: str) -> list[str]:
     return sorted(_carrier_names(names))
 
 
+# 開いている窓へも届ける直し（題の頭の印）。権限・秘密・お金・社外への送信・本番の守りの急ぎの直しだけに付ける。
+# 印の無い直しは、開いている窓には届けず、次に立つ窓から効く（窓は立った時の版で終わりまで動く）。
+URGENT_MARK = "急ぎの安全:"
+_URGENT = re.compile(r"急ぎの安全[:：]")
+
+
+def urgent_since(base: str, tip: str) -> list[str]:
+    """base（窓が最後に取った先端）から tip（今の先端）までに main へ入った土台の直し（plugins/・.claude-plugin/ に
+    触れた commit）のうち、題が急ぎの安全の印で始まる物の題。空＝開いている窓へ届ける物は無い。
+    目録の clone は浅い（先端だけ）ので、base へ届くまで歴史を足して取る。取れない・base が tip の祖先でない時は
+    Incomparable（「急ぎは無い」と読ませない）。"""
+    if base == tip:
+        return []
+    loc = catalog_source()[0].get("installLocation")
+    if not loc:
+        return []
+    for more in ("--deepen=50", "--deepen=500", "--unshallow"):
+        if _git(loc, "merge-base", "--is-ancestor", base, tip) is not None:
+            break
+        try:
+            _git_run(loc, "fetch", "--quiet", more, "origin", tip, timeout=60)
+        except GitFailed as e:
+            if more != "--unshallow":  # 浅くない clone に --unshallow は失敗する（下の祖先の問いで決める）
+                raise Incomparable(f"{base[:12]} から {tip[:12]} の歴史を取って来られない — {e}") from None
+    else:
+        if _git(loc, "merge-base", "--is-ancestor", base, tip) is None:
+            raise Incomparable(f"窓が取った先端 {base[:12]} が今の先端 {tip[:12]} の祖先に無い")
+    try:
+        subjects = _git_run(loc, "log", "--format=%s", f"{base}..{tip}", "--", *CARRIERS)
+    except GitFailed as e:
+        raise Incomparable(f"{base[:12]} から {tip[:12]} の題を読めない — {e}") from None
+    return [s for s in subjects.splitlines() if _URGENT.match(s.strip())]
+
+
 REFRESH_TIMEOUT = 600  # 裏の入れ直し（入口 setup_plugins.py）を待つ上限（秒）
 
 
@@ -1176,7 +1300,7 @@ def start_cause(f: dict | None) -> str | None:
 
 
 CONTINUE = ("窓は立て直さず・引き継がず・閉じず、そのまま頼みを続ける（create_session・archive_session をしない）。"
-            "下の main の先端の核と振る舞いの既定が、起動の時に差し込まれた物に代わって効く。"
+            "急ぎの安全の直しなので、開いている窓にも今届ける。下の main の先端の核と振る舞いの既定が、起動の時に差し込まれた物に代わって効く。"
             "守りの hook は裏で先端の版を入れ直し、済んだ後の呼び出しから先端の版で動く（hook の足し・外しと skill は次に立つ窓から）。\n")
 
 
@@ -1270,9 +1394,10 @@ def unknown_at_start_text(f: dict) -> str:
 
 def update_text(f: dict, core: str) -> str:
     """起動の後に核か振る舞いの既定の文が変わった時の知らせ。core＝変わった物だけの全文（changed_core_text）。"""
-    return ("## 土台が新しくなった — 新しい核をここで読み、窓はそのまま続ける\n"
+    urgent = "".join(f"- {u}\n" for u in f.get("urgent") or [])
+    return ("## 土台に急ぎの安全の直しが入った — 新しい核をここで読み、窓はそのまま続ける\n"
             f"土台の main の先端で、窓が読んでいる核か振る舞いの既定の文が変わった（{_short(f)}）。"
-            + CONTINUE + core)
+            + CONTINUE + (f"急ぎの安全の直し:\n{urgent}" if urgent else "") + core)
 
 
 # 起動の時の知らせの締め（核は上に先端の本文で 1 枚だけ差し込んでいるので、ここでは本文を重ねない）
@@ -1371,7 +1496,9 @@ def inject() -> int:
 
 
 def fresh() -> int:
-    """起動の後に土台が新しくなったかを見る。新しくなっていれば、main の先端の核と振る舞いの既定をこの窓に差し込み、
+    """起動の後に土台へ急ぎの安全の直し（題が URGENT_MARK で始まる commit）が入ったかを見る。窓は立った時の版で
+    終わりまで動き、印の無い直しは開いている窓へ届けない（核の差し込みも守りの入れ直しもしない・次に立つ窓から効く）。
+    急ぎの直しが入っていれば、main の先端の核と振る舞いの既定をこの窓に差し込み、守りを先端の版へ入れ直し、
     窓はそのまま頼みを続ける（引き継がせない・閉じさせない）。同じ先端は 1 回だけ見る（問いのたびに繰り返さない）。
     核と振る舞いの既定は、この窓が読んだ本文から変わった物だけを送る（本文が同じなら守りの入れ直しだけで黙る）。"""
     data, bad_input = _hook_input()
@@ -1397,10 +1524,14 @@ def fresh() -> int:
     text = None
     try:
         got = freshness()
-        if got and got["plugins"] and state.get("start_main"):
-            # 入った版でなく、この窓が立った時の先端と比べる（作り置きの箱で立った窓を、立つ前の main の進みで数えない）
-            moved = moved_since(state["start_main"], got["main"])
-            got = dict(got, plugins=moved) if moved else None
+        if got and got["plugins"]:
+            # 入った版でなく、この窓が立った時の先端と比べる（作り置きの箱で立った窓を、立つ前の main の進みで数えない）。
+            # 開いている窓へ届けるのは、この窓が最後に取った先端の後の急ぎの安全の直しが在る時だけ。
+            start = state.get("start_main")
+            moved = moved_since(start, got["main"]) if start else []
+            taken = (state.get("told") or {}).get("main") or start
+            urgent = urgent_since(taken, got["main"]) if moved else []
+            got = dict(got, plugins=moved, urgent=urgent) if urgent else None
     except Incomparable as e:  # 比べられない時は「新しくなっていない」と読まず名指す（間を置いて 1 回）
         got, text = None, _incomparable_text(e)
     except Exception as e:  # noqa: BLE001  見張りが壊れても問いは止めない。壊れた事は名指しする（間を置いて 1 回）
@@ -1666,6 +1797,10 @@ def main(argv=None) -> int:
     o.add_argument("dirs", type=Path, nargs="+")
     o.add_argument("--table", type=Path, default=OLDS, help="古い形の一覧（既定は plugin の 古い形.json）")
     o.add_argument("--json", action="store_true", help="当たりを [[id, path], …] で出す（起動の hook が別の process で呼ぶ）")
+    oc = sub.add_parser("olds-cache", help="起動で打ち切った古い形の照らしを裏で最後まで回して取って置く（find_olds_bounded が呼ぶ）")
+    oc.add_argument("project", type=Path)
+    oc.add_argument("--table", type=Path, default=OLDS)
+    oc.add_argument("--out", type=Path, required=True)
     r = sub.add_parser("refresh", help="裏で入口を回して先端の版を入れ直す（inject・fresh が別の process で呼ぶ）")
     r.add_argument("tip")
     r.add_argument("entry", type=Path)
@@ -1678,6 +1813,8 @@ def main(argv=None) -> int:
         return grow(a.base)
     if a.cmd == "fresh":
         return fresh()
+    if a.cmd == "olds-cache":
+        return olds_cache(a.project, a.table, a.out)
     if a.cmd == "olds":
         return olds(a.dirs, a.table, a.json)
     return check(a.claude)

@@ -246,6 +246,20 @@
       "pattern": "⏳\\ufe0f?\\s*待ち",
       "fix": "札は `💤待ち` にする（札の並びと意味の正本は核 §5・見張りは session-watch の CARD_WORDS）。札の写しを置かず核を名で指す",
       "example": "返事の 1 行目は ⏳待ち（作り物の窓）"
+    },
+    {
+      "id": "verdict-no-rules-line",
+      "what": "レビューの判定を数える関所が、判定の形の道具 verdict_form を main の先端の点で照らす古い呼び方（check を直に呼び、決まりの版を照らさない）。2026-11-23 からレビューは始めた時の決まりで見る（判定の 3 行目 `決まりの版:`）。1 段目の間は 3 行目の無い判定も古い呼び方も通るが、途中で main に足された点で正しい判定を red と数える",
+      "files": [
+        "*.py",
+        ":(exclude)tests/**",
+        ":(exclude)**/tests/**",
+        ":(exclude)**/test_*.py"
+      ],
+      "reads": "commands",
+      "pattern": "(?s)\\A(?=.*verdict_form)(?!.*\\bcheck_posted\\b).*?\\.check\\(",
+      "fix": "関所は `verdict_form.check_posted(本文, first, writer=…, head=…)` の 1 つの口を呼ぶ（first は同じ道具の `first_rules` で PR の初めの判定から取る）。判定は 3 行目に `決まりの版:` を書く（形の正本は skill `checker:review-pr` と verdict_form.py・写さない）",
+      "example": "vf = load('verdict_form'); errs = vf.check(text, writer=None, head=head12)"
     }
   ]
 }

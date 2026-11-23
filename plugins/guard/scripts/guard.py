@@ -8,7 +8,10 @@
 
 止めるのは pre（permissionDecision=deny）だけ。post と start は隣に文を出すだけ。AI の締め（Stop）を差し戻す口は持たない
 （差し戻すと同じ返事を書き直させる無駄になる＝形の崩れは知らせるだけ）。
-どの見張りも壊れた時は黙って通す（1 つの故障で他の見張りや仕事を止めない）。exit は常に 0。
+見張りが壊れた時（import・呼び出しの例外・HOOKS の宣言が読めない）と、入力の JSON が読めない時は、pre では止める
+（守りが働いたかを判らないまま通さない＝既定で止める）。止めの文に壊れた見張りの名と訳を載せる。1 つの故障で他の見張りは
+止めない（他も全部走らせてから、壊れた分を止めの訳に足す）。post と start は通す側の出来事なので、壊れた見張りの名を隣に知らせる
+だけ。exit は常に 0（止めは JSON の permissionDecision で出す）。
 """
 import ast
 import glob
@@ -24,20 +27,26 @@ sys.path.insert(0, HERE)
 import guard_common as G  # noqa: E402
 
 EVENTS = {"pre": "PreToolUse", "post": "PostToolUse", "start": "SessionStart"}
-# 止めた時の最後の行（どの見張りの止めにも 1 か所で付ける。中身は細目 §3 が正本＝ここは指すだけ）
+# 止めた時の最後の行（どの見張りの止めにも 1 か所で付ける。中身は細目「直すは根治」が正本＝ここは指すだけ）
 ROOT_CAUSE = "直し: 止められた所を直して出し直すだけで済ませず、止めた守りの意図とのずれから入り、その形が出た原因を細目 §3「まず構造を疑う」で探して直す"
 
 
+def _broken(name, why):
+    return "[guard] 見張り %s が壊れていて、この呼び出しを照らせていない（%s）。照らせないまま通さない。" \
+           "直し: 土台の plugins/guard/scripts/%s.py を直す（土台の main が進んでいれば窓を立て直すと入る）。" % (name, why, name)
+
+
 def _run(module, func, data, vals):
-    """1 つの見張りを走らせる。import から呼び出しまでを try の中に置く＝1 つが壊れても他は走る。"""
+    """1 つの見張りを走らせる。import から呼び出しまでを try の中に置く＝1 つが壊れても他は走る。
+    (出す文, 壊れた訳) を返す。"""
     try:
-        return getattr(importlib.import_module(module), func)(data, vals) or ""
+        return getattr(importlib.import_module(module), func)(data, vals) or "", ""
     except Exception as e:      # noqa: BLE001
         sys.stderr.write("[guard] %s.%s: %s\n" % (module, func, e))
-        return ""
+        return "", _broken(module, "%s.%s: %s: %s" % (module, func, type(e).__name__, e))
 
 
-def watchers(event):
+def watchers(event, broken=None):
     """この出来事で回す (module, 関数) の並び。同じ dir の各見張りが自分の頭に書く HOOKS = {出来事: 関数} を読む
     （入口に一覧を持たない＝見張りを足す PR が同じ 1 行へ足して互いに衝突しない）。読むのは字の宣言だけで import しない
     （import で壊れる見張りも、ここでは他を巻き込まない）。並びは module の名の順。"""
@@ -55,6 +64,8 @@ def watchers(event):
             continue                     # 宣言の無い file は見張りでない（手伝いの部品）
         except Exception as e:           # noqa: BLE001
             sys.stderr.write("[guard] %s の HOOKS が読めない: %s\n" % (name, e))
+            if broken is not None:     # どの出来事の見張りかを判らない＝どの出来事でも壊れた見張りとして名指す
+                broken.append(_broken(name, "HOOKS の宣言が読めない: %s: %s" % (type(e).__name__, e)))
             continue
         if isinstance(hooks, dict) and isinstance(hooks.get(event), str):
             out.append((name, hooks[event]))
@@ -67,7 +78,15 @@ def run(event, data):
         vals = G.values(data)
     except Exception:          # noqa: BLE001
         vals = dict(G.DEFAULTS)
-    outs = [o for o in (_run(m, f, data, vals) for m, f in watchers(event)) if o]
+    broken = []
+    outs = []
+    for m, f in watchers(event, broken):
+        o, b = _run(m, f, data, vals)
+        if o:
+            outs.append(o)
+        if b:
+            broken.append(b)
+    outs += broken
     if not outs:
         return None
     if event == "pre":
@@ -83,11 +102,17 @@ def main(argv):
         return 0
     try:
         data = json.load(sys.stdin)
-    except Exception:
-        return 0
-    if not isinstance(data, dict):
-        return 0
-    out = run(event, data)
+        why = "" if isinstance(data, dict) else "頂が {…} でない"
+    except Exception as e:     # noqa: BLE001
+        data, why = None, "%s: %s" % (type(e).__name__, e)
+    if why:
+        if event != "pre":
+            return 0
+        out = {"hookSpecificOutput": {"hookEventName": EVENTS[event], "permissionDecision": "deny",
+                                      "permissionDecisionReason": "[guard] hook の入力の JSON を読めない（%s）。照らせないまま通さない。"
+                                      % why}}
+    else:
+        out = run(event, data)
     if out:
         print(json.dumps(out, ensure_ascii=False))
     return 0

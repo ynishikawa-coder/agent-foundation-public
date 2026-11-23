@@ -6,6 +6,8 @@
 課題: 形の崩れた判定が合流の材料になり、欄の欠けた PR 本文がレビューで初めて見つかり、
 公開の repo の PR 本文に置かない語が出て GitHub の編集の履歴に残った。
 原因: 決まりと道具はあるのに、AI が自分で回すか、出した後に CI やレビューが拾うだけだった。
+公開かの見分けは手元の取り出しの workflow だけを読み、取り出しが無い・workflow が読めない時を「公開でない」と読んで照らしを
+飛ばしていた（決められない時に通す側へ倒れていた）。
 
 見る道具: 名の末尾（MCP の server の名は問わない）で見分ける。
   PR     … create_pull_request・update_pull_request（題・本文）
@@ -17,7 +19,8 @@
 照らす物（見分けは正本を直に読む・呼ぶ。ここに決まりを写さない）:
   verdict … （材料は記録から: 出す先の PR の先端と、PR の commit 全部の `Claude-Session:` の窓（書いた窓の組）を gh で引き
             --head・--writer で、判定を出す窓の本物の id を窓の環境の記録（CLAUDE_CODE_REMOTE_SESSION_ID）から読み --reviewer で
-            渡す。判定の 1 行目の名乗りは手で書いた写しで、照らされる側。本文の `書いた窓:` は読まない。どれかが引けなければ止める）
+            渡す。判定の 1 行目の名乗りは手で書いた写しで、照らされる側。本文の `書いた窓:` は読まない。PR のコメントから初めの判定の
+            決まりの版を verdict_form.first_rules で読み --first で渡す〔無ければ なし〕。どれかが引けなければ止める）
             コメントがレビューの判定（どの行かに `レビューした窓: … 判定: green|red` が揃うか、verdict の見出しが在る）なら、checker の
             `scripts/verdict_form.py` をそのまま呼ぶ。赤なら止める。道具が見つからない・壊れた時も止める
   cleanup … PR の本文（本文を渡す時だけ）に、dev-flow の preimpl-cleanup の `整地受領証.template.md` の見出し
@@ -31,9 +34,11 @@
             題・本文を `public-guard/guard.py --text` に渡す（呼び口の見分けと置かない語の表は workflow の読み手
             public-guard/workflow_reader.py が正本: PR・push で走る job の step の呼び口だけを数え、語の表は全部の呼び口の with: の
             deny-words-file の和）。当たれば止める。
+            公開かを決められない時は公開として照らす（既定で止める側）: 出す先の取り出しが手元に無ければ GitHub の記録
+            （gh api repos/<owner>/<repo> の visibility）を引き、private・internal の時だけ公開でないと読む（引けない・答えが
+            分からない時は公開）。取り出しに開けない・壊れた workflow が 1 つでも在れば公開として照らす（その分の語の表は読めない）
             検査が見つからない・壊れた時も止める（公開の repo へは、照らせない文を出さない）
-            開けない・壊れた workflow は黙って飛ばさず、出した後（PostToolUse の notice）に名と訳を知らせる（止めに変えるかは
-            オーナーの同意待ち）
+            開けない・壊れた workflow は出した後（PostToolUse の notice）にも名と訳を知らせる
 誤って止めた時: 値の表 pr_cleanup_exempt_repos・pr_words_exempt_repos（owner/repo の名の全体に当てる正規表現・^ で始め $ で終える＝
 型 repo_names）で repo ごとに外す。
 判定の形と公開の検査は外す口を持たない（直すのは文の方・判定の形の決まりは review-pr の SKILL.md が正本）。
@@ -195,6 +200,42 @@ def poster_id(env=None):
     return "session_" + m.group(1) if m else ""
 
 
+def pr_number(repo, ti):
+    number = next((ti.get(k) for k in NUMBER_KEYS if ti.get(k)), None)
+    if not number and ti.get("comment_id"):
+        p = _gh(["repos/%s/issues/comments/%s" % (repo, ti["comment_id"]), "--jq", ".issue_url"])
+        number = p.stdout.strip().rsplit("/", 1)[-1] if p.returncode == 0 else None
+    return number
+
+
+def first_rules(repo, ti, tool):
+    """PR のコメントから初めの判定の決まりの版（SHA12）か NO_FIRST の `なし`、と誤り。読み方は判定の形の道具の
+    first_rules をそのまま呼ぶ（写さない）。コメントを引けない時は誤り（初めの版を照らさずに判定を通さない）。
+    道具が first_rules を持たない古い checker なら (None, "")＝--first を渡さず前の形で照らす（壊れる変更の 1 段目の間）。"""
+    import importlib.util
+    try:
+        spec = importlib.util.spec_from_file_location("af_verdict_form", tool)
+        vf = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(vf)
+    except (Exception, SystemExit) as e:  # noqa: BLE001  読めない・読むと抜ける道具で版を決めない（hook ごと落ちない）
+        return "", "判定の形の道具が壊れた（読むと %s）。初めの判定の決まりの版を読めない" % e.__class__.__name__
+    if not hasattr(vf, "first_rules"):
+        return None, ""   # 1 段目の間: 決まりの版を知らない古い checker は --first を渡さず前の形で照らす（CONTRIBUTING.md §8）
+    try:
+        number = pr_number(repo, ti)
+        c = _gh(["--paginate", "repos/%s/issues/%s/comments" % (repo, number), "--jq", ".[].body | @json"]) \
+            if number else None
+    except (OSError, subprocess.SubprocessError) as e:
+        return "", "PR のコメントを引けなかった（%s）" % e.__class__.__name__
+    if c is None or c.returncode != 0:
+        return "", "PR のコメントを引けず、初めの判定の決まりの版を読めない"
+    try:
+        bodies = [json.loads(ln) for ln in c.stdout.splitlines() if ln.strip()]
+    except ValueError:
+        return "", "PR のコメントが読めない"
+    return vf.first_rules(bodies) or vf.NO_FIRST, ""
+
+
 def pr_facts(repo, ti):
     """判定を出す先の PR の (先端の SHA, 書いた窓の組, 誤り)。GitHub から引く（判定の形の道具が要る材料・写さない）。
 
@@ -204,11 +245,8 @@ def pr_facts(repo, ti):
     引けない時は誤りを返す（欠けた材料で判定を通さない）。"""
     if not repo:
         return "", [], "出す先の repo（owner・repo）が道具の入力に無い"
-    number = next((ti.get(k) for k in NUMBER_KEYS if ti.get(k)), None)
     try:
-        if not number and ti.get("comment_id"):
-            p = _gh(["repos/%s/issues/comments/%s" % (repo, ti["comment_id"]), "--jq", ".issue_url"])
-            number = p.stdout.strip().rsplit("/", 1)[-1] if p.returncode == 0 else None
+        number = pr_number(repo, ti)
         if not number:
             return "", [], "判定を出す先の PR の番号が分からない"
         p = _gh(["repos/%s/pulls/%s" % (repo, number), "--jq",
@@ -261,9 +299,12 @@ def check_verdict(body, data):
     head, writers, err = pr_facts(_repo_name(ti), ti)
     if err:
         return ["判定の材料: " + err]
+    first, err = first_rules(_repo_name(ti), ti, tool)
+    if err:
+        return ["判定の材料: " + err]
     try:
-        p = _run([sys.executable, tool, _tmp_file(body, "verdict"), "--writer", ",".join(writers), "--head", head,
-                  "--reviewer", poster])
+        p = _run([sys.executable, tool, _tmp_file(body, "verdict"), "--writer", ",".join(writers), "--head", head]
+                 + (["--first", first] if first is not None else []) + ["--reviewer", poster])
     except (OSError, subprocess.SubprocessError) as e:
         return ["判定の形の道具が走らなかった: %s" % e.__class__.__name__]
     if p.returncode == 0:
@@ -403,36 +444,63 @@ def _broken_form(reader, raw):
     return ""
 
 
-def public_target(repo, data, vals, unread=None):
-    """(公開か, 取り出しの根, 置かない語の表の path の並び)。取り出しの workflow の全部を読み手で読み、数える呼び口
-    （PR・push で走り、job と step の if: が字どおりの false でない）が 1 つでも在れば公開。語の表は数える呼び口の全部の和。
-    開けない・壊れた workflow は黙って飛ばさず、unread（渡されれば）に (path, 訳) で積む（公開かを決められていない印）。
+def _scan(top, unread):
+    """(数える呼び口が在るか, 置かない語の表の path の並び)。取り出しの workflow の全部を読み手で読み、数える呼び口
+    （PR・push で走り、job と step の if: が字どおりの false でない）が 1 つでも在れば真。語の表は数える呼び口の全部の和。
+    開けない・壊れた workflow は黙って飛ばさず、unread に (path, 訳) で積む（公開かを決められていない印）。
     utf-8 で読めない字の workflow は例外のまま（check が照らしの壊れとして止める・今までどおり）。"""
+    reader, found, words, public = None, None, [], False
+    for wf in sorted(glob.glob(os.path.join(top, WORKFLOW_DIR, "*.y*ml"))):
+        try:
+            with open(wf, encoding="utf-8") as f:
+                raw = f.read()
+        except OSError as e:
+            unread.append((wf, "開けない（%s）" % (e.strerror or e.__class__.__name__)))
+            continue
+        if reader is None:
+            reader = _reader()
+            found = str(getattr(reader, "FOUNDATION", "") or "")
+        broken = _broken_form(reader, raw)
+        if broken:
+            unread.append((wf, broken))
+            continue
+        if reader.counted(raw, found):
+            public = True
+            words += [os.path.join(top, n) for n in reader.deny_words_files(raw, found)
+                      if os.path.join(top, n) not in words]
+    return public, words
+
+
+# GitHub の記録の repo の見え方（visibility が無い古い答えは private の真偽から読む）
+VISIBILITY_JQ = '.visibility // (if .private == true then "private" elif .private == false then "public" else "" end)'
+
+
+def _hidden_on_github(repo):
+    """GitHub の記録が repo を公開でない（private・internal）と言い切るか。引けない・gh が無い・答えが分からない時は偽
+    （＝公開として照らす側）。"""
+    try:
+        p = _gh(["repos/%s" % repo, "--jq", VISIBILITY_JQ])
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return p.returncode == 0 and p.stdout.strip().lower() in ("private", "internal")
+
+
+def public_target(repo, data, vals, unread=None):
+    """(公開か, 取り出しの根, 置かない語の表の path の並び)。決められない時は公開（既定で止める側）:
+    - 取り出しが在る: workflow に数える呼び口が在れば公開。開けない・壊れた workflow が 1 つでも在れば、それが呼び口かを
+      決められないので公開（語の表はその分を読めない）。unread（渡されれば）に (path, 訳) を積む。
+    - 取り出しが無い: GitHub の記録で private・internal と言い切れる時だけ公開でない。名が無い・引けない時は公開。
+    どちらでも公開と決まらなければ、値の表 public_repos_extra に在る時は公開。"""
     top = _checkout_of(repo, data)
     if top:
-        reader, found, words, public = None, None, [], False
-        for wf in sorted(glob.glob(os.path.join(top, WORKFLOW_DIR, "*.y*ml"))):
-            try:
-                with open(wf, encoding="utf-8") as f:
-                    raw = f.read()
-            except OSError as e:
-                if unread is not None:
-                    unread.append((wf, "開けない（%s）" % (e.strerror or e.__class__.__name__)))
-                continue
-            if reader is None:
-                reader = _reader()
-                found = str(getattr(reader, "FOUNDATION", "") or "")
-            broken = _broken_form(reader, raw)
-            if broken:
-                if unread is not None:
-                    unread.append((wf, broken))
-                continue
-            if reader.counted(raw, found):
-                public = True
-                words += [os.path.join(top, n) for n in reader.deny_words_files(raw, found)
-                          if os.path.join(top, n) not in words]
-        if public:
+        bad = []
+        public, words = _scan(top, bad)
+        if unread is not None:
+            unread.extend(bad)
+        if public or bad:
             return True, top, words
+    elif not repo or not _hidden_on_github(repo):
+        return True, top, []
     if repo and _public_extra(repo, data, vals):
         return True, top, []
     return False, top, []
@@ -484,18 +552,19 @@ def check_public(texts, repo, data, vals):
 
 def notice(data, vals):
     """PostToolUse: 出した先の repo の取り出しに、開けない・壊れた workflow があれば名と訳を知らせる（止めない＝止めに変えるかは
-    オーナーの同意を待つ）。その workflow が公開の検査を呼ぶなら、出した文は公開の検査で照らせていない。"""
+    オーナーの同意を待つ）。出す前は公開として照らした（public_target）が、その workflow が名指す置かない語の表は読めていない。"""
     kind = tool_kind(data.get("tool_name"))
     ti = data.get("tool_input")
     if not kind or not isinstance(ti, dict):
         return ""
+    top = _checkout_of(_repo_name(ti), data)
     unread = []
-    public_target(_repo_name(ti), data, vals, unread)
+    if top:
+        _scan(top, unread)
     if not unread:
         return ""
-    top = _checkout_of(_repo_name(ti), data)
-    lines = ["[guard] GitHub へ出した文の出す先 %s の取り出しに、読めない workflow がある（知らせるだけ・止めていない）。"
-             "公開の検査を呼ぶかを決められず、その workflow の分は照らしていない:" % _repo_name(ti)]
+    lines = ["[guard] GitHub へ出した文の出す先 %s の取り出しに、読めない workflow がある（知らせるだけ・この知らせでは止めていない）。"
+             "公開の検査を呼ぶかを決められないので公開として照らしたが、その workflow が名指す置かない語の表は読めていない:" % _repo_name(ti)]
     lines += ["- %s — %s" % (os.path.relpath(p, top) if top else p, why) for p, why in unread[:SHOWN]]
     lines.append("直し方: workflow を開ける・読める形に直す（GitHub も壊れた workflow は走らせない）。公開の repo なら、出した文に"
                  "置かない物が無いかを公開の検査（public-guard/guard.py --text）で確かめ、当たれば書き直す。")
@@ -505,7 +574,8 @@ HOW = {
     "broken": "一時の置き場（TMPDIR・AF_GUARD_TMP）に書けるか・入れた plugin が揃っているかを確かめ、直してから出し直す。"
               "直せない時は止めた文を添えて親の窓へ返す（見張りを外して出さない）。",
     "verdict": "判定のコメントは skill `checker:review-pr` の「判定の形」で書き直す（形の正本はその SKILL.md と verdict_form.py・"
-               "ここに写さない）。`python3 <verdict_form.py> <下書き> --writer <書いた窓> --head <PR の先端>` が exit 0 になってから出す。",
+               "ここに写さない）。`python3 <verdict_form.py> <下書き> --writer <書いた窓> --head <PR の先端> --first <関所が出した値>` が "
+               "exit 0 になってから出す。",
     "cleanup": "PR 本文の「何をどう変えたか」の後に `## 整地（根治の段）` を置き、skill `dev-flow:preimpl-cleanup` の雛形の見出しで"
                "書く（中身は頭が書く・`〔…〕` を残さない）。振る舞いを変えない PR（誤字・記録だけ・版だけ等）なら、欄の代わりに "
                "`整地: 不要（<なぜ要らないか>）` の 1 行を書く（訳はレビューが照らす）。",
