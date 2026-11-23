@@ -17,6 +17,7 @@ from pathlib import Path
 
 import pytest
 from saimoku import 全文 as 細目の全文
+import test_doc_tool_values_okiba as OK
 
 ROOT = Path(__file__).resolve().parent.parent
 GUARD_SKILL = ROOT / "plugins/guard/skills/guard-rules/SKILL.md"
@@ -71,15 +72,15 @@ def _read(p):
 # ── 1 「分からない」の選択肢の見分け（正本は guard の ask_shape.is_dunno・細目 §4）──────────────
 
 def _dunno_word(text):
-    m = re.search(r"どの問いにも「(.+?)」の選択肢", text)
-    assert m, "細目 §4 の「どの問いにも「分からない」の選択肢」の文が無いか形が変わった"
-    return m.group(1)
+    word = OK.分からないの語(text)
+    assert word, "細目 §4 の「選ぶ問いと開いた問い」の欄に「どの問いにも「分からない」の選択肢」の文が無いか形が変わった"
+    return word
 
 
 def _dunno_forms(text):
-    m = re.search(r"「分からない」の選択肢（見出しの頭が(.+?)）に在る", text)
-    assert m, "guard-rules の「分からない」の選択肢の形の並びが無いか形が変わった"
-    return m.group(1).split("・")
+    forms = OK.分からないの形(text)
+    assert forms, "guard-rules の見張りの表の ask_shape の行に「分からない」の選択肢の形の並びが無いか形が変わった"
+    return forms
 
 
 def test_細目の分からないは_ask_shape_の見分けに当たる():
@@ -110,9 +111,11 @@ def test_分からないの見分けの正本が無い時は_session_watch_は�
 
 
 def test_文の分からないを書き換えると見分けとずれて赤():
-    """注入の試験: 細目の言葉を見分けに当たらない語へ替えると、この照らしは赤になる。"""
-    bad = "どの問いにも「確かめる」の選択肢（選ぶと…）"
-    assert not AS.is_dunno(_dunno_word(bad))
+    """注入の試験: 細目 §4 の欄の言葉を見分けに当たらない語へ替えると、この照らしは赤になる（読んだ語から置き換えを作る）。"""
+    t = 細目の全文()
+    word = _dunno_word(t)
+    bad = t.replace(f"どの問いにも「{word}」の選択肢", "どの問いにも「確かめる」の選択肢", 1)
+    assert _dunno_word(bad) == "確かめる" and not AS.is_dunno(_dunno_word(bad))
 
 
 # ── 2 判定の点ごとに選べる値（正本は review-pr の SKILL.md の雛形・verdict_form が直に読む）────────
@@ -171,7 +174,8 @@ LIMIT_ROWS = {
 
 
 def _skill_limits(text):
-    body = text.split("## 長さの上限", 1)[1].split("\n## ", 1)[0]
+    body = OK.名の頭で節(text, "長さの上限")
+    assert body is not None, "qa-html に「長さの上限」の節が 1 つでない"
     rows = [[c.strip() for c in ln.strip("|").split("|")] for ln in body.splitlines() if ln.startswith("| ") and "---" not in ln]
     out = {}
     for key, (head, pat) in LIMIT_ROWS.items():
@@ -191,10 +195,16 @@ def test_qa_html_の長さの上限の表と検査の上限は同じ():
 
 
 def test_長さの上限の表の数を書き換えると読み取りが変わる():
-    """注入の試験: 表の 40 字を 41 字にすると、読んだ上限が変わる（検査の値と合わなくなり上の試験が赤）。"""
+    """注入の試験: 表の問いの字数を 1 つ増やすと、読んだ上限が変わる（検査の値と合わなくなり上の試験が赤）。
+    置き換えは読んだ値と LIMIT_ROWS の行の名から作る（表の 1 行や数を写さない）。表の外に同じ行を置いても読まない。"""
     text = _read(QA_SKILL)
-    bad = text.replace("| 問い（legend） | 1 行・40 字 |", "| 問い（legend） | 1 行・41 字 |")
-    assert bad != text and _skill_limits(bad)["question_chars"] != _skill_limits(text)["question_chars"]
+    n = _skill_limits(text)["question_chars"]
+    head, pat = LIMIT_ROWS["question_chars"]
+    row = next(ln for ln in text.splitlines() if ln.startswith(f"| {head}"))
+    bumped = re.sub(pat, lambda m: m.group(0).replace(m.group(1), str(n + 1)), row, count=1)
+    assert _skill_limits(text.replace(row, bumped, 1))["question_chars"] == n + 1
+    first = next(ln for ln in text.splitlines() if ln.startswith("## "))
+    assert _skill_limits(text.replace(first, bumped + "\n\n" + first, 1))["question_chars"] == n
 
 
 # ── 4 qa-html のなぜ聞くかの 5 文（正本は SKILL.md の表・check.mjs が直に読む）──────────────────
@@ -220,10 +230,9 @@ def test_なぜ聞くかの表を書き換えると検査の文も変わり_表�
 # ── 5 guard の既定の値（guard_common.DEFAULTS ↔ guard-rules の SKILL.md）────────────────────
 
 def _skill_defaults(text):
-    said = {k: int(v) for k, v in re.findall(r"`(\w+)`[^`（〔]{0,4}[（〔]既定 (\d+)[）〕]", text)}
-    block = json.loads(text.split("## 値の表", 1)[1].split("```json", 1)[1].split("```", 1)[0])["guard"]
-    nums = {k: v for k, v in block.items() if isinstance(v, int) and not isinstance(v, bool)}
-    return said, nums
+    nums = OK.値の表の数(text)
+    assert nums is not None, "guard-rules の「値の表」の節に json の囲いが 1 つでない"
+    return OK.書いた既定(text), nums
 
 
 def test_guard_の既定の数は_SKILL_の値と同じ():
@@ -234,24 +243,26 @@ def test_guard_の既定の数は_SKILL_の値と同じ():
 
 
 def test_SKILL_の既定を書き換えると_guard_の既定とずれて赤():
-    """注入の試験。"""
-    text = _read(GUARD_SKILL).replace("（既定 60）", "（既定 61）").replace('"ask_question_max_sentences": 1', '"ask_question_max_sentences": 2')
+    """注入の試験: 読んだ鍵と値から置き換えを作る（「（既定 60）」や json の行を写さない）。"""
+    text = _read(GUARD_SKILL)
     said, nums = _skill_defaults(text)
-    assert said["ask_question_max_chars"] != GC.DEFAULTS["ask_question_max_chars"]
-    assert nums["ask_question_max_sentences"] != GC.DEFAULTS["ask_question_max_sentences"]
+    k, v = next(iter(said.items()))
+    row = next(ln for ln in text.splitlines() if ln.startswith("| ") and f"`{k}`" in ln and "既定" in ln)
+    bad = text.replace(row, re.sub(rf"(`{k}`[^`（〔]{{0,4}}[（〔]既定 ){v}", lambda m: f"{m.group(1)}{v + 1}", row, count=1), 1)
+    assert _skill_defaults(bad)[0][k] != GC.DEFAULTS[k]
+    nk, nv = next(iter(nums.items()))
+    bad = text.replace(f'"{nk}": {nv}', f'"{nk}": {nv + 1}', 1)
+    assert _skill_defaults(bad)[1][nk] != GC.DEFAULTS[nk]
 
 
 # ── 6 知らせる札・止める回数（session_watch ↔ watch-log、prior_ask ↔ guard-rules）─────────────────
 
 def _watch_stop(text):
-    line = next(ln for ln in text.splitlines() if "は、Stop の hook" in ln)
-    return tuple(re.findall(r"`(\w+)`", line.split("は、Stop の hook", 1)[0]))
+    return OK.Stopの札(text)
 
 
 def _prior_max(text):
-    row = next(ln for ln in text.splitlines() if ln.startswith("| prior_ask"))
-    m = re.search(r"同じ頼みの中で (\d+) 回まで", row)
-    return int(m.group(1)) if m else None
+    return OK.止める回数(text)
 
 
 def test_Stop_で知らせる札は_watch_log_の文と同じ():
@@ -263,10 +274,14 @@ def test_聞く前に引いた跡で止める回数は_guard_rules_の文と同�
 
 
 def test_回数と札を書き換えると道具とずれて赤():
-    """注入の試験。"""
-    w = _read(WATCH_SKILL).replace("・`nolog` は、Stop", " は、Stop")
-    assert _watch_stop(w) != SW.STOP_CODES
-    assert _prior_max(_read(GUARD_SKILL).replace("同じ頼みの中で 2 回まで", "同じ頼みの中で 5 回まで")) != PA.ASK_PRIOR_MAX
+    """注入の試験: 読んだ札・回数から置き換えを作る（札の名や「2 回」を写さない）。"""
+    w = _read(WATCH_SKILL)
+    last = _watch_stop(w)[-1]
+    assert _watch_stop(w.replace(f"・`{last}` は、Stop", " は、Stop", 1)) != SW.STOP_CODES
+    g = _read(GUARD_SKILL)
+    n = _prior_max(g)
+    bad = re.sub(rf"(同じ頼みの中で ){n}( 回まで)", lambda m: f"{m.group(1)}{n + 3}{m.group(2)}", g, count=1)
+    assert _prior_max(bad) != PA.ASK_PRIOR_MAX
 
 
 # ── 7 変更の記録の札（正本は CHANGELOG.d/README.md・changelog が直に読む）と枝の名（CONTRIBUTING ↔ pr_shape）──
@@ -284,9 +299,9 @@ def test_変更の記録の札は_README_から読む(tmp_path):
 
 
 def _branch_rule(text):
-    m = re.search(r"枝の名は `(\w+)/<日付>-<話題>`。日付は `(Y+M+D+)`（例: `([^`]+)`）", text)
-    assert m, "CONTRIBUTING の枝の名の文が無いか形が変わった"
-    return m.group(1), len(m.group(2)), m.group(3)
+    rule = OK.枝の決まり(text)
+    assert rule, "CONTRIBUTING の「1. 枝と PR」の節に枝の名の文が 1 つでないか形が変わった"
+    return rule
 
 
 def test_枝の名の決まりと_pr_shape_の枝の形は同じ():
@@ -298,20 +313,23 @@ def test_枝の名の決まりと_pr_shape_の枝の形は同じ():
 
 
 def test_枝の名の決まりを書き換えると_pr_shape_とずれて赤():
-    """注入の試験: 日付の桁や頭の名を替えた決まりは、道具の形と合わない。"""
+    """注入の試験: 日付の桁や頭の名を替えた決まりは、道具の形と合わない（置き換えは読んだ決まりから作る）。"""
     text = _read(ROOT / "CONTRIBUTING.md")
-    prefix, digits, _ = _branch_rule(text.replace("日付は `YYYYMMDD`", "日付は `YYMMDD`"))
+    line = next(ln for ln in text.splitlines() if OK.BRANCH_RE.search(ln))
+    date = OK.BRANCH_RE.search(line).group(2)
+    prefix, digits, _ = _branch_rule(text.replace(line, line.replace(f"`{date}`", f"`{date[2:]}`", 1), 1))
     assert not PS.BRANCH.pattern.startswith("^%s/(\\d{%d}-" % (prefix, digits))
-    _, _, ex = _branch_rule(text.replace("（例: `claude/20261111-hone`）", "（例: `ai/20261111-hone`）"))
+    _, _, ex = _branch_rule(text)
+    _, _, ex = _branch_rule(text.replace(f"`{ex}`", "`ai/%s`" % ex.split("/", 1)[1], 1))
     assert not PS.BRANCH.match(ex)
 
 
 # ── 8 推奨の語（ask_shape の _REC_WORD ↔ check.mjs の recommend ↔ guard-rules の SKILL.md）──────────
 
 def _skill_rec_words(text):
-    m = re.search(r"推奨の語（([^。）]+)", text)
-    assert m, "guard-rules の推奨の語の並びが無いか形が変わった"
-    return {w.lower() for w in m.group(1).split("・")}
+    words = OK.推奨の語の並び(text)
+    assert words, "guard-rules の見張りの表の ask_shape の行に推奨の語の並びが無いか形が変わった"
+    return words
 
 
 def _alts(pattern):
@@ -327,6 +345,9 @@ def test_推奨の語は_3_か所で同じ():
 
 
 def test_推奨の語を_1_つ抜くと赤():
-    """注入の試験。"""
-    bad = _read(GUARD_SKILL).replace("・おススメ・", "・")
+    """注入の試験: 読んだ並びの 2 つ目を抜く（語を写さない）。"""
+    text = _read(GUARD_SKILL)
+    row = next(ln for ln in text.splitlines() if "推奨の語（" in ln and ln.startswith("| "))
+    words = re.search(r"推奨の語（([^。）]+)", row).group(1).split("・")
+    bad = text.replace("・".join(words), "・".join(words[:1] + words[2:]), 1)
     assert _skill_rec_words(bad) != _alts(AS._REC_WORD.pattern)
