@@ -15,13 +15,27 @@
   同じ script を CLAUDE_PLUGIN_ROOT をその dir にして回す。その版の hooks.json に同じ命令が無ければ（先端が外した hook）
   何もせず 0 で抜ける。引けない・読めない・何か壊れた時は、渡された script をそのまま回す（前の版で続ける・止めない）。
 秘密は読まない（読むのは台帳と hooks.json だけ）。
+
+skill から呼ぶ script も同じ口で先端へ乗り換える（newest・lib/af_place.py の run_newest が呼ぶ）:
+  課題: 窓の途中で土台が入れ直されても、skill の本文が指す ${CLAUDE_PLUGIN_ROOT} は窓が立った時の版の dir のままで、
+    skill から呼ぶ script（codex_pack・seal・review の判定の型など）が古い版で動いた。
+  形: script の置き場の形（cache/<目録>/<plugin>/<版>）から plugin と版を引き、台帳の今読まれる行の版の同じ script を回す。
+    hook と違い hooks.json の照らしは無い（skill は hooks.json に載らない）。裏の入れ直しの途中（錠が在る）なら
+    済むのを WAIT 秒まで待つ（入れ直しの途中の半端な版を掴まない）。先端の版に同じ script が無い・待ち切れない・
+    入れ直しが失敗した時は、その訳を名指して今の版で続ける（止めない・黙らない）。
+  命令から: hook_run.py --where <script> で回す path を 1 行で出す（python でない入口・check.mjs が使う）。
+  hook として回す時は、窓が立った時の dir を AF_HOOK_STARTED_ROOT に残す（守りの hook が「窓が読んだ skill の本文の版」を知る口）。
 """
 from __future__ import annotations
 
 import json
 import os
 import sys
+import time
 from pathlib import Path
+
+WAIT = 120          # 裏の入れ直しの錠が外れるのを待つ上限（秒）
+STARTED_ENV = "AF_HOOK_STARTED_ROOT"
 
 
 def _rows_of(root: Path, table: dict) -> list[dict] | None:
@@ -78,8 +92,89 @@ def target(script: Path, args: list[str], env: dict, home: Path) -> tuple[Path, 
         return script, None
 
 
+def plugin_root_of(script: Path) -> Path | None:
+    """script が入った plugin の置き場の形 <.claude>/plugins/cache/<目録>/<plugin>/<版>/… なら、その <版> の dir。
+    違う形（repo の取り出し・試験の写し）なら None（乗り換えない）。symlink は辿らない（lib の正本へ降りない）。"""
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    import kaku
+
+    p = Path(os.path.abspath(script))
+    for d in p.parents:
+        if len(d.parents) >= 4 and d.parents[1].name == kaku.MARKET and d.parents[2].name == "cache" \
+                and d.parents[3].name == "plugins":
+            return d
+    return None
+
+
+def _wait_refresh(claude: Path, wait: float) -> str:
+    """裏の入れ直しの錠が在る間は wait 秒まで待つ。残る訳（待ち切れない・前の入れ直しの失敗）の 1 行か ""。"""
+    import kaku
+
+    lock = claude / "af-foundation" / "refresh.lock"
+    end = time.time() + wait
+    told = False
+    while lock.exists() and time.time() - lock.stat().st_mtime <= kaku.REFRESH_TIMEOUT + 60:
+        if time.time() >= end:
+            return f"土台の裏の入れ直しが {int(wait)} 秒で済まなかった（錠 {lock}）。今入っている中でいちばん新しい版で続ける"
+        if not told:
+            sys.stderr.write("[土台] 裏で先端の版を入れ直している。済むのを待つ\n")
+            told = True
+        time.sleep(1)
+    try:
+        r = json.loads((claude / "af-foundation" / "refresh.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return ""
+    if isinstance(r, dict) and r.get("code") not in (0, None):
+        return (f"土台の裏の入れ直しが {r.get('code')} で抜けていた（{r.get('line') or '訳は出ていない'}）。"
+                "入っている中でいちばん新しい版で続ける")
+    return ""
+
+
+def newest_dir(path) -> tuple[Path | None, Path | None]:
+    """path が入った plugin の (path の版の dir, 入った台帳の今読まれる行の dir)。置き場の形でない・台帳に行が無ければ
+    片方か両方が None。待たない（裏の入れ直しの錠を見ない）。守りの hook の知らせ（guard の stale_path）も使う。"""
+    root = plugin_root_of(Path(os.path.abspath(path)))
+    if root is None:
+        return None, None
+    table = json.loads((root.parents[4] / "plugins" / "installed_plugins.json").read_text(encoding="utf-8"))
+    rows = _rows_of(root, table)
+    import kaku
+
+    row = kaku.current_row(rows) if rows else None
+    return root, (Path(os.path.abspath(str(row["installPath"]))) if row else None)
+
+
+def newest(script, wait: float = WAIT) -> tuple[Path, Path | None, str]:
+    """(回す script, 渡す CLAUDE_PLUGIN_ROOT〔None なら替えない〕, 名指す訳〔"" なら無し〕)。
+    script と同じ plugin の、入った台帳の今読まれる行の版の同じ script。決められなければ渡された script のまま。"""
+    script = Path(os.path.abspath(script))
+    try:
+        root = plugin_root_of(script)
+        if root is None:
+            return script, None, ""
+        note = _wait_refresh(root.parents[4], wait)
+        _, new_root = newest_dir(script)
+        if new_root is None or new_root == root:
+            return script, None, note
+        new = new_root / script.relative_to(root)
+        if not new.is_file():
+            return script, None, (f"いちばん新しい版（{new_root.name}）に {script.relative_to(root)} が無い。"
+                                  f"窓が立った時の版（{root.name}）で続ける。skill の本文を {new_root} から読み直す")
+        return new, new_root, note
+    except Exception as e:  # noqa: BLE001  入口が壊れても止めない＝渡された script のまま
+        return script, None, f"いちばん新しい版を引けなかった（{type(e).__name__}: {e}）。今の版で続ける"
+
+
 def main(argv: list[str]) -> int:
     if not argv:
+        return 0
+    if argv[0] == "--where":
+        if len(argv) < 2:
+            return 0
+        run, _, note = newest(argv[1])
+        if note:
+            sys.stderr.write(f"[土台] {note}\n")
+        print(run)
         return 0
     script, args = Path(argv[0]), argv[1:]
     home = Path(os.environ.get("HOME") or "~").expanduser() / ".claude"
@@ -88,6 +183,8 @@ def main(argv: list[str]) -> int:
         return 0
     run, root = got
     env = dict(os.environ, **({"CLAUDE_PLUGIN_ROOT": str(root)} if root else {}))
+    if os.environ.get("CLAUDE_PLUGIN_ROOT") and STARTED_ENV not in os.environ:
+        env[STARTED_ENV] = os.environ["CLAUDE_PLUGIN_ROOT"]
     sys.stdout.flush()
     os.execve(sys.executable, [sys.executable, str(run), *args], env)
     return 0  # 届かない（execve は戻らない）

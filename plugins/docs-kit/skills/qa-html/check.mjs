@@ -39,7 +39,7 @@
 //                                           知らない形・知らない鍵・欠けた鍵・形の違う値は赤＝写した古い形のままなら止まる
 import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname, resolve } from "node:path";
+import { dirname, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
 // ── 問いの決まりの表（1 か所）。会社ごとに足す語は config/skill-values.json の docs-kit.qa-html.internal_words
@@ -1193,8 +1193,28 @@ export function checkFile(path, { priorPath, priorExplicit = false, ...opts } = 
   return checkPage(page, { ...opts, prior });
 }
 
+// 古い版の窓から呼ばれても、入った中でいちばん新しい版の check.mjs で回す（入口の 1 か所）。どの版で回すかの決め方の
+// 正本は目録の clone の plugins/core/scripts/hook_run.py の newest（--where で path を 1 行で返す）。入った plugin の置き場の
+// 外（repo の取り出し・試験の写し）・clone が無い・何か壊れた時は今の版のまま続ける（止めない）。
+function runNewest(args) {
+  const me = fileURLToPath(import.meta.url);
+  if (process.env.AF_NEWEST_RAN === me) return;
+  const parts = me.split(sep);
+  const i = parts.lastIndexOf("cache");
+  if (i < 1 || parts[i - 1] !== "plugins" || i + 2 >= parts.length) return;
+  const hookRun = [...parts.slice(0, i), "marketplaces", parts[i + 1], "plugins", "core", "scripts", "hook_run.py"].join(sep);
+  if (!existsSync(hookRun)) return;
+  const w = spawnSync("python3", [hookRun, "--where", me], { encoding: "utf8", stdio: ["ignore", "pipe", "inherit"] });
+  const run = (w.stdout || "").trim();
+  if (w.status !== 0 || !run || resolve(run) === me || !existsSync(run)) return;
+  console.error(`[土台] 窓が立った時の版でなく、入った中でいちばん新しい版の ${run} で回す`);
+  const r = spawnSync(process.execPath, [run, ...args], { stdio: "inherit", env: { ...process.env, CLAUDE_PLUGIN_ROOT: dirname(dirname(dirname(resolve(run)))), AF_NEWEST_RAN: resolve(run) } });
+  process.exit(r.status ?? 1);
+}
+
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const args = process.argv.slice(2);
+  runNewest(args);
   // 使う側が写さずに直に読む口（型・答えの形）。ページの検査とは別の入口
   if (args[0] === "--template") {
     if (args.length > 1) {

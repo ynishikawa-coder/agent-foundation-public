@@ -220,9 +220,31 @@ def save_state(state: dict) -> None:
         print(f"✗ 入れた印を書けない（起動の時に古い形と取り違えられる）: {e}", file=sys.stderr)
 
 
+def keep_installed(market: str) -> None:
+    """目録の clone を取り直す前に、入っている版ごとに土台の根の file（af_place.KEEP_ROOTS）を取り置く。
+    clone は浅い（depth 1）ので、取り直すと入っている版が歴史から消え、入れ直しが済むまでの間に立っている窓の
+    守りの hook（public-guard/guard.py を入った版で読む）が読む物を見失う。取り置きは af_place.foundation_file が読む。
+    取り置けなくても入れ直しは止めない（読む側が見失えば名指して止まる）。"""
+    try:
+        sys.path.insert(0, str(ROOT / "skill-values"))
+        import af_place
+        clone = str(catalog_entry(market).get("installLocation") or "")
+        for rows in kaku.user_rows(None, market).values():
+            for r in rows:
+                sha, path = str(r.get("gitCommitSha") or ""), str(r.get("installPath") or "")
+                if clone and sha and path:
+                    af_place.keep_version(clone, sha, af_place.keep_dir(str(home()), Path(path).name))
+    except Exception as e:  # noqa: BLE001
+        print(f"✗ 入っている版の土台の file を取り置けなかった（{type(e).__name__}: {e}）", file=sys.stderr)
+    finally:
+        if sys.path and sys.path[0] == str(ROOT / "skill-values"):
+            sys.path.pop(0)
+
+
 def refresh(market: str) -> bool:
     """目録の clone を出所の先端へ取り直す。入口そのものが変わったら新しい入口へ移る（戻らない）。"""
     before = Path(__file__).read_bytes()
+    keep_installed(market)
     r = claude("plugin", "marketplace", "update", market)
     if not (r and r.returncode == 0):
         return False

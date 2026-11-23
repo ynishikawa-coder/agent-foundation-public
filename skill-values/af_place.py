@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import os
 import re
-import tempfile
 
 
 def sibling_plugin_file(plugin, rel, plugin_root):
@@ -36,34 +35,16 @@ def _clone_git(clone, *args):
     return r.stdout if r.returncode == 0 else None
 
 
-def foundation_file(rel, plugin_root):
-    """土台の repo の根からの file（plugin の外・例 public-guard/guard.py）の、入った plugin と同じ版の path か ""。
-    repo の形: plugins/<plugin> の 2 つ上が repo の根。
-    入れた plugin の形: <plugins>/cache/<市場>/<plugin>/<版> → <plugins>/marketplaces/<市場>/（市場の取り出し＝repo 全体）。
-    市場の取り出しの今の checkout は入った plugin と同じ版の時だけ読む（clone が先へ進んだ・古い clone が残った時に
-    違う版の決まりで照らさない）。版が違えば、その版の中身を clone の歴史から取り出して読む（取り出せなければ ""
-    ＝呼ぶ側が止めて名指しする）。版は cache の dir の名（commit の頭）。"""
-    here = plugin_root
-    cand = os.path.join(os.path.dirname(os.path.dirname(here)), rel)
-    if os.path.isfile(cand):
-        return cand
-    market = os.path.dirname(os.path.dirname(here))
-    cache = os.path.dirname(market)
-    clone = os.path.join(os.path.dirname(cache), "marketplaces", os.path.basename(market))
-    ver = os.path.basename(here)
-    if not os.path.isdir(clone) or not re.fullmatch(r"[0-9A-Za-z._-]{1,64}", ver or ""):
-        return ""
-    head = (_clone_git(clone, "rev-parse", "HEAD") or b"").decode().strip()
-    at = (_clone_git(clone, "rev-parse", "--verify", "-q", f"{ver}^{{commit}}") or b"").decode().strip()
-    if not head or not at:
-        return ""  # 入った版が clone の歴史に無い・clone が git でない＝同じ版か分からない
-    cand = os.path.join(clone, rel)
-    if at == head:
-        return cand if os.path.isfile(cand) else ""
-    body = _clone_git(clone, "show", f"{at}:{rel.replace(os.sep, '/')}")
-    if body is None:
-        return ""
-    out = os.path.join(tempfile.gettempdir(), "af-foundation-at", ver, rel)
+KEEP_ROOTS = ("public-guard",)  # foundation_file が読む repo の根の dir（入れ直しの前に版ごとに取り置く物・正本はここ 1 つ）
+KEEP_DIR = ("af-foundation", "at")  # 取り置きの置き場 <~/.claude>/af-foundation/at/<版>/<rel>
+
+
+def keep_dir(claude, ver):
+    """版 ver の土台の file の取り置きの dir（<~/.claude>/af-foundation/at/<版>）。"""
+    return os.path.join(claude, *KEEP_DIR, ver)
+
+
+def _write(out, body):
     try:
         os.makedirs(os.path.dirname(out), exist_ok=True)
         tmp = f"{out}.{os.getpid()}"
@@ -71,8 +52,115 @@ def foundation_file(rel, plugin_root):
             f.write(body)
         os.replace(tmp, out)
     except OSError:
+        return False
+    return True
+
+
+def keep_version(clone, commit, dest):
+    """clone の commit の KEEP_ROOTS を丸ごと dest（keep_dir）へ取り置く（1 つの file でなく dir ごと＝隣の file を
+    読む物も同じ版で揃う）。済み＝True。済んだ印 .kept が在れば何もしない。"""
+    import io
+    import tarfile
+    if os.path.isfile(os.path.join(dest, ".kept")):
+        return True
+    body = _clone_git(clone, "archive", "--format=tar", commit, *KEEP_ROOTS)
+    if body is None:
+        return False
+    tmp = f"{dest}.{os.getpid()}.tmp"
+    try:
+        import shutil
+        shutil.rmtree(tmp, ignore_errors=True)
+        os.makedirs(tmp)
+        with tarfile.open(fileobj=io.BytesIO(body)) as t:
+            for m in t.getmembers():
+                if not (m.isfile() or m.isdir()) or m.name.startswith("/") or ".." in m.name.split("/"):
+                    continue
+                t.extract(m, tmp, **({"filter": "data"} if hasattr(tarfile, "data_filter") else {}))
+        open(os.path.join(tmp, ".kept"), "w").close()
+        if os.path.isdir(dest):
+            shutil.rmtree(dest, ignore_errors=True)
+        os.makedirs(os.path.dirname(dest), exist_ok=True)
+        os.replace(tmp, dest)
+    except (OSError, tarfile.TarError):
+        return os.path.isfile(os.path.join(dest, ".kept"))
+    return True
+
+
+def foundation_file(rel, plugin_root):
+    """土台の repo の根からの file（plugin の外・例 public-guard/guard.py）の、入った plugin と同じ版の path か ""。
+    repo の形: plugins/<plugin> の 2 つ上が repo の根。
+    入れた plugin の形: <plugins>/cache/<市場>/<plugin>/<版> → <plugins>/marketplaces/<市場>/（市場の取り出し＝repo 全体）。
+    市場の取り出しの今の checkout は入った plugin と同じ版の時だけ読む（clone が先へ進んだ・古い clone が残った時に
+    違う版の決まりで照らさない）。版が違えば、その版の中身を clone の歴史から取り出して読む。版は cache の dir の名（commit の頭）。
+    読めた中身は版ごとに <~/.claude>/af-foundation/at/<版>/ へ取り置く。入れ直しの途中で浅い clone が先端へ進み、
+    入った版が clone の歴史から消えても、取り置き（入れ直しの前に setup_plugins.py も取り置く）から同じ版を読む。
+    取り置きも無ければ ""（＝呼ぶ側が止めて名指しする）。"""
+    here = plugin_root
+    cand = os.path.join(os.path.dirname(os.path.dirname(here)), rel)
+    if os.path.isfile(cand):
+        return cand
+    market = os.path.dirname(os.path.dirname(here))
+    cache = os.path.dirname(market)
+    plugins = os.path.dirname(cache)
+    clone = os.path.join(plugins, "marketplaces", os.path.basename(market))
+    ver = os.path.basename(here)
+    if not re.fullmatch(r"[0-9A-Za-z._-]{1,64}", ver or ""):
         return ""
-    return out
+    kept = os.path.join(keep_dir(os.path.dirname(plugins), ver), rel)
+    head = (_clone_git(clone, "rev-parse", "HEAD") or b"").decode().strip() if os.path.isdir(clone) else ""
+    at = (_clone_git(clone, "rev-parse", "--verify", "-q", f"{ver}^{{commit}}") or b"").decode().strip() if head else ""
+    if not head or not at:
+        # 入った版が clone の歴史に無い（入れ直しの途中で浅い clone が先へ進んだ）・clone が無い＝取り置きだけを読む
+        return kept if os.path.isfile(kept) else ""
+    keep_version(clone, at, keep_dir(os.path.dirname(plugins), ver))
+    if at == head:
+        cand = os.path.join(clone, rel)
+        return cand if os.path.isfile(cand) else ""
+    if os.path.isfile(kept):
+        return kept
+    body = _clone_git(clone, "show", f"{at}:{rel.replace(os.sep, '/')}")  # KEEP_ROOTS の外の file
+    if body is None:
+        return ""
+    return kept if _write(kept, body) else ""
+
+
+NEWEST_ENV = "AF_NEWEST_RAN"
+
+
+def run_newest(script_file, argv=None):
+    """skill から呼ぶ script の入口の頭で呼ぶ: この script が入った plugin の、入った台帳のいちばん新しい版に
+    同じ script が在れば、そちらへ乗り換える（CLAUDE_PLUGIN_ROOT をその版の dir にして exec・戻らない）。
+    窓が立った時の版の dir を skill の本文が指したままでも、先端の版で動く。決め方の正本は目録の clone の
+    plugins/core/scripts/hook_run.py の newest（clone は起動の時に先端へ取り直す＝決め方の直しも次から効く）。
+    repo の取り出し・試験の写し・clone が無い・何か壊れた時は今の版のまま続ける（止めない）。訳は stderr に名指す。"""
+    import sys
+    me = os.path.abspath(script_file)
+    if os.environ.get(NEWEST_ENV) == me:
+        return  # 乗り換えた先（同じ path へ 2 度乗り換えない）
+    parts = me.split(os.sep)
+    try:
+        i = len(parts) - 1 - parts[::-1].index("cache")
+    except ValueError:
+        return  # 入った plugin の置き場でない
+    if i + 2 >= len(parts) or parts[i - 1] != "plugins":
+        return
+    plugins = os.sep.join(parts[:i])
+    hook_run = os.path.join(plugins, "marketplaces", parts[i + 1], "plugins", "core", "scripts", "hook_run.py")
+    try:
+        run, root, note = load_module("af_hook_run", hook_run).newest(me)
+    except Exception as e:  # noqa: BLE001
+        sys.stderr.write(f"[土台] いちばん新しい版を引く口（{hook_run}）が使えない（{type(e).__name__}）。今の版で続ける\n")
+        return
+    if note:
+        sys.stderr.write(f"[土台] {note}\n")
+    if root is None or os.path.abspath(str(run)) == me:
+        return
+    sys.stderr.write(f"[土台] 窓が立った時の版でなく、入った中でいちばん新しい版 {root} の {os.path.basename(me)} で回す\n")
+    sys.stdout.flush()
+    sys.stderr.flush()
+    env = dict(os.environ, CLAUDE_PLUGIN_ROOT=str(root), **{NEWEST_ENV: os.path.abspath(str(run))})
+    args = sys.argv[1:] if argv is None else list(argv)
+    os.execve(sys.executable, [sys.executable, str(run), *args], env)
 
 
 def load_module(name, path):

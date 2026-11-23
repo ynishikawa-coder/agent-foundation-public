@@ -407,4 +407,6 @@ def main(argv):
 
 
 if __name__ == "__main__":
+    import af_place  # noqa: E402  古い版の窓から呼ばれても、入った中でいちばん新しい版で回す（入口の 1 行）
+    af_place.run_newest(__file__)
     sys.exit(main(sys.argv))
