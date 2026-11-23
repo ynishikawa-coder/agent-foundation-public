@@ -7,7 +7,7 @@
 原因: 細目 §4 の「聞く前に決定の記録と問いの表を引く」は文で知らせるだけで、確認ページ（qa-html の prior_check_cmd）の
 外では照らす物が無かった。
 
-跡とは: 会話ログ（transcript_path）の、最後の頼み（人か親の窓が打った行）より後の道具の呼び出しのうち、
+跡とは: 会話ログ（transcript_path）の、最後の頼み（番の切り方の正本 G.starts_turn＝人が打った行。要約の行と別の窓の知らせは番を切らない）より後の道具の呼び出しのうち、
   「道具の名 + 入力の JSON」が値の表 guard.ask_prior_lookup（正規表現の並び）のどれかに当たる物。
   引く先（決定の記録・問いの表の置き場と道具）は会社ごとに違うので、名は値の表から読む（ここに決め打ちしない）。
 
@@ -45,7 +45,7 @@ def scan(tpath, patterns):
     """(最後の頼みの印, 跡が在るか)。最後の頼みより後の道具の呼び出しだけを見る。"""
     turn, found = "", False
     for i, row in enumerate(G.iter_rows(tpath)):
-        if G.is_owner_row(row):
+        if G.starts_turn(row):     # 番の切り方の正本（要約の行・別の窓の知らせは番を切らない＝引いた跡を消さない）
             turn, found = str(row.get("uuid") or "row%d" % i), False
             continue
         if found or row.get("type") != "assistant":

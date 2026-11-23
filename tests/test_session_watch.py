@@ -404,8 +404,8 @@ def test_Stop_の口は何も出さず_次の頼みの時に1回だけ知らせ�
     assert bad.returncode == 0 and bad.stdout == ""
 
 
-def test_問いの前に題を問いの印にしなかった過ぎた事は知らせない(tmp_path):
-    """手で回す点検は拾うが、今の題を直しても消えない事なので知らせない。"""
+def test_問いの前に題を問いの印にしなかった過ぎた事も知らせる(tmp_path):
+    """過ぎた事でも次の問いから合わせられる＝Stop で知らせる（注入: stop で ASK_BEFORE の札を捨てる形に戻すと赤）。"""
     def tool(name, inp):
         return {"type": "assistant", "message": {"content": [{"type": "tool_use", "name": name, "input": inp}]}}
     q = {"question": "作り物の置き場を A と B のどちらにしますか", "header": "置き場",
@@ -418,7 +418,8 @@ def test_問いの前に題を問いの印にしなかった過ぎた事は知�
     log = tmp_path / "t.jsonl"
     log.write_text("\n".join(json.dumps(r, ensure_ascii=False) for r in rs) + "\n", encoding="utf-8")
     assert any(c == "title" and m.startswith(sw.ASK_BEFORE) for c, m in sw.check(sw.Log(rs), OK_REPLY))
-    assert sw.stop(stop_data(OK_REPLY, str(log)), stop_env(tmp_path)) is None
+    note = sw.stop(stop_data(OK_REPLY, str(log)), stop_env(tmp_path))
+    assert note and "- title: " + sw.ASK_BEFORE in note
 
 
 def test_拾えば最後の行で根治の入口を指し拾わなければ出さない():

@@ -436,7 +436,10 @@ def resurface(data, vals):
         return ""
     ledger = read_ledger(path)
     rows = [p for p in ledger.get("pending", []) if row_state(p)]
-    items = [p for p in rows if row_state(p) == "live"]
+    # 同じ窓の問い（要約・/compact・再開で SessionStart がまた来た窓が、自分で積んだ問い）は「前の窓の問い」でない＝渡さない。
+    #   台帳には残す（次に立つ別の窓が渡す）。窓の見分けは積んだ時の記録 last_seen_session（起動の source は見ない＝口に頼らない）。
+    sid = str(data.get("session_id") or "")
+    items = [p for p in rows if row_state(p) == "live" and not (sid and p.get("last_seen_session") == sid)]
     gone = [p for p in rows if row_state(p) != "live"]
     moved = [e for e in ledger.get("expired_recent", []) if _unnotified(e)]   # 人のいない窓が移した物
     expired = moved + gone

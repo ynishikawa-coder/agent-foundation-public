@@ -18,7 +18,7 @@
              `直し_0020` の形の識別子・commit の印）が在るか。見分けの正本は plugin guard の ask_shape.inner_terms
              （選択肢の画面と同じ物を直に呼ぶ）。返し先が別の窓の窓（🤖）は人への文でないので見ない
   time     … 返事の時刻が日本時間でない（Z・UTC・GMT・+09:00 以外の時差）か、日付つきの時刻に日本時間の印が無いか（核 §6）
-  done     … 1 行目が ✅ の返事に、終わったと言い切らない語（ほぼ・大体・たぶん・はず 等）が終わりの語と同じ文に在るか（核 §7）
+  done     … 返事（札によらない）に、終わったと言い切らない語（ほぼ・大体・たぶん・はず 等）が終わりの語と同じ文に在るか（核 §7）
   holes    … 1 行目が ✅ の返事に、穴・直す窓・台帳の語が在るのに「どうしますか」と聞いていないか（細目 §7「報告の書き方」）
   secret   … 返事に鍵・トークンの形が在るか。形の正本は公開の検査 public-guard/guard.py の secret_labels（直に呼ぶ）
   neighbor … 上の inner・secret の正本（隣の plugin guard・公開の検査）が見つからず照らせないか
@@ -596,7 +596,7 @@ DATE_BEFORE = re.compile(r"(\d{4}[-/年]\d{1,2}[-/月]\d{1,2}日?|(?<![\d/])\d{1
                          r"\s*(?:[（(][月火水木金土日][)）])?\s*T?\s*$")
 
 # 完了の言い切り（核 §7）: ✅ の返事で、終わりの語と同じ文に言い切らない語。
-HEDGE = re.compile(r"ほぼ|大体|だいたい|たぶん|多分|おそらく|恐らく|はず(?![しすさせれ])|と思(?:う|い|われ)|かもしれ")
+HEDGE = re.compile(r"ほぼ|概ね|おおむね|大体|だいたい|たぶん|多分|おそらく|恐らく|はず(?![しすさせれ])|と思(?:う|い|われ)|かもしれ")
 FINISH = re.compile(r"終わ|済ん|済み|完了|直っ|直り|直せ|直した|でき|出来|通っ|通る|通り|緑|動い|動く|効い|効く|揃っ|片付")
 AHEAD = re.compile(r"次の|次回|来週|来月|明日|今後|あとで|後で|予定|見込み")   # 先の事の見込みは完了の言い切りでない
 PAST = re.compile(r"た\s*$|た[）)」]|ました|でした|済み|完了")   # 過去の言い切り（見込みの語が在っても数える）
@@ -737,11 +737,11 @@ def words(log, closing, data=None):
             found.append(("time", "時刻が日本時間の形でない: %s" % "／".join("「%s」%s" % (t, why) for t, why in th[:4])))
 
     def done():
-        lines = [ln.strip() for ln in closing.splitlines() if ln.strip()]
-        if lines and re.match(r"^[#>*\s]*✅", lines[0]):
-            hh = hedge_hits(body)
-            if hh:
-                found.append(("done", "✅ の返事に、終わったと言い切らない語がある: %s" % "／".join("「%s」" % x for x in hh[:3])))
+        # 札によらず全部の返事を見る（✅ でない返事の「直った、と思います」もぼかし＝振る舞いの既定「ぼかさない」）。
+        #   終わりの語と同じ文に在る時だけ数えるので、見込み・先の話は拾わない。
+        hh = hedge_hits(body)
+        if hh:
+            found.append(("done", "返事に、終わったと言い切らない語がある: %s" % "／".join("「%s」" % x for x in hh[:3])))
 
     def holes():
         lines = [ln.strip() for ln in closing.splitlines() if ln.strip()]
@@ -755,7 +755,7 @@ def words(log, closing, data=None):
 
 # ── 見張り ──────────────────────────────────────────────────
 NO_TITLE = "題の印が会話ログに無い"
-ASK_BEFORE = "問いを出す前に題の状態を"   # 過ぎた事（今の題を直しても消えない）＝差し戻しには使わない
+ASK_BEFORE = "問いを出す前に題の状態を"   # 過ぎた事（今の題を直しても消えない）＝差し戻さず、次の問いから合わせる知らせにする
 
 
 def ask_state(log):
@@ -778,7 +778,7 @@ def ask_state(log):
     return pending, closed
 
 
-def check(log, closing=None, data=None):
+def check(log, closing=None, data=None, turn_only=False):
     """拾った物を [(code, 説明)] で返す。closing を渡せば、それを締めの返事として見る（Stop の hook）。
     data は hook の入力（値の表の在り処＝cwd を読む）。"""
     found = []
@@ -876,7 +876,7 @@ def check(log, closing=None, data=None):
     found += words(log, closing, data)
 
     # 「分からない」の無いモーダルの問い（細目 §4）
-    for k, v in log.events:
+    for k, v in (log.turn if turn_only else log.events):   # Stop の知らせはこのターンに出した問いだけ（同じ問いを毎ターン繰り返さない）
         if k == "noidk":
             for q in v:
                 found.append(("idk", "選択肢の画面の問いに「分からない」の選択肢が無い（足して出す）: %s" % q[:60]))
@@ -1049,10 +1049,11 @@ def hook_remind(stdin):
 
 
 # ── 知らせる（Stop の hook が置き、次の頼みの時に UserPromptSubmit の hook が出す・差し戻さない）────────────────
-STOP_CODES = ("title", "card", "close", "plain", "inner", "time", "done", "holes", "secret", "neighbor", "unread", "nolog")
+STOP_CODES = ("title", "card", "close", "plain", "idk", "unanswered", "rest", "hand", "inner", "time", "done", "holes", "secret",
+              "neighbor", "unread", "nolog")
 ONCE_CODES = ("neighbor", "unread", "nolog")   # AI には直せない＝窓ごとに 1 回だけ知らせる
-#   知らせる札（核 §1・§2・§4・§5・§6・§7 の、AI が読み飛ばすとそのまま人に届く所）。ほか（idk・unanswered・rest・hand）は
-#   手で回す点検だけ。neighbor（隣の正本が見つからない）・unread（会話ログに読めない行）は窓ごとに 1 回だけ知らせる（AI には直せない）。
+#   知らせる札＝check が拾う札の全部（核 §1・§2・§4・§5・§6・§7）。手で回す点検だけの札は持たない（回さなければ崩れが届かない）。
+#   題の ASK_BEFORE（問いを出す前に ❓ にしていない）も知らせる（差し戻さないので、過ぎた事でも次の問いから合わせられる）。neighbor（隣の正本が見つからない）・unread（会話ログに読めない行）は窓ごとに 1 回だけ知らせる（AI には直せない）。
 #   返事は差し戻さない（書き直しは同じ返事を 2 度書く無駄になる＝届いた返事はそのまま・次の返事から合わせる）。
 NOTE_HEAD = ("[session-watch] 前の返事の形が崩れていた（返事は届いている・書き直さない・差し戻していない）。次の返事から下を合わせる。"
              "形の正本は核 §4・§5（細目 §5）・skill `session-watch:title-mark`。")
@@ -1121,7 +1122,7 @@ def stop(data, env=None):
         log.cloud = True          # クラウドの窓は題の道具を持つ（会話ログで道具を打つ前でも題を照らす）
     last = data.get("last_assistant_message")
     closing = last if isinstance(last, str) and last.strip() else None
-    found = [(c, m) for c, m in check(log, closing, data) if c in STOP_CODES and not m.startswith(ASK_BEFORE)]
+    found = [(c, m) for c, m in check(log, closing, data, turn_only=True) if c in STOP_CODES]
     if missing:
         found.insert(0, ("nolog", NOLOG % missing))
     for once in ONCE_CODES:

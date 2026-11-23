@@ -132,7 +132,7 @@ def owner_words(tpath):
     for row in G.iter_rows(tpath):
         msg = row.get("message")
         content = msg.get("content") if isinstance(msg, dict) else None
-        if G.is_owner_row(row) and not G.seeded_by_record(row):
+        if G.starts_turn(row):     # 人が打った行の正本（要約の行・別の窓の知らせはオーナーの言葉に数えない）
             out.append(G.text_of(row))
             continue
         if not isinstance(content, list):
