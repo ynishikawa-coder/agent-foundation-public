@@ -11,6 +11,7 @@ from pathlib import Path
 
 from test_guard import env, hook, write_log, _ask_post  # noqa: F401  （env は fixture）
 from test_guard_prior_ask import ask_with, lookup_values, owner, use
+from test_guard_ask_premise import BOTH, said
 from test_guard import deny_reason
 from test_session_watch import OK_REPLY, stop_data, stop_env, sw
 
@@ -44,11 +45,11 @@ def test_同じ窓の問いは要約の後に前の窓の問いとして出さ�
 def test_要約の行は引いた跡を消さない(env, tmp_path):
     lookup_values(env, tmp_path)
     tpath = write_log(tmp_path / "p.jsonl", [owner("作り物の頼み", "u1"), use("作り物の記録を引く道具", {"q": "会議"}),
-                                             summary_row()])
+                                             summary_row(), said(BOTH)])
     assert deny_reason(env, ask_with(tpath)) == ""
     # 人が新しく打った頼みは番を切る（跡は数え直す）
     tpath2 = write_log(tmp_path / "p2.jsonl", [owner("作り物の頼み", "u1"), use("作り物の記録を引く道具", {"q": "会議"}),
-                                              owner("次の作り物の頼み", "u2")])
+                                              owner("次の作り物の頼み", "u2"), said(BOTH)])
     assert "引いた跡が会話ログに無い" in deny_reason(env, ask_with(tpath2))
 
 
