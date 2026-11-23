@@ -70,3 +70,21 @@ def test_手の窓の_2_行の知らせは正本の無い古い版では黙る(m
                     "def split_title(t): return ('✋', None, t)\n", encoding="utf-8")
     monkeypatch.setenv("AF_SESSION_WATCH", str(fake))
     assert outbound.hand_basis_note(_hand("✋ 作り物の設定", PROMPT)) == ""
+
+
+def test_決まりの文が見張りと同じ_2_行の名を持つ():
+    """細目 §4「手の窓」と §3 の「直さない」を聞く文が、見張り（session-watch の HAND_BASIS・ask_basis の 2 行）と同じ名の行を
+    求める。片方だけ名を変えると、決まりと見張りが別の行を求める。文を消すか古い形に戻すと赤。"""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("sw_for_rule", SW)
+    sw = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(sw)
+    saimoku = ROOT / "plugins" / "core" / "細目"
+    s4 = (saimoku / "04-聞き方.md").read_text(encoding="utf-8")
+    hand = next(line for line in s4.splitlines() if line.startswith("- **手の窓**"))
+    assert "行の頭の 2 行" in hand and "2 行が無ければ立てた後に guard の outbound が知らせる" in hand
+    for label in sw.HAND_BASIS:
+        assert "`%s:`" % label in hand, f"細目 §4「手の窓」に行の名が無い: {label}"
+    s3 = (saimoku / "03-直すは根治.md").read_text(encoding="utf-8")
+    ask = next(line for line in s3.splitlines() if "「直さない」をオーナーに聞くか" in line)
+    assert "聞く時は画面の前にチャットで行の頭の `具体例:`・`判断を頼む理由:` の 2 行を置く" in ask
