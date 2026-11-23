@@ -357,10 +357,7 @@ def test_入れ直しの錠の決まりは_af_place_の_1_つを_core_も引く(
     assert link.is_symlink() and link.resolve() == AF_PLACE.resolve()
     for f in ("kaku.py", "hook_run.py"):
         code = py_code((CORE / "scripts" / f).read_text(encoding="utf-8"))
-        assert "refresh.lock\"" not in code.replace("refresh_file(claude, \"refresh.lock\")", "") \
-            .replace("_refresh_file(\"refresh.lock\")", "").replace("rule.refresh_file(claude, \"refresh.lock\")", ""), f
-        assert not re.search(r"REFRESH_TIMEOUT\s*\+|\b660\b|\b600\b", code), f   # 秒を写すと赤
-        assert "\"af-foundation\" / \"refresh" not in code, f                   # 錠・結果の置き場を組み直すと赤
+        assert not re.search(r"REFRESH_TIMEOUT\s*\+|\b660\b|\b600\b", code), f   # 秒を写すと赤（置き場は下で動かして照らす）
     import hook_run
     claude = tmp_path / ".claude"
     lock = Path(af_place.refresh_file(claude, "refresh.lock"))
@@ -374,3 +371,15 @@ def test_入れ直しの錠の決まりは_af_place_の_1_つを_core_も引く(
     assert hook_run._refreshing(claude) is True
     monkeypatch.setenv("HOME", str(tmp_path))
     assert kaku._refresh_file("refresh.lock") == lock and kaku._lock_rule() is af_place
+    # 正本の置き場を動かすと core の両方が一緒に動く（kaku・hook_run が置き場を手で組み直すと、元の所を見て赤）
+    moved = tmp_path / "動かした置き場"
+    moved.mkdir()
+    monkeypatch.setattr(af_place, "refresh_file", lambda c, name: str(moved / name))
+    assert kaku._refresh_file("refresh.lock") == moved / "refresh.lock"
+    assert kaku._refresh_file("refresh.json") == moved / "refresh.json"
+    assert hook_run._refreshing(claude) is False                     # 元の所の錠は見ない
+    (moved / "refresh.lock").write_text("", encoding="utf-8")
+    assert hook_run._refreshing(claude) is True
+    (moved / "refresh.lock").unlink()
+    (moved / "refresh.json").write_text('{"code": 1, "line": "動かした所の結果"}', encoding="utf-8")
+    assert "動かした所の結果" in hook_run._wait_refresh(claude, 0)    # 前の入れ直しの結果も動かした所から読む
