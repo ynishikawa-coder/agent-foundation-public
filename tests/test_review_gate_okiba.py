@@ -99,7 +99,7 @@ def test_注入_レビューの節の文を別の節_注記へ移すと赤_道�
     assert レビューの節の外れ(c.replace("判定に入らず「まだ」とだけ返す", "判定に入らず「まだ」と返すだけにする", 1)) == []
 
 
-def test_注入_review_pr_の欄を注記・囲いへ移すと赤():
+def test_注入_review_pr_の欄を注記や囲いへ移すと赤():
     k = _read("plugins/checker/skills/review-pr/SKILL.md")
     assert review_pr_の外れ(k) == []
     for head in ("- **1 つの先端に判定は 1 つ**", "- **前回から足された話は見ない**", "- **関所を通ってから見る**"):
