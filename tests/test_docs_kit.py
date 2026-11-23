@@ -931,3 +931,30 @@ def test_Blueprint_の比較で材料が読めなければ最後に根治の入�
     monkeypatch.setattr(bp, "open_dom", lambda target, mode: "<html></html>")
     assert bp.compare(str(a), str(b)) == 1
     assert "細目 §3「まず構造を疑う」" in capsys.readouterr().out.strip().splitlines()[-1]
+
+
+# ── 判断を頼む問い（why=judge）: オーナー宛てのページだけ・AI の読みに行の頭の「判断を頼む理由:」（細目 §4「見せてから聞く」）
+
+
+@needs_node
+def test_判断を頼む問いは頼む理由の行が無いと赤_在れば緑(tmp_path):
+    red = _json_page(tmp_path, lambda q: q.update(why="judge"))
+    assert len(red) == 1 and red[0].startswith("問い q3: 判断を頼む問い（judge）の AI の読みに、行の頭の「判断を頼む理由:」"), red
+    ok = _json_page(tmp_path, lambda q: q.update(why="judge", reading=[
+        "壊れた時の扱いは決まりに無いと読みました → 誰が直すかが決まりません。",
+        "判断を頼む理由: 誰に直させるかは会社の役割の決め方で、資料に無いオーナーだけの情報です。"]), "ok.json")
+    assert ok == [], ok
+
+
+@needs_node
+def test_判断を頼む問いはお客さん宛てのページで赤(tmp_path):
+    data = json.loads((DATA / "good.json").read_text(encoding="utf-8"))
+    data["dest"] = "send"
+    data["questions"][-1].update(why="judge", reading=["判断を頼む理由: 言葉の解釈が要ります。"])
+    for q in data["questions"]:
+        for o in q.get("options", []):
+            o.pop("recommended", None)
+    page = tmp_path / "send.json"
+    page.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+    red = run_check(page)["red"]
+    assert any(r.startswith("問い q3: 判断を頼む問い（judge）はオーナー宛て") for r in red), red

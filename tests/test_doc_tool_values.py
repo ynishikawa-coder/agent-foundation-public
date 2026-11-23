@@ -197,12 +197,13 @@ def test_長さの上限の表の数を書き換えると読み取りが変わ�
     assert bad != text and _skill_limits(bad)["question_chars"] != _skill_limits(text)["question_chars"]
 
 
-# ── 4 qa-html のなぜ聞くかの 5 文（正本は SKILL.md の表・check.mjs が直に読む）──────────────────
+# ── 4 qa-html のなぜ聞くかの決まった文（正本は SKILL.md の表・check.mjs が直に読む）──────────────────
 
 @need_node
-def test_なぜ聞くかの_5_文は_SKILL_の表から読む():
-    table = dict(re.findall(r"^\| `(\w+)` \| ([^|]+?) \|", _read(QA_SKILL).split("なぜ聞くかの決まった 5 文", 1)[1], re.M)[:5])
-    assert _qa_rules()["why"] == table and len(table) == 5
+def test_なぜ聞くかの決まった文は_SKILL_の表から読む():
+    rows = _read(QA_SKILL).split("\nなぜ聞くかの決まった文", 1)[1].split("\n\n", 2)[1]
+    table = dict(re.findall(r"^\| `(\w+)` \| ([^|]+?) \|", rows, re.M))
+    assert _qa_rules()["why"] == table and len(table) == 6 and "judge" in table
 
 
 @need_node
@@ -211,7 +212,7 @@ def test_なぜ聞くかの表を書き換えると検査の文も変わり_表�
     text = _read(QA_SKILL)
     js = ('import { loadWhy } from "%s"; const t = %s; const out = {};'
           'out.why = loadWhy(t.replace("今回だけの事を確かめます", "作り物の文"));'
-          'try { loadWhy(t.replace("なぜ聞くかの決まった 5 文", "別の見出し")); out.threw = false; } catch { out.threw = true; }'
+          'try { loadWhy(t.replaceAll("なぜ聞くかの決まった文", "別の見出し")); out.threw = false; } catch { out.threw = true; }'
           'console.log(JSON.stringify(out));') % (QA_CHECK.as_posix(), json.dumps(text))
     out = _node(js)
     assert out["why"]["once"] == "作り物の文" and out["threw"] is True

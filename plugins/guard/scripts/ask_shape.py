@@ -32,6 +32,9 @@ import sys
 sys.dont_write_bytecode = True
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib"))
 import skill_values as SV  # noqa: E402  値の表の当て方の 1 本の口（土台の skill-values/ への symlink）
+import af_place as P  # noqa: E402  土台の在り処探しの 1 本の口（同じ symlink）
+
+GUARD_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 ASK_TOOL = "AskUserQuestion"
 
@@ -92,13 +95,76 @@ def _text(v):
 
 # 返事の本文（人への文）で数える物。細目 §2「コード・パス・固有名は英語でよい」に背かないよう、file 名・path・版・
 # 英字の識別子・`…` の字は数えない（返事ではコードの囲みと `…` を外してから当てる）。選択肢の画面は全部を数える。
-REPLY_KINDS = ("番号", "窓の id", "識別子", "commit の印", "中の言葉")
+REPLY_KINDS = ("番号", "窓の id", "識別子", "commit の印", "中の言葉", "決まりの言葉")
 
 
 def inner_terms(text, vals, kinds=None):
     """AI の中の言葉らしい字の一覧 [(名, 字)]。中の言葉の見分けの正本（選択肢の画面と返事の本文が共に呼ぶ）。
     kinds を渡せばその名だけ数える。URL は数えない。ask_term_allow に当たる字は数えない。"""
-    return [(n, t) for n, t in _inner_hits(text, vals) if kinds is None or n in kinds]
+    hits = [(n, t) for n, t in _inner_hits(text, vals) if kinds is None or n in kinds]
+    if kinds is not None and RULE_KIND in kinds:
+        hits += rule_terms(text, vals)
+    return hits
+
+
+# 決まりの言葉（細目 §4「問いの言葉」: 段取りの名・節の番号・決まりの中で意味が固まった言葉）。正本は plugin core の
+# 振る舞い.md と 細目/*.md の太字の見出し（ここに写さない・見出しを足せば見分けも増える）。英字を含む見出しと 6 字未満の
+# 見出し（「意図」「範囲」など日常にも出る語）は数えない。節の番号（核 §4・細目 §3・§2）も数える。
+# 止める側（findings＝選択肢の画面を出す前）には入れない＝知らせるだけ（新しく止めるにはオーナーの同意が要る）。
+RULE_KIND = "決まりの言葉"
+_SECTION = re.compile(r"(?:核|細目)?\s*§\s*\d+")
+_BOLD = re.compile(r"\*\*([^*\n]+)\*\*")
+_PAREN = re.compile(r"[（(][^）)]*[）)]")
+_rule_cache = {}
+
+
+def _core_texts(core_dir=None):
+    """plugin core の振る舞い.md と細目/*.md の本文の並び。読めなければ []（見張りの故障で止めない）。"""
+    if core_dir is None:
+        core_dir = os.environ.get("AF_CORE_DIR") or ""
+        if not core_dir:
+            got = P.sibling_plugin_file("core", "振る舞い.md", GUARD_ROOT)
+            core_dir = os.path.dirname(got) if got else ""
+    if not core_dir or not os.path.isdir(core_dir):
+        return []
+    import glob
+    out = []
+    for f in [os.path.join(core_dir, "振る舞い.md")] + sorted(glob.glob(os.path.join(core_dir, "細目", "*.md"))):
+        try:
+            with open(f, encoding="utf-8") as fh:
+                out.append(fh.read())
+        except OSError:
+            continue
+    return out
+
+
+def rule_words(core_dir=None):
+    """決まりの言葉の並び（plugin core の太字の見出しから作る・1 回だけ読む）。"""
+    key = core_dir or ""
+    if key not in _rule_cache:
+        words = []
+        for text in _core_texts(core_dir):
+            for m in _BOLD.findall(text):
+                w = _PAREN.sub("", m).strip()
+                k = re.sub(r"\s+", "", w)
+                if len(k) >= 6 and not re.search(r"[A-Za-z]", k) and w not in words:
+                    words.append(w)
+        _rule_cache[key] = words
+    return _rule_cache[key]
+
+
+def rule_terms(text, vals, core_dir=None):
+    """人への文の決まりの言葉の一覧 [(名, 字)]（知らせる側だけが呼ぶ）。ask_term_allow に当たる字は数えない。"""
+    allow = SV.patterns_of("guard", None, "ask_term_allow", vals)
+    body = _URL.sub(" ", str(text or ""))
+    pats = [re.compile(r"\s*".join(re.escape(c) for c in re.sub(r"\s+", "", w))) for w in rule_words(core_dir)]
+    hits = []
+    for pat in pats + [_SECTION]:
+        for m in pat.finditer(body):
+            tok = m.group(0).strip()
+            if tok and SV.hit(allow, tok) is None and (RULE_KIND, tok) not in hits:
+                hits.append((RULE_KIND, tok))
+    return hits
 
 
 def _patterns(vals, key):
@@ -304,6 +370,26 @@ def rec_kind_notes(qs, vals, bad=None):
     return out
 
 
+def rule_notes(qs, vals):
+    """選択肢の画面の問い・見出し・選択肢に決まりの言葉が在れば知らせる文（止めない）。無ければ ""。"""
+    hits = []
+    for q in qs:
+        if not isinstance(q, dict) or _exempt(_text(q.get("question")), vals):
+            continue
+        parts = [_text(q.get("question")), _text(q.get("header"))]
+        parts += [_text(o.get("label")) + " " + _text(o.get("description")) for o in (q.get("options") or []) if isinstance(o, dict)]
+        for t in parts:
+            for _, tok in rule_terms(t, vals):
+                if tok not in hits:
+                    hits.append(tok)
+    if not hits:
+        return ""
+    return ("[guard] 選択肢の画面に決まりの言葉が在った（知らせるだけ・止めていない）: %s\n"
+            "決まりの言葉（段取りの名・節の番号・決まりの中で意味が固まった言葉）は問いに出さない（細目 §4「問いの言葉」）。"
+            "出そうになったのは、AI の側で決める事か聞き方がずれている印: 次の問いから、決める事をオーナーの言葉で書き直す。"
+            "字の形だけ当たった誤りは値の表の guard.ask_term_allow に足す。" % "・".join("「%s」" % h for h in hits[:6]))
+
+
 def notice(data, vals):
     """PostToolUse: 推奨の印が済んだか・意図の問いに付いていたら知らせる（止めない）。"""
     if str(data.get("tool_name") or "") != ASK_TOOL:
@@ -317,9 +403,10 @@ def notice(data, vals):
         return ""
     bad = []
     notes = rec_kind_notes(qs, vals, bad)
+    rules = rule_notes(qs, vals)
     if not notes and not bad:
-        return ""
-    lines = []
+        return rules
+    lines = [rules] if rules else []
     if bad:
         lines.append("[guard] 値の表の guard.ask_rec_notice_kinds か ask_rec_notice_exempt の正規表現が壊れていて、その形は"
                      "照らせていない（直す）: %s" % "・".join(bad[:5]))

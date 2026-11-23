@@ -187,17 +187,44 @@ def unread_lines(unread):
     return out
 
 
+def hand_basis_note(data):
+    """PostToolUse: 手の窓（✋）を立てた頼みの文に、行の頭の「具体例:」「人の手の理由:」が無ければ知らせる文（止めない。
+    止めるのは 4 欄だけ＝この 2 行を止めに変えるかはオーナーの同意を待つ）。形の正本は session-watch の hand_basis_lack。"""
+    name = str(data.get("tool_name") or "")
+    ti = data.get("tool_input")
+    if not name.endswith(CREATE_SUFFIX) or not isinstance(ti, dict) or not isinstance(ti.get("title"), str):
+        return ""
+    try:
+        sw = _session_watch()
+    except Exception:           # noqa: BLE001  見張りの故障で知らせを止めない（立てる口の止めが名指す）
+        return ""
+    lack_of = getattr(sw, "hand_basis_lack", None)
+    if sw is None or lack_of is None or sw.split_title(ti["title"])[0] != sw.HAND:
+        return ""
+    lack = lack_of(ti.get("prompt") if isinstance(ti.get("prompt"), str) else "")
+    if not lack:
+        return ""
+    return ("[guard] 手の窓を立てた頼みの文に、行の頭の %s が無い（知らせるだけ・止めていない）。オーナーが手順だけで、"
+            "この件で何が起きるか（具体例: 物の本当の名・今の状態・打つと何がどう変わるか）と、なぜ AI の道具で打てず人の手が要るか"
+            "（人の手の理由: 許し・アカウントと支払い・PC やスマホにしか無い物・社外への go・他社のオーナーへの連絡のどれか）を"
+            "分かるように、手の窓へ send_message で 2 行を足して渡す（細目 §4「手の窓」）。"
+            % "・".join("「%s:」" % p for p in lack))
+
+
 def notice(data, vals):
     """PostToolUse: Artifact で出した file に、鍵の形を照らせなかった物があれば名と訳を知らせる（止めない＝止めに変えるかは
-    オーナーの同意を待つ）。照らせなかった file を「照らした」扱いで黙って通さない。"""
+    オーナーの同意を待つ）。照らせなかった file を「照らした」扱いで黙って通さない。手の窓の頼みの 2 行も知らせる。"""
+    hand = hand_basis_note(data)
     unread = unread_files(data)
     if not unread:
-        return ""
+        return hand
     lines = ["[guard] Artifact で出した file のうち、鍵・認証情報の形を照らせなかった物がある（知らせるだけ・止めていない。"
              "照らせた物だけを照らした）:"]
     lines += unread_lines(unread)[1:]
     lines.append("直し方: その file に鍵が無いかを自分で確かめる（大きすぎる物は分けるか小さくして出し直す・開けない物は path と"
                  "権限を直して出し直す）。鍵が入っていれば file から抜き、出した Artifact を出し直す。")
+    if hand:
+        lines.append(hand)
     return "\n".join(lines)
 
 # ── number ──

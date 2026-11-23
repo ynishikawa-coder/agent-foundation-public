@@ -5,7 +5,7 @@ description: 窓の題の目印（`<種類><状態> <作業名>`）の付け方�
 
 # 窓の題の目印
 
-題の形と返事の札・締めの正本は核（plugin `core` が起動時に差し込む `plugins/core/核.md`）。種類×状態の表の正本は見張り（`session_watch.py` の `TITLE_TABLE`）で、下の表はその写しを試験が照らす。題を付ける口（`set_session_title`）と窓を立てる口（`create_session` の title・手の窓の頼みの 4 欄）は、guard の outbound が出す前に同じ正本（`title_shape`）で照らし、表に無い印・表に無い組み合わせなら AI だけを止める。手で回す点検（skill `watch-log`）と Stop の見張りも同じ物で拾う。
+題の形と返事の札・締めの正本は核（plugin `core` が起動時に差し込む `plugins/core/核.md`）。種類×状態の表の正本は見張り（`session_watch.py` の `TITLE_TABLE`）で、下の表はその写しを試験が照らす。題を付ける口（`set_session_title`）と窓を立てる口（`create_session` の title・手の窓の頼みの 4 欄）は、guard の outbound が出す前に同じ正本（`title_shape`）で照らし、表に無い印・表に無い組み合わせなら AI だけを止める。手の窓の頼みの行の頭の `具体例:`・`人の手の理由:`（細目 §4「手の窓」・正本は `hand_basis_lack`）は、無ければ立てた後に知らせる（止めない）。手で回す点検（skill `watch-log`）と Stop の見張りも同じ物で拾う。
 
 ## 種類（1 文字目）
 

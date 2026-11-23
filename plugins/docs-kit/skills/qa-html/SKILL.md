@@ -41,7 +41,7 @@ repo の根（`git rev-parse --show-toplevel`）の `config/skill-values.json` �
 | `docs-kit.qa-html.limits` | 長さ・問いの数の上限を上書き | 下の §長さの上限 |
 | `docs-kit.qa-html.prior_check_cmd` | 作り方 0 の「聞く前に引く」を機械にする道具の命令（repo ごとの決定の記録・問いの表を引く物）。下の §前の答えを照らす口 | 無し＝作り方 0 は手で引く（検査は前の答えを見ない・今までどおり） |
 | `docs-kit.qa-html.later_lead` | 先に決めておきたい事（later）の最初のまとまりの 1 行の決まった文を替える | `check.mjs` の `RULES.later_lead` |
-| `docs-kit.qa-html.why` | なぜ聞くかの決まった文を替える（例 `{"once": "この月だけの事を確かめます"}`） | 下の §前提の 3 段のなぜ聞くかの 5 文の表 |
+| `docs-kit.qa-html.why` | なぜ聞くかの決まった文を替える（例 `{"once": "この月だけの事を確かめます"}`） | 下の §前提の 3 段のなぜ聞くかの決まった文の表 |
 | `docs-kit.qa-html.later_lead` | 先に決めておきたい事（later）の最初のまとまりの 1 行 | `check.mjs` の `RULES.later_lead` |
 | `common.glossary` | 本文の語の意味 | 語の一般の意味 |
 | `docs-kit.qa-html.distribution` | この skill の配り方 | 無し |
@@ -59,12 +59,12 @@ repo の根（`git rev-parse --show-toplevel`）の `config/skill-values.json` �
 | 何について | `.about` の `<span>`（人の名は `<span class="who">`） | 誰・いつ・何の札 | 3 つまで |
 | 見つけた事 | `.known`（`data-docs="読んだ資料の鍵…"`） | 資料名・場所・値。食い違いは両方。書いてない時は**探した資料**と、どこにも書いていない事（見込みは書かない） | 2 行・1 行 60 字＋数字の表 5 行 |
 | 　＋資料の切り抜き | `.clips` の `figure.clip`（`data-doc`・`data-shows`・`img` は data URI・`alt`・`figcaption`） | 該当の所に黄の印。押すと大きく。食い違いは 2 枚を横に並べる | 1 問 2 枚まで |
-| なぜ聞くか | `.why`（`data-why`） | 決まった 5 文のどれか（下の表） | 1 行 |
+| なぜ聞くか | `.why`（`data-why`） | 決まった文のどれか（下の表） | 1 行 |
 | 　＋AI の読み | `.reading`（`.why` の下） | 「こう読んだ → ここが合わない／決まらない」 | 1〜3 行・1 行 80 字 |
 | 根拠 | `.evidence` の `li[data-doc][data-where]`（原文の引用は中の `.quote`） | どの資料（一覧の鍵）のどこ（ページ・欄・行、シートならタブ名とセル範囲）。実物＝切り抜きか引用が 1 つ以上 | 3 つまで・場所 60 字・引用 80 字 |
 | くわしく | `details.more`（資料の原文は中の `.orig`） | 決まり・計算の元・語の説明 | 3 行＋原文 |
 
-なぜ聞くかの決まった 5 文（この表が正本・`check.mjs` が直に読む・会社の表の `docs-kit.qa-html.why` で文だけ替えられる）:
+なぜ聞くかの決まった文（この表が正本・`check.mjs` が直に読む・会社の表の `docs-kit.qa-html.why` で文だけ替えられる）:
 
 | `data-why` | 文 | 見つけた事に書く物 | 選択肢の形 |
 |---|---|---|---|
@@ -73,6 +73,7 @@ repo の根（`git rev-parse --show-toplevel`）の `config/skill-values.json` �
 | `law` | 今の決まりが法律の決まりと合っていません | 今の決まりの抜粋と、法律の決まりの言い換え 1 行 | 直す時期の候補／今のまま |
 | `once` | 今回だけの事を確かめます | 読んだ事と、無いと読んだ事の一覧 | このとおり／足りない・違う |
 | `ambiguous` | 資料の書き方が 2 通りに読めます | その所の資料名・場所と原文（引用か切り抜き）。2 つの読み方は AI の読みに書く | 読み方ごとの候補＋別の決め方 |
+| `judge` | あなたに決めていただきたい事です | この件で実際に何が起きるか（物の本当の名・今の状態・選ぶと何がどう変わるか）。オーナー宛て（`copy`・`artifact`）のページだけ。AI の読みに行の頭の `判断を頼む理由:`（AI が決めずに頼む訳＝オーナーだけの情報・言葉の解釈・戻せない・お金・社外のどれか。細目 §4「見せてから聞く」）を置く | 案ごとの候補＋ほかの答え |
 
 - **切り抜きの守り**: 写すのは問いの人の行だけ。ほかの人の名前と額は塗りつぶしてから埋め込む。`data-shows` に切り抜きに写っている人の名を書く（問いの `span.who` の人だけ・誰も写らなければ `data-shows=""`・属性が無ければ赤）。4 欄の箱（`.about`・`.why`・`.known`・`.more`・`.clips`）は 1 問に 1 つずつ。人ごとの事実（`person`）の問いには `span.who` が要る。食い違い（`mismatch`）の切り抜きは 0 枚か 2 枚。`.glead` は問いの箱の中だけ。検査は、ほかの問いの人の名が `data-shows`・`alt`・`figcaption` に出たら赤にする。画像はページに埋め込む（外へ読みに行かない）。
 - **選択肢ごとに「この答えで変わる事」**（`<small class="chg">`・誰の・何が・いくら・1 行）。画面には「変わる事: …」と出る。書かなくてよいのは逃げ道だけ（鍵と見出しの両方が `other`＝「ほかの答え」「別の決め方」・`none`＝「当てはまらない」の時と「分からない」・表は `RULES.free_options`）。
@@ -292,5 +293,5 @@ repo の根（`git rev-parse --show-toplevel`）の `config/skill-values.json` �
 ## 関連
 
 - `references/template.html` — 1 つの型の正本（はじめ・1 画面 1 問・送る前の確認・受付・保存・答えの形を作る JS）
-- `check.mjs` — 検査（node だけで動く・HTML と問いの JSON の両方を読む・前の答えを照らす口 `--run-prior`／`--prior`・型を出す口 `--template`・答えの形を照らす口 `--answer`・`import { checkQa, checkQaJson, checkFile, checkAnswer }` でほかの検査からも呼べる）。頭の `RULES` が問いの決まりの表の 1 か所（なぜ聞くかの 5 文だけは §前提の 3 段の表を直に読む）。`qa:css`・`qa:js`・`qa:foot`（「この後のこと」を除く）は型と突き合わせる
+- `check.mjs` — 検査（node だけで動く・HTML と問いの JSON の両方を読む・前の答えを照らす口 `--run-prior`／`--prior`・型を出す口 `--template`・答えの形を照らす口 `--answer`・`import { checkQa, checkQaJson, checkFile, checkAnswer }` でほかの検査からも呼べる）。頭の `RULES` が問いの決まりの表の 1 か所（なぜ聞くかの決まった文だけは §前提の 3 段の表を直に読む）。`qa:css`・`qa:js`・`qa:foot`（「この後のこと」を除く）は型と突き合わせる
 - theory-mock（画面を見ながら決める時）・mindmap（構造そのものを組み替える時）

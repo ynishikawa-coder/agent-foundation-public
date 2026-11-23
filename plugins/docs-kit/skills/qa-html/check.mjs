@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// qa-html の確認ページの検査（外部依存ゼロ・node と python3 で動く）。決まりの表はこのファイルの頭の RULES の 1 か所（なぜ聞くかの 5 文だけは SKILL.md の表を直に読む）。
+// qa-html の確認ページの検査（外部依存ゼロ・node と python3 で動く）。決まりの表はこのファイルの頭の RULES の 1 か所（なぜ聞くかの決まった文だけは SKILL.md の表を直に読む）。
 //   repo ごとに足す語・上限は repo の根の config/skill-values.json の docs-kit.qa-html.internal_words・limits
 //   （表の探し方と鍵の一覧は土台の 1 本の口 ../../lib/skill_values.py が持つ）。
 // 赤にする物（形の約束は SKILL.md §型の約束）:
@@ -10,7 +10,7 @@
 //   前提（3 段）: 読んだ資料の一覧（.docs の li[data-doc]）・答えるまでの扱い（.hold）が無い／資料にリンク（data-url）も
 //     リンクが無い訳（data-no-url）も無い／まとまりの 1 行（.glead）が
 //     各まとまりの最初の問いに 1 つでない／1 問の 4 欄（何について .about・見つけた事 .known と data-docs・なぜ聞くか .why・
-//     くわしく details.more）のどれかが空・上限超え・見つけた事が一覧に無い資料を指す／なぜ聞くかが決まった 5 文でない／
+//     くわしく details.more）のどれかが空・上限超え・見つけた事が一覧に無い資料を指す／なぜ聞くかが決まった文でない・判断を頼む問い（judge）がお客さん宛て・AI の読みに「判断を頼む理由:」が無い／
 //     切り抜き（figure.clip）が 3 枚以上・一覧に無い資料・問いの人の外の名が写る／選択肢にこの答えで変わる事（small.chg）が無い
 //   根拠と読み: 根拠（.evidence の li[data-doc][data-where]）が無い・場所が空・一覧に無い資料／実物（切り抜きか原文の引用 .quote）が
 //     1 つも無い／AI の読み（.reading）が無い・4 行以上／推奨の印（small.rec・recommended）がオーナー宛て（copy・artifact）の
@@ -46,12 +46,12 @@ import { fileURLToPath } from "node:url";
 //    （文字列か {語, 正規表現, 言い換え}）、上限は docs-kit.qa-html.limits で上書きする。
 // 外した欄（差出人・連絡先の欄は要らない）。HTML の class と JSON の鍵が同じ名。
 const DROPPED = [["from", "差出人"], ["contact", "連絡先"]];
-// なぜ聞くかの決まった 5 文の正本は SKILL.md の表（「なぜ聞くかの決まった 5 文」の下の `| \`鍵\` | 文 |` の行）。ここに写さず直に読む。
+// なぜ聞くかの決まった文の正本は SKILL.md の表（「なぜ聞くかの決まった文」の下の `| \`鍵\` | 文 |` の行）。ここに写さず直に読む。
 // 読めない時は止まる（決まった文を知らずに照らさない）。
 const SKILL_MD = fileURLToPath(new URL("./SKILL.md", import.meta.url));
 export function loadWhy(text = readFileSync(SKILL_MD, "utf8")) {
   const lines = text.split("\n");
-  const at = lines.findIndex((l) => l.startsWith("なぜ聞くかの決まった 5 文"));
+  const at = lines.findIndex((l) => l.startsWith("なぜ聞くかの決まった文"));
   const why = {};
   if (at >= 0) {
     for (const l of lines.slice(at + 1)) {
@@ -88,7 +88,7 @@ export const RULES = {
     "basis_chars": 60,
     "rec_chars": 40
   },
-  // なぜ聞くか（決まった 5 文）。正本は SKILL.md の表（loadWhy が直に読む）。会社の表の docs-kit.qa-html.why で文だけ替えられる
+  // なぜ聞くか（決まった文）。正本は SKILL.md の表（loadWhy が直に読む）。会社の表の docs-kit.qa-html.why で文だけ替えられる
   "why": loadWhy(),
   // この答えで変わる事を書かなくてよい選択肢＝ひとことに書かせる逃げ道だけ（鍵と見出しの両方が合う時）
   "free_options": { "other": ["ほかの答え", "別の決め方"], "none": ["当てはまらない"] },
@@ -941,6 +941,9 @@ export function checkPage(page, { valuesPath = null, valuesStarts = [], values =
     for (const w of q.who) if (!q.about.includes(w)) red.push(`${id}: 問いの人「${w}」が何についての札に無い`);
     if (!WHYS.includes(q.why)) red.push(`${id}: なぜ聞くか（${page.format === "html" ? ".why の data-why" : '"why"'}）が ${WHYS.join("・")} のどれでもない（今 ${q.why ?? "無し"}）`);
     else if (q.whyText != null && q.whyText !== whyText[q.why]) red.push(`${id}: なぜ聞くかの文は決まった文「${whyText[q.why]}」のまま（今 ${q.whyText}）`);
+    // 判断を頼む問い（judge）: オーナー宛てだけ・AI が決めずに頼む訳を AI の読みの行の頭に（細目 §4「見せてから聞く」）
+    if (q.why === "judge" && !RULES.rec.dests.includes(dest)) red.push(`${id}: 判断を頼む問い（judge）はオーナー宛て（${RULES.rec.dests.join("・")}）のページだけ。お客さん宛て（${dest ?? "宛先なし"}）は資料の事実を聞く文（${WHYS.filter((w) => w !== "judge").join("・")}）にする`);
+    if (q.why === "judge" && !(q.reading ?? []).some((l) => /^[\s>*\-・]*\**判断を頼む理由\**\s*[:：]\s*\S/.test(l))) red.push(`${id}: 判断を頼む問い（judge）の AI の読みに、行の頭の「判断を頼む理由:」（AI が決めずに頼む訳＝オーナーだけの情報・言葉の解釈・戻せない・お金・社外のどれか）が無い`);
     if (q.kind === "mismatch" && WHYS.includes(q.why) && q.why !== "mismatch") red.push(`${id}: 食い違いの問い（mismatch）のなぜ聞くかは「${whyText.mismatch}」`);
     if (!q.known.length) red.push(`${id}: 見つけた事（資料名・場所・値）が無い（前提が書けない問いは出さない）`);
     if (!q.knownDocs.length) red.push(`${id}: 見つけた事が読んだ資料を指していない（${page.format === "html" ? '.known に data-docs="資料の鍵"' : '"docs"'}）`);
