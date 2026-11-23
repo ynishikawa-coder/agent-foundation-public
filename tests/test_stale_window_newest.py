@@ -273,6 +273,18 @@ def test_浅い_clone_が先へ進み入った版が歴史から消えても取�
     assert got and Path(got).read_text(encoding="utf-8") == "入った版\n", got
 
 
+def test_入れ直しの途中で_clone_の_file_が消えた間も取り置きから同じ版を読む(tmp_path):
+    plugins = tmp_path / ".claude" / "plugins"
+    clone, sha = _clone(plugins, "入った版\n")
+    guard_root = plugins / "cache" / "market" / "guard" / sha[:12]
+    guard_root.mkdir(parents=True)
+    rel = os.path.join("public-guard", "guard.py")
+    assert Path(af_place.foundation_file(rel, str(guard_root))).read_text(encoding="utf-8") == "入った版\n"
+    (clone / rel).unlink()  # 入れ直しの途中: clone の先端は入った版のまま、取り出しの file だけが消えている間
+    got = af_place.foundation_file(rel, str(guard_root))
+    assert got and Path(got).read_text(encoding="utf-8") == "入った版\n", got
+
+
 def test_取り置きも無く入った版が歴史に無ければ空を返す_読み違えない(tmp_path):
     plugins = tmp_path / ".claude" / "plugins"
     _clone(plugins, "先へ進んだ版\n")
@@ -357,7 +369,8 @@ def test_入れ直しの錠の決まりは_af_place_の_1_つを_core_も引く(
     assert link.is_symlink() and link.resolve() == AF_PLACE.resolve()
     for f in ("kaku.py", "hook_run.py"):
         code = py_code((CORE / "scripts" / f).read_text(encoding="utf-8"))
-        assert not re.search(r"REFRESH_TIMEOUT\s*\+|\b660\b|\b600\b", code), f   # 秒を写すと赤（置き場は下で動かして照らす）
+        # 錠の秒を core で定め直す・足し算で組み直すと赤（ほかの意味の秒の値は拾わない。使う所は下で動かして照らす）
+        assert not re.search(r"^\s*(REFRESH_TIMEOUT|LOCK_AGE)\s*=|REFRESH_TIMEOUT\s*\+|\b660\b", code, re.M), f
     import hook_run
     claude = tmp_path / ".claude"
     lock = Path(af_place.refresh_file(claude, "refresh.lock"))
@@ -383,3 +396,23 @@ def test_入れ直しの錠の決まりは_af_place_の_1_つを_core_も引く(
     (moved / "refresh.lock").unlink()
     (moved / "refresh.json").write_text('{"code": 1, "line": "動かした所の結果"}', encoding="utf-8")
     assert "動かした所の結果" in hook_run._wait_refresh(claude, 0)    # 前の入れ直しの結果も動かした所から読む
+    # kaku の入れ直しも正本の秒と生きている判定で動く（秒・錠の古さを kaku が手で持つと、正本を動かしても変わらず赤）
+    import subprocess as sp
+    seen = {}
+    monkeypatch.setattr(af_place, "REFRESH_TIMEOUT", 7)
+    monkeypatch.setattr(sp, "run", lambda *a, **k: seen.update(k) or sp.CompletedProcess(a, 0, "", ""))
+    kaku.refresh("c" * 40, tmp_path / "入口.py")
+    assert seen.get("timeout") == 7
+    entry = tmp_path / "clone" / "scripts" / "setup_plugins.py"
+    entry.parent.mkdir(parents=True)
+    entry.write_text("", encoding="utf-8")
+    monkeypatch.setattr(kaku, "catalog_source", lambda: ({"installLocation": str(entry.parent.parent)}, None))
+    started = []
+    monkeypatch.setattr(sp, "Popen", lambda *a, **k: started.append(a))
+    (moved / "refresh.json").unlink()
+    (moved / "refresh.lock").write_text("", encoding="utf-8")       # 作った直後の錠（手で古さを測れば生きていると読む）
+    monkeypatch.setattr(af_place, "lock_alive", lambda lock: False)
+    assert kaku.start_refresh("d" * 40) is True and started        # 正本が「死んだ錠」と言えば外して回す
+    started.clear()
+    monkeypatch.setattr(af_place, "lock_alive", lambda lock: True)
+    assert kaku.start_refresh("e" * 40) is False and not started   # 正本が「生きている」と言えば回さない

@@ -4,3 +4,4 @@
 - 直した: 裏の入れ直しの途中は、守りの hook が窓が立った時の揃った版で回り、隣の plugin の file（qa-html の check.mjs など）は同じ版で入るのを待ってから引く（半端な版を掴まない）
 - 直した: 裏の入れ直しの錠の置き場と生きている秒を 3 か所（af_place.py・kaku.py・hook_run.py）で手で写していたのを、skill-values/af_place.py の 1 つにした（core も lib/af_place.py の symlink から引く）
 - 直した: 値の表を読む file を探す試験が、Python の注釈・docstring に在り処の名を書いただけの file まで読む口と取り違えていたのを、注釈・docstring を除いて照らす形にした
+- 直した: 入れ直しの途中で目録の clone の先端が入った版のまま public-guard/guard.py の取り出しだけが消えている間、土台の file を空と返していたのを、同じ版の取り置きから読む形にした

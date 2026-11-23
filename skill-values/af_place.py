@@ -155,7 +155,10 @@ def foundation_file(rel, plugin_root):
     keep_version(clone, at, keep_dir(os.path.dirname(plugins), ver))
     if at == head:
         cand = os.path.join(clone, rel)
-        return cand if os.path.isfile(cand) else ""
+        if os.path.isfile(cand):
+            return cand
+        # 先端は入った版のまま取り出しの file だけが消えている間（入れ直しの途中）＝同じ版の取り置きを読む
+        return kept if os.path.isfile(kept) else ""
     if os.path.isfile(kept):
         return kept
     body = _clone_git(clone, "show", f"{at}:{rel.replace(os.sep, '/')}")  # KEEP_ROOTS の外の file
