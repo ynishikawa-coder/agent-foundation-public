@@ -6,6 +6,7 @@
 ここでは手元の土台の取り出し・origin を仮に作り、わざと古い版を回して、先端へ寄る・寄れない時は止まるを見る。
 """
 import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -31,6 +32,7 @@ def lay(tmp: Path, tip_text: str) -> Path:
     git("init", "-q", "-b", "main", str(work))
     (work / REL).parent.mkdir(parents=True)
     (work / REL).write_text(tip_text, encoding="utf-8")
+    shutil.copy(GATE.parent / "verdict_form.py", work / REL.replace("review_gate.py", "verdict_form.py"))  # 関所が読む隣の道具
     (work / "plugins/checker/README.md").write_text("checker\n", encoding="utf-8")
     git("add", "-A", cwd=work)
     git("commit", "-q", "-m", "tip", cwd=work)
