@@ -89,3 +89,21 @@ def test_急ぎの印は全角のコロンでも届ける(tmp_path):
     _commit(f.work, {"plugins/guard/a.py": "a\n"}, "急ぎの安全：お金の守りの穴を塞ぐ")
     text = f.hook("fresh")
     assert "- 急ぎの安全：お金の守りの穴を塞ぐ" in text and _refreshed(f)
+
+
+def _plugins_line(text):
+    return next(line for line in text.splitlines() if "変わった plugin:" in line)
+
+
+def test_2_回目の知らせは届けた後に変わった_plugin_だけを挙げる(tmp_path):
+    """注入: 1 回目に guard の急ぎを届けた後、checker と核の急ぎを入れる → 2 回目の「変わった plugin」に guard を挙げない
+    （変わった plugin を立った時の先端から数え、急ぎだけ最後に取った先端から数えると、届けた guard をまた挙げた）。"""
+    f = Foundation(tmp_path)
+    _with_entry(f)
+    f.install()
+    f.hook("inject")
+    _commit(f.work, {"plugins/guard/a.py": "a\n", "plugins/core/核.md": "核 3\n"}, "急ぎの安全: 守りを塞ぐ")
+    assert "guard" in _plugins_line(f.hook("fresh"))
+    _commit(f.work, {"plugins/checker/b.py": "b\n", "plugins/core/核.md": "核 4\n"}, "急ぎの安全: 照らしを塞ぐ")
+    line = _plugins_line(f.hook("fresh"))
+    assert "checker" in line and "core" in line and "guard" not in line, line

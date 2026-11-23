@@ -1,0 +1,2 @@
+- 直した: レビューの関所（checker の review_gate）が、同じ workflow を同じ event で走らせ直した新しい check suite（PR の本文を直した edited の走りなど）の結果で古い suite の赤を上書きする（別の workflow の同名の赤は今までどおり残す）。
+- 直した: 開いている窓への 2 回目の急ぎの知らせの「変わった plugin」を、急ぎと同じく窓が最後に取った先端から数える（届けた plugin をまた挙げない）。
