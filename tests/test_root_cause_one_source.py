@@ -36,6 +36,7 @@ REMAINING = {
     "scripts/checks/conftest_teeth.sh",
     "scripts/checks/public_guard.sh",
     "scripts/check_all.sh",
+    "scripts/setup_plugins.py",  # 窓を立てる入口。試験の作り物が入口と kaku.py だけを写して回すので、skill-values を読まない形のまま（残り）
     "public-guard/guard.py",
     "public-guard/patrol.py",
 }
@@ -75,7 +76,7 @@ def test_寄せた道具は口を呼ぶ():
     for rel in ("plugins/guard/scripts/guard.py", "plugins/guard/scripts/unanswered.py", "plugins/guard/scripts/values_keys.py",
                 "plugins/session-watch/scripts/session_watch.py", "skill-values/skill_values.py",
                 "scripts/plugin_smoke.py", "scripts/pr_overlap.py", "scripts/pr_shape.py", "scripts/conflict_markers.py",
-                "scripts/setup_plugins.py", "scripts/call_flows.py", "scripts/changelog.py", "scripts/ruleset_apply.py"):
+                "scripts/call_flows.py", "scripts/changelog.py", "scripts/ruleset_apply.py"):
         assert "root_cause(" in (ROOT / rel).read_text(encoding="utf-8"), rel
 
 

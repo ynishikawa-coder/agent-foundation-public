@@ -29,7 +29,6 @@ sys.dont_write_bytecode = True
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import guard_common as G  # noqa: E402
-from root_cause import root_cause  # noqa: E402  根治の 1 文（細目 §3「まず構造を疑う」へ入る）の 1 本の口（lib/ の symlink）
 
 SV = G.SV                                                # 値の表の 1 本の口（guard_common が lib/ から読む）
 WRITE_TOOLS = ("Write", "Edit", "MultiEdit")
@@ -70,6 +69,7 @@ def _load(text):
 
 
 def _say(keys, where):
+    from root_cause import root_cause  # 根治の 1 文（細目 §3「まず構造を疑う」へ入る）の 1 本の口（lib/ の symlink・止める・知らせる時だけ読む＝写した見張りの照らしは読まずに動く）
     return ("値の表 %s に、土台が読まない鍵が在る（土台が畳んだ・名を変えた鍵か、書き違い・型の違う値）。読まれずに黙って効かない:\n%s\n"
             "直し方: 消すか、今の名の鍵へ移す。"
             "repo が自分で持つ値なら、土台の plugin の名と common の外の頭へ移す。この repo の PR で直す（skill `guard:guard-rules`）。"

@@ -50,7 +50,6 @@ sys.dont_write_bytecode = True
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import guard_common as G  # noqa: E402
-from root_cause import root_cause  # noqa: E402  根治の 1 文（細目 §3「まず構造を疑う」へ入る）の 1 本の口（lib/ の symlink・guard_common が道に足す）
 
 ASK_TOOL = "AskUserQuestion"
 SCHEMA = "af-guard/unanswered/v1"
@@ -59,7 +58,12 @@ ANSWERED_KEEP = 20     # 観測用に残す「答えが返った問い」「降�
 CONTAIN_MIN = 16       # 文面の含有で同じ問いとみなす最低の長さ（短い問い同士の取り違えを防ぐ）
 ASK_BATCH = 4          # モーダル 1 回に載る問いの数（出し直しはこの数ずつ続けて出させる）
 LEDGER_TTL_HOURS = 24  # 台帳の寿命（最後に出てから）
-ROOT_CAUSE = root_cause("オーナーの答えを得て進む", cause="答えが返らなかった", shortcut="出し直す") + "（見る所: 聞く時・問いの形・聞き方）。"
+def root_cause_line():
+    """根治の 1 文（細目 §3「まず構造を疑う」へ入る）の 1 本の口（lib/ の symlink・止める・知らせる時だけ読む＝写した見張りの照らしは読まずに動く）"""
+    from root_cause import root_cause
+    return root_cause("オーナーの答えを得て進む", cause="答えが返らなかった", shortcut="出し直す") + "（見る所: 聞く時・問いの形・聞き方）。"
+
+
 _WS = re.compile(r"\s+")
 
 
@@ -458,7 +462,7 @@ def resurface(data, vals):
             lines.append("（台帳を書けず、降ろせませんでした。次の窓でもう一度知らせます）")
         lines += ["降ろした問いの控え: 台帳 %s の expired_recent" % path]
         if not items:
-            lines.append(ROOT_CAUSE)     # 寿命切れだけの時も、答えが返らなかった原因へ向ける
+            lines.append(root_cause_line())     # 寿命切れだけの時も、答えが返らなかった原因へ向ける
         lines.append("")
     if items:
         lines += ["前の窓で答えのないまま閉じた問いが %d 件あります。今の窓の流れの中で、1 件ずつ次のどれかにします。" % len(items),
@@ -471,7 +475,7 @@ def resurface(data, vals):
                   "- 今の頼みと関わらない問い → この窓の最初に画面で出さない。返事の締めの「あなたがやること」に 1 行"
                   "（何の件の問いが残っているか）で知らせ、オーナーが求めた時に出す。",
                   "同じ問いを言い方だけ変えて何度も出さない。下の %d 件を全部、どれかにする。" % len(items),
-                  ROOT_CAUSE, ""]
+                  root_cause_line(), ""]
         for n, it in enumerate(items, 1):
             lines += _lines_for(n, it)
         lines.append("答えが返れば台帳から自動で降ります。また閉じれば次の窓へ持ち越します。台帳: %s" % path)

@@ -22,11 +22,13 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 
 import guard_common as G  # noqa: E402  （lib/ を道に足す）
-from root_cause import root_cause  # noqa: E402  根治の 1 文（細目 §3「まず構造を疑う」へ入る）の 1 本の口（lib/ の symlink）
 
 EVENTS = {"pre": "PreToolUse", "post": "PostToolUse", "start": "SessionStart"}
 # 止めた時の最後の行（どの見張りの止めにも 1 か所で付ける。中身は細目 §3 が正本＝ここは指すだけ）
-ROOT_CAUSE = root_cause("止めた守りが守る物", shortcut="止められた所を直して出し直す")
+def root_cause_line():
+    """根治の 1 文（細目 §3「まず構造を疑う」へ入る）の 1 本の口（lib/ の symlink・止める・知らせる時だけ読む＝写した見張りの照らしは読まずに動く）"""
+    from root_cause import root_cause
+    return root_cause("止めた守りが守る物", shortcut="止められた所を直して出し直す")
 
 
 def _run(module, func, data, vals):
@@ -73,7 +75,7 @@ def run(event, data):
         return None
     if event == "pre":
         return {"hookSpecificOutput": {"hookEventName": EVENTS[event], "permissionDecision": "deny",
-                                       "permissionDecisionReason": "\n\n".join(outs + [ROOT_CAUSE])}}
+                                       "permissionDecisionReason": "\n\n".join(outs + [root_cause_line()])}}
     return {"hookSpecificOutput": {"hookEventName": EVENTS[event], "additionalContext": "\n\n".join(outs)}}
 
 
