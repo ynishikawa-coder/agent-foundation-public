@@ -33,7 +33,8 @@
 
 使い方: python3 verdict_form.py <コメントのファイル> [<ファイル> …] --writer <書いた窓の session id>[,<id> …] --head <PR の先端の SHA>
           --first <PR の初めの判定の決まりの版 SHA12|なし> [--reviewer <判定を出す窓の session id>]
-  --writer・--head・--first は欠かせない（欠けたら別の目・先端・決まりの版を照らさずに通さない＝exit 2）。
+  --writer・--head は欠かせない（欠けたら別の目・先端を照らさずに通さない＝exit 2）。--first と 3 行目は、壊れる変更の
+  1 段目の間は無くても通す（無い時は前の形＝main の先端の決まりで照らす。2 段目で欠かせなくする・CONTRIBUTING.md §8）。
   --first の値は review_gate.py が「入ってよい」の時に出す（PR のコメントから first_rules で読む・手で決めない）。
   助手（Agent）の判定は立てた窓の session id で書く。書いた窓が立てた助手の判定は --writer と同じになり誤り。
   ファイルは全部照らす（2 つ以上の時は誤りの頭にファイルの名）。誤りを 1 行ずつ出し、どれかに誤りがあれば exit 1。
@@ -304,9 +305,8 @@ def check(text, writer=None, head=None, points=None, cards=None, values=None, po
         errs.append("1 行目が `レビューした窓: <session id> 判定: green|red` でない")
     if not m2:
         errs.append("2 行目が `見た先端: <SHA12>` でない")
-    if not m3:
-        errs.append("3 行目が `決まりの版: <SHA12>` でない（この判定が従う土台の commit。review_gate.py が出す）")
-    elif rules and rules != m3.group(1):
+    # 3 行目の無い判定は 1 段目の間は古い形として通す（main の先端の点で照らす・CONTRIBUTING.md §8・古い形.json verdict-no-rules-line）
+    if m3 and rules and rules != m3.group(1):
         errs.append("決まりの版 %s が照らした版 %s と違う" % (m3.group(1), rules))
     reviewer, judged = (m1.group(1), m1.group(2)) if m1 else (None, None)
     if poster:
@@ -364,11 +364,12 @@ class Unreadable(Exception):
 def check_posted(text, first, writer=None, head=None, poster=None, repo=None):
     """1 つの判定を、その 3 行目の決まりの版（first＝この PR の初めの判定の版か `なし`）の見る点で照らし、誤りの並びを返す。
     main と、判定を数える他の repo の関所（例: pixel-office の pr_review_gate）が呼ぶ 1 つの口（先端の点で照らす写しを持たせない）。
-    3 行目が無い判定は先端の点で照らし、3 行目が無い誤りを返す。版を読めない時は Unreadable。"""
+    3 行目が無い判定と first が None（--first の無い古い呼び方）は、1 段目の間は前の形として main の先端の点で照らす
+    （CONTRIBUTING.md §8・古い形.json の verdict-no-rules-line）。版を読めない時は Unreadable。"""
     lines = (text or "").splitlines()
     m3 = LINE3.match(lines[2].strip()) if len(lines) > 2 else None
     rules, rerrs = None, []
-    if m3:
+    if m3 and first is not None:
         try:
             rules, rerrs = load_rules(m3.group(1), first, repo)
         except (OSError, RuntimeError, ValueError, subprocess.SubprocessError) as e:
@@ -405,12 +406,16 @@ def main(argv):
     if not paths:
         sys.stderr.write(__doc__)
         return 2
-    if not writer_set(opts["--writer"]) or not opts["--head"] or not opts["--first"]:
-        # 欠けた材料で通さない: 書いた窓が無いと別の目を、先端が無いと見た後の push を、初めの版が無いと決まりの版を照らせない
-        sys.stderr.write("--writer <書いた窓の session id>・--head <PR の先端の SHA>・--first <初めの判定の決まりの版|なし> が"
+    if not writer_set(opts["--writer"]) or not opts["--head"]:
+        # 欠けた材料で通さない: 書いた窓が無いと別の目を、先端が無いと見た後の push を照らせない
+        sys.stderr.write("--writer <書いた窓の session id>・--head <PR の先端の SHA> が"
                          "全部要る（欠けたまま形を通さない）\n")
         return 2
-    if opts["--first"] != NO_FIRST and not re.fullmatch(r"[0-9a-f]{12,40}", opts["--first"]):
+    if opts["--first"] is None:
+        # 1 段目の間は --first の無い古い呼び方も通す（main の先端の決まりで照らす・CONTRIBUTING.md §8）
+        sys.stderr.write("--first が無い古い呼び方。決まりの版を照らさず main の先端の決まりで照らす"
+                         "（review_gate.py が出す --first を渡す形へ移る）\n")
+    elif opts["--first"] != NO_FIRST and not re.fullmatch(r"[0-9a-f]{12,40}", opts["--first"]):
         sys.stderr.write("--first の値が SHA（12 文字以上）か `%s` でない: %s\n" % (NO_FIRST, opts["--first"][:20]))
         return 2
     bad_ids = [w for w in writer_set(opts["--writer"]) | ({opts["--reviewer"]} if opts["--reviewer"] else set())

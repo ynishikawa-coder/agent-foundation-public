@@ -5,6 +5,7 @@
 誤りの類をわざと入れて、道具（verdict_form）が拒む事を見る:
   後から足された点を要る扱いにする／安全の点を古い版で外す／初めの版と違う版で書く／初めの判定を古い版で書く／
   版が読めないのに形を通す。
+1 段目の間は 3 行目の無い古い形と --first の無い古い呼び方を前の形で通す事も見る。
 """
 import subprocess
 import sys
@@ -69,10 +70,26 @@ def test_初めの判定を古い版で書くと赤(two, tmp_path, monkeypatch):
     assert run_main(tmp_path, verdict(v1), "なし", monkeypatch, clone) == 1
 
 
-def test_決まりの版の行が無い判定は赤(two, tmp_path, monkeypatch):
+def test_1段目_決まりの版の行が無い古い形も前の形で通す(two, tmp_path, monkeypatch):
+    # 壊れる変更の 1 段目（CONTRIBUTING.md §8）: 3 行目の無い判定・--first の無い呼び方・check を直に呼ぶ使う側の関所
+    # （古い形.json の verdict-no-rules-line）は、前の形＝道具の入っている SKILL.md の点で照らして通す。形の崩れは今まで通り拒む
     clone, v1, _ = two
     old = verdict(v1).replace("決まりの版: %s\n" % v1[:12], "")
-    assert run_main(tmp_path, old, v1[:12], monkeypatch, clone) == 1
+    assert "決まりの版" not in old
+    assert run_main(tmp_path, old, v1[:12], monkeypatch, clone) == 0
+    assert run_main(tmp_path, old, "なし", monkeypatch, clone) == 0
+    assert vf.check(old, writer=WRITER, head="0123456789ab") == []
+    assert vf.check_posted(old, None, writer=WRITER, head="0123456789ab") == []
+    path = tmp_path / "o.md"
+    path.write_text(old, encoding="utf-8")
+    assert vf.main(["verdict_form.py", str(path), "--writer", WRITER, "--head", "0123456789ab"]) == 0
+    broken = old.replace("- 5 秘密・顧客の物: pass\n", "")
+    path.write_text(broken, encoding="utf-8")
+    assert vf.main(["verdict_form.py", str(path), "--writer", WRITER, "--head", "0123456789ab"]) == 1
+    assert vf.check(broken, writer=WRITER, head="0123456789ab") != []
+    # 新しい形（3 行目在り）を --first 無しで出しても、古い呼び方として前の形で照らす（版の決まりは --first が在る時だけ）
+    path.write_text(verdict(v1), encoding="utf-8")
+    assert vf.main(["verdict_form.py", str(path), "--writer", WRITER, "--head", "0123456789ab"]) == 0
 
 
 def test_安全の点は先端の名と値で必ず見る(tmp_path, monkeypatch):

@@ -206,7 +206,8 @@ def pr_number(repo, ti):
 
 def first_rules(repo, ti, tool):
     """PR のコメントから初めの判定の決まりの版（SHA12）か NO_FIRST の `なし`、と誤り。読み方は判定の形の道具の
-    first_rules をそのまま呼ぶ（写さない）。コメントを引けない時は誤り（初めの版を照らさずに判定を通さない）。"""
+    first_rules をそのまま呼ぶ（写さない）。コメントを引けない時は誤り（初めの版を照らさずに判定を通さない）。
+    道具が first_rules を持たない古い checker なら (None, "")＝--first を渡さず前の形で照らす（壊れる変更の 1 段目の間）。"""
     import importlib.util
     try:
         spec = importlib.util.spec_from_file_location("af_verdict_form", tool)
@@ -215,7 +216,7 @@ def first_rules(repo, ti, tool):
     except (Exception, SystemExit) as e:  # noqa: BLE001  読めない・読むと抜ける道具で版を決めない（hook ごと落ちない）
         return "", "判定の形の道具が壊れた（読むと %s）。初めの判定の決まりの版を読めない" % e.__class__.__name__
     if not hasattr(vf, "first_rules"):
-        return "", "判定の形の道具が決まりの版を読めない古い版（plugin checker を入れ直す）"
+        return None, ""   # 1 段目の間: 決まりの版を知らない古い checker は --first を渡さず前の形で照らす（CONTRIBUTING.md §8）
     try:
         number = pr_number(repo, ti)
         c = _gh(["--paginate", "repos/%s/issues/%s/comments" % (repo, number), "--jq", ".[].body | @json"]) \
@@ -298,8 +299,8 @@ def check_verdict(body, data):
     if err:
         return ["判定の材料: " + err]
     try:
-        p = _run([sys.executable, tool, _tmp_file(body, "verdict"), "--writer", ",".join(writers), "--head", head,
-                  "--first", first, "--reviewer", poster])
+        p = _run([sys.executable, tool, _tmp_file(body, "verdict"), "--writer", ",".join(writers), "--head", head]
+                 + (["--first", first] if first is not None else []) + ["--reviewer", poster])
     except (OSError, subprocess.SubprocessError) as e:
         return ["判定の形の道具が走らなかった: %s" % e.__class__.__name__]
     if p.returncode == 0:

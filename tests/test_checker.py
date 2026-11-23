@@ -200,7 +200,7 @@ def test_知らない印と値の無い印は止まる(tmp_path):
     assert vf.main(["verdict_form.py", str(good), "--writr", "x"]) == 2
     assert vf.main(["verdict_form.py", str(good), "--writer"]) == 2
     assert vf.main(["verdict_form.py", str(good), "--writer", "a", "--writer", "b"]) == 2
-    assert vf.main(["verdict_form.py", str(good), "--writer", "session_W1", "--head", "0123456789ab"]) == 2   # --first が無い
+    # --first が無い呼び方は 1 段目の間は古い形として通す（tests/test_rules_version.py・CONTRIBUTING.md §8）
     assert vf.main(["verdict_form.py", str(good), "--writer", "session_W1", "--head", "0123456789ab", "--first", "x"]) == 2
 
 
