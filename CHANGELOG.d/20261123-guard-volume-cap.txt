@@ -1,0 +1,3 @@
+- 足した: 守りの数の上限（オーナー同意 2026-11-23・守るための守りを足し続けない）。CI の kaku.py grow（scripts/checks/kaku_growth.sh）が、核・振る舞い・細目の量に加えて、守りの見張り（plugins/guard/scripts の HOOKS を持つ script）・CI の検査（scripts/checks/*.sh）・hook の口（各 plugin の hooks.json の項目）・CI の段（workflow の run 行。公開の検査は除く）・レビューの点（checker の review-pr の点の表の行）の数を main との分かれ目と比べ、増えたら赤にする（足すなら同じ PR で 1 つ畳む）。安全の守り（irreversible・outbound・paid_upstream・public_guard）は数えない。試験は数を出すだけで止めない。土台の中だけ（使う側がやる事は無い）
+- 足した: 注入の試験 tests/test_guard_count_no_growth.py（見張り〔型注釈つきの HOOKS も〕・hook の口・CI の段・検査・点を 1 つずつ足すと赤・畳むと緑・安全の物は数えない・比べる元が読めなければ 2）
+- 直した: 細目 §9 を守りの数まで書いた上で短くした（細目の量は増えていない）。register-rule の Step 4 が grow を指す
