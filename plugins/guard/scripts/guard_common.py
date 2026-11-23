@@ -62,7 +62,7 @@ def _starts(payload):
 
 
 def values(payload=None):
-    """値の表の "guard" を既定に重ねて返す。読めない・問題のある鍵は既定のまま（名指しは values_problems）。"""
+    """値の表の "guard" を既定に重ねて返す。読めない・問題のある鍵は既定のまま（名指しは起動の hook が値の表を読む時）。"""
     out = dict(DEFAULTS)
     try:
         got, _ = SV.section("guard", strict=False, starts=_starts(payload))
