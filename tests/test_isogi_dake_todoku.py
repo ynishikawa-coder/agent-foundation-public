@@ -78,3 +78,14 @@ def test_急ぎの印は題の頭だけで_本文や途中の語では届けな�
     f.hook("inject")
     _commit(f.work, {"plugins/guard/a.py": "a\n"}, "見張りを直す（急ぎの安全: ではない）")
     assert f.hook("fresh") == ""
+
+
+def test_急ぎの印は全角のコロンでも届ける(tmp_path):
+    """注入: 印を半角の「急ぎの安全:」だけにする形を戻すと赤（全角の「急ぎの安全：」も同じ印）。"""
+    f = Foundation(tmp_path)
+    _with_entry(f)
+    f.install()
+    f.hook("inject")
+    _commit(f.work, {"plugins/guard/a.py": "a\n"}, "急ぎの安全：お金の守りの穴を塞ぐ")
+    text = f.hook("fresh")
+    assert "- 急ぎの安全：お金の守りの穴を塞ぐ" in text and _refreshed(f)
