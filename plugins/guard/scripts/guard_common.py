@@ -38,6 +38,7 @@ def foundation_file(rel, guard_root=None):
 
 
 load_module = P.load_module
+miss_note = P.miss_note
 
 
 def _repo_root(d):

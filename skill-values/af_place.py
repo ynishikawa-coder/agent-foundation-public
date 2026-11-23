@@ -66,10 +66,48 @@ def _refresh_lock(plugin_root):
     return refresh_file(os.sep.join(parts[:-5]) or os.sep, "refresh.lock")
 
 
-def _clone_git(clone, *args):
+# foundation_file が "" を返した訳と直し方（呼ぶ側が止める文に添える。見つかった時は ""）。
+MISS = ""
+
+
+def _miss(why):
+    global MISS
+    MISS = why
+    return ""
+
+
+def miss_note():
+    """直前の foundation_file が "" を返した訳（止める文の後ろに添える形）。無ければ ""。"""
+    return f"（訳: {MISS}）" if MISS else ""
+
+
+def _commit_at(clone, ver):
+    return (_clone_git(clone, "rev-parse", "--verify", "-q", f"{ver}^{{commit}}") or b"").decode().strip()
+
+
+def _installed_sha(plugins_dir, plugin_root, ver):
+    """plugin の台帳（<plugins>/installed_plugins.json）で plugin_root に入った版の full sha（ver で始まる 40 桁）か ""。"""
+    import json
+    try:
+        with open(os.path.join(plugins_dir, "installed_plugins.json"), encoding="utf-8") as f:
+            rows = json.load(f).get("plugins") or {}
+    except (OSError, ValueError, AttributeError):
+        return ""
+    want = os.path.realpath(plugin_root)
+    for entries in rows.values() if isinstance(rows, dict) else ():
+        for row in entries if isinstance(entries, list) else ():
+            if not isinstance(row, dict) or os.path.realpath(str(row.get("installPath") or "")) != want:
+                continue
+            sha = str(row.get("gitCommitSha") or "")
+            if re.fullmatch(r"[0-9a-f]{40}", sha) and sha.startswith(ver):
+                return sha
+    return ""
+
+
+def _clone_git(clone, *args, timeout=10):
     import subprocess
     try:
-        r = subprocess.run(["git", "-C", clone, *args], capture_output=True, timeout=10)
+        r = subprocess.run(["git", "-C", clone, *args], capture_output=True, timeout=timeout)
     except (OSError, subprocess.SubprocessError):
         return None
     return r.stdout if r.returncode == 0 else None
@@ -135,6 +173,8 @@ def foundation_file(rel, plugin_root):
     読めた中身は版ごとに <~/.claude>/af-foundation/at/<版>/ へ取り置く。入れ直しの途中で浅い clone が先端へ進み、
     入った版が clone の歴史から消えても、取り置き（入れ直しの前に setup_plugins.py も取り置く）から同じ版を読む。
     取り置きも無ければ ""（＝呼ぶ側が止めて名指しする）。"""
+    global MISS
+    MISS = ""
     here = plugin_root
     cand = os.path.join(os.path.dirname(os.path.dirname(here)), rel)
     if os.path.isfile(cand):
@@ -145,27 +185,47 @@ def foundation_file(rel, plugin_root):
     clone = os.path.join(plugins, "marketplaces", os.path.basename(market))
     ver = os.path.basename(here)
     if not re.fullmatch(r"[0-9A-Za-z._-]{1,64}", ver or ""):
-        return ""
+        return _miss(f"{rel} が plugin の外に無く、市場の取り出し {clone} も無い（または版の名 {ver!r} が読めない）。"
+                     "土台の plugin を市場から入れ直す")
     kept = os.path.join(keep_dir(os.path.dirname(plugins), ver), rel)
     head = (_clone_git(clone, "rev-parse", "HEAD") or b"").decode().strip() if os.path.isdir(clone) else ""
-    at = (_clone_git(clone, "rev-parse", "--verify", "-q", f"{ver}^{{commit}}") or b"").decode().strip() if head else ""
-    if not head or not at:
-        # 入った版が clone の歴史に無い（入れ直しの途中で浅い clone が先へ進んだ）・clone が無い＝取り置きだけを読む
-        return kept if os.path.isfile(kept) else ""
+    if not head:
+        # clone が無い・git として読めない（入れ直しの途中）＝同じ版の取り置きだけを読む
+        if os.path.isfile(kept):
+            return kept
+        if not os.path.isdir(clone):
+            return _miss(f"{rel} が plugin の外に無く、市場の取り出し {clone} も無い（または版の名 {ver!r} が読めない）。"
+                         "土台の plugin を市場から入れ直す")
+        return _miss(f"市場の取り出し {clone} が git として読めない（入った版と同じか分からない）。土台の plugin を市場から入れ直す")
+    at = _commit_at(clone, ver)
+    if not at:
+        # 市場の取り出しは浅い clone（Claude Code が先端の 1 つだけを取る）で、入った版が先端と違うと歴史に無い。
+        # 入った版の full sha（plugin の台帳 installed_plugins.json）を出所から取り寄せて同じ版を読む（窓の側の手を要さない）
+        full = _installed_sha(plugins, here, ver)
+        if full:
+            _clone_git(clone, "fetch", "--quiet", "--depth=1", "origin", full, timeout=60)
+            at = _commit_at(clone, ver)
+    if not at:
+        # 取り寄せられない（入れ直しの途中で浅い clone が先へ進んだ等）＝同じ版の取り置きを読む
+        if os.path.isfile(kept):
+            return kept
+        shallow = (_clone_git(clone, "rev-parse", "--is-shallow-repository") or b"").decode().strip() == "true"
+        return _miss(f"入った版 {ver} が市場の取り出し {clone} の歴史に無い"
+                     + ("（浅い clone で、出所から入った版を取り寄せられなかった）" if shallow else "")
+                     + f"。直し: git -C {clone} fetch --unshallow をしてから回し直す（出所へ届かない時は土台の plugin を市場から入れ直す）")
     keep_version(clone, at, keep_dir(os.path.dirname(plugins), ver))
     if at == head:
         cand = os.path.join(clone, rel)
         if os.path.isfile(cand):
             return cand
         # 先端は入った版のまま取り出しの file だけが消えている間（入れ直しの途中）＝同じ版の取り置きを読む
-        return kept if os.path.isfile(kept) else ""
+        return kept if os.path.isfile(kept) else _miss(f"入った版 {ver} の土台に {rel} が無い")
     if os.path.isfile(kept):
         return kept
     body = _clone_git(clone, "show", f"{at}:{rel.replace(os.sep, '/')}")  # KEEP_ROOTS の外の file
     if body is None:
-        return ""
-    return kept if _write(kept, body) else ""
-
+        return _miss(f"入った版 {ver} の土台に {rel} が無い（市場の取り出し {clone} の歴史から取り出せない）")
+    return kept if _write(kept, body) else _miss(f"入った版 {ver} の {rel} を置き場へ書けない")
 
 NEWEST_ENV = "AF_NEWEST_RAN"
 

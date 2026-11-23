@@ -390,7 +390,7 @@ def _reader():
     （公開の repo の取り出しで照らせない時は、黙って通さず止める＝check の broken）。"""
     path = G.foundation_file(os.path.join("public-guard", "workflow_reader.py"))
     if not path:
-        raise RuntimeError("workflow の読み手（public-guard/workflow_reader.py）が見つからない")
+        raise RuntimeError("workflow の読み手（public-guard/workflow_reader.py）が見つからない" + G.miss_note())
     return G.load_module("af_pr_text_workflow_reader", path)
 
 
@@ -528,7 +528,7 @@ def check_public(texts, repo, data, vals):
     tool = find_public_guard(top)
     if not tool:
         return ["公開の repo だが、公開の検査（土台の public-guard/guard.py）が見つからず照らせない。土台の marketplace を"
-                "入れ直す（または AF_PUBLIC_GUARD に path）"]
+                "入れ直す（または AF_PUBLIC_GUARD に path）" + G.miss_note()]
     cmd = [sys.executable, tool]
     for i, (where, text) in enumerate(texts):
         cmd += ["--text", "%s=%s" % (where, _tmp_file(text, "public%d" % i))]

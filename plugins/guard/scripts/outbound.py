@@ -52,7 +52,7 @@ _SENT = re.compile(r"[^\n。．！!？?]+")
 def _public_guard():
     path = os.environ.get("AF_PUBLIC_GUARD") or G.foundation_file(os.path.join("public-guard", "guard.py"))
     if not path or not os.path.isfile(path):
-        return None
+        raise RuntimeError("見つからない" + G.miss_note())
     return G.load_module("af_public_guard", path)
 
 
