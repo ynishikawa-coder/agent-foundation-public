@@ -94,19 +94,17 @@ def test_手の窓でない子の窓に_人の印_を付けると今までどお
 
 
 def test_決まりの文は見張りの正本と同じ文():
-    assert "- " + sw.KIND_RULE in SKILL.read_text(encoding="utf-8")
+    from test_mado_okiba import 種類の決め方の外れ   # 種類の節の箇条で照らす（注入の試験も同じ file）
+    assert 種類の決め方の外れ(SKILL.read_text(encoding="utf-8"), sw.KIND_RULE) == []
 
 
 def test_細目は手の窓の種類を書き正本を指す():
-    text = DETAIL.read_text(encoding="utf-8")
-    # 文の写しを留めず、細目の「窓の題」の行が種類を表の正本（TITLE_TABLE）どおりに並べ skill を指すかを照らす
-    line = next(l for l in text.splitlines() if l.startswith("- **窓の題**"))
-    for kind in sw.TITLE_TABLE:
-        assert f"`{kind}`" in line, kind
-    assert "skill `session-watch:title-mark`" in line
+    from test_mado_okiba import 窓の題の外れ   # 細目の「窓の題」の欄で照らす
+    assert 窓の題の外れ(DETAIL.read_text(encoding="utf-8"), sw.TITLE_TABLE) == []
 
 
 def test_細目は手の窓を種類で書き作業名の印を持たない():
+    from test_mado_okiba import 手の窓の外れ   # 細目の「手の窓」の欄で照らす（印は見張りの正本から）
     text = DETAIL.read_text(encoding="utf-8")
-    assert "題 `✋ <何を>` の窓を立てて頼む（済んだら `✋✅`）。" in text
-    assert "手: <何を>" not in text
+    assert 手の窓の外れ(text, sw.HAND) == []
+    assert "手: <何を>" not in text   # 古い印はどこにも残さない（無い事の照らしは全体で見る）

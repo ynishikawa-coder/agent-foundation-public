@@ -303,9 +303,8 @@ def test_書いた窓の組は古い手元の_origin_main_でなく出所の今�
 
 def test_qa_html_の在り処は台帳の最初の行でなく_claude_が今読む行():
     text = (ROOT / "plugins" / "docs-kit" / "skills" / "qa-html" / "SKILL.md").read_text(encoding="utf-8")
-    line = next(ln for ln in text.splitlines() if ln.strip().startswith("- 窓の中:"))
-    assert "claude plugin list --json" in line and "installPath" in line
-    assert "の `docs-kit@<市場>` の `installPath`（今入っている 1 つ）" not in line
+    from test_mado_okiba import 窓の中の行の外れ   # 配り方の節の地の行で照らす（注入の試験も同じ file）
+    assert 窓の中の行の外れ(text) == []
 
 
 # ── PR の衝突の知らせ: 同じ物差し・同じ base ──

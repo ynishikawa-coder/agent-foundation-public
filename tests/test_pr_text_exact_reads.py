@@ -134,9 +134,9 @@ def test_説明が名の全体に当てる正規表現と書く():
     """型の正本の説明と guard-rules の SKILL.md が、何に当てる正規表現かを書く（型だけでなく）。"""
     schema = json.loads((ROOT / "skill-values" / "schema.json").read_text(encoding="utf-8"))
     assert "repo_names（owner/repo の名の全体に当てる正規表現の並び" in schema["_readme"]
+    from test_mado_okiba import 値の表の行の外れ   # 値の表の節の地の行の箇条で照らす（注入の試験も同じ file）
     md = (ROOT / "plugins" / "guard" / "skills" / "guard-rules" / "SKILL.md").read_text(encoding="utf-8")
-    for key in REPO_KEYS:
-        assert any(key in ln and "名の全体に当てる正規表現" in ln for ln in md.splitlines() if ln.startswith("- `")), key
+    assert 値の表の行の外れ(md, REPO_KEYS) == []
 
 
 def test_run_の塊の中の_uses_の行は呼び口と見ない():
