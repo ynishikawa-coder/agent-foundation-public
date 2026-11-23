@@ -1,1 +1,0 @@
-plugins/core/細目/00-はじめ.md	# 核の細目（agent-foundation）

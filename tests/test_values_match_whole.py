@@ -4,7 +4,6 @@
 相手の一部に当てる読み方へ戻すと、全体に当てる鍵の試験が当たってしまい赤になる。
 """
 import json
-import subprocess
 import sys
 import types
 from pathlib import Path
@@ -17,13 +16,9 @@ sys.path.insert(0, str(ROOT / "skill-values"))
 
 import skill_values as SV  # noqa: E402
 import guard_common as G  # noqa: E402
-import ask_shape  # noqa: E402
 import irreversible  # noqa: E402
 import outbound  # noqa: E402
 import paid_upstream  # noqa: E402
-import pick_one  # noqa: E402
-import prior_ask  # noqa: E402
-import qa_page  # noqa: E402
 
 sys.path.insert(0, str(ROOT / "plugins" / "dev-flow" / "skills" / "codex"))
 import codex_pack  # noqa: E402
@@ -42,12 +37,10 @@ def specs_all():
 # 字・正規表現・glob を読む鍵（道具が値を re・in・fnmatch で当てる物）。足したらここにも足す＝型の正本に当て方が無い鍵を拾う。
 MATCHED_KEYS = {
     ("guard", None, k) for k in (
-        "paid_markers_extra", "irreversible_bash_extra", "irreversible_tools_extra", "qa_page_exempt",
-        "ask_inner_terms_extra", "ask_term_allow", "ask_shape_exempt", "ask_pick_one_exempt", "ask_rec_notice_exempt",
-        "outbound_secret_allow", "number_request_exempt", "ask_prior_lookup", "ask_prior_exempt",
-        "pr_cleanup_exempt_repos", "pr_words_exempt_repos", "public_repos_extra")
-} | {("session-watch", "watch-log", "reply_exempt"), ("dev-flow", "codex", "self_allow"),
-     ("dev-flow", "codex", "entropy_allow"), ("dev-flow", "spec-doc", "decision_match_allow")}
+        "paid_markers_extra", "irreversible_bash_extra", "irreversible_tools_extra", "outbound_secret_allow",
+        "public_repos_extra")
+} | {("dev-flow", "codex", "self_allow"), ("dev-flow", "codex", "entropy_allow"),
+     ("dev-flow", "spec-doc", "decision_match_allow")}
 
 
 def test_字や正規表現を読む鍵は型の正本に当てる相手と当て方を持つ():
@@ -96,43 +89,6 @@ def test_有料の印の字は字のまま当たる():
     assert not paid_upstream.check(data, {"paid_markers_extra": ["api.other-paid.com"]})
 
 
-def _use(name, inp):
-    return {"type": "assistant", "message": {"content": [{"type": "tool_use", "name": name, "input": inp}]}}
-
-
-def _log(tmp_path, *rows, name="l.jsonl"):
-    p = tmp_path / name
-    p.write_text("\n".join(json.dumps(r, ensure_ascii=False) for r in
-                           [{"type": "user", "uuid": "u1", "message": {"content": "作り物の頼み"}}, *rows]), encoding="utf-8")
-    return str(p)
-
-
-@pytest.mark.parametrize("row, want", [
-    (_use("Grep", {"pattern": "会議", "path": "/x/問いの表.md"}), True),
-    (_use("Bash", {"command": "echo Grep 問いの表"}), False),               # 道具の名でなく入力の中の語
-    (_use("Write", {"file_path": "/x/a.md", "content": "Grep で問いの表を引く"}), False),
-])
-def test_聞く前に引いた跡は道具の名から全体に当てる(tmp_path, row, want):
-    pats = G.patterns({"ask_prior_lookup": ["^Grep \\{.*問いの表.*\\}$"]}, "ask_prior_lookup")
-    assert prior_ask.scan(_log(tmp_path, row), pats)[1] is want
-
-
-def _repo(tmp_path, parent="work"):
-    r = tmp_path / parent / "repo"
-    (r / ".git").mkdir(parents=True)
-    return r
-
-
-def test_問いのページの外す形は_repo_の根からの_path_の全体に当てる(tmp_path):
-    r = _repo(tmp_path, parent="docs")                       # repo の上の dir の名（docs）に当たらない
-    pats = G.patterns({"qa_page_exempt": ["^quiz/[^/]+\\.html$", "^docs/.*$"]}, "qa_page_exempt")
-    for rel, want in (("quiz/a.html", True), ("quizzes-old/a.html", False), ("app/a.html", False)):
-        f = r / rel
-        f.parent.mkdir(parents=True, exist_ok=True)
-        f.write_text("x")
-        assert (SV.hit(pats, qa_page.repo_rel(str(f)), str(f)) is not None) is want, rel
-
-
 def test_戻せない道具の足しは道具の名の全体に当てる():
     vals = {"irreversible_tools_extra": [{"pattern": "^mcp__s__delete_item$", "why": "作り物の削除"}]}
     assert irreversible.match("mcp__s__delete_item", {}, "", vals) == "作り物の削除"
@@ -149,19 +105,6 @@ def test_鍵の外す形は当たった塊の全体に当てる():
     assert outbound.secret_hits(data, {"outbound_secret_allow": ["^ghp_EXAMPLE.*EXAMPLE$"]}, pg)
     assert outbound.secret_hits(data, {"outbound_secret_allow": ["^EXAMPLE$"]}, pg)       # 一部に当てると通ってしまう
     assert not outbound.secret_hits(data, {"outbound_secret_allow": ["^" + real + "$"]}, pg)
-
-
-def test_中の言葉の外す字は見つけた塊の全体に当てる():
-    text = "部屋は ABC123-4 です"
-    assert ("番号", "ABC123-4") in ask_shape.inner_terms(text, {})
-    assert ("番号", "ABC123-4") in ask_shape.inner_terms(text, {"ask_term_allow": ["^ABC$"]})
-    assert ("番号", "ABC123-4") not in ask_shape.inner_terms(text, {"ask_term_allow": ["^ABC123-4$"]})
-
-
-def test_一部に当てる鍵は問いの文の一部に当たる():
-    q = {"question": "作り物の試しの順はどれを進めますか", "options": [{"label": "a"}, {"label": "b"}]}
-    assert pick_one.classify(q, {}) == "work"
-    assert pick_one.classify(q, {"ask_pick_one_exempt": ["作り物の試し"]}) == ""
 
 
 @pytest.mark.parametrize("pat, path, want", [
@@ -182,11 +125,11 @@ def test_顧客の物は前の読み方でも見落とさない():
 
 
 def test_値の表の照らしが前の形と読めない行を名指し_鍵は落とさない():
-    table = {"guard": {"ask_prior_lookup": ["\\bGrep\\b.*問いの表", "^Grep \\{.*\\}$", "("]}}
+    table = {"guard": {"outbound_secret_allow": ["EXAMPLE", "^EXAMPLE$", "("]}}
     probs = SV.check(table)
     assert any("前の形" in p for p in probs) and any("その行だけ効かない" in p for p in probs), probs
-    sec, _ = SV.check_section(table, "guard")[0], None
-    assert "ask_prior_lookup" not in SV.check_section(table, "guard")[1]
+
+    assert "outbound_secret_allow" not in SV.check_section(table, "guard")[1]
 
 
 def test_値の表の口を通さず値を当てる道具が無い():
@@ -198,17 +141,6 @@ def test_値の表の口を通さず値を当てる道具が無い():
                 if '"%s"' % k in ln and ".get(" in ln and not any(
                         x in ln for x in ("bad_pattern_rows", "words_in", "_patterns(vals, k", "list(vals.get")):
                     pytest.fail("%s:%d が値の表の %s を口を通さず読む: %s" % (f.name, no, k, ln.strip()))
-
-
-def test_型_patterns_の字でない行の形も鍵を読む道具が全部受ける(tmp_path, monkeypatch):
-    """型 patterns は {"pattern": 字} の行を許す。手で読む道具がその行を黙って捨てると赤（session-watch の reply_exempt）。"""
-    sys.path.insert(0, str(ROOT / "plugins" / "session-watch" / "scripts"))
-    import session_watch as sw
-    table = tmp_path / "values.json"
-    table.write_text(json.dumps({"session-watch": {"watch-log": {"reply_exempt": [{"pattern": "^> "}]}}}), encoding="utf-8")
-    monkeypatch.setenv("SKILL_VALUES", str(table))
-    assert sw.reply_exempt({})[0] == ["^> "]
-    assert not SV.check(json.loads(table.read_text()))
 
 
 def test_字の鍵に書き違いの行が混じっても正しい行は止め続ける(tmp_path, monkeypatch):

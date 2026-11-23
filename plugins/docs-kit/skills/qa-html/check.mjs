@@ -114,7 +114,7 @@ export const RULES = {
   //   「推奨」の字は型の CSS が出す・JSON は "recommended": "理由"）。お客さん宛て（send）と事実を聞く問いは印なし＝見込みは .estimate の枠だけ
   "rec": { "dests": ["copy", "artifact"], "kinds": ["judge"] },
   // 印の字は型が出す＝ページの文に書いたこの言葉は赤（印は small.rec・"recommended" で付ける）
-  // 語の並びは選択肢の画面の見張り（plugin guard の ask_shape の _REC_WORD・大小を問わない）と同じ（tests/test_doc_tool_values.py が照らす）
+  // 語の並びは大小を問わない
   "recommend": "推奨|おすすめ|お勧め|お薦め|オススメ|おススメ|イチオシ|recommend|suggested",
   "estimate_word": "見込み|予測",
   // 1 画面 1 問＝ほかの問いの答えに頼らない（「前の問いの答えで決まります」の類は赤）
@@ -1108,7 +1108,7 @@ export function priorInput(page) {
     questions: page.questions.map((q) => ({ key: q.key, label: q.label ?? "", question: q.question, about: q.about, known: q.known, group: q.group, kind: q.kind })),
   };
 }
-// 引いた結果の置き場の既定＝ページの隣（確認_x.html → 確認_x.prior.json）。guard の qa_page もページの path だけで同じ物を読む。
+// 引いた結果の置き場の既定＝ページの隣（確認_x.html → 確認_x.prior.json）。
 export const priorPathFor = (file) => resolve(file).replace(/(\.(html?|json))?$/i, "") + ".prior.json";
 const isMap = (x) => x != null && typeof x === "object" && !Array.isArray(x);
 // 引いた結果を読む。形が違えば { error }。
@@ -1267,7 +1267,7 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
       process.exit(2);
     }
   }
-  // guard の qa_page は cwd をページの dir にして呼ぶ＝ページが repo の外（窓の scratchpad）でも値の表を見つけるため、窓の repo も起点に足す
+  // ページが repo の外（窓の scratchpad）でも値の表を見つけるため、ページの dir と窓の repo を起点に探す
   const values = loadValues({ explicit: at("--values"), starts: [dirname(resolve(file))] });
   const priorPath = at("--prior") ?? priorPathFor(file);
   let opts = { values, priorPath, priorExplicit: args.includes("--prior") };
@@ -1291,7 +1291,7 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
       process.exit(2);
     }
     const got = runPrior(page, cmd, { cwd: values.path ? dirname(dirname(resolve(values.path))) : process.cwd() });
-    // 落ちた時も書き換える（前の回の結果を残すと、後でページの path だけで呼ぶ guard が古い結果で緑にする）
+    // 落ちた時も書き換える（前の回の結果を残すと、古い結果で緑に見える）
     writeFileSync(priorPath, JSON.stringify(got.raw ? { ...got.raw, page_version: page.version } : { error: got.error }, null, 2) + "\n");
     opts = { values, prior: { ...got, from: `prior_check_cmd → ${priorPath}` } };
   }

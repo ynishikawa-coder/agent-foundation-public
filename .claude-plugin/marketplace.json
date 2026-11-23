@@ -17,12 +17,7 @@
     {
       "name": "dev-flow",
       "source": "./plugins/dev-flow",
-      "description": "codex・design-mode・preimpl-cleanup・public-repo・register-rule・spec-doc・verify"
-    },
-    {
-      "name": "session-watch",
-      "source": "./plugins/session-watch",
-      "description": "title-mark・watch-log"
+      "description": "codex・design-mode・public-repo・spec-doc・verify"
     },
     {
       "name": "checker",
@@ -32,7 +27,7 @@
     {
       "name": "guard",
       "source": "./plugins/guard",
-      "description": "guard-rules"
+      "description": "守りの hook（戻せない操作・有料の上流・秘密の形・公開の repo に置かない物）"
     }
   ]
 }

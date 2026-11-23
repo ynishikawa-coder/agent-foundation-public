@@ -10,7 +10,6 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def _s5():
-    # 文を消して回す試験（test_rule_holes）が read_text を差し替えて回すので、読むのは試験の中で
     return (ROOT / "plugins/core/細目/05-返事の形.md").read_text(encoding="utf-8")
 
 

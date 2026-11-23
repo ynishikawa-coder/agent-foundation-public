@@ -1,0 +1,5 @@
+- 壊れる: plugin session-watch を外した。窓の題の目印の決まりは核の細目 §4 だけに置く。使う側の setup script と marketplace の入れ先から session-watch を消す。
+- 壊れる: dev-flow の skill preimpl-cleanup と register-rule を外した。直し方の段は核 §3 と細目 §3、PR 本文の欄は土台の PR の型だけに置く。
+- 壊れる: guard の skill guard-rules と、問いのページ・問いの形・1 つだけ選ばせる問い・前の問いを引いた跡・設計書の gate・値の表の鍵の見張りを外した。外へ渡す入力の照らしは鍵の形だけにした。使う側の値の表に残るそれらの鍵は、土台の値の表の定義で「畳んだ」と名指す。
+- 畳んだ: 同じ決まりを写して照らしていた道具（verdict_form・copies・refs・kaku の grow と find_olds・changelog.py・pr_shape・pr_overlap・call_flows・measure_load・試験の数を数える pytest の plugin・決まりの文の穴の照らし）と、それを回す scripts/checks の 3 本と scripts/pytest.sh を外した。試験は scripts/check_all.sh が pytest を直に呼ぶ。
+- 畳んだ: 文が在ることだけを見る試験を外した。

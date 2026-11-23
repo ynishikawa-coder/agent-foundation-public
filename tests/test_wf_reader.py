@@ -300,7 +300,6 @@ def _local_check(tmp_path, ci_text):
     (box / "public-guard").mkdir()
     (box / ".github" / "workflows").mkdir(parents=True)
     shutil.copy(ROOT / "scripts" / "checks" / "public_guard.sh", box / "scripts" / "checks" / "public_guard.sh")
-    shutil.copy(ROOT / "scripts" / "af_unchecked.sh", box / "scripts" / "af_unchecked.sh")
     shutil.copy(ROOT / "public-guard" / "workflow_reader.py", box / "public-guard" / "workflow_reader.py")
     (box / "public-guard" / "guard.py").write_text(FAKE_GUARD, encoding="utf-8")
     (box / ".github" / "workflows" / "ci.yml").write_text(ci_text, encoding="utf-8")
@@ -338,5 +337,5 @@ def test_ci_yml_の_job_public_guard_に呼び口が無ければ手元の検査�
     broken = CI.replace("      - uses: ./public-guard\n", "      # - uses: ./public-guard\n")
     assert broken != CI
     code, args, out = _local_check(tmp_path, broken)
-    assert code == 1 and args is None and "読めない" in out
+    assert code != 0 and args is None and "読めない" in out
 

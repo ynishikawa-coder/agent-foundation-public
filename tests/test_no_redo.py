@@ -16,7 +16,6 @@ from pathlib import Path
 import pytest
 
 from test_core_plugin import kaku
-from test_session_watch import sw
 
 ROOT = Path(__file__).resolve().parent.parent
 CORE = ROOT / "plugins" / "core"
@@ -136,15 +135,6 @@ def test_起動の後の知らせは同じ先端で繰り返さない():
 
 
 # ── 4. 返事の形は知らせるだけ（Stop で差し戻さない）──
-def test_注入_session_watch_の_Stop_の口に崩れを渡しても差し戻さない(monkeypatch, capsys, tmp_path):
-    monkeypatch.setenv("AF_SESSION_WATCH_TMP", str(tmp_path / "sw"))
-    monkeypatch.setattr(sw, "stop", lambda data, env=None: "[session-watch] 作り物の崩れ")
-    import io
-    assert sw.hook_stop(io.StringIO(json.dumps({"session_id": "s9"}))) == 0
-    assert capsys.readouterr().out == ""                       # decision=block を出さない
-    assert sw.take_note(os.environ, "s9") == "[session-watch] 作り物の崩れ"   # 次の頼みの時に知らせる
-
-
 def test_注入_guard_に_Stop_の見張りを足しても締めを差し戻さない(tmp_path):
     box = tmp_path / "guard"
     shutil.copytree(GUARD_DIR, box, symlinks=True, ignore=shutil.ignore_patterns("__pycache__"))

@@ -67,19 +67,19 @@
 - 2・3 の入力は作り物だけ。`tests/data/` か試験の中に書く。**顧客の物（実データ・実 ID・実画面）はどの場合も置かない。**
 - 1 つの試験は 1 つの約束を見る。名前で何を守るかが分かるようにする（例: `test_一覧の行が全部ある`）。
 - 道具（script・hook）と試験の頭の説明は `意図:`・`課題:`・`原因:` の 3 欄で書き、`なぜ在るか:` の 1 欄に混ぜない（根治の 5 段＝細目 §3）。この形は `tests/test_atama_3_ran.py` が照らす。
-- **決まりの文は、消すと試験が赤になる形で照らす。** 核・振る舞いの既定・細目の文は `tests/test_rule_holes.py` が 1 文ずつ消して決まりの試験を回し、赤にならない文は `tests/data/試験で守らない文/` に 1 件 1 file で載った物だけを許す。新しい文・書き換えた文は、その文を照らす試験（文をそのまま照らすのが一番強い）を同じ PR で足す。語がどこかに在るかだけの照らしは、照らしていない文を消しても緑のままになる。
-- **新しい試験は守る約束の名の新しい file に置く**（元から在る `tests/test_*.py` の試験を増やさない）。並ぶ PR が同じ file の末尾へ足すと 1 本入るたびに残りが全部衝突するので、足す所を PR ごとに分ける。直す・消す・parametrize の行を足すのはよい。AI の窓の枝（`claude/`）の PR の差分で `scripts/pr_shape.py` が照らす（CI の `check`・人の枝は止めない）。
+- **決まりの文の照らしは、注入の試験で入れる。** 決まりを足す・直す PR は、その決まりの誤りの類をわざと入れて拒む試験を、在る試験の中に足す（核 §3）。語がどこかに在るかだけの照らしは置かない。
+- **新しい試験は守る約束の名の新しい file に置く**（元から在る `tests/test_*.py` の試験を増やさない）。並ぶ PR が同じ file の末尾へ足すと 1 本入るたびに残りが全部衝突するので、足す所を PR ごとに分ける。直す・消す・parametrize の行を足すのはよい。
 - まだ無い物（他の窓が先に置く物）に頼る試験は、無い間は `pytest.skip` で飛ばし、理由を書く。消さない・赤のまま置かない。
 - 赤は試験を飛ばす・消すで消さず、その試験が守る意図とのずれから入って細目 §3「まず構造を疑う」で原因を探して直す。
-- 手元で走らせる: `bash scripts/pytest.sh -q tests/`（pytest の設定の file・環境変数・tests の外の conftest・plugin を読まない入口。pytest を直に呼ばない）
+- 手元で走らせる: `bash scripts/check_all.sh`（CI と同じ入口）。試験だけなら `python3 -m pytest -q tests/`。
 
 ## 6. 検査の入口（CI）
 
 - CI は `.github/workflows/ci.yml`。`main` への push と、すべての PR で走る。
-- CI の job は `check`（入口は `bash scripts/check_all.sh` の 1 本）と `public-guard`（公開の検査）と `plugin-smoke`（PR の枝を使う側と同じ入れ方で入れて窓を起動し、核の差し込み・守りの hook・skill の読み込みを見る。`scripts/plugin_smoke.py` は PR の枝の先端の木（`pr-head`）で、本物の claude を要る試験＝印 `real_claude` の付いた試験は PR の枝に main を合わせた木で試験の入口 `bash scripts/pytest.sh -m real_claude --af-judge=real-claude tests/` で全部（印の試験が 1 本でも飛ぶ・xfail・外れると赤）。合わせた木で回すので、枝と main の変更が合わさって初めて壊れる組み合わせを合流の前に見つける）と、止めない知らせの `overlap`（開いている他の PR が同じ file の同じ行の辺りを書き換えていれば名指す・見ていない時は exit 3 と注記 `::warning::` で名指し、緑の印にしない・`scripts/pr_overlap.py`）。`check_all.sh` は中で pytest（`tests/`）と、`scripts/checks/*.sh` があればそれを順に走らせる（claude の命令が無い所では印 `real_claude` の試験を飛ばす。飛ばす条件は `tests/conftest.py` の 1 か所で、試験の file に書かない。その条件は `scripts/checks/conftest_teeth.sh` が conftest を読まない pytest で照らす）。
-- 検査を足す時は `scripts/checks/<名前>.sh` を足すか、`tests/` に試験を足す。`ci.yml` と `check_all.sh` は書き換えなくてよい。`scripts/checks` には 1 段の `*.sh` だけを置く（`.py` や下の dir は回らないので赤）。その場で照らせない検査は `scripts/af_unchecked.sh` の `af_unchecked 対象外|照らせない <訳>` で終える（訳の無い終わり方 3 は赤・CI の「照らせない」は赤）。
-- pytest の版と、試験が読む python の部品（yaml を読む PyYAML）の版は `scripts/pytest_plugin/requirements.txt` の 1 か所（CI はこの file で入れる）。試験が要る部品（node・playwright・ブラウザ）が無くて飛ばす時は `tests/needs.py` を試験の頭で呼ぶ。小箱で入口を回す試験は `tests/entry_box.py` の `box_env` の環境で回す。tests/ の conftest には印の登録と印 `real_claude` の飛ばす条件の外の hook を置かない（結果・集めを変える hook は赤）。
-- `check_all.sh` の最後の行が `check_all: 緑` なら通り、`check_all: 赤 …` なら止まり。緑の行は回した場を書く: `場 CI` は CI の数え方、`場 手元（…）` は飛ばしと照らせない検査を赤にしていない手元の緑（CI の緑と同じに読まない。PR 本文の「検査:」には CI の行を書く）。止まったら赤の行を 1 つずつ潰さず、細目 §3「まず構造を疑う」で原因から直す。
+- CI の job は `check`（入口は `bash scripts/check_all.sh` の 1 本）と `public-guard`（公開の検査）と `plugin-smoke`（PR の枝を使う側と同じ入れ方で入れて窓を起動し、核の差し込み・守りの hook・skill の読み込みを見る。本物の claude を要る試験＝印 `real_claude` の付いた試験もここで回す）。どの job も 5 分で切る（`timeout-minutes: 5`）。`check_all.sh` は中で pytest（`tests/`・CI では印 `real_claude` を外す）と、`scripts/checks/*.sh` を順に走らせる。
+- 検査を足す時は `scripts/checks/<名前>.sh` を足すか、`tests/` に試験を足す。`ci.yml` と `check_all.sh` は書き換えなくてよい。`scripts/checks` には 1 段の `*.sh` だけを置く（終わり方 0 が緑・ほかは赤）。
+- pytest の版と、試験が読む python の部品（yaml を読む PyYAML）の版は `scripts/requirements.txt` の 1 か所（CI はこの file で入れる）。試験が要る部品（node・playwright・ブラウザ）が無くて飛ばす時は `tests/needs.py` を試験の頭で呼ぶ。小箱で入口を回す試験は `tests/entry_box.py` の `box_env` の環境で回す。
+- `check_all.sh` の最後の行が `check_all: 緑` なら通り、`check_all: 赤 …` なら止まり。止まったら赤の行を 1 つずつ潰さず、細目 §3「まず構造を疑う」で原因から直す。
 
 ## 7. プラグインの一覧
 
@@ -96,6 +96,6 @@
   1. **1 段目**: 土台は新しい形を足し、古い形も通し続ける（新旧の両方を受ける）。使う側の物（repo の file・setup script の行）が古い形を持つなら、その形を `plugins/core/古い形.json` に 1 行足す（見つけ方の正規表現・当たる作り物の例・直し方）。足すと、古い形が残る repo を開いた窓に plugin core の起動の hook が file の名で知らせ、その窓が同じ仕事で消す（`docs/核の届け方.md`「使う側に残った写し・古い形」）。環境の setup script は土台の入口 `scripts/setup_plugins.py` を通らない古い形を、起動の hook が名指しする。断片の行の札を「壊れる（1 段目）」にし、使う側がやる事を書く。
   2. **使う側が移る**: 土台の外の物（使う側の repo・環境の setup script・Artifact 型など）を、土台を直した同じ仕事で直す。使う側の一覧は公開の repo に置かない（repo の名が顧客の語を含みうる）。Javis 側は Notion の原因の台帳と同じ所の「土台の使う側」、UTC 側は連絡板の issue に持つ。2 つのアカウントにまたがる物（UTC の repo と環境）は連絡板の issue で頼む。
   3. **2 段目**: 使う側が移ったのを **記録で** 確かめてから、古い形を畳む PR を出す。確かめは `python3 plugins/core/scripts/kaku.py olds <使う側の一覧の各 repo の checkout>...` が全部「古い形 0」（読めない repo は名と理由を書く）。同じ PR で `古い形.json` の行を消す。断片の行の札を「壊れる（2 段目）」にし、olds の出力（見た repo と結果）を書く。一覧に無い使う側が古い形のまま残っても、開いた窓に起動の hook が名指しする。
-  - 見出しの名・太字の名（`refs.py list` が約束として出す名）を変える・消すのは、使う側の名の指しを壊すので「壊れる」。節の番号だけを変えるのは壊れない（使う側は名で指す・`docs/核の届け方.md`「使う側が土台の文書を指す」）。
+  - 見出しの名・太字の名を変える・消すのは、使う側の名の指しを壊すので「壊れる」。節の番号だけを変えるのは壊れない（使う側は名で指す・`docs/核の届け方.md`「使う側が土台の文書を指す」）。
   - 土台の中だけで閉じる変更（使う側の物が古い形に頼っていない）は 1 段でよい。その時は行に「土台の中だけ」と書く。
   - レビューは点 10（呼ぶ側と呼ばれる側）で、この 2 段を見る（skill `checker:review-pr`）。

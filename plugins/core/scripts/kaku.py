@@ -17,13 +17,10 @@
                                       次の呼び出しから入れ直した版を回す・失敗は fresh が 1 行で名指す）。
   python3 kaku.py check [--claude P]  核と振る舞いの既定が在り、上限の内かを照らす。--claude を渡すと、その CLAUDE.md が各社固有の上限の内で
                                       核の写しの枠を持たないかも照らす。
-  python3 kaku.py grow --base REF     増やさない物（guarded() の一覧＝毎回差し込む物と形の細目）が git の REF の時より
-                                      増えていないかを照らす。足すなら同じ変更で同じだけ畳む（上限の内で足し続けて満杯にしない）。
-                                      守りの数（guard の見張り・scripts/checks の検査・review-pr の点。安全の守りは除く）も REF と比べる。
   python3 kaku.py olds DIR...         使う側の repo の main（origin の既定の枝）の中身に古い形.json の古い形が残っていないかを照らす
                                       （main を持たない dir は checkout を読む）
                                       （「壊れる（2 段目）」の前に、使う側が移ったのを記録で確かめる口）。
-exit: inject と fresh は何が起きても 0（窓の起動も人の作業も止めない）。check・grow・olds は 0=緑 / 1=外れ・増えた / 2=読めない。
+exit: inject と fresh は何が起きても 0（窓の起動も人の作業も止めない）。check・olds は 0=緑 / 1=外れ・増えた / 2=読めない。
 """
 from __future__ import annotations
 
@@ -41,10 +38,8 @@ PLUGIN = Path(__file__).resolve().parent.parent
 KAKU = PLUGIN / "核.md"
 FURUMAI = PLUGIN / "振る舞い.md"
 # 形の細目は節ごとの file（細目/<番号>-<名>.md）。並ぶ PR が 1 枚の大きな file を取り合って衝突しないよう、節を別の file に割る。
-# 名の順に "\n" でつないだ物が細目の全文（saimoku_text・量を照らす grow・refs の約束が同じこれを読む）。
+# 名の順に "\n" でつないだ物が細目の全文（saimoku_text が読む）。
 SAIMOKU = PLUGIN / "細目"
-# 割る前の 1 枚の名。比べる元（main）がまだ割る前の形の時だけ読む（土台の中の移り目・割った形が main に入れば読まれない）。
-SAIMOKU_ONE_FILE = "細目.md"
 # 差し込みの案内に出す節の名の例（細目の節は `- **名** —` の行。実の節と合うかは tests/test_saimoku_setsu_hiku.py が照らす）
 SAIMOKU_EXAMPLE = "**見せてから聞く**"
 OLDS = PLUGIN / "古い形.json"
@@ -103,11 +98,8 @@ READS = {"all", "commands", "prose"}
 
 
 # ── 使う形の読み口（正本） ──
-# 構造（コードの囲み・字下げのコード・<pre>・注記・引用・注釈）の読み方は、ここの 1 か所に置く。古い形の行（old_view）・写しの照らし
-# （copies.py）・指しの照らし（refs.py）・試験（tests/uses.py と、それを通す試験）はここを呼び、読み方を写さない（写すと所ごとに
-# 読み方がずれる）。読めない・判断できない形（閉じの無い囲み・字下げ・<pre>・構文の読めない .py）は、読む側（名指す側）に倒す。
-# guard の plugin の読み方（pr_text の囲み・session_watch の strip_code など）は別の plugin で、plugin を跨いで import しない
-# 作りのため、ここの対象の外。
+# 構造（コードの囲み・字下げのコード・<pre>・注記・引用・注釈）の読み方は、ここの 1 か所に置く。古い形の行（old_view）はここを呼ぶ。
+# 読めない・判断できない形（閉じの無い囲み・字下げ・<pre>・構文の読めない .py）は、読む側（名指す側）に倒す。
 
 _FENCE_OPEN = re.compile(r"^[ \t]*(?P<mark>`{3,}|~{3,})(?P<info>[^\n]*)$")
 _INDENTED = re.compile(r"^(?: {4}|[ \t]*\t)[ \t]*\S")
@@ -516,11 +508,6 @@ def _olds_scan(project: Path, rows: list[dict], unread: dict[str, str]) -> dict:
             "added": [x for x in rest if (x[0]["id"], x[1]) not in was], "unknown": []}
 
 
-def find_olds(project: Path, rows: list[dict] | None = None) -> list[tuple[dict, str]]:
-    """開いた repo に残る古い形の (行, 当たった file の相対 path)。読むのは main の中身（無ければ checkout）。"""
-    return olds_scan(project, rows)["found"]
-
-
 def _olds_cache_dir() -> Path:
     """取って置いた照らしの結果の置き場（AF_KAKU_OLDS_CACHE で差し替える＝試験）。"""
     import tempfile
@@ -917,11 +904,6 @@ def injected() -> tuple[Path, ...]:
     return (KAKU, FURUMAI)
 
 
-def guarded() -> tuple[Path, ...]:
-    """増やさない物の一覧＝毎回差し込む物と、核から押し出した物の行き先の細目（細目だけ照らさないと押し出した物がそこで膨らむ）。"""
-    return (*injected(), SAIMOKU)
-
-
 def saimoku_files(d: Path | None = None) -> list[Path]:
     """形の細目の節ごとの file（名の順）。"""
     return sorted((d or SAIMOKU).glob("*.md"))
@@ -930,11 +912,6 @@ def saimoku_files(d: Path | None = None) -> list[Path]:
 def saimoku_text(d: Path | None = None) -> str:
     """形の細目の全文（節ごとの file を名の順に空の行 1 つでつなぐ＝割る前の 1 枚と一字違わず同じ）。"""
     return "\n".join(f.read_text(encoding="utf-8") for f in saimoku_files(d))
-
-
-def read_guarded(path: Path) -> str:
-    """増やさない物の 1 つの今の中身（dir なら中の file をつないだ全文）。"""
-    return saimoku_text(path) if path.is_dir() else path.read_text(encoding="utf-8")
 
 
 def inject_text(texts: dict[str, str | None] | None = None) -> str:
@@ -1605,145 +1582,6 @@ def check(claude: Path | None) -> int:
     return 0
 
 
-# 増やさない物（guarded＝毎回差し込む物と細目）。足す時は同じ変更で同じだけ畳む（上限の内でも純増は赤）。
-GROW_FIX = "直し: 足すなら同じ変更で同じだけ畳む（重複を細目・skill の正本へ寄せる）。量を合わせるだけで済ませず、意図（決まりの量を増やさない）とのずれから入り、細目 §3「まず構造を疑う」で増えた原因を探して畳む"
-
-
-def base_text(ref: str, path: Path) -> str:
-    """git の ref の時の中身（dir なら中の .md を名の順につないだ全文＝read_guarded と同じ読み方）。
-    細目の dir が ref に無く、割る前の 1 枚（細目.md）が在れば、その 1 枚を読む（同じ量を比べる）。
-    読めない（ref が無い・その時に file が無い）時は OSError で止める。"""
-    top = subprocess.run(["git", "rev-parse", "--show-toplevel"], cwd=path.parent, capture_output=True, text=True)
-    if top.returncode != 0:
-        raise OSError(f"git の外: {top.stderr.strip()}")
-    rel = path.resolve().relative_to(Path(top.stdout.strip()).resolve()).as_posix()
-
-    def show(r_: str) -> str:
-        r = subprocess.run(["git", "show", f"{ref}:{r_}"], cwd=path.parent, capture_output=True)
-        if r.returncode != 0:
-            raise OSError(f"{ref}:{r_} が読めない: {r.stderr.decode('utf-8', 'replace').strip()}")
-        return r.stdout.decode("utf-8")
-
-    if not path.is_dir():
-        return show(rel)
-    ls = subprocess.run(["git", "-c", "core.quotepath=off", "ls-tree", "--full-tree", "--name-only", f"{ref}:{rel}"],
-                        cwd=path.parent, capture_output=True)
-    names = sorted(n for n in ls.stdout.decode("utf-8").splitlines() if n.endswith(".md")) if ls.returncode == 0 else []
-    if names:
-        return "\n".join(show(f"{rel}/{n}") for n in names)
-    if path == SAIMOKU:
-        parent = rel.rpartition("/")[0]
-        return show(f"{parent}/{SAIMOKU_ONE_FILE}" if parent else SAIMOKU_ONE_FILE)
-    raise OSError(f"{ref}:{rel} に .md が無い")
-
-
-# 守りの数（オーナー同意 2026-11-23: 守るための守りを足し続けない）。見張り（guard の hook）・CI の検査・レビューの点の数が
-# REF より増えたら赤（足すなら同じ変更で 1 つ畳む）。安全の守り（戻せない操作・秘密と外への送信・お金・公開の検査）は数えない。
-# 試験は数を出すだけで止めない。
-REPO = PLUGIN.parent.parent
-GUARD_HOOKS = "plugins/guard/scripts"
-CHECKS = "scripts/checks"
-WORKFLOWS = ".github/workflows"
-REVIEW_POINTS = "plugins/checker/skills/review-pr/SKILL.md"
-SAFETY = frozenset({"irreversible.py", "outbound.py", "paid_upstream.py", "public_guard.sh"})
-COUNT_FIX = "直し: 守りを足すなら同じ変更で同じ種類を 1 つ畳む（近い見張り・検査・点へ寄せる）。安全の守りは数えない（SAFETY）"
-
-
-def guard_counts(ref: str | None = None, root: Path | None = None) -> dict[str, int]:
-    """守りの数。ref が None なら手元の中身、在れば git の ref の時の中身を数える。読めない時は OSError で止める。"""
-    root = root or REPO
-
-    def names(rel: str) -> list[str]:
-        if ref is None:
-            d = root / rel
-            if not d.is_dir():
-                raise OSError(f"{rel} が無い")
-            return sorted(x.name for x in d.iterdir())
-        r = subprocess.run(["git", "-c", "core.quotepath=off", "ls-tree", "--full-tree", "--name-only", f"{ref}:{rel}"],
-                           cwd=root, capture_output=True)
-        if r.returncode != 0:
-            raise OSError(f"{ref}:{rel} が読めない: {r.stderr.decode('utf-8', 'replace').strip()}")
-        return sorted(r.stdout.decode("utf-8").splitlines())
-
-    def has(rel: str) -> bool:
-        if ref is None:
-            return (root / rel).is_file()
-        return subprocess.run(["git", "cat-file", "-e", f"{ref}:{rel}"], cwd=root, capture_output=True).returncode == 0
-
-    def text(rel: str) -> str:
-        if ref is None:
-            return (root / rel).read_text(encoding="utf-8")
-        r = subprocess.run(["git", "show", f"{ref}:{rel}"], cwd=root, capture_output=True)
-        if r.returncode != 0:
-            raise OSError(f"{ref}:{rel} が読めない: {r.stderr.decode('utf-8', 'replace').strip()}")
-        return r.stdout.decode("utf-8")
-
-    hooks = sum(1 for n in names(GUARD_HOOKS) if n.endswith(".py") and n not in SAFETY
-                and re.search(r"^HOOKS\b\s*(:[^=\n]*)?=", text(f"{GUARD_HOOKS}/{n}"), re.M))
-    entries = 0  # plugin の hooks.json に登録した hook の口（guard の外に見張りを置いても数える）
-    for plug in names("plugins"):
-        rel = f"plugins/{plug}/hooks/hooks.json"
-        if has(rel):
-            entries += sum(len(m.get("hooks", [])) for arr in json.loads(text(rel)).get("hooks", {}).values() for m in arr)
-    checks = sum(1 for n in names(CHECKS) if n.endswith(".sh") and n not in SAFETY)
-    steps = sum(1 for n in names(WORKFLOWS) if n.endswith((".yml", ".yaml"))
-                for line in text(f"{WORKFLOWS}/{n}").splitlines()
-                if re.match(r"\s*(- )?run:", line) and not re.search(r"public[-_]guard", line))
-    points = len(re.findall(r"^\| *\d+ ", text(REVIEW_POINTS), re.M))
-    return {"守りの見張り（guard の hook）": hooks, "hook の口（plugin の hooks.json）": entries,
-            "CI の検査（scripts/checks）": checks, "CI の段（workflow の run）": steps, "レビューの点（review-pr）": points}
-
-
-def test_count(root: Path | None = None) -> str:
-    """試験の数（出すだけ・止めない）。"""
-    files = sorted((root or REPO).glob("tests/test_*.py"))
-    funcs = sum(len(re.findall(r"^def test_", f.read_text(encoding="utf-8"), re.M)) for f in files)
-    return f"・試験: {len(files)} file・{funcs} 本（数えるだけ・止めない）"
-
-
-def grow(ref: str) -> int:
-    over = []
-    try:
-        now_n, before_n = guard_counts(), guard_counts(ref)
-    except UNREADABLE as e:
-        print(f"✗ 守りの数を照らせない: {e}")
-        return 2
-    for k, now in now_n.items():
-        if now > before_n[k]:
-            over.append(f"{k} が {ref} より増えた: {before_n[k]} → {now}（+{now - before_n[k]}）")
-        else:
-            print(f"・{k}: {before_n[k]} → {now}")
-    for b in over:
-        print(f"✗ {b}")
-    if over:
-        print(COUNT_FIX)
-    try:
-        print(test_count())
-    except UNREADABLE:
-        pass  # 数を出すだけ（止めない）
-    bad = []
-    for path in guarded():
-        try:
-            now = size(read_guarded(path))
-            before = size(base_text(ref, path))
-        except UNREADABLE as e:
-            # 比べる元が無い時に黙って緑にしない（既定で止める）
-            print(f"✗ {path.name} の増え方を照らせない: {e}")
-            return 2
-        if now > before:
-            bad.append(f"{path.name} が {ref} より増えた: {before} → {now} バイト（+{now - before}）")
-        else:
-            print(f"・{path.name}: {before} → {now} バイト")
-    for b in bad:
-        print(f"✗ {b}")
-    if bad:
-        print(GROW_FIX)
-    if bad or over:
-        return 1
-    print("✅ 毎回差し込む物・細目・守りの数は増えていない")
-    return 0
-
-
 def olds(dirs: list[Path], table: Path = OLDS, as_json: bool = False) -> int:
     try:
         rows = olds_table(table)
@@ -1791,8 +1629,6 @@ def main(argv=None) -> int:
     sub.add_parser("fresh", help="UserPromptSubmit の hook から呼ぶ")
     c = sub.add_parser("check", help="量の上限を照らす")
     c.add_argument("--claude", type=Path, help="照らす repo の根の CLAUDE.md")
-    g = sub.add_parser("grow", help="毎回差し込む物と細目が REF より増えていないかを照らす")
-    g.add_argument("--base", required=True, help="比べる元の git の ref（例: main との分かれ目）")
     o = sub.add_parser("olds", help="使う側の checkout に古い形が残っていないかを照らす")
     o.add_argument("dirs", type=Path, nargs="+")
     o.add_argument("--table", type=Path, default=OLDS, help="古い形の一覧（既定は plugin の 古い形.json）")
@@ -1809,8 +1645,6 @@ def main(argv=None) -> int:
         return refresh(a.tip, a.entry)
     if a.cmd == "inject":
         return inject()
-    if a.cmd == "grow":
-        return grow(a.base)
     if a.cmd == "fresh":
         return fresh()
     if a.cmd == "olds-cache":

@@ -1,22 +1,17 @@
-"""並ぶ PR が同じ大きな file を取り合って衝突しない形を照らす（細目を節ごとの file に・試験で守らない文を 1 件 1 file に）。
+"""並ぶ PR が同じ大きな file を取り合って衝突しない形を照らす（細目を節ごとの file に）。
 
 意図: 並べた窓の PR が、main に先に入った PR と衝突せずに入る（衝突を解く往復でレビューを回し直さない）。
-課題: 開いた PR の多くが、約 2.4 万字 1 枚の 細目.md と、全 PR が末尾へ足す 1 枚の 試験で守らない文.txt を同時に触り、
+課題: 開いた PR の多くが、約 2.4 万字 1 枚の 細目.md を同時に触り、
 1 本入るたびに残りが衝突した。
 原因: 別々の話の文が 1 枚の file に集まり、全部の PR が同じ所（同じ file・同じ末尾）へ足す形だった。
-解決: 細目は節ごとの file（plugins/core/細目/<番号>-<名>.md）、守らない文は 1 件 1 file の dir（CHANGELOG.d と同じ形）。
+解決: 細目は節ごとの file（plugins/core/細目/<番号>-<名>.md）。
 """
 import re
 import shutil
-import subprocess
-from pathlib import Path
 
-import pytest
 
-from saimoku import DIR, kaku
+from saimoku import DIR
 
-ROOT = Path(__file__).resolve().parent.parent
-TABLE = ROOT / "tests" / "data" / "試験で守らない文"
 _HEAD = re.compile(r"^## (?:(\d+)\.\s+)?(.+?)\s*$", re.M)
 
 
@@ -50,90 +45,3 @@ def test_注入_2_つの節を_1_file_に入れると赤(tmp_path):
     four.unlink()
     assert any("03-直すは根治.md: 節が 2 個" in b for b in 節の形の外れ(d))
 
-
-def _git(cwd, *a, check=True):
-    return subprocess.run(["git", "-c", "core.quotepath=off", *a], cwd=cwd, check=check, capture_output=True, text=True)
-
-
-def _repo(tmp_path):
-    _git(tmp_path, "init", "-q", "-b", "main")
-    _git(tmp_path, "config", "user.email", "t@example.invalid")
-    _git(tmp_path, "config", "user.name", "t")
-    return tmp_path
-
-
-def _commit(cwd, msg):
-    _git(cwd, "add", "-A")
-    _git(cwd, "commit", "-q", "-m", msg)
-
-
-def _append(f, line):
-    f.write_text(f.read_text(encoding="utf-8") + line + "\n", encoding="utf-8")
-
-
-def _holes():
-    return __import__("test_rule_holes")      # 表の名と表の読み方の正本（写さない）
-
-
-def _row_file(d, rel, s):
-    (d / _holes().表の名(rel, s)).write_text(f"{rel}\t{s}\n", encoding="utf-8")
-
-
-def test_合格_別々の節に_1_行ずつ足した_2_本の枝は衝突せずに入る(tmp_path):
-    """2 本の枝が細目の別々の節の末尾に 1 行ずつ、守らない文に 1 件ずつ足しても、git merge が衝突しない。"""
-    repo = _repo(tmp_path)
-    sai = repo / "plugins/core/細目"
-    tab = repo / "tests/data/試験で守らない文"
-    shutil.copytree(DIR, sai)
-    shutil.copytree(TABLE, tab)
-    _commit(repo, "元")
-    _git(repo, "switch", "-q", "-c", "a")
-    _append(sai / "03-直すは根治.md", "- **作り物の甲** — 枝 a が足した文。")
-    _row_file(tab, "plugins/core/細目/03-直すは根治.md", "- **作り物の甲** — 枝 a が足した文。")
-    _commit(repo, "a")
-    _git(repo, "switch", "-q", "main")
-    _git(repo, "switch", "-q", "-c", "b")
-    _append(sai / "04-聞き方.md", "- **作り物の乙** — 枝 b が足した文。")
-    _row_file(tab, "plugins/core/細目/04-聞き方.md", "- **作り物の乙** — 枝 b が足した文。")
-    _commit(repo, "b")
-    _git(repo, "switch", "-q", "main")
-    _git(repo, "merge", "-q", "--no-edit", "a")
-    r = _git(repo, "merge", "--no-edit", "b", check=False)
-    assert r.returncode == 0, r.stdout + r.stderr
-    text = kaku.saimoku_text(sai)
-    assert "枝 a が足した文。" in text and "枝 b が足した文。" in text
-    assert len(list(tab.glob("*.txt"))) == len(list(TABLE.glob("*.txt"))) + 2
-
-
-def test_注入_守らない文を_1_枚の末尾へ足す古い形は衝突する(tmp_path):
-    """古い形（全部の PR が 1 枚の表の末尾へ行を足す）を作り物で入れると、2 本目の merge が衝突する＝上の合格が形の効き目を見ている。"""
-    repo = _repo(tmp_path)
-    one = repo / "試験で守らない文.txt"
-    one.write_text("".join(p.read_text(encoding="utf-8") for p in sorted(TABLE.glob("*.txt"))), encoding="utf-8")
-    _commit(repo, "元")
-    _git(repo, "switch", "-q", "-c", "a")
-    _append(one, "plugins/core/細目/03-直すは根治.md\t- 枝 a の文。")
-    _commit(repo, "a")
-    _git(repo, "switch", "-q", "main")
-    _git(repo, "switch", "-q", "-c", "b")
-    _append(one, "plugins/core/細目/04-聞き方.md\t- 枝 b の文。")
-    _commit(repo, "b")
-    _git(repo, "switch", "-q", "main")
-    _git(repo, "merge", "-q", "--no-edit", "a")
-    r = _git(repo, "merge", "--no-edit", "b", check=False)
-    assert r.returncode != 0 and "CONFLICT" in r.stdout, r.stdout + r.stderr
-
-
-def test_守らない文の表は_1_件_1_file_で名は中身から決まる():
-    """名が中身と合わない file（手で名を付けた・中身を書き換えて名を残した・2 件を 1 file に入れた）は赤。"""
-    bad = []
-    for p in sorted(TABLE.glob("*")):
-        if p.name == "README.md":
-            continue
-        body = p.read_text(encoding="utf-8")
-        rows = body.splitlines()
-        if p.suffix != ".txt" or len(rows) != 1 or "\t" not in rows[0] or not body.endswith("\n") \
-                or p.name != _holes().表の名(*rows[0].split("\t", 1)):
-            bad.append(p.name)
-    assert not bad, "1 件 1 file（名は test_rule_holes の 表の名(path, 文)・中身は 1 行 `<path><TAB><文>`）でない: " + ", ".join(bad)
-    assert _holes().表(), "表が読めていない"

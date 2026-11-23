@@ -32,7 +32,7 @@ CI では exit 0 でない物は皆赤。
   出力に名指す（✅ と言わない。exit は CI でも 0＝hook が 0 以外を止めるため。3 にするには hook の受けを先に直す）。
   --range の既定: CI では event（PR は <base の枝の今の先端>..head・push は before..after。before が 0 の並び＝新しい枝は
   <既定の枝の今の先端>..after、既定の枝そのものか先端を聞けない時は after の全ての歴史）、手元では <出所の今の main>..HEAD。
-  出所の今の枝の先端は scripts/pr_shape.py の fresh_main（出所へ先端を聞き、手元に無ければ取って来る・手元の origin/main は
+  出所の今の枝の先端は fresh_main（出所へ先端を聞き、手元に無ければ取って来る・手元の origin/main は
   動かさない）。PR の event の base.sha は event の時の先端で、枝が後の main を取り込むと main の commit まで照らすので元にしない。
   出所に出られない時は、PR は event の base.sha・手元は手元の origin/main から照らしてそう名指す（古い元は範囲を広くする
   だけ＝見落としは出ない）。手元の origin/main も無ければ照らさずに止める（exit 2）。
@@ -204,8 +204,7 @@ def in_ci() -> bool:
 # ---- 照らす本体（場所と札だけを返す・語は返さない） ---------------------------------
 
 def secret_labels(text: str) -> list[str]:
-    """秘密の形に当たった札の並び（値は返さない）。秘密の形の正本はここ 1 つ。
-    返事の見張り（plugin session-watch の Stop の hook）もこれを直に呼ぶ（写さない）。"""
+    """秘密の形に当たった札の並び（値は返さない）。秘密の形の正本はここ 1 つ。"""
     text = normalize(text)
     return [label for label, pat in SECRET_PATTERNS.items() if re.search(pat, text)]
 
@@ -450,18 +449,27 @@ class NoBase(Exception):
 
 
 def fresh_main(repo: Path, ref: str = "main") -> str:
-    """出所の今の枝 ref（既定 main）の commit。正本は scripts/pr_shape.py の fresh_main（同じ checkout の物を直に読む・写さない）。"""
-    src = Path(__file__).resolve().parent.parent / "scripts" / "pr_shape.py"
-    if not src.is_file():
-        raise NoBase(f"比べる元を決める道具 {src} が無い（土台の checkout 一式から回す）")
-    import importlib.util
-    spec = importlib.util.spec_from_file_location("af_pr_shape", src)
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
-    try:
-        return mod.fresh_main(repo, ref)
-    except OSError as e:
-        raise NoBase(str(e)) from None
+    """出所（origin）の今の枝 ref（既定 main）の commit。出所へ直に聞き、その commit が手元に無ければ取って来る
+    （手元の origin/<枝> は書き換えない。取って来る先は refs/af/fresh/<枝>）。聞けない・取れない時は NoBase。"""
+    env = dict(os.environ, GIT_TERMINAL_PROMPT="0")
+
+    def run(*args: str, timeout: int = 60) -> subprocess.CompletedProcess:
+        try:
+            return subprocess.run(["git", *args], cwd=repo, capture_output=True, text=True, timeout=timeout, env=env)
+        except subprocess.TimeoutExpired:
+            return subprocess.CompletedProcess(args, 124, "", "時間切れ")
+
+    r = run("ls-remote", "origin", f"refs/heads/{ref}", timeout=30)
+    tip = r.stdout.split()[0] if r.returncode == 0 and r.stdout.split() else ""
+    if not re.fullmatch(r"[0-9a-f]{40}|[0-9a-f]{64}", tip):
+        raise NoBase(f"出所（origin）の {ref} を聞けない（{r.stderr.strip() or '先端が無い'}）")
+    def have() -> bool:
+        return run("cat-file", "-e", f"{tip}^{{commit}}").returncode == 0
+    if not have():
+        run("fetch", "--quiet", "--no-tags", "origin", f"+refs/heads/{ref}:refs/af/fresh/{ref}", timeout=120)
+    if not have():
+        raise NoBase(f"出所の {ref} の先端 {tip[:12]} を手元へ取って来られない")
+    return tip
 
 
 UNREADABLE_PATH = "名を読めないファイル"

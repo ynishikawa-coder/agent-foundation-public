@@ -10,7 +10,6 @@ SKILLS = {p.name for p in (PLUGIN / "skills").iterdir() if p.is_dir()}
 # SKILL が指す付属の物（同じ dir に在ること）。
 ATTACHED = {
     "codex": ["codex_pack.py"],
-    "preimpl-cleanup": ["整地受領証.template.md"],
 }
 # 写す元の repo の中の置き場を指したら、土台の中で閉じていない。
 OUTSIDE_REFS = [
@@ -61,33 +60,6 @@ def test_土台の中で閉じる():
     assert not hits, hits
 
 
-def test_整地は根治の_5_段を持ち_解決の段に注入の試験と残る穴が在る():
-    skill_dir = PLUGIN / "skills" / "preimpl-cleanup"
-    tpl = (skill_dir / "整地受領証.template.md").read_text(encoding="utf-8")
-    heads = [l for l in tpl.splitlines() if l.startswith("## ")]
-    assert heads == ["## 1. 意図", "## 2. 課題", "## 3. 原因と同じ原因の他の問題",
-                     "## 4. 解決（足す物・畳む物・注入の試験と残る穴）", "## 5. 未来"], heads
-    for hole in ["手で写す所", "選べる値の外が入る所", "黙って進む所", "正しい道を通らずに出る所", "申告で済む確かめ"]:
-        assert hole in tpl, f"残る穴の行が無い: {hole}"
-    skill = (skill_dir / "SKILL.md").read_text(encoding="utf-8")
-    assert "5 段（意図→課題→原因→解決→未来" in frontmatter(skill)["description"]
-    assert "読むだけの助手" in skill and "自分の読みや直し方は渡さない" in skill, "同じ原因の他の問題を別の目が探す段が無い"
-    assert "試験を足す段ではない" in skill or "試験の名を並べる欄ではない" in skill, "未来が試験の段に縮んでいる"
-    for old in ["3 つの問い", "4 つの問い", "構造の原因"]:
-        assert old not in skill and old not in tpl, f"古い根治の言い回しが残る: {old}"
-
-
-def test_規律を足す時も止める物かの後に誤りが入れない形と注入の試験を書く():
-    skill = (PLUGIN / "skills" / "register-rule" / "SKILL.md").read_text(encoding="utf-8")
-    step1 = skill[skill.index("## Step 1"):skill.index("## Step 2")]
-    for word in ["誤りが入れない形のどれか", "注入の試験", "核 §3・細目 §3"]:
-        assert word in step1, f"register-rule Step 1 に無い: {word}"
-    out = skill[skill.index("## 出力の形"):]
-    assert out.index("止める物か") < out.index("注入の試験"), "出力の形で止める物かの後に形と注入の試験が無い"
-    for old in ["3 つの問い", "文を 1 本足すことを直しの中心にしない"]:
-        assert old not in skill, f"古い根治の言い回しが残る: {old}"
-
-
 def test_verify_は申告でなく記録で確かめる():
     skill = (PLUGIN / "skills" / "verify" / "SKILL.md").read_text(encoding="utf-8")
     assert "申告でなく記録" in skill and "記録の所在" in skill
@@ -105,10 +77,3 @@ def test_設計の相談は論点ごとに窓を並べ_1_本の列にしない()
     assert "論点ごとに窓を並べて同時に進める" in text and "1 本の列にしない" in text
     assert "一番手前" not in text, "問いを表の一番手前の 1 つから取る形が戻った"
 
-
-def test_整地の解決は全部の原因に行き先を付ける():
-    d = PLUGIN / "skills" / "preimpl-cleanup"
-    skill, tpl = (d / "SKILL.md").read_text(encoding="utf-8"), (d / "整地受領証.template.md").read_text(encoding="utf-8")
-    assert "全部に行き先" in skill and "原因の台帳" in skill
-    assert "**行き先**" in tpl and "整地受領証: v8" in tpl
-    assert "どれを今回直す" not in skill + tpl

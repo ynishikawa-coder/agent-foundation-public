@@ -1,1 +1,0 @@
-plugins/core/細目/00-はじめ.md	核（同じ plugin の `核.md`）の形の細目です。

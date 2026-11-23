@@ -4,12 +4,10 @@
 
 値の表（在る時だけ読む・無ければ既定で動く）: config/skill-values.json の "guard"。探し方・鍵の一覧・型・既定は
   plugin の lib/skill_values.py と lib/schema.json（＝土台の skill-values/ の正本への symlink）が持つ＝ここに写さない。
-  知らない鍵・畳んだ鍵・型の違う値は、その鍵だけ既定で動き（守りを止めない）、窓の起動の時に名指しで知らせる（values_keys）。
-  鍵の意味は skill guard:guard-rules の「値の表」。
+  知らない鍵・畳んだ鍵・型の違う値は、その鍵だけ既定で動く（守りを止めない）。鍵の意味は schema.json の各鍵の spec。
 """
 from __future__ import annotations
 
-import glob
 import json
 import os
 import re
@@ -25,11 +23,6 @@ import af_place as P  # noqa: E402  土台の在り処探しの 1 本の口（�
 DEFAULTS = SV.defaults("guard")
 
 GUARD_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-
-
-def sibling_plugin_file(plugin, rel, guard_root=None):
-    """隣の plugin の file の path か ""（在り処探しの正本は lib/af_place.py）。"""
-    return P.sibling_plugin_file(plugin, rel, guard_root or GUARD_ROOT)
 
 
 def foundation_file(rel, guard_root=None):
@@ -115,27 +108,10 @@ def broken_pattern_rows(key, payload=None):
             for r in SV.bad_pattern_rows(rows)]
 
 
-def values_problems(payload=None):
-    """(表の path, 表全体の問題の並び)。表が無ければ (None, [])。"""
-    path = SV.find(starts=_starts(payload))
-    table, problems = SV.load(path)
-    return path, problems + SV.check(table)
-
-
 def patterns(vals, key, flags=0):
     """値の表 guard の正規表現の鍵を、型の正本（schema.json の against・match）の当て方で読んだ形（SV.hit に渡す）。
     鍵ごとに re.search・fullmatch を書き分けない＝当て方の正本は schema の spec の 1 か所。"""
     return SV.patterns_of("guard", None, key, vals, flags)
-
-
-def tool_sig(block):
-    """道具の呼び出し 1 つの当てる相手: 道具の名・空白 1 つ・入力の JSON（鍵の順に並べた 1 行）。
-    値の表 guard.ask_prior_lookup の当てる相手の正本（schema.json の against と同じ形）。"""
-    try:
-        body = json.dumps(block.get("input") or {}, ensure_ascii=False, sort_keys=True)
-    except (TypeError, ValueError):
-        body = str(block.get("input") or "")
-    return "%s %s" % (block.get("name") or "", body)
 
 
 def truthy(v):
@@ -239,11 +215,9 @@ def is_owner_row(row):
 
 
 # 人が打った頼みの記録（会話ログの行の origin.kind。Claude Code が頼みを受けた口で付ける＝文の中身では変わらない）。
-# 正本はここ 1 か所（plugin session-watch も隣の正本としてこれを直に読む＝写さない）。
 HUMAN_ORIGINS = ("human", "person")
 # 窓の環境の CLAUDE_CODE_CHILD_SESSION は読まない: 公式の文書（code.claude.com/docs/en/env-vars）では「Claude Code が Bash・
 # hook・status line で起動する子プロセスに付く 1」で、どの窓でも hook の中では 1＝別の窓が立てた窓の見分けにならない。
-# 頼みの行がまだ無い時の見分けは、サーバの記録（get_session の parent_session_id）を AI に読ませる（session-watch の知らせ）。
 
 
 def seeded_by_record(row):
@@ -260,21 +234,6 @@ def seeded_by_record(row):
 
 def starts_turn(row):
     """会話の番（ターン）を切る行か＝人が打った頼みの行（is_owner_row）で、別の窓・仕組みから来た知らせ
-    （seeded_by_record）でも、文脈を詰めた後の要約の行（isCompactSummary）でもない行。番の切り方の正本はここ 1 か所（plugin session-watch もこれを直に読む＝写さない）。
+    （seeded_by_record）でも、文脈を詰めた後の要約の行（isCompactSummary）でもない行。番の切り方の正本はここ 1 か所。
     知らせの行（子の窓の返事・task の知らせ）は番を切らない＝人が次に打つまで同じ番。"""
     return is_owner_row(row) and not row.get("isCompactSummary") and not seeded_by_record(row)
-
-
-def first_owner_row(path):
-    try:
-        for row in iter_rows(path):
-            if is_owner_row(row):
-                return row
-    except Exception:
-        return None
-    return None
-
-
-def first_owner_text(path):
-    row = first_owner_row(path)
-    return text_of(row) if row else ""
