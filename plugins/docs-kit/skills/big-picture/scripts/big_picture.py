@@ -47,7 +47,9 @@ TEMPLATE = Path(__file__).resolve().parent.parent / "references" / "template.htm
 SLOT = "/*__BIG_PICTURE_DATA__*/null"
 from root_cause import root_cause  # noqa: E402  根治の 1 文の 1 本の口＝lib/root_cause.py の root_cause（正本へ戻る symlink）
 ROOT_CAUSE = root_cause("絵が照らせる正の形を保つ", cause="誤りが入った", shortcut="形の誤りを 1 つずつ潰して出し直す")
-ROOT_CAUSE_DIFF = "直し: 差を見せ、絵と実物のどちらに合わせるかをオーナーに決めてもらう（合流は止めない。実物を直す時は合意した絵の意図とのずれから入り、細目 §3「まず構造を疑う」で原因を探す）"
+ROOT_CAUSE_DIFF = ("直し: 作り方のずれは AI が合意した絵どおりに実物を直す（聞かない・合流は止めない。合意した絵の意図とのずれから入り、"
+                   "細目 §3「まず構造を疑う」で原因を探す）。設計そのものを変える時だけ、行頭が「具体例:」「判断の物差し:」の 2 行を"
+                   "チャットに出してから選択肢の画面でオーナーと合意し直し、版を上げる")
 
 
 def load(path):
@@ -234,7 +236,7 @@ def compare(agreed, actual):
     diffs += len(lines)
     out += lines or ["- 差なし"]
     out.append("")
-    out.append("差: %d 件 → %s" % (diffs, "差なし（green）" if not diffs else "差あり（red・差を見せてオーナーに決めてもらう。合流は止めない）"))
+    out.append("差: %d 件 → %s" % (diffs, "差なし（green）" if not diffs else "差あり（red・作り方のずれは AI が絵どおりに直す。設計を変える時だけオーナーと合意し直す。合流は止めない）"))
     return "\n".join(out), diffs
 
 

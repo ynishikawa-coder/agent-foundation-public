@@ -18,8 +18,12 @@ def owner(text, uuid):
     return {"type": "user", "uuid": uuid, "message": {"content": text}}
 
 
+# 判断の前提の 2 行（ask_shape の premise に止められず、ここでは引いた跡だけを見る）
+PREMISE = {"type": "assistant", "message": {"content": [{"type": "text", "text": "具体例: 作り物の会議\n判断の物差し: 作り物の理由"}]}}
+
+
 def prior_log(tmp_path, *rows, name="p.jsonl"):
-    return write_log(tmp_path / name, [owner("作り物の頼み", "u1"), *rows])
+    return write_log(tmp_path / name, [owner("作り物の頼み", "u1"), *rows, PREMISE])
 
 
 def ask_with(tpath, *qs, sid="s1"):
