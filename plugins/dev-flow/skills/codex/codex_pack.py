@@ -82,7 +82,8 @@ def token_forms(environ=None) -> dict:
     path = env.get("AF_PUBLIC_GUARD") or af_place.foundation_file(GUARD_REL, str(PLUGIN_ROOT))
     if not path or not os.path.isfile(path):
         raise Abort("鍵の形の正本（土台の public-guard/guard.py）が見つからず照らせない＝パックを作らない。"
-                    "土台の plugin を市場から入れ直す（手元の置き場が違う時は AF_PUBLIC_GUARD に guard.py の path）")
+                    "土台の plugin を市場から入れ直す（手元の置き場が違う時は AF_PUBLIC_GUARD に guard.py の path）"
+                    + af_place.miss_note())
     try:
         pats = getattr(af_place.load_module("af_public_guard_for_codex", path), "SECRET_PATTERNS", None)
         forms = {str(k): re.compile(v) for k, v in pats.items()} if isinstance(pats, dict) and pats else None

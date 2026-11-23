@@ -705,7 +705,8 @@ def words(log, closing, data=None):
     def secret():
         PG = neighbor("public_guard")
         if PG is None or not hasattr(PG, "secret_labels"):
-            found.append(("neighbor", "秘密の形の正本（公開の検査 public-guard/guard.py）が見つからず、返事の鍵を照らせない"))
+            found.append(("neighbor", "秘密の形の正本（公開の検査 public-guard/guard.py）が見つからず、返事の鍵を照らせない"
+                          + af_place.miss_note()))
             return
         labels = PG.secret_labels(closing)
         if labels:
