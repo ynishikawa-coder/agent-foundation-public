@@ -3,35 +3,19 @@ import json
 import re
 from pathlib import Path
 
+from test_plugins_list_okiba import 一覧の外れ, 一覧の行, 器の名
 
 ROOT = Path(__file__).resolve().parent.parent
 LIST = ROOT / "plugins" / "README.md"
 MARKET = ROOT / ".claude-plugin" / "marketplace.json"
-HEADER = ["名前", "種類", "持つ窓", "状態", "置き場", "中身"]
 KINDS = {"plugin"}
 STATES = {"未着手", "作業中", "出した"}
-# 波 0 で先に置いた行。消す時はこの集合も同じ PR で替える。
-EXPECTED = {"docs-kit", "dev-flow", "session-watch", "checker", "guard", "core"}
 
 
 def read_rows():
-    lines = LIST.read_text(encoding="utf-8").splitlines()
-    rows, in_table = [], False
-    for line in lines:
-        if not line.startswith("|"):
-            if in_table:
-                break
-            continue
-        cells = [c.strip() for c in line.strip().strip("|").split("|")]
-        if not in_table:
-            assert cells == HEADER, f"一覧の見出しが違う: {cells}"
-            in_table = True
-            continue
-        if set("".join(cells)) <= set("-: "):
-            continue
-        assert len(cells) == len(HEADER), f"列の数が違う: {line}"
-        rows.append(dict(zip(HEADER, cells)))
-    assert rows, "一覧の表が無い"
+    """一覧の表を列の名で読む（名の集まりと列の並びは写さない＝tests/test_plugins_list_okiba.py）。"""
+    rows = 一覧の行(LIST.read_text(encoding="utf-8"))
+    assert rows, "一覧の表が無い・列が足りない"
     return rows
 
 
@@ -42,9 +26,8 @@ def skills_of(row):
 
 
 def test_一覧の行が全部ある():
-    names = [r["名前"] for r in read_rows()]
-    assert len(names) == len(set(names)), f"名前が重なる: {names}"
-    assert set(names) == EXPECTED
+    # 行の集まりは配りの器の名と、まだ配らない行（名は器から読む）。
+    assert 一覧の外れ(read_rows(), 器の名(MARKET.read_text(encoding="utf-8"))) == []
 
 
 def test_各行の値が決まりの中():

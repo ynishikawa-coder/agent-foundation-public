@@ -10,6 +10,7 @@
 - 本文が `common.rules` を読ませる → 赤（会社の規律の写しの入れ物）。
 注入の試験: 畳んだ行・文を正本の写しに戻すと赤になるのを確かめる。
 """
+import json
 import re
 from pathlib import Path
 from uses import kaku
@@ -87,10 +88,30 @@ def test_雛形も_common_rules_を指さない():
             assert not RULE_BUCKET.search(pointing(p.suffix, text)), f"{p.relative_to(ROOT)} が common.rules を指す"
 
 
+def 読めない値の表(schema: dict, read) -> list[str]:
+    """鍵の一覧（skill-values/schema.json）で鍵を持つ skill のうち、値の表の行を 1 つも読めない物（数は写さず鍵の一覧から読む）。"""
+    return [f"{p}.{s}" for p, sec in schema["sections"].items() for s, sk in sec.get("skills", {}).items()
+            if sk.get("keys") and not value_rows(read(p, s))]
+
+
+def _skill_text(plugin, skill):
+    return (ROOT / "plugins" / plugin / "skills" / skill / "SKILL.md").read_text(encoding="utf-8")
+
+
+SCHEMA = json.loads((ROOT / "skill-values" / "schema.json").read_text(encoding="utf-8"))
+
+
 def test_値の表の節を読めている():
-    # 照らす相手が空のまま緑にならないこと（節の見出しが変わったら赤）。
-    n = sum(len(value_rows(p.read_text(encoding="utf-8"))) for p in SKILL_FILES)
-    assert n >= 30, n
+    # 照らす相手が空のまま緑にならないこと（節の見出しが変わったら赤）。鍵を持つ skill はどれも値の表の行を読める。
+    assert any(sk.get("keys") for sec in SCHEMA["sections"].values() for sk in sec.get("skills", {}).values())
+    assert 読めない値の表(SCHEMA, _skill_text) == []
+
+
+def test_注入_値の表の見出しを変えると読めない():
+    def read(p, s):
+        t = _skill_text(p, s)
+        return t.replace("## repo ごとの値", "## 設定", 1) if (p, s) == ("dev-flow", "codex") else t
+    assert 読めない値の表(SCHEMA, read) == ["dev-flow.codex"]
 
 
 # ---- 注入の試験: 畳んだ写しを戻すと赤 ----

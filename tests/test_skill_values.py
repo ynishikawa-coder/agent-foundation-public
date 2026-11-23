@@ -25,6 +25,7 @@ RENDER = PLUGINS / "docs-kit" / "skills" / "make-deck" / "scripts" / "render_pro
 GOOD_PAGE = ROOT / "tests" / "docs_kit" / "good.json"
 sys.path.insert(0, str(SOURCE))
 import skill_values as SVM  # noqa: E402  型の名の正本（TYPES）を写さず読む
+from test_skill_values_okiba import common_の外れ, 鍵の外れ  # noqa: E402
 
 needs_node = pytest.mark.skipif(not shutil.which("node"), reason="node が無い（qa-html の検査は node で動く）")
 
@@ -111,15 +112,6 @@ def test_鍵の一覧に全部の_plugin_と_skill_がある():
 
 
 # ── SKILL.md の鍵の表と鍵の一覧が食い違わない ──
-def table_keys(text):
-    m = re.search(r"^## (?:repo ごとの値|値の表).*?(?=^## )", text, re.S | re.M)
-    out = set()
-    for line in (m.group(0) if m else "").splitlines():
-        if line.startswith("| `"):
-            out |= set(re.findall(r"`([A-Za-z0-9_.\-*]+)`", line.split("|")[1]))
-    return out
-
-
 def skill_specs():
     for plugin, sec in SCHEMA["sections"].items():
         for skill, sk in sec.get("skills", {}).items():
@@ -128,18 +120,9 @@ def skill_specs():
 
 @pytest.mark.parametrize("plugin,skill,keys", list(skill_specs()), ids=lambda x: x if isinstance(x, str) else "")
 def test_SKILL_md_の鍵は鍵の一覧と同じ(plugin, skill, keys):
+    # 照らしは値の表の節の鍵の升で（tests/test_skill_values_okiba.py）。SKILL の全体の字では照らさない
     text = (PLUGINS / plugin / "skills" / skill / "SKILL.md").read_text(encoding="utf-8")
-    for tok in table_keys(text):
-        parts = tok.rstrip(".*").split(".")
-        if parts[0] == "common":
-            assert parts[1] in SCHEMA["sections"]["common"]["keys"], f"{plugin}.{skill}: {tok} が鍵の一覧に無い"
-            continue
-        if parts[:2] == [plugin, skill]:
-            parts = parts[2:]
-        assert parts[0] in keys, f"{plugin}.{skill}: SKILL.md の鍵 {tok} が鍵の一覧（skill-values/schema.json）に無い"
-    for k in keys:
-        assert re.search(r"`(?:[\w.\-]+\.)?%s(?:\.\*)?`" % re.escape(k), text), \
-            f"{plugin}.{skill}: 鍵の一覧の {k} を SKILL.md が書いていない"
+    assert 鍵の外れ(text, plugin, skill, keys) == []
 
 
 def test_guard_の鍵は_guard_rules_の例と同じ():
@@ -149,9 +132,7 @@ def test_guard_の鍵は_guard_rules_の例と同じ():
 
 
 def test_common_の鍵はどれかの_SKILL_md_が使う():
-    texts = "\n".join(p.read_text(encoding="utf-8") for p in PLUGINS.glob("*/skills/*/SKILL.md"))
-    for k in SCHEMA["sections"]["common"]["keys"]:
-        assert f"common.{k}" in texts, f"common.{k} を使う skill が無い"
+    assert common_の外れ([p.read_text(encoding="utf-8") for p in PLUGINS.glob("*/skills/*/SKILL.md")]) == []
 
 
 # ── 照らし（1 本の口） ──
