@@ -172,6 +172,10 @@ def state_dir(vals, payload=None):
 GUARD_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
+# 行の区切りは相手（GitHub の表示・JSONL・git の出力）と同じ \n・\r\n・\r だけ＝1 本の口 af_lines（土台の af_lines.py への symlink）。
+from af_lines import LINE_END, text_lines  # noqa: E402,F401
+
+
 def now_utc():
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
 
@@ -209,7 +213,7 @@ def iter_rows(path, tail_bytes=0):
                 raw = raw.split(b"\n", 1)[1]
         else:
             raw = f.read()
-    for line in raw.decode("utf-8", "replace").splitlines():
+    for line in text_lines(raw.decode("utf-8", "replace")):
         line = line.strip()
         if not line:
             continue

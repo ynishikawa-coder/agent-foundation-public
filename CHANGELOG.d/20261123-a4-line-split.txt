@@ -1,0 +1,1 @@
+- 直した: 行で照らす道具（公開の検査・PR 本文・判定の形・締めの 2 行・JSONL・設計書の 6 節・Codex のパック・workflow・衝突の印・人の CLAUDE.md の知らせ・核の数え）が str.splitlines で U+2028 などでも行を切り、GitHub や JSONL では 1 行の物に偽の見出し・偽の締めを作り、顧客の語の照合をすり抜けさせ、JSONL の行を落としていた。行の区切りを相手と同じ \n・\r\n・\r だけの 1 本の口（skill-values/af_lines.py・plugin へは lib/ の symlink）に寄せた。

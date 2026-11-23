@@ -20,6 +20,9 @@ import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "skill-values"))
+from af_lines import text_lines  # noqa: E402  行の区切りの 1 本の口（\n・\r\n・\r だけで切る＝git・GitHub と同じ行）
+
 ROOT = Path(__file__).resolve().parent.parent
 DIR_NAME = "CHANGELOG.d"
 # 断片へ移す前の記録（そのまま移した経緯・札の形を照らさない）。
@@ -32,7 +35,7 @@ README = ROOT / DIR_NAME / "README.md"
 
 def load_cards(path=README):
     """札の並び。正本は CHANGELOG.d/README.md の「札は `…`・`…` のどれか」の行（ここに写さない）。読めなければ例外。"""
-    for ln in Path(path).read_text(encoding="utf-8").splitlines():
+    for ln in text_lines(Path(path).read_text(encoding="utf-8")):
         m = re.search(r"札は(.+?)のどれか", ln)
         cards = re.findall(r"`([^`]+)`", m.group(1)) if m else []
         if cards:
@@ -63,8 +66,8 @@ def check(root: Path = ROOT) -> list[str]:
     else:
         text = main.read_text(encoding="utf-8")
         if text != MAIN_TEXT:
-            fixed = set(MAIN_TEXT.splitlines())
-            extra = [n for n, l in enumerate(text.splitlines(), 1) if l.strip() and l not in fixed]
+            fixed = set(text_lines(MAIN_TEXT))
+            extra = [n for n, l in enumerate(text_lines(text), 1) if l.strip() and l not in fixed]
             where = ",".join(map(str, extra)) or "消した行"
             errs.append(f"CHANGELOG.md:{where}: CHANGELOG.md は決まった文だけ（記録は書かない）。"
                         f"記録は自分の枝の {DIR_NAME}/<日付>-<話題>.txt へ移す（{DIR_NAME}/README.md・"
@@ -85,12 +88,12 @@ def check(root: Path = ROOT) -> list[str]:
             errs.append(f"{DIR_NAME}/{p.name}: 名は <YYYYMMDD>-<話題>.txt（枝 claude/<日付>-<話題> と同じ・英数と . _ -）")
             continue
         text = p.read_text(encoding="utf-8")
-        lines = [l for l in text.splitlines() if l.strip()]
+        lines = [l for l in text_lines(text) if l.strip()]
         if not lines:
             errs.append(f"{DIR_NAME}/{p.name}: 中身が無い")
         if p.name == OLD_FILE:
             continue
-        for n, line in enumerate(text.splitlines(), 1):
+        for n, line in enumerate(text_lines(text), 1):
             if line.strip() and not LINE_RE.match(line):
                 errs.append(f"{DIR_NAME}/{p.name}:{n}: 行は" + "".join(f"「- {c}: …」" for c in CARDS) + "の形"
                             "（札の後に（…）を添えてよい）。1 項は 1 行")
@@ -143,8 +146,8 @@ def adopt(source_text: str, target: Path, root: Path = ROOT) -> list[str]:
     足した行を返す。行の並び（新しい物が上）はそのまま。"""
     have: set[str] = set()
     for p in (root / DIR_NAME).glob("*.txt"):
-        have.update(l.rstrip() for l in p.read_text(encoding="utf-8").splitlines())
-    new = [l.rstrip() for l in source_text.splitlines()
+        have.update(l.rstrip() for l in text_lines(p.read_text(encoding="utf-8")))
+    new = [l.rstrip() for l in text_lines(source_text)
            if l.startswith("- ") and l.rstrip() not in have]
     if new:
         old = target.read_text(encoding="utf-8") if target.exists() else ""

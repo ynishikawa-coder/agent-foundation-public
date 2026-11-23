@@ -362,7 +362,7 @@ def main_ref(project: Path) -> tuple[str | None, str | None]:
     local = _local_main(project)
     out = _git(str(project), "ls-remote", "--symref", "origin", "HEAD", timeout=3)
     branch = tip = None
-    for line in (out or "").splitlines():
+    for line in (out or "").split("\n"):
         m = re.fullmatch(r"ref: refs/heads/(\S+)\tHEAD", line)
         if m:
             branch = m.group(1)
@@ -1032,7 +1032,7 @@ def _git_run(loc: str, *args: str, timeout: int = 20) -> str:
     except (OSError, subprocess.SubprocessError) as e:
         raise GitFailed(f"git {args[0] if args else ''} を呼べない: {type(e).__name__}: {e}") from None
     if p.returncode != 0:
-        why = (p.stderr or "").strip().splitlines()
+        why = [w for w in (p.stderr or "").strip().split("\n") if w]
         raise GitFailed(f"git {args[0] if args else ''} が {p.returncode} で失敗した" + (f": {why[-1]}" if why else ""))
     return p.stdout.strip()
 
@@ -1075,7 +1075,7 @@ def _running_from_record() -> str | None:
 
 def _carrier_names(names: str) -> set[str]:
     return {n.split("/")[1] if n.startswith("plugins/") and n.count("/") >= 2 else n.split("/")[0]
-            for n in names.splitlines() if n}
+            for n in names.split("\n") if n}
 
 
 def freshness() -> dict | None:
@@ -1177,7 +1177,7 @@ def urgent_since(base: str, tip: str) -> list[str]:
         subjects = _git_run(loc, "log", "--format=%s", f"{base}..{tip}", "--", *CARRIERS)
     except GitFailed as e:
         raise Incomparable(f"{base[:12]} から {tip[:12]} の題を読めない — {e}") from None
-    return [s for s in subjects.splitlines() if _URGENT.match(s.strip())]
+    return [s for s in subjects.split("\n") if _URGENT.match(s.strip())]
 
 
 REFRESH_TIMEOUT = 600  # 裏の入れ直し（入口 setup_plugins.py）を待つ上限（秒）
@@ -1224,7 +1224,7 @@ def refresh(tip: str, entry: Path) -> int:
         code, out = p.returncode, (p.stdout + p.stderr).strip()
     except (OSError, subprocess.SubprocessError) as e:
         code, out = -1, f"{type(e).__name__}: {e}"
-    line = (out.splitlines() or [""])[-1][:300]
+    line = out.split("\n")[-1][:300]
     try:
         _refresh_file("refresh.json").write_text(json.dumps(
             {"main": tip, "code": code, "line": line, "at": time.time()}, ensure_ascii=False), encoding="utf-8")
@@ -1628,7 +1628,7 @@ def base_text(ref: str, path: Path) -> str:
         return show(rel)
     ls = subprocess.run(["git", "-c", "core.quotepath=off", "ls-tree", "--full-tree", "--name-only", f"{ref}:{rel}"],
                         cwd=path.parent, capture_output=True)
-    names = sorted(n for n in ls.stdout.decode("utf-8").splitlines() if n.endswith(".md")) if ls.returncode == 0 else []
+    names = sorted(n for n in ls.stdout.decode("utf-8").split("\n") if n.endswith(".md")) if ls.returncode == 0 else []
     if names:
         return "\n".join(show(f"{rel}/{n}") for n in names)
     if path == SAIMOKU:
@@ -1663,7 +1663,7 @@ def guard_counts(ref: str | None = None, root: Path | None = None) -> dict[str, 
                            cwd=root, capture_output=True)
         if r.returncode != 0:
             raise OSError(f"{ref}:{rel} が読めない: {r.stderr.decode('utf-8', 'replace').strip()}")
-        return sorted(r.stdout.decode("utf-8").splitlines())
+        return sorted(n for n in r.stdout.decode("utf-8").split("\n") if n)
 
     def has(rel: str) -> bool:
         if ref is None:
@@ -1687,7 +1687,7 @@ def guard_counts(ref: str | None = None, root: Path | None = None) -> dict[str, 
             entries += sum(len(m.get("hooks", [])) for arr in json.loads(text(rel)).get("hooks", {}).values() for m in arr)
     checks = sum(1 for n in names(CHECKS) if n.endswith(".sh") and n not in SAFETY)
     steps = sum(1 for n in names(WORKFLOWS) if n.endswith((".yml", ".yaml"))
-                for line in text(f"{WORKFLOWS}/{n}").splitlines()
+                for line in text(f"{WORKFLOWS}/{n}").split("\n")
                 if re.match(r"\s*(- )?run:", line) and not re.search(r"public[-_]guard", line))
     points = len(re.findall(r"^\| *\d+ ", text(REVIEW_POINTS), re.M))
     return {"守りの見張り（guard の hook）": hooks, "hook の口（plugin の hooks.json）": entries,

@@ -316,9 +316,13 @@ def _rejected_ids(row):
             and b.get("type") == "tool_result" and b.get("is_error") and b.get("tool_use_id")] if isinstance(c, list) else []
 
 
+# 返事は GitHub と同じ CommonMark で表示される＝行の区切りは \n・\r\n・\r だけ（1 本の口 af_lines・土台の af_lines.py への symlink）。
+from af_lines import text_lines  # noqa: E402
+
+
 def strip_code(text):
     out, in_code = [], False
-    for raw in (text or "").splitlines():
+    for raw in text_lines(text):
         if raw.strip().startswith("```"):
             in_code = not in_code
             continue
@@ -536,7 +540,7 @@ def title_shape(title):
 
 def split_close(text):
     """末尾の締めの 2 行を外す。(上の本文, 締めの 2 行 or None)。"""
-    lines = [ln for ln in (text or "").rstrip().splitlines() if ln.strip()]
+    lines = [ln for ln in text_lines((text or "").rstrip()) if ln.strip()]
     if len(lines) >= 2 and CLOSE_AI.match(lines[-2].strip()) and CLOSE_OWNER.match(lines[-1].strip()):
         return "\n".join(lines[:-2]), "\n".join(x.strip() for x in lines[-2:])
     return "\n".join(lines), None
@@ -544,7 +548,7 @@ def split_close(text):
 
 def owner_section(text):
     """返事の最後の `あなたがやること:` の行から末尾まで（コードブロックも含む）の中身。無ければ None。"""
-    lines = (text or "").rstrip().splitlines()
+    lines = text_lines((text or "").rstrip())
     for i in range(len(lines) - 1, -1, -1):
         if CLOSE_OWNER.match(lines[i].strip()):
             head = re.sub(r"^[`*]*あなたがやること: ?", "", lines[i].strip())
@@ -572,11 +576,11 @@ def is_plain_question(text):
     s = strip_code(body).strip()
     if not s:
         return False
-    lines = [x for x in s.splitlines() if x.strip()]
+    lines = [x for x in text_lines(s) if x.strip()]
     end = bool(QEND.search(s))
     card = bool(re.match(r"\s*(\*\*)?❓", s))
     phrase = bool(STRONG.search("\n".join(lines[-2:]))) and not COND.search(lines[-1])
-    if close and OWNER_NONE.match(close.splitlines()[-1]):
+    if close and OWNER_NONE.match(text_lines(close)[-1]):
         phrase = False   # あなたがやることが「なし」の締めは、言い回しだけでは問いにしない
     return end or card or phrase
 
@@ -629,7 +633,7 @@ def reply_exempt(data=None):
 def prose(text, exempt=()):
     """人へ見せる本文: コードの囲み・`…`・URL を外し、外す形に当たる行を除く。"""
     out = []
-    for ln in strip_code(text).splitlines():
+    for ln in text_lines(strip_code(text)):
         if any(re.search(p, ln) for p in exempt):
             continue
         out.append(URL.sub(" ", INLINE_CODE.sub(" ", ln)))
@@ -639,7 +643,7 @@ def prose(text, exempt=()):
 def time_hits(body):
     """日本時間でない時刻・日付つきで印の無い時刻の並び [(字, 訳)]。日本時間の印は時刻と同じ句の中だけを見る。"""
     hits = []
-    for ln in body.splitlines():
+    for ln in text_lines(body):
         clauses = list(CLAUSE.finditer(ln))
         # 時刻を持たない句の印（「〜まで、日本時間で。」）は行の時刻全部に掛かる。時刻を持つ句の印はその句の時刻だけ。
         loose = any(JST_MARK.search(c.group(0)) and not CLOCK.search(c.group(0)) for c in clauses)
@@ -737,14 +741,14 @@ def words(log, closing, data=None):
             found.append(("time", "時刻が日本時間の形でない: %s" % "／".join("「%s」%s" % (t, why) for t, why in th[:4])))
 
     def done():
-        lines = [ln.strip() for ln in closing.splitlines() if ln.strip()]
+        lines = [ln.strip() for ln in text_lines(closing) if ln.strip()]
         if lines and re.match(r"^[#>*\s]*✅", lines[0]):
             hh = hedge_hits(body)
             if hh:
                 found.append(("done", "✅ の返事に、終わったと言い切らない語がある: %s" % "／".join("「%s」" % x for x in hh[:3])))
 
     def holes():
-        lines = [ln.strip() for ln in closing.splitlines() if ln.strip()]
+        lines = [ln.strip() for ln in text_lines(closing) if ln.strip()]
         if lines and re.match(r"^[#>*\s]*✅", lines[0]) and HOLE_WORD.search(body) and not HOLE_ASK.search(body):
             found.append(("holes", "✅ の返事に、見つけた穴・直す窓・台帳の残りが在るのに「どうしますか」と聞いていない"))
 
@@ -812,7 +816,7 @@ def check(log, closing=None, data=None):
             if tm == ASKING and not pending and closed_any:
                 found.append(("title", "答えが返ったのに題に %s が残っている" % ASKING))
             # ✅ は「終わった」（核 §7）の印。AI の手が尽きた（AI がこの後やること: なし）とは結ばない。
-            first = next((ln.strip() for ln in closing.splitlines() if ln.strip()), "")
+            first = next((ln.strip() for ln in text_lines(closing) if ln.strip()), "")
             kk = kind or tk
             if CARD_LINE.match(first):
                 done = bool(DONE_LINE.match(first))
@@ -838,7 +842,7 @@ def check(log, closing=None, data=None):
         found.append(("hand", HAND_ASK))
 
     # 締めの 2 行と 1 行目の札（このターンに返事がある時だけ）
-    lines = [ln.strip() for ln in closing.splitlines() if ln.strip()]
+    lines = [ln.strip() for ln in text_lines(closing) if ln.strip()]
     short = bool(lines) and not CARD_LINE.match(lines[0]) and close is None and len(lines) <= SHORT_LINES and not log.turn_asked()
     if lines and not short:
         if not CARD_LINE.match(lines[0]):
@@ -863,13 +867,13 @@ def check(log, closing=None, data=None):
         moved = any(k == "move" for k, _ in log.events)
         if not (waiting or moved):
             found.append(("rest", "AI がこの後やることを書いたのに、この窓で動かしていない（子窓や背で走る助手に頼む・PR を見張る・"
-                                  "後で起こすのどれかを打ってから締める）: %s" % close.splitlines()[0][:60]))
+                                  "後で起こすのどれかを打ってから締める）: %s" % text_lines(close)[0][:60]))
 
     # 平文の問い（このターンにモーダルが無いのに、問いで締めた）
     if closing.strip() and not log.turn_asked() and is_plain_question(closing) \
             and not READING.search(split_close(closing)[0]):
         body, _ = split_close(closing)
-        last = [x.strip() for x in strip_code(body).splitlines() if x.strip()]
+        last = [x.strip() for x in text_lines(strip_code(body)) if x.strip()]
         found.append(("plain", "問いを平文で書いた（選ぶ問いはモーダルで、開いた問いは AI の今の読みを添えて聞くか、AI が決めて進む）: %s" % (last[-1][-60:] if last else "")))
 
     # 返事の本文の言葉（中の言葉・時刻・完了の言い切り・秘密）

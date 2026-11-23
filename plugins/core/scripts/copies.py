@@ -47,7 +47,7 @@ def body(s: str) -> str:
 def sentences(text: str):
     """(行番号, 文) の並び。表の行・箇条の頭・見出しの印は除いて文として切る。"""
     out = []
-    for no, line in enumerate(text.splitlines(), 1):
+    for no, line in enumerate(text.split("\n"), 1):  # read_text が \r\n・\r を \n に揃えた字（splitlines は U+2028 でも切る）
         line = re.sub(r"^\s*(?:[-*+]|\d+[.)]|#+|>)\s*", "", line)
         for part in _SPLIT.split(line):
             if len(body(part)) >= MIN_CHARS:

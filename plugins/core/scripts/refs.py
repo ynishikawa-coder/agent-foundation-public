@@ -123,7 +123,7 @@ def _installed() -> tuple[str, dict[str, str], dict[str, str]]:
     loc, sha = m.get("installLocation"), (rows.get("core") or {}).get("gitCommitSha")
     for rel in (r for r in ALIASES.values() if not r.startswith("plugins/")):
         if not (loc and sha):
-            missing[rel] = ("土台の GitHub から入れていない（" + other.strip().splitlines()[0] + "）" if other
+            missing[rel] = ("土台の GitHub から入れていない（" + other.strip().split("\n")[0] + "）" if other
                             else "目録の clone か入った版が分からない（手元の dir から入れた形）")
             continue
         try:
@@ -210,7 +210,7 @@ def _section_text(c: dict, key: str, no: str | None) -> str:
     text = c["_texts"][key]
     if no is None:
         return text
-    lines, secs = text.splitlines(), c["docs"][key]["sections"]
+    lines, secs = text.split("\n"), c["docs"][key]["sections"]
     for i, s in enumerate(secs):
         if s["no"] == int(no):
             end = next((x["line"] for x in secs[i + 1:] if x["level"] <= s["level"]), len(lines) + 1)

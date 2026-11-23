@@ -226,7 +226,8 @@ def _parse_seq(lines, i, indent):
 def load(text):
     """workflow の text を dict に（読めない形は空の dict）。値はみな文字か dict・list（true/false も字のまま）。"""
     # コメントだけの行は字が空の行として残す（構造では飛ばし、| > の塊の中では字のまま）
-    lines = [_Line(r) for r in text.replace("\t", "  ").splitlines() if r.strip() not in ("---", "...")]
+    # YAML の行の区切りは \n・\r\n・\r だけ（splitlines は U+2028・U+0085 でも切り、GitHub が 1 行と読む値を割る）
+    lines = [_Line(r) for r in re.split(r"\r\n?|\n", text.replace("\t", "  ")) if r.strip() not in ("---", "...")]
     while lines and not lines[0].text:
         lines.pop(0)
     if not lines:

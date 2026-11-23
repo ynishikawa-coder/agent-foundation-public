@@ -43,6 +43,9 @@ import sys
 from collections import defaultdict
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "skill-values"))
+from af_lines import text_lines  # noqa: E402  行の区切りの 1 本の口（\n・\r\n・\r だけで切る＝git・GitHub と同じ行）
+
 ROOT = Path(__file__).resolve().parent.parent
 TOOL_SUFFIX = (".py", ".mjs", ".js", ".sh")
 CODE_SUFFIX = (".py", ".mjs", ".js", ".sh", ".md", ".json")   # 呼ぶ形を読める file（.html・.txt は道具を呼ばない）
@@ -55,7 +58,7 @@ def tracked(repo: Path) -> list[str]:
     r = subprocess.run(["git", "-c", "core.quotepath=off", "ls-files"], cwd=repo, capture_output=True, text=True)
     if r.returncode != 0:
         raise OSError(f"git の一覧が取れない: {r.stderr.strip()}")
-    return [ln for ln in r.stdout.splitlines() if ln]
+    return [ln for ln in text_lines(r.stdout) if ln]
 
 
 def borrowed_link(repo: Path, f: str) -> bool:
@@ -192,7 +195,7 @@ def locate_calls(f: str, text: str) -> list[int]:
                 and not n.args]
     if f.endswith((".mjs", ".js")):
         code = re.sub(r"/\*.*?\*/", lambda m: "\n" * m.group(0).count("\n"), text, flags=re.S)
-        return [no for no, ln in enumerate(code.splitlines(), 1)
+        return [no for no, ln in enumerate(text_lines(code), 1)
                 if re.search(r"\bprocess\.cwd\(\s*\)", ln.split("//", 1)[0])]
     return []
 
@@ -351,7 +354,7 @@ def _js_pieces(text):
 
 def _sh_pieces(text):
     out = []
-    for no, ln in enumerate(text.splitlines(), 1):
+    for no, ln in enumerate(text_lines(text), 1):
         try:
             lex = shlex.shlex(ln, posix=True, punctuation_chars=True)
             lex.whitespace_split = True
@@ -367,7 +370,7 @@ def _json_pieces(f, text):
         data = json.loads(text)
     except ValueError as e:
         raise ValueError(f"{f} が JSON として読めず、呼ぶ形を拾えない（{e}）")
-    lines = text.splitlines()
+    lines = text_lines(text)
     out = []
 
     def walk(v):
@@ -392,7 +395,7 @@ _SPAN = re.compile(r"(`+)(.+?)\1")
 def _md_pieces(text):
     """手順の文は、命令の形のコード（`python3 …/x.py`・コードの塊の行）だけを呼ぶ形とみる。名を `x.py` と挙げるだけは数えない。"""
     out, fence = [], False
-    for no, ln in enumerate(text.splitlines(), 1):
+    for no, ln in enumerate(text_lines(text), 1):
         if _FENCE.match(ln):
             fence = not fence
             continue

@@ -79,11 +79,16 @@ def _text(path, text):
     return text if text is not None else Path(path).read_text(encoding="utf-8")
 
 
+# 判定は GitHub のコメント（CommonMark）で読まれる＝行の区切りは \n・\r\n・\r だけ（1 本の口 af_lines・土台の af_lines.py への symlink）。
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
+from af_lines import text_lines  # noqa: E402
+
+
 def load_points(path=SKILL, text=None):
     """review-pr の「見る点」の表から {番号: 名}。表が読めなければ例外（黙って空で進めない）。"""
     text = _text(path, text)
     points = {}
-    for ln in section(text.splitlines(), "見る点") or []:
+    for ln in section(text_lines(text), "見る点") or []:
         m = POINT_ROW.match(ln)
         if m:
             points[int(m.group(1))] = m.group(2).strip()
@@ -95,7 +100,7 @@ def load_points(path=SKILL, text=None):
 def load_values(path=SKILL, text=None):
     """review-pr の「判定の形」の雛形の `## 点` の行から {番号: 選べる値の組}。点 3 の別の目の形は {"eye"}。
     雛形が読めない・点の値が読めない行が在る時は例外（黙って pass／fail／N/A を全部許さない）。"""
-    lines = [ln.strip() for ln in _text(path, text).splitlines()]
+    lines = [ln.strip() for ln in text_lines(_text(path, text))]
     try:
         start = lines.index("## 点")
     except ValueError:
@@ -123,7 +128,7 @@ def load_values(path=SKILL, text=None):
 def load_cards(path=SKILL, text=None):
     """review-pr の「判定の形」の「札は」の行から (札の並び, 段の並び)。読めなければ例外（黙って既定で進めない）。"""
     text = _text(path, text)
-    for ln in text.splitlines():
+    for ln in text_lines(text):
         if ln.startswith("- 札は") and "段は" in ln:
             cards = re.findall(r"`\[([^｜|\]`]+)[｜|]<段>\]`", ln)
             m = re.search(r"段は((?:\s*`[^`]+`\s*・?)+)", ln)
@@ -136,7 +141,7 @@ def load_cards(path=SKILL, text=None):
 def load_always(path=SKILL, text=None):
     """「見る点」の節の `- 版によらず当てる点: 5・…` の行から点の番号の組（安全の点＝決まりの版によらず main の先端で当てる）。
     行が無ければ例外（黙って空の組で進めない＝安全の点を版の古さで外さない）。"""
-    for ln in section(_text(path, text).splitlines(), "見る点") or []:
+    for ln in section(text_lines(_text(path, text)), "見る点") or []:
         m = ALWAYS.match(ln.strip())
         if m:
             return frozenset(int(n) for n in m.group(1).split("・"))
@@ -148,7 +153,7 @@ def first_rules(bodies):
     判定は 1 行目が名乗りの形・3 行目が決まりの版の形の物だけ（決まりの版を持たない古い形の判定は数えない）。
     review_gate.py（--first を出す）と guard の pr_text（判定を出す前に照らす）の両方がここを呼ぶ（写さない）。"""
     for body in bodies or []:
-        lines = (body or "").splitlines()
+        lines = text_lines(body)
         if len(lines) > 2 and LINE1.match(lines[0].strip()):
             m = LINE3.match(lines[2].strip())
             if m:
@@ -297,7 +302,7 @@ def check(text, writer=None, head=None, points=None, cards=None, values=None, po
     card = card_re(*cards)
     shape = "- [%s｜<段>] …" % "|".join(cards[0])
     errs = []
-    lines = (text or "").splitlines()
+    lines = text_lines(text)
     m1 = LINE1.match(lines[0].strip()) if lines else None
     m2 = LINE2.match(lines[1].strip()) if len(lines) > 1 else None
     m3 = LINE3.match(lines[2].strip()) if len(lines) > 2 else None
@@ -366,7 +371,7 @@ def check_posted(text, first, writer=None, head=None, poster=None, repo=None):
     main と、判定を数える他の repo の関所（例: pixel-office の pr_review_gate）が呼ぶ 1 つの口（先端の点で照らす写しを持たせない）。
     3 行目が無い判定と first が None（--first の無い古い呼び方）は、1 段目の間は前の形として main の先端の点で照らす
     （CONTRIBUTING.md §8・古い形.json の verdict-no-rules-line）。版を読めない時は Unreadable。"""
-    lines = (text or "").splitlines()
+    lines = text_lines(text)
     m3 = LINE3.match(lines[2].strip()) if len(lines) > 2 else None
     rules, rerrs = None, []
     if m3 and first is not None:

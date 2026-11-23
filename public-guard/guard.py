@@ -86,10 +86,21 @@ PERSONAL_PATTERNS = {
 CUSTOMER_HINT = "repo の secret AF_DENY_BUNDLE か AF_DENY_WORDS を入れ、呼ぶ workflow から渡す（docs/公開の検査.md）"
 
 
+# ---- 行の区切り（相手と同じ区切りで切る） -------------------------------------------
+
+# 行で照らす物は GitHub の表示（CommonMark）と同じく \n・\r\n・\r だけで切る。
+# str.splitlines は U+2028・U+0085・\x1c-\x1e でも切る＝表示では 1 行の語を割って、行ごとの照合をすり抜けさせる。
+LINE_END = re.compile(r"\r\n?|\n")
+
+
+def text_lines(text: str) -> list[str]:
+    return LINE_END.split(text or "")
+
+
 # ---- 語の読み口 ----------------------------------------------------------------
 
 def parse_words(text: str) -> list[str]:
-    return [s.strip() for s in text.splitlines() if s.strip() and not s.strip().startswith("#")]
+    return [s.strip() for s in text_lines(text) if s.strip() and not s.strip().startswith("#")]
 
 
 def file_words(path: str | Path | None) -> list[str]:
@@ -158,8 +169,8 @@ def _shape_reason(text: str, parts: list[str]) -> str:
         return "前後に引用符が付いている（引用符を外した中身だけを貼る）"
     if "=" in text.split(".")[0]:
         return "先頭に名前と = が付いている（= の後ろの値だけを貼る）"
-    if len(text.splitlines()) > 1:
-        return f"値が {len(text.splitlines())} 行ある（1 行の値だけを貼る）"
+    if len(text_lines(text)) > 1:
+        return f"値が {len(text_lines(text))} 行ある（1 行の値だけを貼る）"
     if not text.startswith(BUNDLE_PREFIX + "."):
         return f"先頭が {BUNDLE_PREFIX}. でない（別の値を貼っている）"
     return f"区切りの . が {len(parts) - 1} 個（2 個のはず）"
@@ -249,7 +260,7 @@ def customer_hits(where: str, text: str, words: list[str], bundle) -> list[str]:
     low = fold(text)
     if any(fold(w) in low for w in words):
         return [f"{where}: 顧客の語"]
-    if bundle and any(bundle_hit(bundle, line) for line in text.splitlines() or [text]):
+    if bundle and any(bundle_hit(bundle, line) for line in text_lines(text)):
         return [f"{where}: 顧客の語"]
     return []
 

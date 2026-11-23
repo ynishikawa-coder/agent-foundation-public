@@ -53,6 +53,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "lib"))
 import skill_values  # noqa: E402  値の表の 1 本の口（plugin の lib/＝土台の skill-values/ への symlink）
 
 import af_place  # noqa: E402  土台の在り処探しの 1 本の口（同じ lib/ の symlink）
+from af_lines import text_lines  # noqa: E402  行の区切りの 1 本の口（同じ lib/ の symlink・表示と同じ \n・\r\n・\r だけで切る）
 
 PLUGIN_ROOT = Path(__file__).resolve().parent.parent.parent
 GUARD_REL = os.path.join("public-guard", "guard.py")
@@ -303,7 +304,7 @@ def git_objects(root: Path | None, toks) -> set[str]:
     except (OSError, subprocess.SubprocessError):
         return set()
     out = set()
-    for tok, line in zip(toks, res.stdout.splitlines()):
+    for tok, line in zip(toks, text_lines(res.stdout)):
         if not line.endswith((" missing", " ambiguous")):
             out.add(tok)
     return out
@@ -318,7 +319,7 @@ def known_secrets(root: Path | None, environ=None) -> list[tuple[str, str]]:
         for f in sorted(root.glob(".env*")):
             if not f.is_file():
                 continue
-            for ln in f.read_text(encoding="utf-8", errors="replace").splitlines():
+            for ln in text_lines(f.read_text(encoding="utf-8", errors="replace")):
                 m = re.match(r"^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)$", ln)
                 if m:
                     v = m.group(2).strip().strip("'\"")
@@ -351,7 +352,7 @@ def entropy_hits(text: str, values: dict | None = None, rels=None, root: Path | 
     fps, regs = allow_rules(values or {})
     in_git = git_objects(root, _HEX.findall(text))
     hits, where, base = [], "（パックの見出し）", 0
-    for no, ln in enumerate(text.splitlines(), 1):
+    for no, ln in enumerate(text_lines(text), 1):
         if ln.startswith("### ") and (rels is None or ln[4:] in rels):
             where, base = ln[4:], no + 1   # 次の行は ```` の囲み＝その次が file の 1 行目
             continue

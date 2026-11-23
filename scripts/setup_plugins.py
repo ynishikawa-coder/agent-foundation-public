@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 import sys
 import time
@@ -97,7 +98,7 @@ def listed() -> dict[str, str | None]:
     if r is None:
         raise ValueError("claude plugin list を呼べない")
     if r.returncode != 0:
-        why = (r.stderr or "").strip().splitlines()
+        why = [w for w in (r.stderr or "").strip().split("\n") if w]  # text=True が行の終わりを \n に揃える（splitlines は U+2028 でも切る）
         raise ValueError(f"claude plugin list が {r.returncode} で失敗した" + (f": {why[-1]}" if why else ""))
     try:
         rows = json.loads(r.stdout)
@@ -196,7 +197,8 @@ def notice(text: str | None) -> None:
     path = home() / "CLAUDE.md"
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
-        old = path.read_text(encoding="utf-8").splitlines(keepends=True) if path.exists() else []
+        # 行の終わりは read_text が \n に揃える＝\n の後でだけ切る（splitlines は U+2028 でも切り、人の 1 行の後ろ半分を知らせの行と取り違えて消す）
+        old = [ln for ln in re.split(r"(?<=\n)", path.read_text(encoding="utf-8")) if ln] if path.exists() else []
         keep = [line for line in old if not line.startswith(MARK)]
         if text:
             if keep and not keep[-1].endswith("\n"):

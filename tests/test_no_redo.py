@@ -148,7 +148,7 @@ def test_注入_session_watch_の_Stop_の口に崩れを渡しても差し戻�
 def test_注入_guard_に_Stop_の見張りを足しても締めを差し戻さない(tmp_path):
     box = tmp_path / "guard"
     shutil.copytree(GUARD_DIR, box, symlinks=True, ignore=shutil.ignore_patterns("__pycache__"))
-    for name in ("schema.json", "skill_values.py", "af_place.py"):
+    for name in ("schema.json", "skill_values.py", "af_place.py", "af_lines.py"):
         link = box / "lib" / name
         if link.is_symlink():
             link.unlink()

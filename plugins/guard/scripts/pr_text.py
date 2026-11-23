@@ -230,7 +230,7 @@ def first_rules(repo, ti, tool):
     if c is None or c.returncode != 0:
         return "", "PR のコメントを引けず、初めの判定の決まりの版を読めない"
     try:
-        bodies = [json.loads(ln) for ln in c.stdout.splitlines() if ln.strip()]
+        bodies = [json.loads(ln) for ln in G.text_lines(c.stdout) if ln.strip()]
     except ValueError:
         return "", "PR のコメントが読めない"
     return vf.first_rules(bodies) or vf.NO_FIRST, ""
@@ -257,7 +257,7 @@ def pr_facts(repo, ti):
         return "", [], "PR を引けなかった（%s）" % e.__class__.__name__
     if p.returncode != 0:
         return "", [], "PR #%s を引けなかった（判定は PR に出す・gh の認証か網を確かめる）: %s" % (
-            number, (p.stderr or "").strip().splitlines()[-1:] or "")
+            number, G.text_lines((p.stderr or "").strip())[-1:] or "")
     head, _, rest = p.stdout.partition("\n")
     total, _, body = rest.partition("\n")
     if not re.fullmatch(r"[0-9a-f]{40}", head.strip()):
@@ -267,9 +267,9 @@ def pr_facts(repo, ti):
     except (OSError, subprocess.SubprocessError) as e:
         return "", [], "PR #%s の commit を引けなかった（%s）" % (number, e.__class__.__name__)
     if c.returncode != 0:
-        return "", [], "PR #%s の commit を引けなかった: %s" % (number, (c.stderr or "").strip().splitlines()[-1:] or "")
+        return "", [], "PR #%s の commit を引けなかった: %s" % (number, G.text_lines((c.stderr or "").strip())[-1:] or "")
     try:
-        msgs = [json.loads(ln) for ln in c.stdout.splitlines() if ln.strip()]
+        msgs = [json.loads(ln) for ln in G.text_lines(c.stdout) if ln.strip()]
     except ValueError:
         return "", [], "PR #%s の commit の説明が読めない" % number
     if not total.strip().isdigit() or len(msgs) < int(total):
@@ -309,9 +309,9 @@ def check_verdict(body, data):
         return ["判定の形の道具が走らなかった: %s" % e.__class__.__name__]
     if p.returncode == 0:
         return []
-    errs = [ln.strip() for ln in p.stdout.splitlines() if ln.strip()]
+    errs = [ln.strip() for ln in G.text_lines(p.stdout) if ln.strip()]
     if p.returncode != 1 or not errs:
-        tail = (p.stderr or p.stdout or "").strip().splitlines()[-2:]
+        tail = G.text_lines((p.stderr or p.stdout or "").strip())[-2:]
         return ["判定の形の道具が壊れた（exit %d）: %s" % (p.returncode, " / ".join(tail))]
     return ["判定の形: " + e for e in errs]
 
@@ -358,7 +358,7 @@ def visible_prose(body):
     """数えない所（本文の頭の塊の窓の id の欄・コード・URL・注記）を除いた文。"""
     body = FENCE.sub(" ", COMMENT.sub(" ", body))
     lines, top = [], True
-    for ln in body.splitlines():
+    for ln in G.text_lines(body):
         if not ln.strip():
             top = False
         if top and HEAD_FIELD.match(ln):
@@ -433,7 +433,7 @@ def _checkout_of(repo, data):
 def _broken_form(reader, raw):
     """workflow の字が在るのに、読み手が jobs の形を読めない訳（読めれば ""）。読み手は読めない形を空の dict にするので、
     黙って「呼び口が無い」と読まない。コメントと空行だけの file は壊れていない（中身が無い）。"""
-    body = [ln for ln in raw.splitlines() if ln.strip() and not ln.strip().startswith("#") and ln.strip() not in ("---", "...")]
+    body = [ln for ln in G.text_lines(raw) if ln.strip() and not ln.strip().startswith("#") and ln.strip() not in ("---", "...")]
     if not body:
         return ""
     wf = reader.load(raw)
@@ -542,9 +542,9 @@ def check_public(texts, repo, data, vals):
         return ["公開の検査が走らなかった: %s" % e.__class__.__name__]
     if p.returncode == 0:
         return []
-    hits = [ln.strip() for ln in p.stdout.splitlines() if ln.startswith("  ")]
+    hits = [ln.strip() for ln in G.text_lines(p.stdout) if ln.startswith("  ")]
     if p.returncode != 1 or not hits:
-        tail = (p.stderr or p.stdout or "").strip().splitlines()[-2:]
+        tail = G.text_lines((p.stderr or p.stdout or "").strip())[-2:]
         return ["公開の検査が壊れた（exit %d・`--text` を知らない古い版かもしれない）: %s" % (p.returncode, " / ".join(tail))]
     return ["公開の repo に置かない物: " + h for h in hits]
 

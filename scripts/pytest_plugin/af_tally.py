@@ -45,7 +45,7 @@ RANK = {"passed": 0, "skipped": 1, "xfailed": 1, "xpassed": 2, "failed": 3, "err
 
 
 def pinned_version():
-    for ln in REQUIREMENTS.read_text(encoding="utf-8").splitlines():
+    for ln in REQUIREMENTS.read_text(encoding="utf-8").split("\n"):  # read_text が行の終わりを \n に揃える（splitlines は U+2028 でも切る）
         m = re.fullmatch(r"\s*pytest==(\S+)\s*", ln)
         if m:
             return m.group(1)
@@ -272,7 +272,7 @@ def _reason(report):
     if isinstance(lr, tuple) and len(lr) == 3:
         text = str(lr[2])
         return text[len("Skipped: "):] if text.startswith("Skipped: ") else text
-    return str(lr or "").splitlines()[-1] if lr else ""
+    return str(lr).rstrip("\n").split("\n")[-1] if lr else ""
 
 
 def _shard_of(config):
@@ -330,7 +330,7 @@ def read_waits(root):
     if not p.is_file():
         return {}
     out = {}
-    for ln in p.read_text(encoding="utf-8").splitlines():
+    for ln in p.read_text(encoding="utf-8").split("\n"):
         if not ln.strip() or ln.startswith("#"):
             continue
         parts = ln.split()

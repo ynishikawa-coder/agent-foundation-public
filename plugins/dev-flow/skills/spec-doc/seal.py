@@ -40,6 +40,7 @@ from pathlib import Path
 sys.dont_write_bytecode = True
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "lib"))
 import skill_values  # noqa: E402  値の表の 1 本の口（plugin の lib/＝土台の skill-values/ への symlink）
+from af_lines import text_lines  # noqa: E402  行の区切りの 1 本の口（同じ lib/ の symlink・表示と同じ \n・\r\n・\r だけで切る）
 
 UNMATCHED = "未照合"
 _HEAD = re.compile(r"^(#{1,6})\s*(.*?)\s*#*\s*$")
@@ -85,7 +86,7 @@ def _cells(line: str) -> list[str]:
 
 def section6(text: str) -> list[tuple[int, str]] | None:
     """§6 の節の中の行を (行番号, 行) で返す。節が無ければ None。当たる見出しが 2 つ以上なら止める。"""
-    lines = text.splitlines()
+    lines = text_lines(text)
     heads = [(i, len(m.group(1)), m.group(2)) for i, ln in enumerate(lines)
              if (m := _HEAD.match(ln))]
     hits = [h for h in heads if _SEC6.search(h[2])]

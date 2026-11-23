@@ -33,6 +33,9 @@ import tempfile
 import time
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "skill-values"))
+from af_lines import text_lines  # noqa: E402  行の区切りの 1 本の口（\n・\r\n・\r だけで切る）
+
 ROOT = Path(__file__).resolve().parent.parent
 MARKET = "agent-foundation"
 KAKU_HEAD = "# 振る舞いの核（agent-foundation）"
@@ -134,7 +137,7 @@ def core_problems(ctx: list[str], want: dict, expected: str) -> list[str]:
 
 def _first_diff(want: str, got: str) -> str:
     """最初に違う行（正本の口の行／届いた行）を短く名指す。"""
-    a, b = want.splitlines(), got.splitlines()
+    a, b = text_lines(want), text_lines(got)
     for i in range(max(len(a), len(b))):
         x, y = (a[i] if i < len(a) else "（無い）"), (b[i] if i < len(b) else "（無い）")
         if x != y:
@@ -180,7 +183,7 @@ LINE_BYTES, MAX_LINES = 200, 100
 
 def over_limits(script: str) -> list[str]:
     """setup script が道具の上限を超える所を名指す（空なら収まる）。"""
-    lines = script.splitlines()
+    lines = text_lines(script)
     bad = [f"{i} 行目が {n} バイト（上限 {LINE_BYTES}）" for i, n in
            ((i, len(s.encode("utf-8"))) for i, s in enumerate(lines, 1)) if n > LINE_BYTES]
     if len(lines) > MAX_LINES:
@@ -192,7 +195,7 @@ def setup_block(repo: Path) -> str:
     """使う側が貼る setup script の塊（docs/核の届け方.md の `setup-script` の印の次の bash の塊）を正本から直に読む。"""
     text = (repo / DOC).read_text(encoding="utf-8")
     m = re.search(r"<!-- setup-script.*?-->\s*```bash\n(.*?)\n\s*```", text, re.S)
-    block = "\n".join(line.strip() for line in m.group(1).splitlines()) if m else ""
+    block = "\n".join(line.strip() for line in text_lines(m.group(1))) if m else ""
     if FOUNDATION not in marketplace_adds(block):
         raise ValueError(f"{DOC} に setup script の塊（印 setup-script の次の bash・{FOUNDATION} をそのまま足す"
                          f" marketplace add の行）が無い")
@@ -319,7 +322,7 @@ def smoke(source: str, repo: Path, expect_sha: str | None) -> list[str]:
         if r.returncode != 0:
             bad.append(f"setup script の塊が非 0 で抜けた（窓が起動しない）: {(r.stdout + r.stderr).strip()[-300:]}")
         note = home / ".claude" / "CLAUDE.md"
-        for line in (note.read_text(encoding="utf-8").splitlines() if note.exists() else []):
+        for line in (text_lines(note.read_text(encoding="utf-8")) if note.exists() else []):
             if line.startswith("<!-- af-plugin-missing -->"):
                 bad.append(f"setup script が入れ損ねを知らせた: {line[len('<!-- af-plugin-missing -->'):].strip()[:300]}")
         if not (home / ".claude" / "af-foundation" / "setup.json").is_file():

@@ -34,6 +34,9 @@ import subprocess
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "skill-values"))
+from af_lines import text_lines  # noqa: E402  行の区切りの 1 本の口（\n・\r\n・\r だけで切る＝git・GitHub と同じ行）
+
 ROOT = Path(__file__).resolve().parent.parent
 BRANCH = re.compile(r"^claude/(\d{8}-[0-9A-Za-z][0-9A-Za-z._-]*)$")
 ROOT_CAUSE = "直し: 足す所を動かして通すだけで済ませず、意図（並ぶ PR が互いに衝突しない）とのずれから入り、同じ所へ足す形になった原因を細目 §3「まず構造を疑う」で探して直す"
@@ -105,8 +108,8 @@ def check(root: Path, branch: str, base: str) -> list[str]:
         if subprocess.run(["git", "merge-base", "--is-ancestor", mb, mm], cwd=root).returncode == 0:
             mb = mm
     # 作業の木と比べる（手元では commit 前の物・まだ git に載せていない新しい file も照らす。CI では HEAD と同じ）
-    rows = [ln.split("\t") for ln in git(root, "diff", "--name-status", "--no-renames", mb).splitlines() if ln]
-    rows += [["A", ln] for ln in git(root, "ls-files", "--others", "--exclude-standard").splitlines() if ln]
+    rows = [ln.split("\t") for ln in text_lines(git(root, "diff", "--name-status", "--no-renames", mb)) if ln]
+    rows += [["A", ln] for ln in text_lines(git(root, "ls-files", "--others", "--exclude-standard")) if ln]
     want = f"CHANGELOG.d/{m.group(1)}.txt"
     for st, *paths in rows:
         path = paths[-1]
@@ -176,7 +179,7 @@ def grown_test_files(root: Path, mb: str, rows_nr: list[list[str]]) -> list[str]
     """元から在る試験の file（名を変えた物・型を変えた物を含む）に試験・parametrize の軸を足した所の名指し。"""
     errs: list[str] = []
     pairs: list[tuple[list[str], str]] = []  # ([分かれ目の側の path], 今の path)
-    renamed = [ln.split("\t") for ln in git(root, "diff", "--name-status", "-M", mb).splitlines() if ln]
+    renamed = [ln.split("\t") for ln in text_lines(git(root, "diff", "--name-status", "-M", mb)) if ln]
     moved_from, moved_to = set(), set()
     for st, *paths in renamed:
         if st.startswith("R") and len(paths) == 2 and (TEST_PATH.match(paths[0]) or TEST_PATH.match(paths[1])):

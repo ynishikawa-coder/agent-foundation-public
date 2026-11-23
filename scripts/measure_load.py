@@ -26,6 +26,9 @@ import re
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "skill-values"))
+from af_lines import text_lines  # noqa: E402  行の区切りの 1 本の口（\n・\r\n・\r だけで切る＝git・GitHub と同じ行）
+
 ROOT = Path(__file__).resolve().parent.parent
 PLUGINS = ROOT / "plugins"
 TEXT_EXT = {".md", ".py", ".mjs", ".js", ".json", ".txt", ".html", ".css", ".yaml", ".yml", ".sh"}
@@ -94,7 +97,7 @@ def copies(root: Path = ROOT) -> dict:
     for f in sorted([*(root / "plugins").rglob("*.py"), *(root / "scripts").glob("*.py")]):
         if f.resolve() == Path(__file__).resolve() or f == root / "scripts" / SELF.name:
             continue
-        n = sum(1 for line in f.read_text(encoding="utf-8", errors="ignore").splitlines() if COPY_MARK in line)
+        n = sum(1 for line in text_lines(f.read_text(encoding="utf-8", errors="ignore")) if COPY_MARK in line)
         if n:
             hits[str(f.relative_to(root))] = n
     return {"行": sum(hits.values()), "file": hits}

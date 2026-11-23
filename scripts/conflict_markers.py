@@ -28,6 +28,9 @@ import subprocess
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "skill-values"))
+from af_lines import text_lines  # noqa: E402  行の区切りの 1 本の口（\n・\r\n・\r だけで切る＝git・GitHub と同じ行）
+
 MARKER = re.compile(r"^(?:(?:<{7}|\|{7}|>{7})(?:[ \t].*)?|={7})\r?$")
 ROOT_CAUSE = ("直し: 意図（配る物が 1 つの版の文だけで届く）とのずれから入り、両方の版を読んで 1 つの文に合わせ、なぜ印のまま commit できたか"
               "（衝突を解いた後に check_all を回さず push した等）を細目 §3「まず構造を疑う」で探して直す")
@@ -90,7 +93,7 @@ def scan(root: Path) -> tuple[list[str], list[str]]:
             continue
         seen: set[tuple[int, str]] = set()
         for text in texts(data):
-            for n, line in enumerate(text.splitlines(), 1):
+            for n, line in enumerate(text_lines(text), 1):
                 if MARKER.match(line) and (n, line) not in seen:
                     seen.add((n, line))
                     found.append(f"{rel}:{n}: {line[:40]}")

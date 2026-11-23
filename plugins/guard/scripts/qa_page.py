@@ -202,7 +202,7 @@ def check_page(path, vals):
     except ValueError:
         red = []
     if p.returncode != 1 or not red:
-        tail = (p.stderr or p.stdout or "").strip().splitlines()[-3:]
+        tail = G.text_lines((p.stderr or p.stdout or "").strip())[-3:]
         return reason(path, why, ["  検査が壊れた（exit %d）: %s" % (p.returncode, " / ".join(tail))], chk)
     lines = ["  検査の赤 %d 件:" % len(red)]
     lines += ["    ✗ " + r for r in red[:RED_SHOWN]]
