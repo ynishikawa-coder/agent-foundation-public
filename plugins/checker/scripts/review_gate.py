@@ -62,15 +62,20 @@ def required_contexts(rules: list) -> list[str]:
     return out
 
 
-def check_states(runs: list, statuses: list, wruns: list | None = None) -> dict[str, str]:
+def check_states(runs: list, statuses: list, wruns: list | None = None, pr: int | None = None) -> dict[str, str]:
     """{検査の名: 状態}。check run は終わっていれば conclusion・まだなら status。
     check run は (名, app, 束ね先) で束ね、その中の新しい 1 本を取る。束ね先は、check_suite が同じ先端の workflow の走り
     （wruns）のどれかなら (workflow, event)＝同じ workflow を同じ event で走らせ直した新しい suite が古い suite を上書きする
     （PR の本文を直した edited の走り直しの緑が、本文を直す前の赤を消す）。それ以外は check_suite（別の app・別の
     workflow の同名の run は別の検査として数え、どれかが緑でない・終わっていなければ、その名の状態は緑でない方にする。
-    名だけで束ねると、別の suite の赤が同じ名の新しい緑で隠れ、関所が通った）。"""
+    名だけで束ねると、別の suite の赤が同じ名の新しい緑で隠れ、関所が通った）。走り直しが飛ばした（skipped・neutral）
+    run は前の赤を消さない（飛ばした job は照らしていない）。pr を渡すと、別の PR の走り（同じ先端を持つ base の違う PR）は
+    束ねず別に数える。"""
     suite_of: dict = {}
     for w in wruns or []:
+        others = [p.get("number") for p in (w.get("pull_requests") or [])]
+        if pr is not None and others and pr not in others:
+            continue
         if w.get("check_suite_id"):
             suite_of[w["check_suite_id"]] = (("wf", w.get("workflow_id") or w.get("name") or "", w.get("event") or ""),
                                              w.get("created_at") or "")
@@ -85,7 +90,9 @@ def check_states(runs: list, statuses: list, wruns: list | None = None) -> dict[
         where, born = suite_of.get(suite.get("id"), (suite.get("id") or "", ""))
         key = (name, app.get("id") or app.get("slug") or "", where)
         order = (born, when)   # 走り直した workflow は新しい suite の物（中の run の時刻より先に suite の生まれで比べる）
-        if key not in groups or order >= groups[key][0]:
+        if key in groups and order >= groups[key][0] and state in ("skipped", "neutral") and groups[key][1] not in OK:
+            groups[key] = (order, groups[key][1])   # 飛ばした走り直しで前の赤を消さない
+        elif key not in groups or order >= groups[key][0]:
             groups[key] = (order, state or "")
     out: dict[str, str] = {}
     for (name, _app, _where), (_order, state) in groups.items():
@@ -215,8 +222,15 @@ def read_facts(repo: str, number: int, token: str, wait=time.sleep):
     statuses = _pages("/repos/%s/commits/%s/statuses" % (repo, head), token)
     comments = _pages("/repos/%s/issues/%d/comments" % (repo, number), token)
     # 先端の workflow の走り: 同じ workflow を走らせ直した新しい suite で古い suite の結果を上書きするのに使う
-    wruns = _pages("/repos/%s/actions/runs?head_sha=%s" % (repo, head), token, key="workflow_runs")
-    states = check_states(runs, statuses, wruns)
+    # 読めない鍵（Actions を読む権限が無い）の時、必須の検査が在れば走りを束ねず suite ごとに数える（赤を残す向き）。
+    # PLAN_NONE は走りそのものを照らすので、読めない時は今までどおり上げる。
+    try:
+        wruns = _pages("/repos/%s/actions/runs?head_sha=%s" % (repo, head), token, key="workflow_runs")
+    except urllib.error.HTTPError as e:
+        if required is PLAN_NONE or e.code not in (403, 404):
+            raise
+        wruns = []
+    states = check_states(runs, statuses, wruns, number)
     if required is PLAN_NONE:   # 走った検査を全部照らす＝まだ check run を作っていない workflow の走りも入れる
         states.update(workflow_states(wruns))
     return pr, required, states, comments

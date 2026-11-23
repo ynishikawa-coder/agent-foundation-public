@@ -80,3 +80,35 @@ def test_workflow_の走りに無い_suite_は今までどおり別に数える(
     runs = [_cr("failure", "2026-11-23T01:00:00Z", 10), _cr("success", "2026-11-23T01:05:00Z", 11)]
     assert rg.check_states(runs, [], [_wr(11, 5, "2026-11-23T01:04:00Z")]) == {"check": "failure"}
     assert rg.check_states(runs, []) == {"check": "failure"}
+
+
+def test_走り直しが飛ばした_run_は前の赤を消さない():
+    """注入: edited の走りで job を飛ばした（skipped）新しい suite → 前の suite の赤を残す。"""
+    runs = [_cr("failure", "2026-11-23T01:00:00Z", 10), _cr("skipped", "2026-11-23T01:05:00Z", 11)]
+    wruns = [_wr(10, 5, "2026-11-23T00:59:00Z"), _wr(11, 5, "2026-11-23T01:04:00Z")]
+    assert rg.check_states(runs, [], wruns) == {"check": "failure"}
+
+
+def test_同じ先端を持つ別の_PR_の走りで赤を消さない():
+    """注入: 新しい緑の suite が別の PR（2 番）の走り → この PR（1 番）の赤を残す。"""
+    runs = [_cr("failure", "2026-11-23T01:00:00Z", 10), _cr("success", "2026-11-23T01:05:00Z", 11)]
+    wruns = [dict(_wr(10, 5, "2026-11-23T00:59:00Z"), pull_requests=[{"number": 1}]),
+             dict(_wr(11, 5, "2026-11-23T01:04:00Z"), pull_requests=[{"number": 2}])]
+    assert rg.check_states(runs, [], wruns, 1) == {"check": "failure"}
+    wruns[1]["pull_requests"] = [{"number": 1}]
+    assert rg.check_states(runs, [], wruns, 1) == {"check": "success"}
+
+
+def test_Actions_を読めない鍵でも必須の検査が緑なら関所は今までどおり通す(monkeypatch):
+    """注入: /actions/runs が 403 → 走りを束ねず suite ごとに数える（読めないから止める・通すにしない）。"""
+    import io
+    import urllib.error
+    base = _github([_cr("success", "2026-11-23T01:00:00Z", 10)], [])
+
+    def get(path, token):
+        if "/actions/runs" in path:
+            raise urllib.error.HTTPError(path, 403, "Resource not accessible", {}, io.BytesIO(b"{}"))
+        return base(path, token)
+    monkeypatch.setattr(rg, "TIP", "fedcba987654")
+    monkeypatch.setattr(rg, "_get", get)
+    assert rg.main(["--repo", "o/r", "--pr", "1"]) == 0
