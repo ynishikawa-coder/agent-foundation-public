@@ -313,8 +313,10 @@ def main(argv=None) -> int:
             skipped += 1
     if total:
         print(f"refs: 赤 外れた指し {total} 件")
-        print("直し: 指しを今の名に替える（番号は付けない）。名が消えた・変わった訳は土台の変更の記録（CHANGELOG.d の「壊れる」）を引き、"
-              "指す形が要る訳は、意図（指しが土台の今の名に合う）とのずれから入り、細目「まず構造を疑う」で探す")
+        sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
+        from root_cause import root_cause  # noqa: E402  根治の 1 文（細目 §3「まず構造を疑う」へ入る）の 1 本の口（plugin の lib/ の symlink）
+        print(root_cause("指しが土台の今の名に合う", cause="指しが外れた", shortcut="指しを今の名に替える")
+              + "（番号は付けない。名が消えた・変わった訳は土台の変更の記録＝CHANGELOG.d の「壊れる」を引く）")
         return 1
     if skipped:
         print(f"refs: 照らせない 指し {skipped} 件（外れ 0）。土台の repo の取り出しを --root で渡すと全部照らせる")

@@ -18,28 +18,23 @@ from root_cause import ENTRY, root_cause  # noqa: E402
 COPY = re.compile(r"とのずれから入")
 SUFFIXES = {".py", ".sh", ".mjs", ".js"}
 
-# まだ 1 本の口へ寄せていない所（持ち主は後の段の窓・PR の「残り」に在る）。寄せたら消す。ここに無い所に写しが出たら赤。
+# まだ 1 本の口へ寄せていない所と残す訳（持ち主は PR の「残り」に在る）。寄せたら消す。ここに無い所に写しが出たら赤・写しが無くなったのに残っていても赤。
 REMAINING = {
-    "plugins/checker/scripts/pr_writer.py",
-    "plugins/checker/scripts/review_gate.py",
-    "plugins/dev-flow/skills/codex/codex_pack.py",
-    "plugins/dev-flow/skills/spec-doc/seal.py",
-    "plugins/docs-kit/skills/theory-mock/scripts/check_theory_mock.py",
-    "plugins/docs-kit/skills/big-picture/scripts/big_picture.py",
-    "plugins/docs-kit/skills/make-deck/scripts/render_prompt.py",
-    "plugins/docs-kit/skills/make-deck/scripts/finish_deck.py",
-    "plugins/docs-kit/skills/qa-html/check.mjs",
-    "plugins/docs-kit/skills/blueprint/scripts/check_blueprint.py",
-    "plugins/core/scripts/copies.py",
-    "plugins/core/scripts/kaku.py",
-    "plugins/core/scripts/refs.py",
-    "scripts/checks/conftest_teeth.sh",
-    "scripts/checks/public_guard.sh",
-    "scripts/check_all.sh",
-    "scripts/setup_plugins.py",  # 窓を立てる入口。試験の作り物が入口と kaku.py だけを写して回すので、skill-values を読まない形のまま（残り）
-    "public-guard/guard.py",
-    "public-guard/patrol.py",
+    "plugins/core/scripts/kaku.py": "段 5 の窓の持ち分（合流の後に寄せる）",
+    "plugins/docs-kit/skills/qa-html/check.mjs": "Node から Python の口を読めない",
+    "plugins/docs-kit/skills/big-picture/scripts/big_picture.py": "ROOT_CAUSE_DIFF は差をオーナーに決めてもらう別の形（ROOT_CAUSE は口を呼ぶ）",
+    "plugins/dev-flow/skills/spec-doc/seal.py": "docstring の説明の文（知らせの文は口を呼ぶ）",
+    "scripts/check_all.sh": "shell から Python の口を読めない・落ちた検査ごとに意図が変わる別の形",
+    "scripts/checks/conftest_teeth.sh": "shell から Python の口を読めない（形は FORM_COPIES で口と照らす）",
+    "scripts/checks/public_guard.sh": "shell から Python の口を読めない（形は FORM_COPIES で口と照らす）",
+    "scripts/setup_plugins.py": "窓を立てる入口。試験の作り物が入口と kaku.py だけを写して回すので skill-values を読めない",
+    "public-guard/guard.py": "他の repo の CI で単独で動く action で、lib に頼れない（形は FORM_COPIES で口と照らす）",
+    "public-guard/patrol.py": "他の repo の CI で単独で動く action で、lib に頼れない（形は FORM_COPIES で口と照らす）",
 }
+
+# 口を読めないので写しのまま残す所のうち、口と同じ形の文を持つ物。口の形を変えたら、ここが赤になって写しの直し漏れを名指す。
+FORM_COPIES = ("public-guard/guard.py", "public-guard/patrol.py", "scripts/setup_plugins.py",
+               "scripts/checks/conftest_teeth.sh", "scripts/checks/public_guard.sh")
 
 
 def copies(text):
@@ -66,6 +61,33 @@ def test_根治の1文は1本の口の外に写されない():
     assert not bad, "根治の 1 文を写さず skill-values/root_cause.py の root_cause() を呼ぶ: %s" % bad
 
 
+def test_残りの表に写しの無い所を残さない():
+    found = offenders()
+    stale = [k for k in REMAINING if k not in found]
+    assert not stale, "写しが無くなった所は REMAINING から消す: %s" % stale
+
+
+def form():
+    """口の文の形を、4 つの欄を埋め所にした正規表現にする（口から作るので、口の形と一緒に動く）。"""
+    t = re.escape(root_cause("QQ0QQ", "QQ1QQ", "QQ2QQ", "QQ3QQ"))
+    for i, g in enumerate(("(?P<intent>[^）]+)", "(?P<cause>[^、]*?)", "(?P<shortcut>.+?)", "(?P<where>(?:（[^）]*）)?)")):
+        t = t.replace("QQ%dQQ" % i, g)
+    return re.compile(t)
+
+
+def test_口を読めない写しは口と同じ形():
+    f = form()
+    for rel in FORM_COPIES:
+        lines = (ROOT / rel).read_text(encoding="utf-8").splitlines()
+        assert any(f.search(l) for l in lines if COPY.search(l)), "口の形とずれた写し（口に合わせて直す）: %s" % rel
+
+
+def test_注入_形のずれた写しは口の形に合わない():
+    f = form()
+    assert f.search(root_cause("守る物", cause="崩れた", shortcut="出し直す", where="（作り方）"))
+    assert not f.search("直し: 出し直さず、意図（守る物）とのずれから入り、崩れた原因を細目 §3「まず構造を疑う」で探して直す")
+
+
 def test_注入_写した1文が戻ると拒む():
     restored = 'ROOT_CAUSE = "直し: 出し直すだけで済ませず、意図（守る物）とのずれから入り、その形が出た原因を細目 §3「まず構造を疑う」で探して直す"'
     assert copies(restored)
@@ -76,12 +98,20 @@ def test_寄せた道具は口を呼ぶ():
     for rel in ("plugins/guard/scripts/guard.py", "plugins/guard/scripts/unanswered.py", "plugins/guard/scripts/values_keys.py",
                 "plugins/session-watch/scripts/session_watch.py", "skill-values/skill_values.py",
                 "scripts/plugin_smoke.py", "scripts/pr_overlap.py", "scripts/pr_shape.py", "scripts/conflict_markers.py",
-                "scripts/call_flows.py", "scripts/changelog.py", "scripts/ruleset_apply.py"):
+                "scripts/call_flows.py", "scripts/changelog.py", "scripts/ruleset_apply.py",
+                "plugins/checker/scripts/pr_writer.py", "plugins/checker/scripts/review_gate.py",
+                "plugins/core/scripts/copies.py", "plugins/core/scripts/refs.py",
+                "plugins/dev-flow/skills/codex/codex_pack.py", "plugins/dev-flow/skills/spec-doc/seal.py",
+                "plugins/docs-kit/skills/theory-mock/scripts/check_theory_mock.py",
+                "plugins/docs-kit/skills/blueprint/scripts/check_blueprint.py",
+                "plugins/docs-kit/skills/big-picture/scripts/big_picture.py",
+                "plugins/docs-kit/skills/make-deck/scripts/render_prompt.py",
+                "plugins/docs-kit/skills/make-deck/scripts/finish_deck.py"):
         assert "root_cause(" in (ROOT / rel).read_text(encoding="utf-8"), rel
 
 
 def test_各_plugin_の_lib_の口は正本への_symlink():
-    for p in ("guard", "session-watch", "dev-flow", "docs-kit"):
+    for p in ("guard", "session-watch", "dev-flow", "docs-kit", "checker", "core"):
         f = ROOT / "plugins" / p / "lib" / "root_cause.py"
         assert f.is_symlink() and f.resolve() == (ROOT / "skill-values" / "root_cause.py").resolve(), p
 
@@ -91,3 +121,5 @@ def test_口の文は意図から入り入口を指す():
     assert s.startswith("直し: 出し直すだけで済ませず、意図（守る物）とのずれから入り、崩れた原因を")
     assert s.endswith(ENTRY + "で探して直す")
     assert s.find("意図") < s.find("原因")
+    w = root_cause("守る物", cause="崩れた", where="（作り方）")
+    assert "崩れた原因（作り方）を" + ENTRY in w

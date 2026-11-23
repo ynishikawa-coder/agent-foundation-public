@@ -1,4 +1,4 @@
-- 畳んだ（トークン削減 段2）: 止めた・赤の知らせの根治の 1 文を、道具ごとの写しから skill-values/root_cause.py の 1 本の口（各 plugin の lib/ へ symlink）へ寄せた。写しが戻ると赤（tests/test_root_cause_one_source.py）。
+- 畳んだ（トークン削減 段2）: 止めた・赤の知らせの根治の 1 文を、道具ごとの写しから skill-values/root_cause.py の 1 本の口（各 plugin の lib/ へ symlink）へ寄せた。寄せた道具は scripts/・guard・session-watch・checker（pr_writer・review_gate）・core（copies・refs）・dev-flow（codex_pack・seal）・docs-kit（theory-mock・blueprint・big-picture・make-deck）。口に原因の後の括弧（探す所）の欄 where を足した。写しが戻ると赤・口を読めず写しで残る所（public-guard・shell）は口と同じ形かを照らす（tests/test_root_cause_one_source.py）。
 - 直した: session-watch の題の知らせ（REMIND・REMIND_PARENT・REMIND_CHILD）が見せる種類×状態の印を、照らしの正本 TITLE_TABLE から作るようにした（表と知らせが食い違うと赤）。
 - 畳んだ: 返事の見張りの「止める物ではない」の添え書きを、誤りうる知らせ（中の言葉・時刻・完了の言い切り）にだけ付けるようにした。
 - 畳んだ: 12 の SKILL.md の値の表の説明の段落を、正本 skill-values/skill_values.py を指す 1 行にした（指し先が死ぬと赤）。qa-html の値の表の later_lead の重複行と、振る舞いの既定の「細目.md」（今は 細目/ の dir）を直した。

@@ -223,7 +223,9 @@ def main(argv=None, read=read_facts) -> int:
         print("review_gate: 入ってよい — #%d@%s %s が緑・mergeable_state clean・この先端の判定はまだ無い" % (a.pr, head, what))
         return 0
     print("review_gate: %s — #%d@%s（判定に入らない。書いた窓へ「%s」と訳だけを返す）" % (kind, a.pr, head, kind))
-    print("直し: 書いた窓は訳を 1 つずつ潰さず、意図（レビューは中身だけを 1 回見る）とのずれから入り、検査の赤・衝突の原因を細目 §3「まず構造を疑う」で探して直してからレビューを頼む")
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
+    from root_cause import root_cause  # noqa: E402  根治の 1 文（細目 §3「まず構造を疑う」へ入る）の 1 本の口（plugin の lib/ の symlink）
+    print(root_cause("レビューは中身だけを 1 回見る", cause="検査の赤・衝突の", shortcut="書いた窓が訳を 1 つずつ潰す") + "。直してからレビューを頼む")
     return 1
 
 

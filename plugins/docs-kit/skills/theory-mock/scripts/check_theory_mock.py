@@ -29,7 +29,9 @@ from pathlib import Path
 CHROME_ENV = "CHROME"   # 明示の時だけ（既定は下の探し方）
 TIMEOUT_SEC = 90
 # NG の時の最後の行（中身は細目 §3 が正本＝ここは指すだけ）
-ROOT_CAUSE = "直し: NG の行を 1 つずつ潰さず、意図（枠どおりに触れて答えを貼り戻せるモック）とのずれから入り、細目 §3「まず構造を疑う」で原因（枠の使い方・題材の組み方）を探して直す"
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent.parent / "lib"))
+from root_cause import root_cause  # noqa: E402  根治の 1 文（細目 §3「まず構造を疑う」へ入る）の 1 本の口（plugin の lib/ の symlink）
+ROOT_CAUSE = root_cause("枠どおりに触れて答えを貼り戻せるモック", cause="", shortcut="NG の行を 1 つずつ潰す", where="（枠の使い方・題材の組み方）")
 
 
 def find_chrome() -> str | None:

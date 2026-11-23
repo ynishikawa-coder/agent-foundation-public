@@ -231,7 +231,8 @@ def main(argv=None) -> int:
         return subprocess.run([sys.executable, str(gate), str(spec), "--lock"]).returncode
     except Abort as e:
         print(f"seal: 中止 — {e}", file=sys.stderr)
-        print("直し: 値や入力を差し替えて出し直すだけで済ませず、意図（gate を通った設計書だけを封じる）とのずれから入り、崩れた原因を細目 §3「まず構造を疑う」で探して直す", file=sys.stderr)
+        from root_cause import root_cause  # noqa: E402  根治の 1 文（細目 §3「まず構造を疑う」へ入る）の 1 本の口（plugin の lib/ の symlink）
+        print(root_cause("gate を通った設計書だけを封じる", cause="崩れた", shortcut="値や入力を差し替えて出し直す"), file=sys.stderr)
         return 1
 
 
