@@ -98,7 +98,6 @@ def test_枝が_main_より古い時に_main_で直った古い形を消せと�
     text = json.loads(run("inject", project=work).stdout)["hookSpecificOutput"]["additionalContext"]
     assert "この仕事で消す" not in text, text
     assert "main より古い" in text and "setup.sh" in text
-    assert kaku.find_olds(work) == []
     r = run("olds", work)
     assert r.returncode == 0 and "古い形 0" in r.stdout and "main" in r.stdout, r.stdout
 

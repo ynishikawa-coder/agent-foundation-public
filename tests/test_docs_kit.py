@@ -323,7 +323,7 @@ def test_引いた結果に答え済みの鍵があれば赤(tmp_path):
     prior.write_text(json.dumps({"answered": {"q2": "https://example.com/answers/12"}, "checked": {}}), encoding="utf-8")
     red = run_check_args(page, "--prior", str(prior))["red"]
     assert red == ["問い q2: 前の答えで答え済み（https://example.com/answers/12）＝問いから外す（作り方 0）"], red
-    # ページの隣の <名>.prior.json は --prior を渡さなくても読む（guard の qa_page はページの path だけで呼ぶ）
+    # ページの隣の <名>.prior.json は --prior を渡さなくても読む（呼ぶ側はページの path だけを渡す）
     (tmp_path / "確認.prior.json").write_text(prior.read_text(encoding="utf-8"), encoding="utf-8")
     assert run_check(page)["red"] == red
 
@@ -409,7 +409,7 @@ def test_別の版のページで引いた結果は赤(tmp_path):
 
 @needs_node
 def test_guard_と同じ呼び方でも値の表を見つける(tmp_path):
-    """guard の qa_page は cwd をページの dir にして呼ぶ。ページが repo の外（窓の scratchpad）でも、窓の repo の値の表の命令が効く。"""
+    """cwd をページの dir にして呼ぶ。ページが repo の外（窓の scratchpad）でも、窓の repo の値の表の命令が効く。"""
     repo = tmp_path / "repo"
     repo.mkdir()
     write_values(repo, {"prior_check_cmd": prior_cmd(tmp_path)})

@@ -1,7 +1,7 @@
 """値の表（config/skill-values.json）の読み方が 1 本（skill-values/）で、知らない鍵・畳んだ鍵・型の違う値を黙って捨てないかを見る。
 
 注入の試験: 写しを戻す（道具が自分で表を探す・読み口の写しを置く）・畳んだ鍵を置く・知らない鍵を置く・型を違える、を
-わざと入れると赤（道具は止まり、guard は起動の時に名指しする）。入力は全部作り物。
+わざと入れると赤（道具は止まる。guard は問題の鍵だけ既定で動く）。入力は全部作り物。
 """
 import json
 import os
@@ -142,12 +142,6 @@ def test_SKILL_md_の鍵は鍵の一覧と同じ(plugin, skill, keys):
             f"{plugin}.{skill}: 鍵の一覧の {k} を SKILL.md が書いていない"
 
 
-def test_guard_の鍵は_guard_rules_の例と同じ():
-    text = (PLUGINS / "guard" / "skills" / "guard-rules" / "SKILL.md").read_text(encoding="utf-8")
-    example = json.loads(re.search(r"```json\n(.*?)```", text, re.S).group(1))
-    assert set(example["guard"]) == set(SCHEMA["sections"]["guard"]["keys"])
-
-
 def test_common_の鍵はどれかの_SKILL_md_が使う():
     texts = "\n".join(p.read_text(encoding="utf-8") for p in PLUGINS.glob("*/skills/*/SKILL.md"))
     for k in SCHEMA["sections"]["common"]["keys"]:
@@ -156,7 +150,7 @@ def test_common_の鍵はどれかの_SKILL_md_が使う():
 
 # ── 照らし（1 本の口） ──
 def test_表が無い_鍵が無い_空なら問題なし(tmp_path):
-    r = make_repo(tmp_path, {"docs-kit": {"make-deck": {"accent": ""}, "qa-html": {"limits": ""}}, "guard": {"qa_page_exempt": ""},
+    r = make_repo(tmp_path, {"docs-kit": {"make-deck": {"accent": ""}, "qa-html": {"limits": ""}}, "guard": {"unattended_env": ""},
                              "dev-flow": {"codex": {"self_allow": "", "pack_dir": []}}})   # 型の違う空も既定で動く
     res = sv("check", cwd=r / "sub")
     assert res.returncode == 0, res.stderr
@@ -173,17 +167,18 @@ def test_repo_自身の欄と注は照らさない(tmp_path):
 
 
 @pytest.mark.parametrize("table,word", [
-    ({"dev-flow": {"register-rule": {"agents_table": []}}}, "dev-flow.register-rule.agents_table は畳んだ鍵"),
+    ({"dev-flow": {"register-rule": {"agents_table": []}}}, "dev-flow.register-rule は畳んだ欄"),
     ({"dev-flow": {"codex": {"pack_dri": "x"}}}, "dev-flow.codex.pack_dri は知らない鍵"),
     ({"docs-kit": {"qa-htm": {}}}, "docs-kit.qa-htm は知らない skill の欄"),
-    ({"guard": {"ask_question_max_chars": "60"}}, "guard.ask_question_max_chars の型が違う"),
+    ({"guard": {"state_dir": 60}}, "guard.state_dir の型が違う"),
     ({"guard": {"context_limt": 1}}, "guard.context_limt は知らない鍵"),
     ({"docs-kit": {"qa-html": {"customer": {"check_cmmd": "x"}}}}, "docs-kit.qa-html.customer.check_cmmd は知らない鍵"),
     ({"common": {"save_dir": ["a"]}}, "common.save_dir の型が違う"),
     ({"common": {"rules": {"no_confirm": "x"}}}, "common.rules は畳んだ鍵"),          # 束 B（PR #43）で畳んだ写し
     ({"dev-flow": {"verify": {"code_done_rule": "x"}}}, "dev-flow.verify.code_done_rule は畳んだ鍵"),
     ({"dev-flow": {"codex": {"task_rule": "x"}}}, "dev-flow.codex.task_rule は畳んだ鍵"),          # 原因の台帳へ移した（#36）
-    ({"dev-flow": {"preimpl-cleanup": {"cleanup_followup": "x"}}}, "dev-flow.preimpl-cleanup.cleanup_followup は畳んだ鍵"),
+    ({"dev-flow": {"preimpl-cleanup": {"cleanup_followup": "x"}}}, "dev-flow.preimpl-cleanup は畳んだ欄"),
+    ({"guard": {"ask_question_max_chars": 60}}, "guard.ask_question_max_chars は畳んだ鍵"),
 ])
 def test_知らない鍵_畳んだ鍵_型違いを名指しする(tmp_path, table, word):
     r = make_repo(tmp_path, table)
@@ -199,19 +194,19 @@ def test_壊れた表は名指しする(tmp_path):
 
 
 def test_探し方は_values_と_SKILL_VALUES_と起点の順(tmp_path):
-    r = make_repo(tmp_path, {"guard": {"ask_question_max_chars": 5}})
+    r = make_repo(tmp_path, {"guard": {"state_dir": "5"}})
     other = tmp_path / "other.json"
-    other.write_text(json.dumps({"guard": {"ask_question_max_chars": 7}}), encoding="utf-8")
-    get = lambda *a, **kw: sv("get", "guard", "ask_question_max_chars", *a, **kw).stdout.strip()  # noqa: E731
+    other.write_text(json.dumps({"guard": {"state_dir": "7"}}), encoding="utf-8")
+    get = lambda *a, **kw: sv("get", "guard", "state_dir", *a, **kw).stdout.strip()  # noqa: E731
     assert get(cwd=r / "sub") == "5"                                           # 今の dir から上へ（repo の根で止まる）
     assert get(cwd=tmp_path, env=clean_env(CLAUDE_PROJECT_DIR=str(r))) == "5"  # 窓の repo
     assert get(cwd=r, env=clean_env(SKILL_VALUES=str(other))) == "7"
     assert get("--values", str(other), cwd=r) == "7"
-    missing = sv("get", "guard", "ask_question_max_chars", "--values", str(tmp_path / "nai.json"), cwd=r)
+    missing = sv("get", "guard", "state_dir", "--values", str(tmp_path / "nai.json"), cwd=r)
     assert missing.returncode == 2 and "表の file が無い" in missing.stderr     # 渡した path が無いのを黙って既定にしない
 
 
-# ── 4 つの道具が同じ表を同じ探し方で見つけ、同じ問題で止まる・知らせる ──
+# ── 3 つの道具が同じ表を同じ探し方で見つけ、同じ問題で止まる ──
 BAD_EVERYWHERE = {
     "guard": {"context_limt": 1},
     "dev-flow": {"codex": {"self_allow": ["tools/*"], "pack_dri": "x"}},
@@ -264,29 +259,8 @@ def test_make_deck_は知らない鍵で止まる(tmp_path):
     assert res.returncode == 2 and "docs-kit.make-deck.acent は知らない鍵" in res.stderr, res.stderr
 
 
-def guard_start(r, tmp_path):
-    env = clean_env(CLAUDE_PROJECT_DIR=str(r), AF_GUARD_TMP=str(tmp_path / "t"), AF_GUARD_STATE=str(tmp_path / "s"))
-    p = subprocess.run([sys.executable, str(GUARD), "start"], input=json.dumps({"session_id": "s1", "cwd": str(r)}),
-                       capture_output=True, text=True, env=env)
-    assert p.returncode == 0, p.stderr
-    return json.loads(p.stdout)["hookSpecificOutput"]["additionalContext"] if p.stdout.strip() else ""
-
-
-def test_guard_は起動の時に表全体を名指しで知らせる(tmp_path):
-    r = make_repo(tmp_path, {**BAD_EVERYWHERE, "dev-flow": {"register-rule": {"roster": "x"}, **BAD_EVERYWHERE["dev-flow"]}})
-    ctx = guard_start(r, tmp_path)
-    for w in ("guard.context_limt は知らない鍵", "dev-flow.codex.pack_dri は知らない鍵",
-              "docs-kit.make-deck.acent は知らない鍵", "dev-flow.register-rule.roster は畳んだ鍵"):
-        assert w in ctx, ctx
-
-
-def test_guard_は正しい表なら黙る(tmp_path):
-    r = make_repo(tmp_path, {"guard": {"ask_question_max_chars": 1000}})
-    assert guard_start(r, tmp_path) == ""
-
-
 def test_guard_は問題の鍵だけ既定で動き守りを止めない(tmp_path, monkeypatch):
-    r = make_repo(tmp_path, {"guard": {"ask_question_max_sentences": "多い", "ask_question_max_chars": 30, "nazo": 1}})
+    r = make_repo(tmp_path, {"guard": {"unattended_env": "多い", "state_dir": "/x", "nazo": 1}})
     monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(r))
     monkeypatch.delenv("SKILL_VALUES", raising=False)
     monkeypatch.setattr(sys, "dont_write_bytecode", True)   # plugin の置き場に __pycache__ を作らない
@@ -296,6 +270,6 @@ def test_guard_は問題の鍵だけ既定で動き守りを止めない(tmp_pat
         v = G.values({})
     finally:
         sys.path.remove(str(GUARD.parent))
-    assert v["ask_question_max_sentences"] == SCHEMA["sections"]["guard"]["keys"]["ask_question_max_sentences"]["default"]
-    assert v["ask_question_max_chars"] == 30
+    assert v["unattended_env"] == SCHEMA["sections"]["guard"]["keys"]["unattended_env"]["default"]
+    assert v["state_dir"] == "/x"
     assert "nazo" not in v

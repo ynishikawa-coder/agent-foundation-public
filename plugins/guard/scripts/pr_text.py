@@ -1,13 +1,7 @@
-"""PreToolUse — PR の題・本文と、PR・issue へのコメントを、GitHub へ出す前に照らす。崩れていれば AI だけを止めて書き直させる。
+"""PreToolUse — PR の題・本文と、PR・issue へのコメント・MCP から出す commit の説明を、公開の repo なら GitHub へ出す前に公開の検査に通す。
 
-意図: レビューの判定の形・PR 本文の整地の欄・人が読む文の言葉・公開の repo に置かない物を、GitHub に出る前に照らす
-（オーナー同意 2026-11-19: 決まりが文で知らせるだけで、AI が読み飛ばすとそのままオーナーに届く所は、AI だけ止めて書き直させてよい）。
-止まるのは AI の道具の呼び出しだけ（文はまだ GitHub に出ていない）。人の操作は何も止めない。
-課題: 形の崩れた判定が合流の材料になり、欄の欠けた PR 本文がレビューで初めて見つかり、
-公開の repo の PR 本文に置かない語が出て GitHub の編集の履歴に残った。
-原因: 決まりと道具はあるのに、AI が自分で回すか、出した後に CI やレビューが拾うだけだった。
-公開かの見分けは手元の取り出しの workflow だけを読み、取り出しが無い・workflow が読めない時を「公開でない」と読んで照らしを
-飛ばしていた（決められない時に通す側へ倒れていた）。
+意図: 公開の repo に置かない物（秘密・個人の情報・顧客の語・置かない語）を、GitHub に出る前に照らす（核 §1-4。GitHub の本文は
+書き替えても古い版が編集の履歴に公開で残る）。止まるのは AI の道具の呼び出しだけ。人の操作は何も止めない。
 
 見る道具: 名の末尾（MCP の server の名は問わない）で見分ける。
   PR     … create_pull_request・update_pull_request（題・本文）
@@ -17,19 +11,6 @@
   commit … merge_pull_request（commit_title・commit_message）・push_files・create_or_update_file・delete_file（message）
            ＝MCP から出す commit の説明。公開の検査だけを当てる
 照らす物（見分けは正本を直に読む・呼ぶ。ここに決まりを写さない）:
-  verdict … （材料は記録から: 出す先の PR の先端と、PR の commit 全部の `Claude-Session:` の窓（書いた窓の組）を gh で引き
-            --head・--writer で、判定を出す窓の本物の id を窓の環境の記録（CLAUDE_CODE_REMOTE_SESSION_ID）から読み --reviewer で
-            渡す。判定の 1 行目の名乗りは手で書いた写しで、照らされる側。本文の `書いた窓:` は読まない。PR のコメントから初めの判定の
-            決まりの版を verdict_form.first_rules で読み --first で渡す〔無ければ なし〕。どれかが引けなければ止める）
-            コメントがレビューの判定（どの行かに `レビューした窓: … 判定: green|red` が揃うか、verdict の見出しが在る）なら、checker の
-            `scripts/verdict_form.py` をそのまま呼ぶ。赤なら止める。道具が見つからない・壊れた時も止める
-  cleanup … PR の本文（本文を渡す時だけ）に、dev-flow の preimpl-cleanup の `整地受領証.template.md` の見出し
-            （`## 1.` からの番号つき。見出しの名と数は雛形から読む）が全部在り、雛形の `〔…〕` が残っていない事。整地の要らない PR
-            （振る舞いを変えない: 誤字・記録だけ・版だけ等）は本文に `整地: 不要（<訳>）` の 1 行を書く（訳はレビューが照らす）
-  words   … PR の題・本文に、窓の id（`session_01…`）がそのまま出ていない事。本文の頭の欄の塊（1 行目から最初の空行まで）の
-            窓の id を書く欄（PR の型から畳んだ書いた窓・親窓の欄。使う側の型に残る間は）・コードの囲み・`…` の字・URL の中は
-            数えない（job・検査 等の欄や、頭の塊の外で同じ字で始まる行は数える。親窓は照らせない写しなので PR の型に置かない＝
-            窓の親はサーバの記録 get_session を読む）
   public  … 公開の repo（窓の repo の取り出しの workflow が action public-guard を呼ぶ／値の表 public_repos_extra）なら、
             題・本文を `public-guard/guard.py --text` に渡す（呼び口の見分けと置かない語の表は workflow の読み手
             public-guard/workflow_reader.py が正本: PR・push で走る job の step の呼び口だけを数え、語の表は全部の呼び口の with: の
@@ -39,15 +20,11 @@
             分からない時は公開）。取り出しに開けない・壊れた workflow が 1 つでも在れば公開として照らす（その分の語の表は読めない）
             検査が見つからない・壊れた時も止める（公開の repo へは、照らせない文を出さない）
             開けない・壊れた workflow は出した後（PostToolUse の notice）にも名と訳を知らせる
-誤って止めた時: 値の表 pr_cleanup_exempt_repos・pr_words_exempt_repos（owner/repo の名の全体に当てる正規表現・^ で始め $ で終える＝
-型 repo_names）で repo ごとに外す。
-判定の形と公開の検査は外す口を持たない（直すのは文の方・判定の形の決まりは review-pr の SKILL.md が正本）。
-値の表は PR とレビューを通る＝窓の一存では外れない。
+公開の検査は外す口を持たない（直すのは文の方）。
 """
 from __future__ import annotations
 
 import glob
-import json
 import os
 import re
 import subprocess
@@ -67,23 +44,8 @@ ISSUE_TOOLS = ("issue_write",)
 COMMIT_TOOLS = ("merge_pull_request", "push_files", "create_or_update_file", "delete_file")
 COMMIT_FIELDS = (("commit_title", "commit の題"), ("commit_message", "commit の説明"), ("message", "commit の説明"))
 
-VERDICT_FORM = ("checker", os.path.join("scripts", "verdict_form.py"), "AF_VERDICT_FORM")
-CLEANUP_TEMPLATE = ("dev-flow", os.path.join("skills", "preimpl-cleanup", "整地受領証.template.md"), "AF_CLEANUP_TEMPLATE")
-
-# 判定の形の印（review-pr の形）: 名乗りの欄と判定が 1 行に揃う行（どの行でも・`:` の全角半角を問わない）か、verdict の見出し
-# （# の数・大小文字を問わない）。引用（行頭の `>`）の中は、前の判定を引いた返事なので数えない。
-VERDICT_LINE = re.compile(r"^[ \t]*レビューした窓\s*[:：].*判定\s*[:：]\s*(?:green|red)\b", re.M | re.I)
-VERDICT_HEAD = re.compile(r"^[ \t]*#{1,6}\s*verdict\s*$", re.M | re.I)
-NOT_NEEDED = re.compile(r"^\s*(?:[-*]\s*)?\**整地\**\s*[:：]\s*(?:不要|要らない)\s*[（(]\s*(?![<＜〔])\S[^)）]*[)）]", re.M)
-TEMPLATE_HEAD = re.compile(r"^## (\d+)\. (.+?)\s*$", re.M)
-PLACEHOLDER = re.compile(r"〔[^〕\n]{4,}〕")
-HEAD_FIELD = re.compile(r"^\s*(?:書いた窓|親窓)\s*[:：]")   # 窓の id を書く頭の欄（本文の頭の塊の中だけ数えない）。
-# 親窓は畳んだ欄（照らせない写し）。使う側の PR の型に残る間は古い本文も通す（壊れる 1 段目・古い形 pr-parent-field）
-SESSION_ID = re.compile(r"(?<![A-Za-z0-9_/])session_0[A-Za-z0-9]{15,}")
 URL = re.compile(r"https?://\S+")
-FENCE = re.compile(r"^\s*(```|~~~).*?^\s*\1", re.M | re.S)
-INLINE = re.compile(r"`[^`\n]+`")
-COMMENT = re.compile(r"<!--.*?-->", re.S)
+
 
 
 def tool_kind(name):
@@ -121,13 +83,6 @@ def _repo_rows(key, data, vals):
     return [r for r in rows if r not in bad], bad
 
 
-def _exempt(key, repo, data, vals):
-    """外す側の鍵（pr_cleanup_exempt_repos・pr_words_exempt_repos）に repo が在るか。名の全体の形の行だけで当てる
-    （形の違う行は外さず照らす向き＝値の表の照らしが名指す）。"""
-    good, _ = _repo_rows(key, data, vals)
-    return _matches(good, repo)
-
-
 def _public_extra(repo, data, vals):
     """値の表 public_repos_extra に repo が在るか。名の全体の形の行は全体の一致で当てる。形の違う行は、名の一部にでも
     当たれば公開と見る（公開の照らしを黙って外さない＝安全の守り。形の違いは値の表の照らしが名指す）。"""
@@ -141,19 +96,6 @@ def _public_extra(repo, data, vals):
         except re.error:
             continue
     return False
-
-
-def _find_sibling(plugin, rel, env_name, data):
-    """隣の plugin の正本の在り処。探す順: 環境変数 → 窓の repo の作業の木（見る点を変える PR の枝でもその枝の表で照らす）
-    → 土台の共通の在り処探し（guard_common.sibling_plugin_file・qa_page と同じ口）。"""
-    env = os.environ.get(env_name) or ""
-    if env:
-        return env if os.path.isfile(env) else ""
-    root = G.project_dir(data)
-    cand = os.path.join(root, "plugins", plugin, rel) if root else ""
-    if cand and os.path.isfile(cand):
-        return cand
-    return G.sibling_plugin_file(plugin, rel)
 
 
 def _tmp_file(text, name):
@@ -174,211 +116,7 @@ def _run(cmd, cwd=None):
     return subprocess.run(cmd, capture_output=True, text=True, timeout=TIMEOUT, cwd=cwd)
 
 
-# ── verdict（レビューの判定の形）──
-def looks_verdict(body):
-    """判定のコメントか。判定の形そのものの印（名乗りと判定が揃う行か verdict の見出し）だけで見分ける。
-    文中に「判定: green」と書いた普通のコメントや「レビューした窓は…」で始まる文は判定と見なさない。"""
-    body = FENCE.sub(" ", COMMENT.sub(" ", body))
-    return bool(VERDICT_LINE.search(body) or VERDICT_HEAD.search(body))
-
-
-# commit の書き手の記録（窓が commit の度に付ける行）。PR の commit 全部から読み、書いた窓の組にする
-COMMIT_SESSION = re.compile(r"^Claude-Session:\s*\S*?(session_[A-Za-z0-9]+)\s*$", re.M)
-# 窓の環境の記録（harness が hook に渡す。cse_<x> → session_<x>）。道具の呼び出しの文では変えられない
-REMOTE_ID = re.compile(r"^cse_([A-Za-z0-9]+)$")
-NUMBER_KEYS = ("issue_number", "pullNumber", "pull_number")
-
-
-def _gh(args):
-    return subprocess.run(["gh", "api", *args], capture_output=True, text=True, timeout=TIMEOUT)
-
-
-def poster_id(env=None):
-    """判定を出す窓の本物の session id（窓の環境の記録 CLAUDE_CODE_REMOTE_SESSION_ID の cse_<x> → session_<x>）か ""。
-    hook の入力の session_id は手元の会話ログの id（UUID）で、commit の Claude-Session・判定の名乗りの形と違うので使えない。"""
-    m = REMOTE_ID.match(str((os.environ if env is None else env).get("CLAUDE_CODE_REMOTE_SESSION_ID") or "").strip())
-    return "session_" + m.group(1) if m else ""
-
-
-def pr_number(repo, ti):
-    number = next((ti.get(k) for k in NUMBER_KEYS if ti.get(k)), None)
-    if not number and ti.get("comment_id"):
-        p = _gh(["repos/%s/issues/comments/%s" % (repo, ti["comment_id"]), "--jq", ".issue_url"])
-        number = p.stdout.strip().rsplit("/", 1)[-1] if p.returncode == 0 else None
-    return number
-
-
-def first_rules(repo, ti, tool):
-    """PR のコメントから初めの判定の決まりの版（SHA12）か NO_FIRST の `なし`、と誤り。読み方は判定の形の道具の
-    first_rules をそのまま呼ぶ（写さない）。コメントを引けない時は誤り（初めの版を照らさずに判定を通さない）。
-    道具が first_rules を持たない古い checker なら (None, "")＝--first を渡さず前の形で照らす（壊れる変更の 1 段目の間）。"""
-    import importlib.util
-    try:
-        spec = importlib.util.spec_from_file_location("af_verdict_form", tool)
-        vf = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(vf)
-    except (Exception, SystemExit) as e:  # noqa: BLE001  読めない・読むと抜ける道具で版を決めない（hook ごと落ちない）
-        return "", "判定の形の道具が壊れた（読むと %s）。初めの判定の決まりの版を読めない" % e.__class__.__name__
-    if not hasattr(vf, "first_rules"):
-        return None, ""   # 1 段目の間: 決まりの版を知らない古い checker は --first を渡さず前の形で照らす（CONTRIBUTING.md §8）
-    try:
-        number = pr_number(repo, ti)
-        c = _gh(["--paginate", "repos/%s/issues/%s/comments" % (repo, number), "--jq", ".[].body | @json"]) \
-            if number else None
-    except (OSError, subprocess.SubprocessError) as e:
-        return "", "PR のコメントを引けなかった（%s）" % e.__class__.__name__
-    if c is None or c.returncode != 0:
-        return "", "PR のコメントを引けず、初めの判定の決まりの版を読めない"
-    try:
-        bodies = [json.loads(ln) for ln in c.stdout.splitlines() if ln.strip()]
-    except ValueError:
-        return "", "PR のコメントが読めない"
-    return vf.first_rules(bodies) or vf.NO_FIRST, ""
-
-
-def pr_facts(repo, ti):
-    """判定を出す先の PR の (先端の SHA, 書いた窓の組, 誤り)。GitHub から引く（判定の形の道具が要る材料・写さない）。
-
-    書いた窓の組は PR の commit 全部の `Claude-Session:` の窓（記録）だけ。途中の commit を書いた窓も入る。本文の頭の
-    `書いた窓:` は手の写しなので読まない（PR の型から畳んだ・写しが記録とずれるとレビューの窓を書いた窓に数えて弾いた）。
-    commit に記録が 1 つも無ければ誤り。
-    引けない時は誤りを返す（欠けた材料で判定を通さない）。"""
-    if not repo:
-        return "", [], "出す先の repo（owner・repo）が道具の入力に無い"
-    try:
-        number = pr_number(repo, ti)
-        if not number:
-            return "", [], "判定を出す先の PR の番号が分からない"
-        p = _gh(["repos/%s/pulls/%s" % (repo, number), "--jq",
-                 '.head.sha + "\\n" + (.commits | tostring) + "\\n" + (.body // "")'])
-    except FileNotFoundError:
-        return "", [], "GitHub の CLI（gh）が無く、PR の先端と書いた窓を引けない"
-    except (OSError, subprocess.SubprocessError) as e:
-        return "", [], "PR を引けなかった（%s）" % e.__class__.__name__
-    if p.returncode != 0:
-        return "", [], "PR #%s を引けなかった（判定は PR に出す・gh の認証か網を確かめる）: %s" % (
-            number, (p.stderr or "").strip().splitlines()[-1:] or "")
-    head, _, rest = p.stdout.partition("\n")
-    total, _, body = rest.partition("\n")
-    if not re.fullmatch(r"[0-9a-f]{40}", head.strip()):
-        return "", [], "PR #%s の先端の SHA が読めない" % number
-    try:
-        c = _gh(["--paginate", "repos/%s/pulls/%s/commits" % (repo, number), "--jq", ".[].commit.message | @json"])
-    except (OSError, subprocess.SubprocessError) as e:
-        return "", [], "PR #%s の commit を引けなかった（%s）" % (number, e.__class__.__name__)
-    if c.returncode != 0:
-        return "", [], "PR #%s の commit を引けなかった: %s" % (number, (c.stderr or "").strip().splitlines()[-1:] or "")
-    try:
-        msgs = [json.loads(ln) for ln in c.stdout.splitlines() if ln.strip()]
-    except ValueError:
-        return "", [], "PR #%s の commit の説明が読めない" % number
-    if not total.strip().isdigit() or len(msgs) < int(total):
-        # GitHub の PR の commit の一覧は 250 本で切れる。引けなかった commit を書いた窓を組から落としたまま通さない
-        return "", [], ("PR #%s の commit を全部は引けない（%s 本のうち %d 本・GitHub の一覧の上限）。書いた窓の組が欠けるので"
-                        "判定を通さない。PR を小さく分けるか、手元の取り出しで plugin checker の pr_writer.py --writers を回して照らす"
-                        % (number, total.strip() or "?", len(msgs)))
-    writers = list(dict.fromkeys(w for m in msgs for w in COMMIT_SESSION.findall(m)))
-    if not writers:
-        return head.strip(), [], ("PR #%s の commit に `Claude-Session:` の行が 1 つも無く、書いた窓が記録から決まらない"
-                                  "（本文の `書いた窓:` の写しだけで別の目を照らさない）" % number)
-    return head.strip(), writers, ""
-
-
-def check_verdict(body, data):
-    if not looks_verdict(body):
-        return []
-    tool = _find_sibling(*VERDICT_FORM, data)
-    if not tool:
-        return ["判定の形の道具（checker の verdict_form.py）が見つからず、形を確かめられない。plugin checker を入れる"
-                "（または AF_VERDICT_FORM に path）"]
-    ti = data.get("tool_input") or {}
-    poster = poster_id()
-    if not poster:
-        return ["判定の材料: 判定を出す窓の id が窓の環境の記録（CLAUDE_CODE_REMOTE_SESSION_ID）に無く、名乗りを照らせない"
-                "（判定はクラウドの窓で出す）"]
-    head, writers, err = pr_facts(_repo_name(ti), ti)
-    if err:
-        return ["判定の材料: " + err]
-    first, err = first_rules(_repo_name(ti), ti, tool)
-    if err:
-        return ["判定の材料: " + err]
-    try:
-        p = _run([sys.executable, tool, _tmp_file(body, "verdict"), "--writer", ",".join(writers), "--head", head]
-                 + (["--first", first] if first is not None else []) + ["--reviewer", poster])
-    except (OSError, subprocess.SubprocessError) as e:
-        return ["判定の形の道具が走らなかった: %s" % e.__class__.__name__]
-    if p.returncode == 0:
-        return []
-    errs = [ln.strip() for ln in p.stdout.splitlines() if ln.strip()]
-    if p.returncode != 1 or not errs:
-        tail = (p.stderr or p.stdout or "").strip().splitlines()[-2:]
-        return ["判定の形の道具が壊れた（exit %d）: %s" % (p.returncode, " / ".join(tail))]
-    return ["判定の形: " + e for e in errs]
-
-
-# ── cleanup（PR 本文の整地の欄）──
-def template_parts(path):
-    """雛形から (見出しの並び [(番号, 名)], 置き場の字の並び)。読めなければ例外。"""
-    with open(path, encoding="utf-8") as f:
-        text = f.read()
-    heads = [(no, name.split("（")[0].strip()) for no, name in TEMPLATE_HEAD.findall(text)]
-    if not heads:
-        raise ValueError("整地の雛形に `## N. ` の見出しが無い: %s" % path)
-    holders = sorted({m.group(0)[:14] for m in PLACEHOLDER.finditer(COMMENT.sub("", text))})
-    return heads, holders
-
-
-def check_cleanup(body, repo, data, vals):
-    if repo and _exempt("pr_cleanup_exempt_repos", repo, data, vals):
-        return []
-    body = FENCE.sub(" ", COMMENT.sub(" ", body))      # 注記（雛形の説明）とコードの囲みの中は数えない
-    if NOT_NEEDED.search(body):
-        return []
-    tpl = _find_sibling(*CLEANUP_TEMPLATE, data)
-    if not tpl:
-        return ["整地の雛形（dev-flow の preimpl-cleanup の 整地受領証.template.md）が見つからず、欄を確かめられない。"
-                "plugin dev-flow を入れる（または AF_CLEANUP_TEMPLATE に path）"]
-    try:
-        heads, holders = template_parts(tpl)
-    except (OSError, ValueError) as e:
-        return ["整地の雛形が読めない: %s" % e]
-    out = []
-    lack = [("%s. %s" % (no, name)) for no, name in heads
-            if not re.search(r"^#{1,6}\s*(?:%s\.\s*)?%s" % (no, re.escape(name)), body, re.M)]
-    if lack:
-        out.append("整地の見出しが無い: %s（雛形の見出し %d つ）" % ("・".join(lack), len(heads)))
-    left = [h for h in holders if h in body]
-    if left:
-        out.append("整地の雛形の `〔…〕` が残っている: %s" % "・".join(h + "…" for h in left[:3]))
-    return out
-
-
-# ── words（PR の題・本文の言葉）──
-def visible_prose(body):
-    """数えない所（本文の頭の塊の窓の id の欄・コード・URL・注記）を除いた文。"""
-    body = FENCE.sub(" ", COMMENT.sub(" ", body))
-    lines, top = [], True
-    for ln in body.splitlines():
-        if not ln.strip():
-            top = False
-        if top and HEAD_FIELD.match(ln):
-            continue
-        lines.append(ln)
-    return URL.sub(" ", INLINE.sub(" ", "\n".join(lines)))
-
-
-def check_words(texts, repo, vals, data=None):
-    if repo and _exempt("pr_words_exempt_repos", repo, data, vals):
-        return []
-    out = []
-    for where, text in texts:
-        ids = list(dict.fromkeys(SESSION_ID.findall(visible_prose(text))))
-        if ids:
-            out.append("%sに窓の id がそのまま %d 個: %s" % (where, len(ids), "・".join(ids[:3]) + ("…" if len(ids) > 3 else "")))
-    return out
-
-
-# ── public（公開の repo に置かない物）──
+# ── 公開の repo の見分け（workflow の読み手）──
 WORKFLOW_DIR = os.path.join(".github", "workflows")
 # 取り出しの origin の URL（https・ssh://・scp の形 <利用者>@github.com:o/r）から owner/repo を読む。host は github.com だけ。
 REMOTE = re.compile(r"^(?:(?:https?|ssh|git)://(?:[^@/]+@)?github\.com(?::\d+)?/|(?:[^@/:]+@)?github\.com:)"
@@ -473,6 +211,10 @@ def _scan(top, unread):
 
 # GitHub の記録の repo の見え方（visibility が無い古い答えは private の真偽から読む）
 VISIBILITY_JQ = '.visibility // (if .private == true then "private" elif .private == false then "public" else "" end)'
+
+
+def _gh(args):
+    return subprocess.run(["gh", "api", *args], capture_output=True, text=True, timeout=TIMEOUT)
 
 
 def _hidden_on_github(repo):
@@ -573,22 +315,11 @@ def notice(data, vals):
 HOW = {
     "broken": "一時の置き場（TMPDIR・AF_GUARD_TMP）に書けるか・入れた plugin が揃っているかを確かめ、直してから出し直す。"
               "直せない時は止めた文を添えて親の窓へ返す（見張りを外して出さない）。",
-    "verdict": "判定のコメントは skill `checker:review-pr` の「判定の形」で書き直す（形の正本はその SKILL.md と verdict_form.py・"
-               "ここに写さない）。`python3 <verdict_form.py> <下書き> --writer <書いた窓> --head <PR の先端> --first <関所が出した値>` が "
-               "exit 0 になってから出す。",
-    "cleanup": "PR 本文の「何をどう変えたか」の後に `## 整地（根治の段）` を置き、skill `dev-flow:preimpl-cleanup` の雛形の見出しで"
-               "書く（中身は頭が書く・`〔…〕` を残さない）。振る舞いを変えない PR（誤字・記録だけ・版だけ等）なら、欄の代わりに "
-               "`整地: 不要（<なぜ要らないか>）` の 1 行を書く（訳はレビューが照らす）。",
-    "words": "窓の id は、読む人が開けるリンク（https://claude.ai/code/<id>）にして役の名を添える（例: 「直す窓（リンク）」）か、役の名だけに"
-             "する。決まった欄（頭の塊の書いた窓）とコードの囲みの中は数えない。親窓の欄は PR の型から畳んだ（窓の親はサーバの記録 get_session の parent_session_id）。",
     "public": "当たった所を書き直す（秘密・個人の情報は消す・作り物の例は example.com などにする・置かない語と顧客の語は一般の言葉に言い換える）。"
               "GitHub の本文は書き替えても古い版が編集の履歴に公開で残るので、出す前に直す。",
 }
 HEAD = {
     "broken": "照らしが壊れた",
-    "verdict": "レビューの判定の形が崩れている",
-    "cleanup": "PR 本文の整地の欄が雛形と合わない",
-    "words": "PR の題・本文に AI の中の呼び名が出ている",
     "public": "公開の repo に置かない物がある",
 }
 
@@ -612,15 +343,7 @@ def findings(data, vals):
         texts.append(({"pr": "PR の本文", "comment": "コメント", "issue": "issue の本文"}[kind], body))
     if not texts:
         return []
-    out = []
-    if kind == "comment" and body.strip():
-        out += [("verdict", m) for m in check_verdict(body, data)]
-    if kind == "pr":
-        if body.strip():
-            out += [("cleanup", m) for m in check_cleanup(body, repo, data, vals)]
-        out += [("words", m) for m in check_words(texts, repo, vals, data)]
-    out += [("public", m) for m in check_public(texts, repo, data, vals)]
-    return out
+    return [("public", m) for m in check_public(texts, repo, data, vals)]
 
 
 def check(data, vals):
@@ -641,7 +364,5 @@ def check(data, vals):
         lines.append("- （ほか %d 件）" % (len(found) - SHOWN))
     lines.append("直し方:")
     lines += ["- [%s] %s" % (c, HOW[c]) for c in codes]
-    lines.append("誤って止めた時: 整地を PR 本文の外に置く repo・言葉の照らしが合わない repo は、値の表の guard.pr_cleanup_exempt_repos・"
-                 "guard.pr_words_exempt_repos（owner/repo の名の全体に当てる正規表現・repo 1 つなら ^owner/repo$・owner ごとなら ^owner/.*$）に足す（PR とレビューを通す）。判定の形と公開の検査は"
-                 "外さない（決まりの正本を直す）。細目は skill `guard:guard-rules`。")
+    lines.append("公開の検査は外す口を持たない（直すのは文の方）。")
     return "\n".join(lines)

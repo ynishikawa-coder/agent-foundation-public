@@ -8,7 +8,6 @@
 - 2 つの在り処探し（guard の口と dev-flow の口）が別の写しに戻ると赤
 作り物の鍵は字を組み立てて作る（この file に鍵の形を字で残さない・本物ではない）。
 """
-import importlib.util
 import os
 import sys
 from pathlib import Path
@@ -106,12 +105,9 @@ def test_codex_は入った版の土台を探して読む(tmp_path):
 
 def test_在り処探しは_1_か所で_各_plugin_へ_symlink_で届く():
     src = ROOT / "skill-values" / "af_place.py"
-    for plugin in ("guard", "dev-flow", "session-watch"):
+    for plugin in ("guard", "dev-flow"):
         link = ROOT / "plugins" / plugin / "lib" / "af_place.py"
         assert link.is_symlink() and link.resolve() == src.resolve(), link
     common = (ROOT / "plugins" / "guard" / "scripts" / "guard_common.py").read_text(encoding="utf-8")
     common = py_code(common)                                            # 注釈・docstring の名は写しでない
     assert "_clone_git" not in common and "marketplaces" not in common   # 在り処探しの写しが guard の口に戻ると赤
-    sw = (ROOT / "plugins" / "session-watch" / "scripts" / "session_watch.py").read_text(encoding="utf-8")
-    sw = py_code(sw)
-    assert '"marketplaces"' not in sw and "rev-parse" not in sw            # session-watch の写しに戻ると赤

@@ -5,13 +5,13 @@ description: Codex（OpenAI の外部レビュアー）との往復の 1 本。C
 
 # codex — Codex との往復（往き＝パックの安全 builder／戻り＝整形の受け口）
 
-> **Codex はレビューにだけ使う**: 製品の実装は Claude の窓だけ＝Codex に実装させない。デザインの 0→1 も Codex に振らない。出荷を開けるレビューは、書いた窓と別の Claude の窓が PR を読む。Codex を使うのは、オーナーが Codex に外部レビューを頼む道だけ（§往き の builder・§戻り の受け口）。builder の外へ出す守り（秘密の再検査・顧客の物の既定 deny・送り先の印）は削らない。この 2 段が正本（値の表に写さない・repo ごとに変えない）。
+> **Codex はレビューにだけ使う**: 製品の実装は Claude の窓だけ＝Codex に実装させない。デザインの 0→1 も Codex に振らない。出荷を開けるレビューは、Claude のレビュー（checker の review-pr）が PR を読む。Codex を使うのは、オーナーが Codex に外部レビューを頼む道だけ（§往き の builder・§戻り の受け口）。builder の外へ出す守り（秘密の再検査・顧客の物の既定 deny・送り先の印）は削らない。この 2 段が正本（値の表に写さない・repo ごとに変えない）。
 
 > 窓どうしの返しが PR と `send_message` で直に届く所では、人が整形 MD をコピーして別の窓へ貼る受け渡しは無い。§戻り はオーナーが Codex に頼んだレビューの返しが届いた時の物（Codex の出力を信じずに採否を付ける規律はそのまま効く）。
 
 ## repo ごとの値（config/skill-values.json）
 
-repo ごとに違う値は、repo の根（`git rev-parse --show-toplevel`）の `config/skill-values.json` の `dev-flow.codex.<鍵>` と `common.<鍵>` から読む。**鍵が無い・値が空なら右の既定で動く**。知らない鍵・畳んだ鍵・型の違う値は黙って捨てない（道具は名指しで止まり、窓の起動の時に guard が名指しで知らせる。表の探し方と鍵の一覧の正本は土台の `skill-values/`。鍵を足す時はそこへ足す）。
+repo ごとに違う値は、repo の根（`git rev-parse --show-toplevel`）の `config/skill-values.json` の `dev-flow.codex.<鍵>` と `common.<鍵>` から読む。**鍵が無い・値が空なら右の既定で動く**。知らない鍵・畳んだ鍵・型の違う値は黙って捨てない（道具は名指しで止まる。表の探し方と鍵の一覧の正本は土台の `skill-values/`。鍵を足す時はそこへ足す）。
 
 | 鍵 | 使う所 | 無い時の既定 |
 |---|---|---|

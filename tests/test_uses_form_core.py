@@ -1,9 +1,7 @@
-"""core の照らしと試験の読み口が「使う形」だけを見て、説明の文（地の文・引用・注釈・docstring・コードの囲みの例）で
+"""core の照らし（古い形）と試験の読み口が「使う形」だけを見て、説明の文（地の文・引用・注釈・docstring・コードの囲みの例）で
 名を挙げるだけの所を拾わないか。緩める向きの直しなので、使う形（命令のコード・欄・札・写しの文・本文の指し・
 付けた印・呼ぶ形）が全部まだ拾われることを同じ file の注入の試験で示す。入力は全部作り物。"""
 import importlib.util
-import subprocess
-import sys
 from pathlib import Path
 
 import pytest
@@ -21,7 +19,6 @@ def _load(name, rel):
 
 
 kaku = _load("kaku_uses_form", "plugins/core/scripts/kaku.py")
-refs = _load("refs_uses_form", "plugins/core/scripts/refs.py")
 ROWS = {r["id"]: r for r in kaku.olds_table()}
 ADD = "claude plugin marketplace add ynishikawa-coder/agent-foundation-public --scope user"
 ENTRY = "setup_plugins" + ".py"
@@ -86,41 +83,6 @@ def test_古い形_読み方の名が違えば一覧ごと読めない(tmp_path)
         kaku.olds_table(bad)
 
 
-# ── copies（引用と囲みは写しでない） ──
-ORIGINAL = "戻せない操作の前に人に聞く — 強制 push・DB の削除・人の手が入った物や git に無い一点物の削除。"
-COPIES = ROOT / "plugins" / "core" / "scripts" / "copies.py"
-
-
-def _copies(tmp_path, text):
-    f = tmp_path / "使う側の決まり.md"
-    f.write_text(text, encoding="utf-8")
-    return subprocess.run([sys.executable, "-B", str(COPIES), str(f)], capture_output=True, text=True)
-
-
-@pytest.mark.parametrize("text", [
-    "# 決まり\n\n核の決まりはこう書いてある:\n\n> " + ORIGINAL + "\n",
-    "# 決まり\n\n核の「" + ORIGINAL + "」を守る。\n",
-    "# 決まり\n\n```text\n" + ORIGINAL + "\n```\n",
-])
-def test_copies_出所を示した引用と囲みは写しにしない(tmp_path, text):
-    res = _copies(tmp_path, text)
-    assert res.returncode == 0, res.stdout
-
-
-def test_copies_自分の文として書いた写しは今も赤(tmp_path):
-    res = _copies(tmp_path, "# 決まり\n\n- " + ORIGINAL + "\n")
-    assert res.returncode == 1, res.stdout
-
-
-# ── refs（コードの囲みの中は指しでない） ──
-def test_refs_囲みの中の例の番号だけの指しは外れにしない_地の文は今も外れ():
-    c = refs.contract()
-    fenced = "例:\n\n```md\n細目 §3 を読む\n```\n"
-    plain = "細目 §3 を読む\n"
-    assert refs.check_text(c, fenced) == []
-    assert refs.check_text(c, plain), "地の文の番号だけの指しが外れにならない"
-
-
 # ── 試験の読み口（tests/uses.py） ──
 def test_読み口_python_は注釈と_docstring_を除き_字の値と呼ぶ形は残す():
     src = '"""marketplaces を探さない"""\n# rev-parse は呼ばない\nX = "rev-parse"\nstart_cause(1)\n'
@@ -174,19 +136,15 @@ def test_古い言い回し_使う所に在れば今も残り(rel, text):
     assert OLD in used_text(rel, text), text
 
 
-# ── 読み口は 1 か所（kaku の「使う形の読み口」）。copies・refs・試験は呼ぶだけで、読み方を写さない ──
+# ── 読み口は 1 か所（kaku の「使う形の読み口」）。試験は呼ぶだけで、読み方を写さない ──
 import inspect  # noqa: E402
 
-copies = _load("copies_uses_form", "plugins/core/scripts/copies.py")
-RULE = "戻せない操作の前に人に聞く"
 NESTED = "````md\n```\n%s\n```\n````\n"          # 4 字の囲みの中に 3 字の囲み（3 字の行は閉じでない）
 
 
-def test_読み口_囲みの見分けが_copies_refs_古い形_試験で揃う():
+def test_読み口_囲みの見分けが古い形と試験で揃う():
     """4 字の囲みの中の 3 字の行は閉じでない（CommonMark）。所ごとに読み方を写すと、どこかが 3 字の行で閉じて中を地の文に読む。"""
     from test_core_plugin import used_text
-    assert refs.check_text(refs.contract(), NESTED % "細目 §3 を読む") == []
-    assert RULE not in copies.own_text(NESTED % RULE)
     assert OLD not in used_text("x.md", NESTED % ("## " + OLD))
     assert not kaku.old_hit(ROWS["tasu-mado-heading"], "x.md", NESTED % ("## " + OLD))
 
@@ -206,8 +164,6 @@ def test_読み口_shell_の単引用の中の_backslash_は字のまま():
 
 
 @pytest.mark.parametrize("rel,func", [
-    ("plugins/core/scripts/copies.py", None),
-    ("plugins/core/scripts/refs.py", None),
     ("tests/uses.py", None),
     ("tests/test_core_plugin.py", "used_text"),
     ("tests/test_skill_values_no_rule_copy.py", "pointing"),

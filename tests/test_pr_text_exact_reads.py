@@ -27,7 +27,7 @@ from test_pr_text import MAIL, PUBLIC_WORD, _fake_gh, _fake_public_repo, deny_re
 
 F = "ynishikawa-coder/agent-foundation-public"
 CALL = "uses: %s/public-guard@main" % F
-REPO_KEYS = ("pr_cleanup_exempt_repos", "pr_words_exempt_repos", "public_repos_extra")
+REPO_KEYS = ("public_repos_extra",)
 
 
 # ── 1. deny-words-file は public-guard を呼ぶ step の with: からだけ ──
@@ -81,25 +81,6 @@ def test_名の一部にしか当たらない行は外さない(pats, repo):
     assert not P._matches(pats, repo)
 
 
-@pytest.mark.parametrize("key", ["pr_cleanup_exempt_repos", "pr_words_exempt_repos"])
-@pytest.mark.parametrize("pat", ["^fake-owner/", "fake-owner/fake-priv", "^fake-owner/fake$"])
-def test_外す鍵に前の形_一部の名を置いても外さず照らす(env, tmp_path, key, pat):  # noqa: F811
-    table = tmp_path / "values.json"
-    env["SKILL_VALUES"] = str(table)
-    table.write_text(json.dumps({"guard": {key: [pat]}}), encoding="utf-8")
-    body = "連絡: session_01CCCCCCCCCCCCCCCCCCCCCCCC\n"
-    assert deny_reason(env, gh("update_pull_request", repo="fake-private", pullNumber=1, body=body)) != ""
-
-
-def test_外す鍵は全体の形の行なら外す(env, tmp_path):  # noqa: F811
-    table = tmp_path / "values.json"
-    env["SKILL_VALUES"] = str(table)
-    table.write_text(json.dumps({"guard": {"pr_cleanup_exempt_repos": ["^fake-owner/.*$"],
-                                           "pr_words_exempt_repos": ["^fake-owner/fake-private$"]}}), encoding="utf-8")
-    body = "連絡: session_01CCCCCCCCCCCCCCCCCCCCCCCC\n"
-    assert deny_reason(env, gh("update_pull_request", repo="fake-private", pullNumber=1, body=body)) == ""
-
-
 def test_公開の鍵は形の違う行でも公開の照らしを黙って外さない(env, tmp_path):  # noqa: F811
     """安全の守り: public_repos_extra の形の違う行は値の表の照らしが落とすが、公開の照らしは外さない。"""
     table = tmp_path / "values.json"
@@ -131,15 +112,6 @@ def test_全体の形の行は値の表の照らしを通る(good):
     assert SV.check({"guard": {k: good for k in REPO_KEYS}}) == []
 
 
-def test_説明が名の全体に当てる正規表現と書く():
-    """型の正本の説明と guard-rules の SKILL.md が、何に当てる正規表現かを書く（型だけでなく）。"""
-    schema = json.loads((ROOT / "skill-values" / "schema.json").read_text(encoding="utf-8"))
-    assert "repo_names（owner/repo の名の全体に当てる正規表現の並び" in schema["_readme"]
-    md = (ROOT / "plugins" / "guard" / "skills" / "guard-rules" / "SKILL.md").read_text(encoding="utf-8")
-    for key in REPO_KEYS:
-        assert any(key in ln and "名の全体に当てる正規表現" in ln for ln in md.splitlines() if ln.startswith("- `")), key
-
-
 def test_run_の塊の中の_uses_の行は呼び口と見ない():
     wf = "    steps:\n      - run: |\n          uses: ./public-guard\n          deny-words-file: other/x.txt\n"
     assert not P.calls_public_guard(whole(wf), F) and W.deny_words_files(whole(wf), F) == []
@@ -155,12 +127,3 @@ def test_形の違う行が混じっても同じ並びの正しい行は効く_�
     p = gh("add_issue_comment", issue_number=1, body="連絡は %s へ" % MAIL, repo="far-public")
     assert "[public]" in deny_reason(env, p)
 
-
-def test_形の違う行が混じっても同じ並びの正しい行は効く_外す(env, tmp_path):  # noqa: F811
-    table = tmp_path / "values.json"
-    env["SKILL_VALUES"] = str(table)
-    table.write_text(json.dumps({"guard": {"pr_cleanup_exempt_repos": ["^fake-owner/fake-private$", "^x/"],
-                                           "pr_words_exempt_repos": ["^x/", "^fake-owner/fake-private$"]}}),
-                     encoding="utf-8")
-    body = "連絡: session_01CCCCCCCCCCCCCCCCCCCCCCCC\n"
-    assert deny_reason(env, gh("update_pull_request", repo="fake-private", pullNumber=1, body=body)) == ""

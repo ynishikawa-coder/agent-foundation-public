@@ -3,8 +3,6 @@
   "型": [
     {"名": "verify の完了報告", "file": "plugins/dev-flow/skills/verify/SKILL.md", "始まり": "^# Goal Completion Report", "幅": "塊", "欄": ["意図", "課題", "原因"]},
     {"名": "review-pr の所見の雛形", "file": "plugins/checker/skills/review-pr/SKILL.md", "始まり": "^- \\[止める", "幅": "行", "欄": ["意図", "課題"]},
-    {"名": "register-rule の根治の形", "file": "plugins/dev-flow/skills/register-rule/SKILL.md", "始まり": "^止める物かを決めたら", "幅": "節", "欄": ["意図", "誤りが入れない形のどれか", "注入の試験"]},
-    {"名": "register-rule の出力", "file": "plugins/dev-flow/skills/register-rule/SKILL.md", "始まり": "^Step 1 止める物か", "幅": "塊", "欄": ["意図", "形", "注入の試験"]},
     {"名": "codex の戻りの所見", "file": "plugins/dev-flow/skills/codex/SKILL.md", "始まり": "^## 所見（採否つき）", "幅": "節", "欄": ["意図", "課題"]},
     {"名": "design-mode の論点の表", "file": "plugins/dev-flow/skills/design-mode/SKILL.md", "始まり": "^\\s*\\| 論点 \\|", "幅": "行", "欄": ["論点", "意図", "状態", "決まった中身・待っている前提", "持つ窓"]},
     {"名": "spec-doc の 00 宣言", "file": "plugins/dev-flow/skills/spec-doc/SKILL.md", "始まり": "^1\\. \\*\\*00 プロダクト宣言\\*\\*", "幅": "行", "欄": ["意図", "課題"]},

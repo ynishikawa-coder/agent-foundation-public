@@ -11,7 +11,7 @@ HEADER = ["名前", "種類", "持つ窓", "状態", "置き場", "中身"]
 KINDS = {"plugin"}
 STATES = {"未着手", "作業中", "出した"}
 # 波 0 で先に置いた行。消す時はこの集合も同じ PR で替える。
-EXPECTED = {"docs-kit", "dev-flow", "session-watch", "checker", "guard", "core"}
+EXPECTED = {"docs-kit", "dev-flow", "checker", "guard", "core"}
 
 
 def read_rows():

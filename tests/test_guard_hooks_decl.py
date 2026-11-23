@@ -60,4 +60,5 @@ def test_HOOKS_を書いた見張りの_file_を足すだけで回り_宣言を�
 
 def test_宣言の壊れた見張りは他を巻き込まない(env, copy):
     (copy / "zz_broken.py").write_text("HOOKS = {'pre': check_func_not_literal}\n", encoding="utf-8")
-    assert "seal.py" in pre(env, copy, "python3 型/check_spec_doc.py 設計書 --lock")
+    out = pre(env, copy, "echo ANTHROPIC_API_KEY > tests/test_x.py")
+    assert "PAID_UPSTREAM_GUARD" in out and "zz_broken" in out

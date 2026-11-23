@@ -19,18 +19,6 @@
         }
       }
     },
-    "session-watch": {
-      "skills": {
-        "title-mark": {
-          "keys": {}
-        },
-        "watch-log": {
-          "keys": {
-            "reply_exempt": {"type": "patterns", "match": "part", "against": "返事の本文の 1 行"}
-          }
-        }
-      }
-    },
     "guard": {
       "keys": {
         "unattended_env": {
@@ -46,44 +34,11 @@
         "paid_markers_extra": {"type": "words", "default": [], "against": "試験の file に書く本文・試験の file に書く Bash の命令の全文"},
         "irreversible_bash_extra": {"type": "patterns", "match": "part", "default": [], "against": "Bash の命令の全文"},
         "irreversible_tools_extra": {"type": "patterns", "match": "whole", "default": [], "against": "道具の名（例 mcp__server__delete_item）"},
-        "qa_page_exempt": {"type": "patterns", "match": "whole", "default": [], "against": "問いのページの file の path（repo の根から・/ 区切り）"},
-        "ask_question_max_chars": {
-          "type": "int",
-          "default": 60
-        },
-        "ask_question_max_sentences": {
-          "type": "int",
-          "default": 1
-        },
-        "ask_inner_terms_extra": {"type": "patterns", "match": "part", "default": [], "against": "問いの文・返事の本文（当たった所を中の言葉と数える）"},
-        "ask_term_allow": {"type": "patterns", "match": "whole", "default": [], "against": "中の言葉と見つけた字の塊"},
-        "ask_topic_stopwords_extra": {
-          "type": "list",
-          "default": []
-        },
-        "ask_shape_exempt": {"type": "patterns", "match": "part", "default": [], "against": "問いの文"},
-        "ask_pick_one_exempt": {"type": "patterns", "match": "part", "default": [], "against": "問いの文"},
-        "ask_rec_notice_kinds": {
-          "type": "dict",
-          "default": {}
-        },
-        "ask_rec_notice_exempt": {"type": "patterns", "match": "part", "default": [], "against": "問いの文"},
         "outbound_secret_allow": {"type": "patterns", "match": "whole", "default": [], "against": "鍵の形に当たった字の塊"},
-        "number_request_exempt": {"type": "patterns", "match": "part", "default": [], "against": "外へ送る文の 1 文"},
-        "pr_cleanup_exempt_repos": {
-          "type": "repo_names",
-          "default": []
-        },
-        "pr_words_exempt_repos": {
-          "type": "repo_names",
-          "default": []
-        },
         "public_repos_extra": {
           "type": "repo_names",
           "default": []
-        },
-        "ask_prior_lookup": {"type": "patterns", "match": "whole", "default": [], "against": "道具の呼び出し 1 つ（道具の名・空白 1 つ・入力の JSON〔鍵の順に並べ、区切りは「, 」と「: 」の 1 行〕）"},
-        "ask_prior_exempt": {"type": "patterns", "match": "part", "default": [], "against": "問いの文"}
+        }
       }
     },
     "docs-kit": {
@@ -185,23 +140,6 @@
             "entropy_allow": {"type": "list", "match": "whole", "against": "鍵らしい塊の全体（\"sha256:<指紋>\" の行は塊の sha256 の頭）"}
           }
         },
-        "preimpl-cleanup": {
-          "keys": {
-            "record": "text",
-            "past_sources": "text",
-            "request_template": "text",
-            "ledger": "text",
-            "local_steps": "text"
-          }
-        },
-        "register-rule": {
-          "keys": {
-            "dup_check_cmd": "str",
-            "desc_budget_bytes": "int",
-            "decision_record": "text",
-            "learning_record": "text"
-          }
-        },
         "spec-doc": {
           "keys": {
             "template_dir": "str",
@@ -244,6 +182,24 @@
     "dev-flow.spec-doc.branch_rule": "2026-11-19 に畳んだ（土台の規律の写しだった。正本の核・細目・skill の本文を直に読む・PR #43）。消す",
     "dev-flow.spec-doc.supersede_rule": "2026-11-19 に畳んだ（土台の規律の写しだった。正本の核・細目・skill の本文を直に読む・PR #43）。消す",
     "dev-flow.codex.task_rule": "2026-11-19 に畳んだ（DEFER・新しい仕事は原因の台帳の行にする＝細目 §3 の写しだった・PR #36）。消す",
-    "dev-flow.preimpl-cleanup.cleanup_followup": "2026-11-19 に畳んだ（[後片付け] は原因の台帳の行にする＝細目 §3・PR #36）。消す"
+    "dev-flow.preimpl-cleanup.cleanup_followup": "2026-11-19 に畳んだ（[後片付け] は原因の台帳の行にする＝細目 §3・PR #36）。消す",
+    "guard.qa_page_exempt": "2026-11-23 に畳んだ（読む見張りを外した）。消す",
+    "guard.ask_question_max_chars": "2026-11-23 に畳んだ（読む見張りを外した）。消す",
+    "guard.ask_question_max_sentences": "2026-11-23 に畳んだ（読む見張りを外した）。消す",
+    "guard.ask_inner_terms_extra": "2026-11-23 に畳んだ（読む見張りを外した）。消す",
+    "guard.ask_term_allow": "2026-11-23 に畳んだ（読む見張りを外した）。消す",
+    "guard.ask_topic_stopwords_extra": "2026-11-23 に畳んだ（読む見張りを外した）。消す",
+    "guard.ask_shape_exempt": "2026-11-23 に畳んだ（読む見張りを外した）。消す",
+    "guard.ask_pick_one_exempt": "2026-11-23 に畳んだ（読む見張りを外した）。消す",
+    "guard.ask_rec_notice_kinds": "2026-11-23 に畳んだ（読む見張りを外した）。消す",
+    "guard.ask_rec_notice_exempt": "2026-11-23 に畳んだ（読む見張りを外した）。消す",
+    "guard.number_request_exempt": "2026-11-23 に畳んだ（読む見張りを外した）。消す",
+    "guard.pr_cleanup_exempt_repos": "2026-11-23 に畳んだ（読む見張りを外した）。消す",
+    "guard.pr_words_exempt_repos": "2026-11-23 に畳んだ（読む見張りを外した）。消す",
+    "guard.ask_prior_lookup": "2026-11-23 に畳んだ（読む見張りを外した）。消す",
+    "guard.ask_prior_exempt": "2026-11-23 に畳んだ（読む見張りを外した）。消す",
+    "session-watch": "2026-11-23 に畳んだ（plugin session-watch を外した）。消す",
+    "dev-flow.preimpl-cleanup": "2026-11-23 に畳んだ（skill を外した）。消す",
+    "dev-flow.register-rule": "2026-11-23 に畳んだ（skill を外した）。消す"
   }
 }

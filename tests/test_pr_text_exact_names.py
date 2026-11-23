@@ -68,12 +68,3 @@ def test_土台の名が読めない時は道の最後が_public_guard_なら多
 ])
 def test_値の表の_repo_の名は全体で当てる(pats, repo, want):
     assert P._matches(pats, repo) is want
-
-
-def test_全体の形で書いた外す行は似た名の_repo_を外さない(env, tmp_path):  # noqa: F811
-    table = tmp_path / "values.json"
-    env["SKILL_VALUES"] = str(table)
-    table.write_text(json.dumps({"guard": {"pr_words_exempt_repos": ["^fake-owner/fake$"]}}), encoding="utf-8")
-    body = "## 整地（根治の段）\n整地: 不要（試し）\n連絡: session_01CCCCCCCCCCCCCCCCCCCCCCCC\n"
-    assert deny_reason(env, gh("update_pull_request", repo="fake", pullNumber=1, body=body)) == ""
-    assert "[words]" in deny_reason(env, gh("update_pull_request", repo="fake-private", pullNumber=1, body=body))

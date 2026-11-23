@@ -9,7 +9,7 @@ description: 主張を真実源で 1 度確かめる。着手前は受けた sel
 
 ## repo ごとの値（config/skill-values.json）
 
-repo ごとに違う値は、repo の根（`git rev-parse --show-toplevel`）の `config/skill-values.json` の `dev-flow.verify.<鍵>` と `common.<鍵>` から読む。**鍵が無い・値が空なら右の既定で動く**。知らない鍵・畳んだ鍵・型の違う値は黙って捨てない（道具は名指しで止まり、窓の起動の時に guard が名指しで知らせる。表の探し方と鍵の一覧の正本は土台の `skill-values/`。鍵を足す時はそこへ足す）。
+repo ごとに違う値は、repo の根（`git rev-parse --show-toplevel`）の `config/skill-values.json` の `dev-flow.verify.<鍵>` と `common.<鍵>` から読む。**鍵が無い・値が空なら右の既定で動く**。知らない鍵・畳んだ鍵・型の違う値は黙って捨てない（道具は名指しで止まる。表の探し方と鍵の一覧の正本は土台の `skill-values/`。鍵を足す時はそこへ足す）。
 
 | 鍵 | 使う所 | 無い時の既定 |
 |---|---|---|
@@ -20,7 +20,7 @@ repo ごとに違う値は、repo の根（`git rev-parse --show-toplevel`）の
 
 ## 範囲（クラウドが主）
 
-- **コード（repo の中身）の完了は PR の CI 緑＋別の窓のレビュー 1 回で決まる**（正本は核 §7・細目 §7＝別の目が決める）。ここで差分を読み直して判定し直さない。照らすのは PR の事実だけ（`gh api repos/<owner>/<repo>/pulls/<番号>` の state・merged と check-runs の結論）。
+- **コード（repo の中身）の完了は PR の CI 緑＋今の先端にレビューの green で決まる**（正本は核 §7・細目 §7）。ここで差分を読み直して判定し直さない。照らすのは PR の事実だけ（`gh api repos/<owner>/<repo>/pulls/<番号>` の state・merged と check-runs の結論）。
 - **この skill の本務はコードの外**: 外の文書・DB の行・本番 URL・表示層・外部の状態についての主張と、自分の否定的断定・因果診断。
 - Completion Report を誰が書くか: 表の `report_writer` に在ればそれに従う（無ければこの窓が書く）。
 

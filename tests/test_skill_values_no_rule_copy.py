@@ -95,7 +95,7 @@ def test_値の表の節を読めている():
 
 # ---- 注入の試験: 畳んだ写しを戻すと赤 ----
 
-PREIMPL = ROOT / "plugins/dev-flow/skills/preimpl-cleanup/SKILL.md"
+CODEX = ROOT / "plugins/dev-flow/skills/codex/SKILL.md"
 VERIFY = ROOT / "plugins/dev-flow/skills/verify/SKILL.md"
 MINDMAP = ROOT / "plugins/docs-kit/skills/mindmap/SKILL.md"
 
@@ -107,7 +107,7 @@ def _insert_row(text, row):
 
 
 def test_注入_根治の定義の写しの鍵を戻すと赤():
-    text = _insert_row(PREIMPL.read_text(encoding="utf-8"),
+    text = _insert_row(CODEX.read_text(encoding="utf-8"),
                        "| `common.rules.root_fix` | 根治の定義の repo の正本 | 核 §3・細目 §3 |")
     assert problems(text)
 
@@ -130,5 +130,5 @@ def test_注入_本文の規律に勝つ正本の鍵を戻すと赤():
 
 
 def test_今の本文は緑():
-    for p in (PREIMPL, VERIFY, MINDMAP):
+    for p in (CODEX, VERIFY, MINDMAP):
         assert problems(p.read_text(encoding="utf-8")) == [], p

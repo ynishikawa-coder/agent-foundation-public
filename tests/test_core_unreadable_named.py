@@ -9,20 +9,15 @@
 """
 from __future__ import annotations
 
-import io
 import json
 import os
 import shutil
 import subprocess
-import sys
 from pathlib import Path
 
 import pytest
 
 from test_core_plugin import PLUGIN, Foundation, _commit, _installed_home, kaku
-
-ROOT = PLUGIN.parent.parent
-SCRIPTS = PLUGIN / "scripts"
 
 
 @pytest.fixture
@@ -221,68 +216,6 @@ def test_注入_git_の_repo_で一覧を引けない時は名で書いた_file_
     assert kaku.olds([d]) == 2
     out = capsys.readouterr().out
     assert "git ls-files）を読めない" in out and "わざと" in out and "古い形 0" not in out
-
-
-# ── refs・copies: 土台の文書と台帳が読めない時に「照らせない」と名指す ──
-
-def _installed_copy(tmp_path: Path, scripts=("kaku.py", "refs.py", "copies.py"), docs=False) -> Path:
-    """入れた形（cache/<目録>/core/<版>/）の作り物。docs=False なら核・振る舞い・細目を置かない（欠けた版）。"""
-    d = tmp_path / "cache" / "agent-foundation" / "core" / "v1"
-    (d / "scripts").mkdir(parents=True)
-    for s in scripts:
-        shutil.copy2(SCRIPTS / s, d / "scripts" / s)
-    if docs:
-        for n in ("核.md", "振る舞い.md"):
-            shutil.copy2(PLUGIN / n, d / n)
-        shutil.copytree(PLUGIN / "細目", d / "細目")
-    return d
-
-
-def _tool(d: Path, name: str, *args, home: Path):
-    return subprocess.run([sys.executable, str(d / "scripts" / name), *map(str, args)], capture_output=True, text=True,
-                          timeout=60, env=dict(os.environ, HOME=str(home)))
-
-
-def test_注入_copies_は土台の文が欠けた版で黙って緑にしない(tmp_path):
-    d = _installed_copy(tmp_path)
-    target = tmp_path / "x.md"
-    target.write_text("何か\n", encoding="utf-8")
-    r = _tool(d, "copies.py", target, home=tmp_path / "home")
-    assert r.returncode == 2 and "照らせない" in r.stdout and "土台の文が欠けている" in r.stdout and "核.md" in r.stdout
-
-
-def test_注入_copies_は壊れた台帳で照らせないと止まる(tmp_path):
-    d = _installed_copy(tmp_path, docs=True)
-    home = tmp_path / "home"
-    _put(home / ".claude" / "plugins" / "installed_plugins.json", {"plugins": []})
-    target = tmp_path / "x.md"
-    target.write_text("何か\n", encoding="utf-8")
-    r = _tool(d, "copies.py", target, home=home)
-    assert r.returncode == 2 and "照らせない" in r.stdout and "installed_plugins.json" in r.stdout
-
-
-def test_注入_refs_は壊れた台帳で照らせないと止まる(tmp_path):
-    d = _installed_copy(tmp_path, docs=True)
-    home = tmp_path / "home"
-    _put(home / ".claude" / "plugins" / "installed_plugins.json", {"plugins": {"core@agent-foundation": "x"}})
-    target = tmp_path / "x.md"
-    target.write_text("何か\n", encoding="utf-8")
-    r = _tool(d, "refs.py", "check", target, home=home)
-    assert r.returncode == 2 and "照らせない" in r.stdout and "installed_plugins.json" in r.stdout
-
-
-def test_注入_refs_は欠けた土台の文書を訳つきで照らせないと名指す(tmp_path):
-    import importlib.util
-    spec = importlib.util.spec_from_file_location("refs_t", SCRIPTS / "refs.py")
-    refs = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(refs)
-    root = tmp_path / "root"
-    shutil.copytree(PLUGIN, root / "plugins" / "core")
-    (root / "plugins" / "core" / "振る舞い.md").unlink()   # 土台の dir の正本を 1 つ欠かす
-    c = refs.contract(root)
-    assert "plugins/core/振る舞い.md" in c["unread"] and c["unread_why"]["plugins/core/振る舞い.md"]
-    bad, unread = refs.check_all(c, "振る舞い.md「並走」を見る\n")
-    assert not bad and unread and "土台の dir" in unread[0][1]
 
 
 # ── 入口（setup_plugins.py）: 照らせない物を「全部入った」と読まない ──

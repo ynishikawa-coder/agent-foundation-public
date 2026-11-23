@@ -89,7 +89,6 @@ def test_型の欄の段の名と順は細目の根治の段に沿う():
 
 
 def test_型は意図などの欄を別々にこの順で持つ():
-    # 引数を取らない形にする: 決まりの文を消して回す tests/test_rule_holes.py が、引数を取らない試験だけを回すため
     bad = {k["名"]: b for k in 型の欄 if (b := 欄の外れ(型の所(_read(k["file"]), k), k["欄"]))}
     assert not bad, bad
 
@@ -162,16 +161,3 @@ def test_注入_欄の順を入れ替えると赤(kata):
 def test_注入_型の所が無いと赤():
     assert 欄の外れ(None, ["意図"]) == ["型の所が見つからない"]
     assert 欄の外れ("意図と課題と原因を 1 つの欄に書く:", ["意図", "課題", "原因"])
-
-
-def test_手順の文は根治の段で読ませる():
-    """型の欄の外で、手順の文が根治の段で読ませる所（文の照らし）。"""
-    assert "学びを根治の 5 段（意図・課題・原因・解決・未来＝細目 §3）で" in _read("plugins/dev-flow/skills/verify/SKILL.md")
-    r = _read("plugins/checker/skills/review-pr/SKILL.md")
-    assert "PR 本文の整地の `1. 意図`・`2. 課題`" in r
-    assert "整地の意図がオーナーの原文の意図と違う・課題に原因（なぜ）が混ざる" in r
-    assert "直し: 細目 §3「まず構造を疑う」で、所見の意図とのずれから原因を探す" in r
-    assert "守りたかった意図とのずれ（課題）から原因の段へ戻る" in _read("plugins/dev-flow/skills/register-rule/SKILL.md")
-    assert "pack.md の目的・起点ゴール（意図）のどれとどうずれるか（課題）を書き" in _read("plugins/dev-flow/skills/codex/SKILL.md")
-    assert "困りごとを出発点にせず意図から書く。" in _read("plugins/dev-flow/skills/spec-doc/SKILL.md")
-    assert "検査の赤も、検査が守る意図とのずれから入る。" in _read("plugins/core/細目/03-直すは根治.md")

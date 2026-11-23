@@ -1,1 +1,0 @@
-plugins/core/細目/01-安全.md	- 検査の中身を各 repo へ写さない。
