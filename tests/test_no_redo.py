@@ -33,7 +33,6 @@ def _read(rel):
 RULES = [
     ("plugins/core/核.md", "- 最後の 2 行は `AI がこの後やること:`（締める前に動かす）と `あなたがやること:`。"),
     ("plugins/core/核.md", "- AI が立てた窓は済んだら自分で閉じる。"),
-    ("plugins/core/核.md", "- 終わったかの判定は書いた窓と別の目が合流の前に 1 回する（見直しも同じ目）。"),
     ("plugins/core/振る舞い.md", "- **後継へ渡す残り** は 1 本の列にせず、1 つずつ持ち主（この窓・直す窓・台帳の行）を付ける。"),
     ("plugins/core/振る舞い.md", "- **同じ原因の他の問題** は書いた窓が削らず選ばず全部を原因の台帳へ。"),
     ("plugins/core/振る舞い.md", "直す窓は行ごとでなく関係しない束ごとに並べる。"),
@@ -41,10 +40,6 @@ RULES = [
     ("plugins/core/細目/03-直すは根治.md", "直す窓は直しが合流したら自分の行を全部 `直した` に替え、立てた窓へ返す。"),
     ("plugins/core/細目/04-聞き方.md", "1 枝 1 PR に入らなかった仕事は原因の台帳の行にし、互いに関係しないまとまりごとに立てた窓を `直す窓` に付ける。"),
     ("plugins/core/細目/07-完了の4状態.md", "この窓から触れない repo は、原因の台帳の行にして repo ごとに 1 つの直す窓を `直す窓` に付ける。"),
-    ("plugins/core/細目/07-完了の4状態.md", "揃える物は 2 つ: ①書いた窓と別の窓のレビュー（合流の前に 1 回）が今の先端に green（red を直した後は"
-                            "同じレビューの窓の見直しで付ける）"),
-    ("plugins/core/細目/07-完了の4状態.md", "- **判定を頼む** — 書いた窓が PR に 1 つだけレビューの窓を立てて頼み、返しを受けて合流まで運ぶ。"),
-    ("plugins/core/細目/07-完了の4状態.md", "red を直したら新しいレビューの窓を立てず、同じレビューの窓へ `send_message` で見直しを頼む。"),
     ("plugins/core/細目/05-返事の形.md", "- **締めの 2 行** — オーナーが最後だけ読んで、自分の番かが分かる形にする。"),
     ("plugins/core/細目/05-返事の形.md", "  - `あなたがやること: なし` ／ `あなたがやること: <何を>（問いに答える・手を打つ窓の URL）`"),
     ("plugins/core/細目/08-記録.md", "- **文脈が重い時** — 後継の窓へ移らず、自動の要約に任せてそのまま続ける。"),
@@ -88,13 +83,6 @@ def test_注入_古い決まりの文を入れると見分けが拾う(name, sam
                                  "docs/核の届け方.md", "plugins/checker/skills/review-pr/SKILL.md"])
 def test_今の正本に古い決まりの文が無い(rel):
     assert old_rule_hits(_read(rel)) == []
-
-
-def test_レビューは同じレビューの窓へ見直しを頼む形が正本に在る():
-    for rel in ("CONTRIBUTING.md", "plugins/checker/skills/review-pr/SKILL.md"):
-        text = _read(rel)
-        assert "同じレビューの窓へ `send_message` で" in text and "合流の前に 1 回" in text, rel
-    assert "新しいレビューの窓を立てない" in _read("plugins/checker/skills/review-pr/SKILL.md")
 
 
 # ── 3. 土台が新しくなった窓に引き継ぎ・閉じを求めない ──

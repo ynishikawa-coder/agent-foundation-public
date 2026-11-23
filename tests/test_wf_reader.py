@@ -337,5 +337,5 @@ def test_ci_yml_の_job_public_guard_に呼び口が無ければ手元の検査�
     broken = CI.replace("      - uses: ./public-guard\n", "      # - uses: ./public-guard\n")
     assert broken != CI
     code, args, out = _local_check(tmp_path, broken)
-    assert code != 0 and args is None and "読めない" in out
+    assert code != 0 and args is None and "呼び口が 0 個" in out, out
 

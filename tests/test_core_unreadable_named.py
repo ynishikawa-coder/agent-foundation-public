@@ -9,20 +9,15 @@
 """
 from __future__ import annotations
 
-import io
 import json
 import os
 import shutil
 import subprocess
-import sys
 from pathlib import Path
 
 import pytest
 
 from test_core_plugin import PLUGIN, Foundation, _commit, _installed_home, kaku
-
-ROOT = PLUGIN.parent.parent
-SCRIPTS = PLUGIN / "scripts"
 
 
 @pytest.fixture

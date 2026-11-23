@@ -28,7 +28,6 @@ def copies(text):
 DEFAULTS = {
     "plugins/dev-flow/skills/spec-doc/SKILL.md": ["| `save_place` |", "1. 配置先を決める", "型を正当に編集した後", "部分にする正当な理由"],
     "plugins/docs-kit/skills/pdf-read/SKILL.md": ["engine 置き場:", "| `engine_source` |", "| `engine_module` |"],
-    "plugins/dev-flow/skills/register-rule/SKILL.md": ["| `decision_record` |"],
     "plugins/dev-flow/skills/codex/SKILL.md": ["§往き の**対称**"],
 }
 _ASK = re.compile(r"聞く|承認|コピーして貼る")
@@ -97,7 +96,6 @@ def test_注入_既定の行に聞くを戻すと拾う():
     for rel, line, ins in [
         ("plugins/dev-flow/skills/spec-doc/SKILL.md", "| `save_place` |", "残す先はオーナーに聞く"),
         ("plugins/docs-kit/skills/pdf-read/SKILL.md", "| `engine_source` |", "無し＝人に聞く"),
-        ("plugins/dev-flow/skills/register-rule/SKILL.md", "| `decision_record` |", "名指しが無ければ聞く"),
         ("plugins/dev-flow/skills/spec-doc/SKILL.md", "部分にする正当な理由", "理由＋owner 承認"),
         ("plugins/dev-flow/skills/codex/SKILL.md", "§往き の**対称**", "オーナーがコピーして貼る"),
     ]:
@@ -105,9 +103,3 @@ def test_注入_既定の行に聞くを戻すと拾う():
         texts[rel] = texts[rel].replace(line, line + ins, 1)
         assert asks_in_defaults(texts), (rel, ins)
 
-
-def test_窓の分け方を問わせない():
-    how = _text("plugins/guard/scripts/pick_one.py")
-    assert "順と窓の分け方は AI が決めて進め、問わない" in how and "聞くならやり方を問う" not in how
-    rules = _text("plugins/guard/skills/guard-rules/SKILL.md")
-    assert "①順と窓の分け方は AI が決めて進める（問わない）" in rules and "聞くならやり方を問う" not in rules

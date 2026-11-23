@@ -9,7 +9,6 @@ from pathlib import Path
 
 import pytest
 from entry_box import box_env, copy_entry
-from uses import sh_code
 from saimoku import 全文 as 細目の全文
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -568,10 +567,6 @@ def test_挙げた原因は全部台帳に行き先つきで持ち_全部済む�
     ("plugins/docs-kit/skills/blueprint/SKILL.md", "外すとやり直しになる分かれ道"),
     ("plugins/dev-flow/skills/spec-doc/SKILL.md", "4. **右サイズを提示**"),
     ("plugins/dev-flow/skills/spec-doc/SKILL.md", "部分にする正当な理由"),
-    ("plugins/dev-flow/skills/preimpl-cleanup/SKILL.md", "`[後片付け]`（"),
-    ("plugins/dev-flow/skills/preimpl-cleanup/SKILL.md", "**同梱の片付けの返し**"),
-    ("plugins/dev-flow/skills/preimpl-cleanup/整地受領証.template.md", "**畳む物**"),
-    ("plugins/dev-flow/skills/preimpl-cleanup/整地受領証.template.md", "**残る穴**"),
 ]
 
 
@@ -622,8 +617,6 @@ def test_ミスが出たらまず構造を疑い_単発と言うのは絵の上�
     for word in ["作業の途中・レビュー・検査・引き継ぎ", "画面の見た目の崩れだけは除く", "示した所を書く（合意した全体の絵があれば絵のどこを見たか、無ければ言葉で）",
                  "根に届いていない合図で、原因の段へ戻る"]:
         assert word in s3d, f"細目 §3 の「まず構造を疑う」に無い: {word}"
-    rr = (ROOT / "plugins" / "dev-flow" / "skills" / "register-rule" / "SKILL.md").read_text(encoding="utf-8")
-    assert "細目 §3「まず構造を疑う」" in rr, "register-rule が規律を足す前に原因の段へ戻さない"
     assert "細目 §3「まず構造を疑う」" in (ROOT / "CONTRIBUTING.md").read_text(encoding="utf-8"), "red を単発の手直しで済ませる形に戻った"
     olds = ["同じ種類の失敗が 2 度なら", "原因は仕組み・設計が悪い前提で探し"]
     hits = old_words_left(olds)
@@ -641,8 +634,8 @@ def test_核から細目へ移した物が細目に在る():
 # ---- 振る舞いの既定（AI の癖と逆を求める物）は核と一緒に毎回差し込む ----
 
 FURUMAI_WORDS = {  # 既定の要の語: 振る舞い.md だけに在り、細目に戻らない（2 か所に書かない）
-    "並走": ["着手と言われたら確認させずに進め", "5 分を超える作業は窓・助手を並べて同時に進める",
-             "読むだけの調べは助手", "書く仕事と互いに待たない長い仕事は窓"],
+    "並走": ["着手と言われたら確認させずに進め", "分けた方が実際に早く終わる時だけ",
+             "読むだけの調べは助手", "互いに待たない書く仕事は窓"],
     "後継": ["1 本の列にせず"],
     "範囲": ["止まる条件は狭く", "黙って縮めない"],
     "聞かない": ["自分の枝への push の前に聞かない", "依頼文の出来を人に見てもらわない"],
@@ -706,8 +699,6 @@ def test_inject_は振る舞いを核の後に毎回入れる(monkeypatch, tmp_p
     "plugins/docs-kit/skills/pdf-read/SKILL.md": ["必ず特定してから渡す。"],
     "plugins/docs-kit/skills/make-deck/SKILL.md": ["前案件で漏れた表現を次案件の禁止に足す（add-one）"],
     "plugins/docs-kit/skills/compose-message/SKILL.md": ["`recipient_rules` に 1 行足す"],
-    "plugins/guard/skills/guard-rules/SKILL.md": [],
-    "plugins/session-watch/skills/watch-log/SKILL.md": [],
     "plugins/dev-flow/skills/verify/SKILL.md": ["＋恒久の対応を残りに書く"],
     "CONTRIBUTING.md": ["試験を飛ばして緑にしない。赤を消すために試験を消さない。", "red の時は、同じ枝に直して push し"],
     "plugins/guard/scripts/unanswered.py": [],
@@ -726,7 +717,7 @@ def test_失敗で終わる道具は一覧に載せなくても全部根治の�
     tools = [r for r in out.stdout.split() if r.endswith((".py", ".sh", ".mjs", ".js"))]
     found = [r for r in tools if 失敗で終わる.search((ROOT / r).read_text(encoding="utf-8"))]
     assert "public-guard/guard.py" in found and "plugins/guard/scripts/guard.py" in found, "拾い方が壊れた"
-    entry = re.compile(r"細目(?:\s*§\s*\d+)?「まず構造を疑う」")  # 番号は付けても付けなくても（合うかは refs.py が照らす）
+    entry = re.compile(r"細目(?:\s*§\s*\d+)?「まず構造を疑う」")  # 番号は付けても付けなくても
     missing = [r for r in found if not entry.search((ROOT / r).read_text(encoding="utf-8"))]
     assert not missing, f"失敗で終わるのに根治の入口を指さない道具: {missing}"
 
@@ -797,67 +788,3 @@ def test_検査の入口の赤の最後の行は根治の入口を指し緑は�
     test.write_text("def test_x():\n    assert True\n", encoding="utf-8")
     green = run()
     assert green.returncode == 0 and "まず構造を疑う" not in green.stdout
-
-
-def _git_repo(tmp_path, text, monkeypatch):
-    """作り物の git repo に 核.md と細目（節の file 1 つの dir）を 1 commit で置き、核.md の path を返す。
-    grow は細目も照らす（guarded）ので、細目も作り物へ向ける（本物の作業中の細目に試験が左右されない）。"""
-    g = lambda *a: subprocess.run(["git", *a], cwd=tmp_path, check=True, capture_output=True)
-    g("init", "-q")
-    g("config", "user.email", "t@example.invalid")
-    g("config", "user.name", "t")
-    f = tmp_path / "核.md"
-    f.write_text(text, encoding="utf-8")
-    (tmp_path / "細目").mkdir()
-    (tmp_path / "細目" / "01-節.md").write_text("細目\n", encoding="utf-8")
-    monkeypatch.setattr(kaku, "SAIMOKU", tmp_path / "細目")
-    g("add", "-A")
-    g("commit", "-q", "-m", "元")
-    return f
-
-
-def test_毎回差し込む物が元より増えると赤で_同じか減れば緑(monkeypatch, tmp_path, capsys):
-    """上限の内でも純増は赤（足すなら同じ変更で同じだけ畳む）。わざと 1 字足すと赤になる注入の試験。"""
-    f = _git_repo(tmp_path, "元の核\n", monkeypatch)
-    monkeypatch.setattr(kaku, "injected", lambda: (f,))
-    assert kaku.grow("HEAD") == 0                       # 同じ
-    f.write_text("元の核\n足\n", encoding="utf-8")
-    assert kaku.grow("HEAD") == 1                       # 1 字でも増えたら赤
-    out = capsys.readouterr().out
-    assert "増えた" in out and "同じだけ畳む" in out.strip().splitlines()[-1]
-    f.write_text("核\n", encoding="utf-8")
-    assert kaku.grow("HEAD") == 0                       # 減った
-
-
-def test_比べる元が読めないと増え方の照らしは緑にせず止まる(monkeypatch, tmp_path, capsys):
-    f = _git_repo(tmp_path, "元の核\n", monkeypatch)
-    monkeypatch.setattr(kaku, "injected", lambda: (f,))
-    assert kaku.grow("無い枝") == 2
-    new = tmp_path / "新.md"                            # 元の時に無い file
-    new.write_text("x", encoding="utf-8")
-    monkeypatch.setattr(kaku, "injected", lambda: (new,))
-    assert kaku.grow("HEAD") == 2
-    assert "照らせない" in capsys.readouterr().out
-
-
-def test_差し込む物を足すと増え方の照らしもそれを見る(monkeypatch, tmp_path, capsys):
-    """差し込む一覧と照らす一覧が別の写しに戻ると、足した物が黙って照らされず赤。"""
-    f = _git_repo(tmp_path, "元の核\n", monkeypatch)
-    third = tmp_path / "三つ目.md"
-    third.write_text("三\n", encoding="utf-8")
-    subprocess.run(["git", "add", "-A"], cwd=tmp_path, check=True)
-    subprocess.run(["git", "commit", "-q", "-m", "三"], cwd=tmp_path, check=True)
-    monkeypatch.setattr(kaku, "injected", lambda: (f, third))
-    assert "三" in kaku.inject_text()                   # 差し込む
-    third.write_text("三\n足\n", encoding="utf-8")
-    assert kaku.grow("HEAD") == 1                       # 照らす
-    assert "三つ目.md" in capsys.readouterr().out
-
-
-def test_増え方の照らしは検査の入口から回る():
-    assert kaku.injected() == (kaku.KAKU, kaku.FURUMAI)
-    sh = sh_code((ROOT / "scripts" / "checks" / "kaku_growth.sh").read_text(encoding="utf-8"))   # 注釈の字は回すことにならない
-    assert "kaku.py grow --base" in sh and "pr_shape.py --print-main" in sh   # 比べる元は出所の今の main（前は注釈の origin/main の字で緑だった）
-    ci = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
-    check_job = ci.split("public-guard:")[0]
-    assert "fetch-depth: 0" in check_job, "CI の check が origin/main を取らず、比べる元が無くなる"

@@ -1,5 +1,5 @@
 """古い形 tasu-mado-heading（PR 本文の欄「他の窓へ回す」）は、欄の名の飾り方（見出しの # ・かぎ括弧の中の # ・太字）に
-よらず当たる。注入: pixel-office の PR のレビューで漏れた形「「## 他の窓へ回す」」を置くと olds が拾う。"""
+よらず当たる。注入: 使う側の PR のレビューで漏れた形「「## 他の窓へ回す」」を置くと olds が拾う。"""
 import importlib.util
 import subprocess
 from pathlib import Path
@@ -39,5 +39,5 @@ def test_かぎ括弧の中に見出しの印が付いた欄を_olds_が名指�
     (repo / "型.md").write_text("PR の本文は「## 他の窓へ回す」の欄に残りを書く\n", encoding="utf-8")
     subprocess.run(["git", "init", "-q", str(repo)], check=True)
     subprocess.run(["git", "-C", str(repo), "add", "-A"], check=True)
-    found = kaku.find_olds(repo)
+    found = kaku.olds_scan(repo)["found"]
     assert ("tasu-mado-heading", "型.md") in {(r["id"], f) for r, f in found}, found

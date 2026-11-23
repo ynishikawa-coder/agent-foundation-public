@@ -6,7 +6,6 @@
 ここでは手元の土台の取り出し・origin を仮に作り、わざと古い版を回して、先端へ寄る・寄れない時は止まるを見る。
 """
 import os
-import shutil
 import subprocess
 import sys
 from pathlib import Path

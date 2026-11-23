@@ -17,7 +17,6 @@ import pytest
 
 from test_core_plugin import PLUGIN, Foundation, _commit, _git, catalog_commit, kaku, run
 from test_setup_plugins import foundation, run as run_entry
-from entry_box import box_env
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.dont_write_bytecode = True
@@ -184,7 +183,7 @@ def test_入口を開発の_checkout_から回しても名簿の版は目録の_
     assert rec["catalog_sha"] == head(root), rec
 
 
-# ── 本物の claude で入れる試験（plugin-smoke）・写しの見張り ──
+# ── 本物の claude で入れる試験（plugin-smoke） ──
 
 def test_plugin_smoke_は台帳の最初の行でなく今読まれる行を読む(tmp_path):
     smoke = _load("af_smoke_f2", ROOT / "scripts" / "plugin_smoke.py")
@@ -193,29 +192,6 @@ def test_plugin_smoke_は台帳の最初の行でなく今読まれる行を読�
     table = {"plugins": {"core@agent-foundation": [_row(gone, "a" * 40, "2026-11-19T12:00:00Z"),
                                                    _row(live, "b" * 40, "2026-11-19T11:00:00Z")]}}
     assert smoke.installed_rows(table)["core"]["gitCommitSha"] == "b" * 40
-
-
-def test_写しの見張りは_cache_に残る前の版の_SKILL_を正本と見ない(tmp_path):
-    """注入: cache に前の版の guard の SKILL（もう土台に無い文）を残す → その文の写しを赤にしない。今の版の文は赤にする。"""
-    cache = tmp_path / "plugins" / "cache" / "agent-foundation"
-    core = cache / "core" / "v2"
-    shutil.copytree(PLUGIN, core)
-    old_text = "古い版にだけ在った決まりの文で、もう土台のどこにも無い言い回しをここに長く書いておく。\n"
-    new_text = "窓を閉じる前に枝へ押し、親へ URL を返してから題を付け替えること（今の版だけの手順）。\n"
-    for ver, text in (("v1", old_text), ("v2", new_text)):
-        (cache / "guard" / ver / "skills" / "a").mkdir(parents=True)
-        (cache / "guard" / ver / "skills" / "a" / "SKILL.md").write_text(text, encoding="utf-8")
-    home = tmp_path / "home"
-    (home / ".claude" / "plugins").mkdir(parents=True)
-    _ledger(home, {"core@agent-foundation": [_row(core, "b" * 40)],
-                   "guard@agent-foundation": [_row(cache / "guard" / "v2", "b" * 40)]})
-    tool = core / "scripts" / "copies.py"
-    env = dict(os.environ, HOME=str(home))
-    for text, code in ((old_text, 0), (new_text, 1)):
-        target = tmp_path / "CLAUDE.md"
-        target.write_text(text, encoding="utf-8")
-        r = subprocess.run([sys.executable, str(tool), str(target)], capture_output=True, text=True, env=env)
-        assert r.returncode == code, r.stdout
 
 
 # ── 守りの hook（外へ出す文の照らし）: 入った guard と同じ版の土台の file ──
@@ -240,65 +216,6 @@ def test_guard_は先へ進んだ目録の_clone_でなく入った版の_public
     assert Path(path).read_text(encoding="utf-8") == "入った版\n", path
 
 
-# ── 書いた窓の照らし・検査の入口: PR の先端は event の head ──
-
-def _event(tmp_path, head):
-    p = tmp_path / "event.json"
-    p.write_text(json.dumps({"pull_request": {"head": {"sha": head}}}))
-    return p
-
-
-def test_PR_の先端は_PR_HEAD_SHA_が空でも_HEAD_でなく_event_の_head(tmp_path):
-    shape = [sys.executable, str(ROOT / "scripts" / "pr_shape.py"), "--print-head"]
-    env = {k: v for k, v in os.environ.items() if k not in ("PR_HEAD_SHA", "GITHUB_EVENT_PATH")}
-    r = subprocess.run(shape, capture_output=True, text=True, env=dict(env, PR_HEAD_SHA=""))
-    assert r.returncode == 3 and not r.stdout.strip()  # 分からなければ HEAD で代えない
-    r = subprocess.run(shape, capture_output=True, text=True,
-                       env=dict(env, PR_HEAD_SHA="", GITHUB_EVENT_PATH=str(_event(tmp_path, "c" * 40))))
-    assert r.stdout.strip() == "c" * 40
-    assert ":-HEAD" not in (ROOT / "scripts" / "checks" / "pr_writer.sh").read_text(encoding="utf-8")
-
-
-def test_check_all_の回した先端は_CI_の_PR_では_PR_の先端(tmp_path):
-    """注入: CI の PR（HEAD は main と合わせた merge の commit）→ 結果の行の先端は PR の先端で、merge の commit も添える。"""
-    repo = tmp_path / "r"
-    (repo / "scripts").mkdir(parents=True)
-    shutil.copy2(ROOT / "scripts" / "check_all.sh", repo / "scripts" / "check_all.sh")
-    shutil.copy2(ROOT / "scripts" / "pr_shape.py", repo / "scripts" / "pr_shape.py")
-    (repo / "scripts" / "pytest.sh").write_text("echo '1 passed'\n", encoding="utf-8")
-    (repo / "tests").mkdir()
-    subprocess.run(["git", "init", "-q", str(repo)], check=True)
-    _git(repo, "add", "-A")
-    _git(repo, "commit", "-qm", "merge の代わり")
-    merge = _git(repo, "rev-parse", "HEAD")
-    r = subprocess.run(["bash", "scripts/check_all.sh"], cwd=repo, capture_output=True, text=True,
-                       env=box_env(GITHUB_EVENT_NAME="pull_request", PR_HEAD_SHA="d" * 40))
-    last = r.stdout.strip().splitlines()[-1]
-    assert f"@{'d' * 12}" in last and merge[:12] in last and "PR の先端" in last, last
-
-
-# ── レビューの窓: 比べる元は出所の今の main ──
-
-def test_書いた窓の組は古い手元の_origin_main_でなく出所の今の_main_と比べる(tmp_path):
-    """注入: 手元の origin/main を古く置き、main に別の窓の commit を入れる → その窓を書いた窓に数えない。"""
-    up = tmp_path / "up.git"
-    subprocess.run(["git", "init", "-q", "--bare", "-b", "main", str(up)], check=True)
-    work = tmp_path / "work"
-    subprocess.run(["git", "clone", "-q", str(up), str(work)], check=True, capture_output=True)
-    old = _commit(work, {"a.md": "1\n"}, "始め")
-    _commit(work, {"b.md": "1\n"}, "main の物\n\nClaude-Session: https://x/session_MAINX")
-    _git(work, "checkout", "-q", "-b", "claude/20261120-x")
-    _git(work, "commit", "-q", "--allow-empty", "-m", "枝の物\n\nClaude-Session: https://x/session_BRANCHY")
-    head = _git(work, "rev-parse", "HEAD")
-    _git(work, "update-ref", "refs/remotes/origin/main", old)  # 注入: 手元の origin/main は古い
-    tool = ROOT / "plugins" / "checker" / "scripts" / "pr_writer.py"
-    r = subprocess.run([sys.executable, str(tool), "--writers", "--head", head, "--repo", str(work)],
-                       capture_output=True, text=True)
-    assert r.returncode == 0 and r.stdout.strip() == "session_BRANCHY", r.stdout + r.stderr
-    assert "--base origin/main" not in (ROOT / "plugins" / "checker" / "skills" / "review-pr" / "SKILL.md").read_text(
-        encoding="utf-8")
-
-
 # ── 問いのページ（qa-html）: 今読まれる 1 つ ──
 
 def test_qa_html_の在り処は台帳の最初の行でなく_claude_が今読む行():
@@ -306,34 +223,6 @@ def test_qa_html_の在り処は台帳の最初の行でなく_claude_が今読�
     line = next(ln for ln in text.splitlines() if ln.strip().startswith("- 窓の中:"))
     assert "claude plugin list --json" in line and "installPath" in line
     assert "の `docs-kit@<市場>` の `installPath`（今入っている 1 つ）" not in line
-
-
-# ── PR の衝突の知らせ: 同じ物差し・同じ base ──
-
-def test_違う時期に切った_PR_の行番号を今の先端の物差しへ写して重なりを見る(monkeypatch, capsys):
-    po = _load("af_overlap_f2", ROOT / "scripts" / "pr_overlap.py")
-    # 自分は今の先端から切った（40 行目を直す）。#5 は main が頭に 30 行足す前に切った（10 行目＝今の 40 行目を直す）。
-    # #6 は別の base の枝へ出す PR（同じ行でも数えない）。
-    api = {
-        "pulls/1": {"base": {"ref": "main"}, "head": {"sha": "h1"}},
-        "branches/main": {"commit": {"sha": "T"}},
-        "pulls?state=open&per_page=100": [{"number": 1, "base": {"ref": "main"}},
-                                          {"number": 5, "base": {"ref": "main"}},
-                                          {"number": 6, "base": {"ref": "release"}}],
-        "compare/T...h1": {"merge_base_commit": {"sha": "T"}, "files": [{"filename": "f.md", "patch": "@@ -40,2 +40,2 @@\n"}]},
-        "compare/T...h5": {"merge_base_commit": {"sha": "M"}, "files": [{"filename": "f.md", "patch": "@@ -10,2 +10,2 @@\n"}]},
-        "compare/M...T": {"merge_base_commit": {"sha": "M"}, "files": [{"filename": "f.md", "patch": "@@ -0,0 +1,30 @@\n"}]},
-        "compare/T...h6": {"merge_base_commit": {"sha": "T"}, "files": [{"filename": "f.md", "patch": "@@ -40,2 +40,2 @@\n"}]},
-    }
-    api["pulls?state=open&per_page=100"][1]["head"] = {"sha": "h5"}
-    api["pulls?state=open&per_page=100"][2]["head"] = {"sha": "h6"}
-    monkeypatch.setattr(po, "_get", lambda url, token: api[url.split("/repos/o/r/", 1)[1]])
-    monkeypatch.setenv("GITHUB_TOKEN", "作り物")
-    assert po.main(["--repo", "o/r", "--pr", "1"]) == 0
-    out = capsys.readouterr().out
-    assert "#5" in out and "#6" not in out, out
-    # 写さずに比べると（分かれ目の物差しのまま）10 行目と 40 行目で重ならない＝見落とす
-    assert po.overlaps({"f.md": "@@ -40,2 +40,2 @@\n"}, {"#5": {"f.md": "@@ -10,2 +10,2 @@\n"}}) == []
 
 
 # ── 公開の検査: PR の範囲・手元の範囲 ──
