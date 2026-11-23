@@ -80,7 +80,7 @@ def test_整地は根治の_5_段を持ち_解決の段に注入の試験と残�
 def test_規律を足す時も止める物かの後に誤りが入れない形と注入の試験を書く():
     skill = (PLUGIN / "skills" / "register-rule" / "SKILL.md").read_text(encoding="utf-8")
     step1 = skill[skill.index("## Step 1"):skill.index("## Step 2")]
-    for word in ["誤りが入れない形のどれか", "注入の試験", "核 §3・細目 §3"]:
+    for word in ["誤りが入れない形のどれか", "注入の試験", "核「直すは根治」・細目「直すは根治」"]:
         assert word in step1, f"register-rule Step 1 に無い: {word}"
     out = skill[skill.index("## 出力の形"):]
     assert out.index("止める物か") < out.index("注入の試験"), "出力の形で止める物かの後に形と注入の試験が無い"

@@ -65,12 +65,14 @@ def test_同じ先端に判定が在れば_2_つ目を出さない():
     assert rg.decide(pr(), REQ, GREEN, old)[0] == "入ってよい"   # 前の先端の判定は見直しを止めない
 
 
-def test_check_run_は新しい物を取り_status_は無い名だけ():
+def test_check_run_は新しい物を取り_同じ名の_status_の赤は隠さない():
     runs = [{"name": "check", "status": "completed", "conclusion": "failure", "completed_at": "2026-11-22T01:00:00Z"},
             {"name": "check", "status": "completed", "conclusion": "success", "completed_at": "2026-11-22T02:00:00Z"},
             {"name": "plugin-smoke", "status": "in_progress", "conclusion": None, "started_at": "2026-11-22T02:00:00Z"}]
-    st = rg.check_states(runs, [{"context": "public-guard", "state": "success"}, {"context": "check", "state": "failure"}])
+    st = rg.check_states(runs, [{"context": "public-guard", "state": "success"}])
     assert st == {"check": "success", "plugin-smoke": "in_progress", "public-guard": "success"}
+    st = rg.check_states(runs, [{"context": "check", "state": "failure"}])   # 同じ名の status の赤は run の緑で隠れない
+    assert st["check"] == "failure"
 
 
 def test_必須の検査の名は_rules_の返しから読む():

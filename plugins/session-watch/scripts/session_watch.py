@@ -137,7 +137,7 @@ TITLE_TABLE = {
 }
 KIND_NAMES = {HUMAN: "オーナーと話す窓", HAND: "手の窓（オーナーの操作を頼む窓）", AI: "AI が立てて AI に返す窓"}
 STATE_NAMES = {MOVING: "（無し）", ASKING: "オーナーの答え待ち", WAITING: "ほかの何か（ほかの窓の返事・本流への取り込み・CI）待ち",
-               STOPPED: "止まった（外し方は本文）", DONE: "終わった（核 §7）・後継へ渡した"}
+               STOPPED: "止まった（外し方は本文）", DONE: "終わった（核「完了の 4 状態」）・後継へ渡した"}
 # 返事の 1 行目の札（核 §5 の 4 つ）。札と題の状態は同じ絵（オーナーの決定 2026-11-22 23:00 日本時間・前の砂時計の札は畳んだ＝古い形 card-wait-hourglass）。
 CARD_WAIT = WAITING
 OLD_CARD_WAIT = "⏳"

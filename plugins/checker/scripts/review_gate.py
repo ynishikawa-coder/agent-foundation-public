@@ -14,7 +14,8 @@
   base の枝に無い＝積んだ PR は既定の枝の物）／
   先端の check run と commit status／PR のコメント（同じ先端の判定 `見た先端: <先端12>` が在るか）。
 入ってよい: 開いている・mergeable_state が clean・必須の検査が全部、先端で終わって success（neutral・skipped も GitHub と同じく通す）・
-  同じ先端の判定がまだ無い。
+  同じ先端・同じ題と本文の版（`見た本文:`）の判定がまだ無い（題・本文だけを直した PR は同じ先端で見直せる）。
+  commit status は context ごとに updated_at の新しい 1 件を取り、同じ名の check run と緑でない方を残す。
   無料のプランの非公開 repo（GitHub が必須の検査を作らせず rules を 403「Upgrade to GitHub Pro」で返す）だけは、必須の検査の代わりに
   先端で走った検査が全部終わって緑（1 つも無ければ mergeable_state clean だけ）で通す（オーナーの答え 2026-11-22）。
   走った検査には、先端の workflow の走り（actions/runs?head_sha=）も入れる（遅い job の check run がまだ作られていない間に、
@@ -31,6 +32,7 @@ verdict_form.py に渡す `--first <版|なし>` を出す。main の先端が�
 from __future__ import annotations
 
 import argparse
+import hashlib
 import io
 import json
 import os
@@ -52,8 +54,10 @@ API = "https://api.github.com"
 OK = {"success", "neutral", "skipped"}
 VERDICT = re.compile(r"^\s*レビューした窓\s*[:：]\s*(session_[A-Za-z0-9]+)\s+判定\s*[:：]\s*(green|red)\b", re.M)
 SEEN = re.compile(r"^\s*見た先端\s*[:：]\s*([0-9a-f]{12})\s*$", re.M)
+TEXT_SEEN = re.compile(r"^\s*見た本文\s*[:：]\s*([0-9a-f]{12})\s*$", re.M)
 PLAN_NONE = None    # 無料のプランで必須の検査を持てない repo（rules が 403「Upgrade to GitHub Pro」）
 PLAN_403 = "Upgrade to GitHub Pro"
+ADD_REPO = "add_repo"   # 雲の窓の網の口が、窓に付いていない repo へ返す 403 の本文に在る語
 UNKNOWN_TRIES = 4   # mergeable_state は GitHub が後で数える（unknown の間は少し待って読み直す）
 
 
@@ -88,10 +92,15 @@ def check_states(runs: list, statuses: list) -> dict[str, str]:
     for (name, _app, _suite), (_when, state) in groups.items():
         if name not in out or (out[name] in OK and state not in OK):
             out[name] = state
-    for s in statuses or []:   # commit status（古い口）。check run が無い名だけ
+    latest: dict[str, tuple[str, str]] = {}
+    for s in statuses or []:   # commit status（古い口）。context ごとに updated_at の新しい 1 件（返る並びに頼らない）
         name = s.get("context") or ""
-        if name and name not in out:
-            out[name] = s.get("state") or ""
+        when = s.get("updated_at") or s.get("created_at") or ""
+        if name and (name not in latest or when >= latest[name][0]):
+            latest[name] = (when, s.get("state") or "")
+    for name, (_when, state) in latest.items():   # check run と同じ名は、緑でない方を残す（status の赤を run の緑で隠さない）
+        if name not in out or (out[name] in OK and state not in OK):
+            out[name] = state
     return out
 
 
@@ -111,13 +120,21 @@ def workflow_states(wruns: list) -> dict[str, str]:
     return {k: v[1] for k, v in out.items()}
 
 
-def verdicts_on(comments: list, head: str) -> list[str]:
-    """同じ先端に出た判定の 1 行目（`レビューした窓: … 判定: …`）の並び。"""
+def text_version(pr: dict) -> str:
+    """PR の題・本文の版（題と本文の sha256 の先頭 12 文字）。判定は `見た本文:` にこれを書く。"""
+    text = (pr.get("title") or "") + "\n" + (pr.get("body") or "").replace("\r\n", "\n")
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()[:12]
+
+
+def verdicts_on(comments: list, head: str, text: str = "") -> list[str]:
+    """同じ先端・同じ題と本文の版に出た判定の 1 行目（`レビューした窓: … 判定: …`）の並び。
+    `見た本文:` を持つ判定は、その版が今の題・本文の版と違えば数えない（題・本文だけを直した PR を同じ先端で見直せる）。
+    `見た本文:` の無い判定は先端だけで数える（前の形）。"""
     out = []
     for c in comments or []:
         body = c.get("body") or ""
-        m, s = VERDICT.search(body), SEEN.search(body)
-        if m and s and head.startswith(s.group(1)):
+        m, s, t = VERDICT.search(body), SEEN.search(body), TEXT_SEEN.search(body)
+        if m and s and head.startswith(s.group(1)) and not (t and text and t.group(1) != text):
             out.append(m.group(0).strip())
     return out
 
@@ -150,10 +167,21 @@ def decide(pr: dict, required: list[str], states: dict[str, str], comments: list
             why.append("必須の検査 %s が %s（緑でない）" % (name, st))
     if why:
         return "まだ", why
-    done = verdicts_on(comments, head)
+    done = verdicts_on(comments, head, text_version(pr))
     if done:
-        return "済み", ["先端 %s に判定が既に在る（%s）。同じ先端に 2 つ目の判定を出さない" % (head[:12], done[0])]
+        return "済み", ["先端 %s・題と本文の版 %s に判定が既に在る（%s）。同じ先端・同じ題と本文に 2 つ目の判定を出さない"
+                       "（題・本文だけを直した時は、版が変われば見直せる）" % (head[:12], text_version(pr), done[0])]
     return "入ってよい", []
+
+
+def _said(e) -> str:
+    """HTTPError の返しの本文（1 度だけ読んで e に持つ）。"""
+    if not hasattr(e, "af_text"):
+        try:
+            e.af_text = (e.read() or b"").decode("utf-8", "replace")
+        except Exception:  # noqa: BLE001  本文の無い返し
+            e.af_text = ""
+    return e.af_text
 
 
 def _get(path: str, token: str):
@@ -165,6 +193,7 @@ def _get(path: str, token: str):
         with urllib.request.urlopen(urllib.request.Request(url, headers=hdr), timeout=30) as r:
             return json.loads(r.read().decode("utf-8"))
     except urllib.error.HTTPError as e:
+        _said(e)   # 訳の本文は 1 度しか読めない＝ここで持つ
         if token and e.code == 401:   # 窓の環境の鍵がこの repo に効かない時は、公開の repo を鍵なしで読む
             try:
                 return _get(path, "")
@@ -190,7 +219,7 @@ def _rules(repo: str, branch: str, token: str):
     try:
         return required_contexts(_get("/repos/%s/rules/branches/%s" % (repo, branch), token))
     except urllib.error.HTTPError as e:
-        if e.code == 403 and PLAN_403 in (e.read() or b"").decode("utf-8", "replace"):
+        if e.code == 403 and PLAN_403 in _said(e):
             return PLAN_NONE
         raise
 
@@ -229,6 +258,10 @@ def main(argv=None, read=read_facts) -> int:
         pr, required, states, comments = read(a.repo, a.pr, os.environ.get("GITHUB_TOKEN") or "")
     except Exception as e:  # noqa: BLE001  読めない時は入ってよいと言わない（exit 2＝まだと同じに扱う）
         print("review_gate: 読めない — GitHub の記録を引けない（%s）。判定に入らない" % e)
+        if isinstance(e, urllib.error.HTTPError) and e.code == 403 and ADD_REPO in _said(e):
+            # 雲の窓は、窓に付いた repo だけを GitHub の REST で読める（付いていない repo は 403 で返る）
+            print("直し: この窓に %s が付いていない。add_repo で owner=%s repo=%s access=\"push\" を付けてから回し直す"
+                  "（雲の窓の GitHub の REST は窓に付いた repo だけ通る）" % ((a.repo,) + tuple(a.repo.split("/", 1))))
         return 2
     kind, why = decide(pr, required, states, comments)
     head = (pr.get("head") or {}).get("sha", "")[:12]
@@ -245,6 +278,7 @@ def main(argv=None, read=read_facts) -> int:
         print("review_gate: 入ってよい — #%d@%s %s が緑・mergeable_state clean・この先端の判定はまだ無い" % (a.pr, head, what))
         print("決まりの版: %s（%s）" % ((first or tip)[:12], "この PR の初めの判定の版＝始めた時の決まりで見る" if first
                                      else "main の先端＝この PR の初めの判定"))
+        print("見た本文: %s（今の題・本文の版。判定の 4 行目にそのまま書く）" % text_version(pr))
         print("verdict_form に --first %s" % (first or verdict_form.NO_FIRST))
         return 0
     print("review_gate: %s — #%d@%s（判定に入らない。書いた窓へ「%s」と訳だけを返す）" % (kind, a.pr, head, kind))

@@ -1,0 +1,5 @@
+- 直した: review_gate の 入ってよい の判定に、見た PR の題と本文の版（`見た本文:`）を書く。本文だけ直した PR も、前の判定のまま入らない
+- 直した: review_gate は同じ context の status を新しい物で読み、同じ名の check run の緑が status の赤を隠さない
+- 直した: review_gate が add_repo の要る 403 を受けた時、読めない とだけ言わず add_repo を名指す
+- 直した: pr_overlap は 14 日より長く動いていない開いた PR を重なりの相手に数えず、番号だけ名指す（閉じ忘れを閉じる）
+- 直した: refs の名は 1 段の入れ子の「」を読む（CONTRIBUTING.md「配り方と「壊れる:」変更」）。土台の md の番号だけの指しを名に替え、試験 `tests/test_refs_names_only.py` が土台の md 全部を照らす

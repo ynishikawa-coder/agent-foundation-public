@@ -1,5 +1,5 @@
 """全体の絵は設計の時に掘り下げる元の図で、合流（main へ入れる）を止めない（オーナーの意図 2026-11-22）。
-核 §7・細目 §7・review-pr・判定の形の道具に、絵を合流の条件にする文や点が戻ると red。"""
+核「完了の 4 状態」・細目「完了の 4 状態」・review-pr・判定の形の道具に、絵を合流の条件にする文や点が戻ると red。"""
 from pathlib import Path
 
 from saimoku import 全文 as 細目の全文
@@ -44,7 +44,7 @@ def test_review_pr_に全体の絵の点が無く_判定の道具も絵の形を
 
 def test_CONTRIBUTING_は合流の条件を核と細目へ指し絵で止めない():
     c = CONTRIB.read_text(encoding="utf-8")
-    assert "核 §7 と細目 §7 の「main へ入れる」" in c
+    assert "核「完了の 4 状態」と細目「完了の 4 状態」の「main へ入れる」" in c
     assert "全体の絵は設計の元の図で、合流を止めない" in c
 
 

@@ -55,7 +55,8 @@ _NAME = re.compile(r"^\s*[-*]\s+\*\*([^*]+?)\*\*")
 _DOC = (r"`?(?P<path>[\w./-]*[\w-]\.md)`?"
         r"|(?<![\u4e00-\u9fff々])(?P<alias>" + "|".join(map(re.escape, sorted(ALIASES, key=len, reverse=True))) + r")"
         r"|(?P<skill>skill:[\w-]+:[\w-]+)")
-_REF = re.compile(r"(?:" + _DOC + r")\s*(?:§\s*(?P<no>\d+)\s*)?(?:「(?P<name>[^」\n]+)」)?")
+_REF = re.compile(r"(?:" + _DOC + r")\s*(?:§\s*(?P<no>\d+)\s*)?(?:「(?P<name>(?:[^「」\n]|「[^「」\n]*」)+)」)?")
+# 名は 1 段の入れ子の「」を持てる（CONTRIBUTING.md「配り方と「壊れる:」変更」）。入れ子を切ると、名で指す直しの案そのものが読めない
 # 割る前の 1 枚の細目の名（壊れる 1 段目: 使う側の指しが移るまで、今の細目の文書として受ける）
 OLD_DOCS = {"細目.md": ALIASES["細目"], "plugins/core/細目.md": ALIASES["細目"]}
 MIN_QUOTE = 4   # 名でない引きは、これより短いと文書のどこかに当たるだけで合ってしまう（「の」）

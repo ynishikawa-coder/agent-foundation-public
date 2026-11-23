@@ -19,6 +19,10 @@
       開いている PR が書き換えているか（file の単位）。重なれば exit 1＝その窓は並べず、重なる PR が入るのを待つ列にする
       （振る舞いの既定「並走」）。開いている PR を読めない時は exit 3（重ならないと言わない）。
 
+今いっしょに進む PR だけと照らす: 開いた PR のうち、STALE_DAYS 日より長く動いていない（updated_at が古い）物は照らさず、
+  番号を 1 行で名指すだけにする（閉じ忘れの古い PR が知らせを埋め、本当にぶつかる相手が見えなくなるのを防ぐ。
+  黙って捨てない）。updated_at の無い PR は動いていると読む（知らせを落とす側に倒さない）。
+
 exit（--files の外）: 0=見た（重なりの有無は文で知らせる・止めない）/ 3=見ていない（材料が無い・他の PR を読めない）。
   見ていない時を 0 で終えると、知らせを出せなかった job が「重なりは無い」と同じ緑の印に見える。なので 3 で終え、
   GitHub の上では ::warning:: の注記も出す（job は止めない＝ci.yml の job overlap は step を continue-on-error で回す）。
@@ -31,6 +35,7 @@ import os
 import re
 import sys
 import urllib.request
+from datetime import datetime, timedelta, timezone
 
 CONTEXT = 3
 UNSEEN = 3  # 見ていない（緑に数えない）
@@ -38,6 +43,7 @@ WHOLE = (1, 10**9)  # patch の無い file の範囲（全部の行）
 COMPARE_FILES_CAP = 300   # compare の応答に載る file の上限（越える分は黙って欠ける）
 PR_FILES_CAP = 3000       # PR の file の一覧の上限
 PER_PAGE = 100
+STALE_DAYS = 14           # これより長く動いていない開いた PR は、今いっしょに進む相手に数えない
 HUNK = re.compile(r"^@@ -(\d+)(?:,(\d+))? \+\d+(?:,\d+)? @@", re.M)
 
 
@@ -167,10 +173,31 @@ def claimed(declared: list[str], others: dict[str, list[str]]) -> list[tuple[str
     return [(pr, f) for pr, fs in sorted(others.items()) for f in fs if f in want]
 
 
+def moving(opened: list, now: datetime | None = None) -> tuple[list, list]:
+    """(今いっしょに進む PR, STALE_DAYS 日より長く動いていない PR)。updated_at の無い・読めない PR は進む側に入れる。"""
+    edge = (now or datetime.now(timezone.utc)) - timedelta(days=STALE_DAYS)
+    live, stale = [], []
+    for p in opened:
+        try:
+            when = datetime.fromisoformat((p.get("updated_at") or "").replace("Z", "+00:00"))
+        except ValueError:
+            when = None
+        (stale if when is not None and when < edge else live).append(p)
+    return live, stale
+
+
+def say_stale(stale: list) -> None:
+    if stale:
+        print(f"pr_overlap: {STALE_DAYS} 日より長く動いていない開いた PR {len(stale)} 本は照らさない（"
+              + "・".join(f"#{p['number']}" for p in stale) + "）。閉じ忘れなら閉じる")
+
+
 def open_files(repo: str, token: str) -> dict[str, list[str]]:
-    """開いている PR ごとの触った file の名。読めない・多すぎる時は例外（重ならないと言わない）。"""
+    """今いっしょに進む開いた PR ごとの触った file の名。読めない・多すぎる時は例外（重ならないと言わない）。"""
     out = {}
-    for p in _get_all(f"https://api.github.com/repos/{repo}/pulls?state=open", token):
+    live, stale = moving(_get_all(f"https://api.github.com/repos/{repo}/pulls?state=open", token))
+    say_stale(stale)
+    for p in live:
         files = _get_all(f"https://api.github.com/repos/{repo}/pulls/{p['number']}/files", token, cap=PR_FILES_CAP)
         out[f"#{p['number']} {p['head']['ref']}"] = [f["filename"] for f in files]
     return out
@@ -231,7 +258,8 @@ def main(argv=None) -> int:
             tip = _get(f"https://api.github.com/repos/{a.repo}/branches/{base}", token)["commit"]["sha"]
             cache: dict = {}
             mine_r = on_base_tip(a.repo, tip, me["head"]["sha"], token, cache)
-            opened = _get_all(f"https://api.github.com/repos/{a.repo}/pulls?state=open", token)
+            opened, stale = moving(_get_all(f"https://api.github.com/repos/{a.repo}/pulls?state=open", token))
+            say_stale(stale)
             others_r = {f"#{p['number']}": on_base_tip(a.repo, tip, p["head"]["sha"], token, cache)
                         for p in opened if p["number"] != a.pr and (p.get("base") or {}).get("ref") == base}
     except Exception as e:  # noqa: BLE001  知らせる道具が壊れても PR は止めない（見ていない事を exit 3 で名指す）
