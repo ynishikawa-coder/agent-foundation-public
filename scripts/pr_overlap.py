@@ -9,6 +9,9 @@
 物差し: PR ごとの差分の行番号は、その PR の分かれ目（merge base）の main の行番号で、違う時期に切った PR どうしでは
   物差しが違う。なので各 PR の範囲を、分かれ目から base の枝の今の先端までの差分で今の先端の行番号へ写してから比べる
   （写す所が書き換えられた行は、書き換えた後の範囲の全部へ広げる＝見落とす側に倒さない）。比べる PR は同じ base の枝の物だけ。
+取れない物は「無い」と読まない: 開いた PR・PR の file は頁を全部取る。GitHub が patch を返さない file（バイナリ・大きすぎる差分）は
+  file の全部の行を書き換えたと読む（空の差分と読んで重なりを見落とさない）。compare の file が上限 300 に当たった・PR の file が
+  上限 3000 に当たった時は、全部を見ていないので exit 3（見ていない）で名指す。
 
   python3 scripts/pr_overlap.py --repo <owner/name> --pr <番号>      # CI（GITHUB_TOKEN で読むだけ）
   python3 scripts/pr_overlap.py --self <patch の JSON> --others <JSON>  # 試験（{pr: {file: patch}} の形）
@@ -31,10 +34,17 @@ import urllib.request
 
 CONTEXT = 3
 UNSEEN = 3  # 見ていない（緑に数えない）
+WHOLE = (1, 10**9)  # patch の無い file の範囲（全部の行）
+COMPARE_FILES_CAP = 300   # compare の応答に載る file の上限（越える分は黙って欠ける）
+PR_FILES_CAP = 3000       # PR の file の一覧の上限
+PER_PAGE = 100
 HUNK = re.compile(r"^@@ -(\d+)(?:,(\d+))? \+\d+(?:,\d+)? @@", re.M)
 
 
-def ranges(patch: str) -> list[tuple[int, int]]:
+def ranges(patch: str | None) -> list[tuple[int, int]]:
+    """差分の塊の古い側の範囲。patch が None（GitHub が返さなかった）は file の全部の行（WHOLE）。"""
+    if patch is None:
+        return [WHOLE]
     out = []
     for m in HUNK.finditer(patch or ""):
         start, n = int(m.group(1)), int(m.group(2) if m.group(2) is not None else 1)
@@ -54,7 +64,9 @@ def _hunks(patch: str) -> list[tuple[int, int, int, int]]:
 
 def carry(span: tuple[int, int], patch: str | None) -> tuple[int, int]:
     """分かれ目の行番号の範囲 span を、分かれ目→今の先端の差分 patch で今の先端の行番号へ写す（patch が無ければそのまま）。
-    書き換えられた行に掛かる所は、書き換えた後の範囲の全部へ広げる。"""
+    書き換えられた行に掛かる所は、書き換えた後の範囲の全部へ広げる。patch が None（返らなかった）は全部の行へ広げる。"""
+    if patch is None:
+        return WHOLE
     if not patch:
         return span
     hunks = _hunks(patch)
@@ -96,7 +108,7 @@ def overlaps(mine: dict[str, str], others: dict[str, dict[str, str]]) -> list[tu
 
 def on_tip(files: dict[str, str], to_tip: dict[str, str]) -> dict[str, list[tuple[int, int]]]:
     """PR の {file: patch（分かれ目から）} を、今の先端の行番号の {file: [範囲]} へ写す。"""
-    return {f: [carry(r, to_tip.get(f)) for r in ranges(p)] for f, p in files.items()}
+    return {f: [carry(r, to_tip.get(f, "")) for r in ranges(p)] for f, p in files.items()}
 
 
 def _get(url: str, token: str):
@@ -106,10 +118,39 @@ def _get(url: str, token: str):
         return json.loads(r.read().decode("utf-8"))
 
 
-def compare(repo: str, base: str, head: str, token: str) -> tuple[str, dict[str, str]]:
-    """(分かれ目の commit, {file: patch（分かれ目から head まで）})。"""
+def _get_all(url: str, token: str, cap: int | None = None) -> list:
+    """一覧の頁を全部取る（per_page=100 で、満ちた頁の次を取り続ける）。cap 件に届いた時は全部を取れていないので OSError。"""
+    out: list = []
+    page = 1
+    sep = "&" if "?" in url else "?"
+    while True:
+        more = f"&page={page}" if page > 1 else ""      # 1 頁目は頁の印なし（GitHub の既定が 1 頁目）
+        got = _get(f"{url}{sep}per_page={PER_PAGE}{more}", token)
+        if not isinstance(got, list):
+            raise OSError(f"一覧の形でない応答（{url}）")
+        out.extend(got)
+        if cap is not None and len(out) >= cap:
+            raise OSError(f"一覧が上限 {cap} 件に当たり、全部を読めない（{url}）")
+        if len(got) < PER_PAGE:
+            return out
+        page += 1
+
+
+def _patch(r: dict) -> str | None:
+    """file の patch。返らない時、行の変更が 0（中身の変わらない名の付け替え）なら空、そうでなければ None（全部の行）。"""
+    p = r.get("patch")
+    if p:
+        return p
+    return "" if not r.get("changes") else None
+
+
+def compare(repo: str, base: str, head: str, token: str) -> tuple[str, dict[str, str | None]]:
+    """(分かれ目の commit, {file: patch（分かれ目から head まで）})。file が上限 300 に当たれば OSError（欠けを見ない）。"""
     c = _get(f"https://api.github.com/repos/{repo}/compare/{base}...{head}", token)
-    return c["merge_base_commit"]["sha"], {r["filename"]: r.get("patch") or "" for r in c.get("files") or []}
+    files = c.get("files") or []
+    if len(files) >= COMPARE_FILES_CAP:
+        raise OSError(f"{base[:12]}...{head[:12]} の file が上限 {COMPARE_FILES_CAP} に当たり、全部の差分を読めない")
+    return c["merge_base_commit"]["sha"], {r["filename"]: _patch(r) for r in files}
 
 
 def on_base_tip(repo: str, base_tip: str, head: str, token: str, cache: dict) -> dict[str, list[tuple[int, int]]]:
@@ -129,10 +170,8 @@ def claimed(declared: list[str], others: dict[str, list[str]]) -> list[tuple[str
 def open_files(repo: str, token: str) -> dict[str, list[str]]:
     """開いている PR ごとの触った file の名。読めない・多すぎる時は例外（重ならないと言わない）。"""
     out = {}
-    for p in _get(f"https://api.github.com/repos/{repo}/pulls?state=open&per_page=100", token):
-        files = _get(f"https://api.github.com/repos/{repo}/pulls/{p['number']}/files?per_page=100", token)
-        if len(files) >= 100:
-            raise OSError(f"#{p['number']} の file が 100 を越え、全部を読めない")
+    for p in _get_all(f"https://api.github.com/repos/{repo}/pulls?state=open", token):
+        files = _get_all(f"https://api.github.com/repos/{repo}/pulls/{p['number']}/files", token, cap=PR_FILES_CAP)
         out[f"#{p['number']} {p['head']['ref']}"] = [f["filename"] for f in files]
     return out
 
@@ -192,7 +231,7 @@ def main(argv=None) -> int:
             tip = _get(f"https://api.github.com/repos/{a.repo}/branches/{base}", token)["commit"]["sha"]
             cache: dict = {}
             mine_r = on_base_tip(a.repo, tip, me["head"]["sha"], token, cache)
-            opened = _get(f"https://api.github.com/repos/{a.repo}/pulls?state=open&per_page=100", token)
+            opened = _get_all(f"https://api.github.com/repos/{a.repo}/pulls?state=open", token)
             others_r = {f"#{p['number']}": on_base_tip(a.repo, tip, p["head"]["sha"], token, cache)
                         for p in opened if p["number"] != a.pr and (p.get("base") or {}).get("ref") == base}
     except Exception as e:  # noqa: BLE001  知らせる道具が壊れても PR は止めない（見ていない事を exit 3 で名指す）

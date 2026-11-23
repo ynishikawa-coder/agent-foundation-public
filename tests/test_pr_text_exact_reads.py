@@ -23,7 +23,7 @@ import workflow_reader as W  # noqa: E402
 
 from test_wf_reader import whole  # noqa: E402  断片を PR で走る workflow の job の steps に包む
 
-from test_pr_text import MAIL, PUBLIC_WORD, _fake_public_repo, deny_reason, env, gh  # noqa: E402,F401
+from test_pr_text import MAIL, PUBLIC_WORD, _fake_gh, _fake_public_repo, deny_reason, env, gh  # noqa: E402,F401
 
 F = "ynishikawa-coder/agent-foundation-public"
 CALL = "uses: %s/public-guard@main" % F
@@ -105,6 +105,7 @@ def test_公開の鍵は形の違う行でも公開の照らしを黙って外�
     table = tmp_path / "values.json"
     env["SKILL_VALUES"] = str(table)
     p = gh("add_issue_comment", issue_number=1, body="連絡は %s へ" % MAIL, repo="far-public")
+    _fake_gh(env)                                          # GitHub の記録は private（決められない時は公開に倒れるので記録を置く）
     table.write_text(json.dumps({"guard": {"public_repos_extra": ["^fake-owner/"]}}), encoding="utf-8")
     assert "[public]" in deny_reason(env, p)
     table.write_text(json.dumps({"guard": {"public_repos_extra": ["^fake-owner/far$"]}}), encoding="utf-8")

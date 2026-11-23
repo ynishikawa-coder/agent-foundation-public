@@ -69,19 +69,30 @@ def required_contexts(rules: list) -> list[str]:
 
 
 def check_states(runs: list, statuses: list) -> dict[str, str]:
-    """{検査の名: 状態}。check run は終わっていれば conclusion・まだなら status。同じ名は新しい物を取る。"""
-    out: dict[str, tuple[str, str]] = {}
+    """{検査の名: 状態}。check run は終わっていれば conclusion・まだなら status。
+    check run は (名, app, check_suite) で束ね、その中の新しい 1 本を取る（同じ app・同じ suite の走り直しは新しい方）。
+    名が同じでも app か check_suite が違う run は別の検査として数え、どれかが緑でない・終わっていなければ、その名の状態は
+    緑でない方にする（名だけで束ねると、別の suite の赤が同じ名の新しい緑で隠れ、関所が通った）。"""
+    groups: dict[tuple, tuple[str, str]] = {}
     for r in runs or []:
+        name = r.get("name") or ""
+        if not name:
+            continue
         when = r.get("completed_at") or r.get("started_at") or ""
         state = r.get("conclusion") if r.get("status") == "completed" else (r.get("status") or "queued")
-        name = r.get("name") or ""
-        if name and (name not in out or when >= out[name][0]):
-            out[name] = (when, state or "")
+        app, suite = r.get("app") or {}, r.get("check_suite") or {}
+        key = (name, app.get("id") or app.get("slug") or "", suite.get("id") or "")
+        if key not in groups or when >= groups[key][0]:
+            groups[key] = (when, state or "")
+    out: dict[str, str] = {}
+    for (name, _app, _suite), (_when, state) in groups.items():
+        if name not in out or (out[name] in OK and state not in OK):
+            out[name] = state
     for s in statuses or []:   # commit status（古い口）。check run が無い名だけ
         name = s.get("context") or ""
         if name and name not in out:
-            out[name] = (s.get("updated_at") or "", s.get("state") or "")
-    return {k: v[1] for k, v in out.items()}
+            out[name] = s.get("state") or ""
+    return out
 
 
 def workflow_states(wruns: list) -> dict[str, str]:
