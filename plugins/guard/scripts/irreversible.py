@@ -203,7 +203,7 @@ def _extra_broken(name, payload):
     keys = ["irreversible_tools_extra"] if name.startswith("mcp__") else []
     if name == "Bash":
         keys.append("irreversible_bash_extra")
-    why = [w for k in keys for w in G.broken_pattern_rows(k, payload)]
+    why = [w for k in keys for w in G.broken_stop_key(k, payload)]
     return ("足した戻せない操作の形を読めない（%s）" % " / ".join(why)) if why else ""
 
 

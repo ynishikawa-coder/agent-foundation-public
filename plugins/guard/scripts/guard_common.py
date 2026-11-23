@@ -90,9 +90,20 @@ def table(section, payload=None):
     return got if isinstance(got, dict) else {}
 
 
-def broken_pattern_rows(key, payload=None):
-    """止める鍵（型 patterns）を読めない訳の並び。表が読めない・欄や鍵の型が違う・正規表現として読めない行を名指す。
-    values() はその鍵を既定（[]）へ落とす＝止める鍵ではそれが黙って通す側になる。止める見張りはこれを見て止める側へ倒す。"""
+def stop_keys():
+    """値の表 guard の「止める鍵」（schema で "stops": true）の名の集合。落ちると見張りが黙って通す側になる鍵。"""
+    return {k for k, spec in (SV.keys_of("guard") or {}).items() if spec.get("stops")}
+
+
+_UNREAD_ROWS = {"patterns": SV.bad_pattern_rows, "words": SV.bad_words, "repo_names": SV.bad_repo_names}
+
+
+def broken_stop_key(key, payload=None, rows=True):
+    """止める鍵を読めない訳の並び（読めれば []）。表が読めない・guard の欄や鍵の型が違う・行が読めない（rows=False なら
+    行は見ない＝行ごとに扱う見張り用）を名指す。values()・table() は読めない時に既定（[]）へ落とす＝止める鍵ではそれが
+    黙って通す側になるので、止める見張りはこれを見て、自分が止める場面でだけ止める側へ倒す。"""
+    if key not in stop_keys():
+        raise KeyError("%s は schema で止める鍵（\"stops\": true）でない" % key)
     try:
         path = SV.find(starts=_starts(payload))
         tbl, problems = SV.load(path)
@@ -105,13 +116,15 @@ def broken_pattern_rows(key, payload=None):
         return []
     if not isinstance(sec, dict):
         return ["値の表 %s の guard が {…} でない" % path]
-    if key not in sec:
+    v = sec.get(key)
+    if SV.empty(v):
         return []
-    rows = sec[key]
-    if not isinstance(rows, list):
+    t = SV.key_spec("guard", None, key).get("type")
+    if not isinstance(v, list):
         return ["値の表 %s の guard.%s が並びでない" % (path, key)]
-    return ["値の表 %s の guard.%s の行 %s が正規表現として読めない" % (path, key, json.dumps(r, ensure_ascii=False))
-            for r in SV.bad_pattern_rows(rows)]
+    bad = _UNREAD_ROWS.get(t, lambda _v: [])(v) if rows else []
+    return ["値の表 %s の guard.%s の行 %s が読めない（%s で書く）" % (path, key, json.dumps(r, ensure_ascii=False), SV.TYPE_WORD.get(t, t))
+            for r in bad]
 
 
 def values_problems(payload=None):

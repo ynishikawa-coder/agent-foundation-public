@@ -43,9 +43,9 @@
           "type": "str",
           "default": "~/.claude/af-guard"
         },
-        "paid_markers_extra": {"type": "words", "default": [], "against": "試験の file に書く本文・試験の file に書く Bash の命令の全文"},
-        "irreversible_bash_extra": {"type": "patterns", "match": "part", "default": [], "against": "Bash の命令の全文"},
-        "irreversible_tools_extra": {"type": "patterns", "match": "whole", "default": [], "against": "道具の名（例 mcp__server__delete_item）"},
+        "paid_markers_extra": {"stops": true, "type": "words", "default": [], "against": "試験の file に書く本文・試験の file に書く Bash の命令の全文"},
+        "irreversible_bash_extra": {"stops": true, "type": "patterns", "match": "part", "default": [], "against": "Bash の命令の全文"},
+        "irreversible_tools_extra": {"stops": true, "type": "patterns", "match": "whole", "default": [], "against": "道具の名（例 mcp__server__delete_item）"},
         "qa_page_exempt": {"type": "patterns", "match": "whole", "default": [], "against": "問いのページの file の path（repo の根から・/ 区切り）"},
         "ask_question_max_chars": {
           "type": "int",
@@ -55,7 +55,7 @@
           "type": "int",
           "default": 1
         },
-        "ask_inner_terms_extra": {"type": "patterns", "match": "part", "default": [], "against": "問いの文・返事の本文（当たった所を中の言葉と数える）"},
+        "ask_inner_terms_extra": {"stops": true, "type": "patterns", "match": "part", "default": [], "against": "問いの文・返事の本文（当たった所を中の言葉と数える）"},
         "ask_term_allow": {"type": "patterns", "match": "whole", "default": [], "against": "中の言葉と見つけた字の塊"},
         "ask_topic_stopwords_extra": {
           "type": "list",
@@ -78,7 +78,7 @@
           "type": "repo_names",
           "default": []
         },
-        "public_repos_extra": {
+        "public_repos_extra": {"stops": true, 
           "type": "repo_names",
           "default": []
         },

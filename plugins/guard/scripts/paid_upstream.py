@@ -23,6 +23,7 @@ import sys
 sys.dont_write_bytecode = True
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib"))
 import skill_values as SV  # noqa: E402  値の表の当て方の 1 本の口（土台の skill-values/ への symlink）
+import guard_common as G  # noqa: E402  止める鍵を読めない時の訳（broken_stop_key）
 
 TEST_PATH_RE = re.compile(
     r"(^|/)(tests?|e2e|__tests__|spec|specs|testing)(/|$)"
@@ -99,8 +100,19 @@ def check_bash(data, vals):
     tests = [t for t in bash_targets(cmd) if TEST_PATH_RE.search(t.replace(os.sep, "/"))]
     if not tests:
         return ""
+    broken = _extra_broken(data)
+    if broken:
+        return broken
     hits = SV.words_in(list(PAID_MARKERS) + list(vals.get("paid_markers_extra") or []), cmd)
     return reason(", ".join(tests), hits) if hits else ""
+
+
+def _extra_broken(data):
+    """足した印（値の表の paid_markers_extra）を読めない時の訳。読めない鍵は既定の [] へ落ち、足した印が素通りする
+    ので、試験の file へ書く時だけ止める側へ倒す（表を直す手は止めない）。"""
+    why = G.broken_stop_key("paid_markers_extra", data)
+    return ("[guard] 足した上流の課金の印（値の表の guard.paid_markers_extra）を読めないので、試験の file へ書く手を止めた（%s）。"
+            "値の表を直してから打ち直す。細目は skill `guard:guard-rules`。" % " / ".join(why)) if why else ""
 
 
 def check(data, vals):
@@ -118,5 +130,8 @@ def check(data, vals):
     body = _payload(tool_input)
     if not body or GUARD_MARKER in body:
         return ""
+    broken = _extra_broken(data)
+    if broken:
+        return broken
     hits = SV.words_in(list(PAID_MARKERS) + list(vals.get("paid_markers_extra") or []), body)
     return reason(path, hits) if hits else ""

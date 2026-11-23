@@ -32,6 +32,7 @@ import sys
 sys.dont_write_bytecode = True
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib"))
 import skill_values as SV  # noqa: E402  値の表の当て方の 1 本の口（土台の skill-values/ への symlink）
+import guard_common as G  # noqa: E402  止める鍵を読めない時の訳（broken_stop_key）
 
 ASK_TOOL = "AskUserQuestion"
 
@@ -341,6 +342,11 @@ def check(data, vals):
     qs = ti.get("questions") if isinstance(ti, dict) else None
     if not isinstance(qs, list) or not qs:
         return ""
+    broken = G.broken_stop_key("ask_inner_terms_extra", data)
+    if broken:
+        # 足した中の言葉の形を読めないと既定の [] へ落ち、足した形が素通りする＝画面の問いを出す時だけ止める側へ倒す
+        return ("[guard] 足した中の言葉の形（値の表の guard.ask_inner_terms_extra）を読めないので、選択肢の画面を出す前に止めた"
+                "（%s）。値の表を直してから出し直す。細目は skill `guard:guard-rules`。" % " / ".join(broken))
     found = findings(qs, vals)
     if not found:
         return ""

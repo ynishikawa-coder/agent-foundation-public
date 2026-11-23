@@ -130,6 +130,8 @@ def _exempt(key, repo, data, vals):
 def _public_extra(repo, data, vals):
     """値の表 public_repos_extra に repo が在るか。名の全体の形の行は全体の一致で当てる。形の違う行は、名の一部にでも
     当たれば公開と見る（公開の照らしを黙って外さない＝安全の守り。形の違いは値の表の照らしが名指す）。"""
+    if G.broken_stop_key("public_repos_extra", data or {}, rows=False):
+        return True   # 表・鍵を読めない時は公開と見る（読めない時に既定の [] へ落ちて公開の照らしを外さない）。行の違いは下で行ごとに扱う
     good, bad = _repo_rows("public_repos_extra", data, vals)
     if _matches(good, repo):
         return True
