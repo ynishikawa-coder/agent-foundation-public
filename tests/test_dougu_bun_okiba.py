@@ -121,18 +121,20 @@ def test_注入_根治の入口の指し(line, ok):
 
 
 def test_注入_欄を別の細目へ移すと節の番号が付いてくる_消すと読めない(tmp_path):
-    for p in SAIMOKU.glob("*.md"):
-        (tmp_path / p.name).write_text(p.read_text(encoding="utf-8"), encoding="utf-8")
-    num = 入口の節(saimoku=tmp_path)
-    src = next(p for p in tmp_path.glob("*.md") if p.name.startswith("%02d-" % num))
-    field = "- **%s** — 作り物の欄。\n" % ML.COPY_MARK
-    text = src.read_text(encoding="utf-8")
-    line = next(l for l in text.splitlines(keepends=True) if l.startswith("- **%s**" % ML.COPY_MARK))
-    src.write_text(text.replace(line, ""), encoding="utf-8")
-    assert 入口の節(saimoku=tmp_path) is None
-    other = next(p for p in sorted(tmp_path.glob("*.md")) if not p.name.startswith("%02d-" % num))
-    other.write_text(other.read_text(encoding="utf-8") + "\n" + field, encoding="utf-8")
-    assert 入口の節(saimoku=tmp_path) == int(other.name.split("-")[0])
+    # 回ごとに別の dir へ書き切ってから読む（一度読んだ file を書き換えて読み直さない）
+    texts = {p.name: p.read_text(encoding="utf-8") for p in SAIMOKU.glob("*.md")}
+    num = 入口の節()
+    src = next(n for n in texts if n.startswith("%02d-" % num))
+    other = next(n for n in sorted(texts) if not n.startswith("%02d-" % num))
+    line = next(l for l in texts[src].splitlines(keepends=True) if l.startswith("- **%s**" % ML.COPY_MARK))
+    cut = dict(texts, **{src: texts[src].replace(line, "")})
+    moved = dict(cut, **{other: texts[other] + "\n- **%s** — 作り物の欄。\n" % ML.COPY_MARK})
+    for sub, files in (("cut", cut), ("moved", moved)):
+        (tmp_path / sub).mkdir()
+        for name, body in files.items():
+            (tmp_path / sub / name).write_text(body, encoding="utf-8")
+    assert 入口の節(saimoku=tmp_path / "cut") is None
+    assert 入口の節(saimoku=tmp_path / "moved") == int(other.split("-")[0])
 
 
 # ── 窓の種類の案内（session_watch の REMIND の「種類:」の部分）──
