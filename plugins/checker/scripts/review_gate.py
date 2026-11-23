@@ -79,7 +79,7 @@ def check_states(runs: list, statuses: list, wruns: list | None = None, pr: int 
         if w.get("check_suite_id"):
             suite_of[w["check_suite_id"]] = (("wf", w.get("workflow_id") or w.get("name") or "", w.get("event") or ""),
                                              w.get("created_at") or "")
-    groups: dict[tuple, tuple[tuple, str]] = {}
+    items = []
     for r in runs or []:
         name = r.get("name") or ""
         if not name:
@@ -88,14 +88,16 @@ def check_states(runs: list, statuses: list, wruns: list | None = None, pr: int 
         state = r.get("conclusion") if r.get("status") == "completed" else (r.get("status") or "queued")
         app, suite = r.get("app") or {}, r.get("check_suite") or {}
         where, born = suite_of.get(suite.get("id"), (suite.get("id") or "", ""))
-        key = (name, app.get("id") or app.get("slug") or "", where)
-        order = (born, when)   # 走り直した workflow は新しい suite の物（中の run の時刻より先に suite の生まれで比べる）
-        if key in groups and order >= groups[key][0] and state in ("skipped", "neutral") and groups[key][1] not in OK:
-            groups[key] = (order, groups[key][1])   # 飛ばした走り直しで前の赤を消さない
-        elif key not in groups or order >= groups[key][0]:
-            groups[key] = (order, state or "")
+        # 走り直した workflow は新しい suite の物（中の run の時刻より先に suite の生まれで比べる）
+        items.append(((born, when), (name, app.get("id") or app.get("slug") or "", where), state or ""))
+    items.sort(key=lambda it: it[0])   # API の返す並びに頼らず古い順に畳む（新しい物が先に来ても同じ答え）
+    groups: dict[tuple, str] = {}
+    for _order, key, state in items:
+        if key in groups and state in ("skipped", "neutral") and groups[key] not in OK:
+            continue   # 飛ばした走り直しで前の赤を消さない
+        groups[key] = state
     out: dict[str, str] = {}
-    for (name, _app, _where), (_order, state) in groups.items():
+    for (name, _app, _where), state in groups.items():
         if name not in out or (out[name] in OK and state not in OK):
             out[name] = state
     for s in statuses or []:   # commit status（古い口）。check run が無い名だけ

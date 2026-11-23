@@ -87,6 +87,7 @@ def test_走り直しが飛ばした_run_は前の赤を消さない():
     runs = [_cr("failure", "2026-11-23T01:00:00Z", 10), _cr("skipped", "2026-11-23T01:05:00Z", 11)]
     wruns = [_wr(10, 5, "2026-11-23T00:59:00Z"), _wr(11, 5, "2026-11-23T01:04:00Z")]
     assert rg.check_states(runs, [], wruns) == {"check": "failure"}
+    assert rg.check_states(runs[::-1], [], wruns) == {"check": "failure"}   # 新しい物が先に返っても同じ
 
 
 def test_同じ先端を持つ別の_PR_の走りで赤を消さない():
