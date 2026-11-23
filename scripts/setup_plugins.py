@@ -40,6 +40,8 @@ sys.path.insert(0, str(ROOT / "plugins" / "core" / "scripts"))
 import kaku  # noqa: E402  目録の枝・出所の先端の聞き方の正本（起動の hook と同じ物を読む・写さない）
 STATE = "setup.json"  # plugin core の kaku.py が読む印の file 名（~/.claude/af-foundation/ の下）
 ROOT_CAUSE = "直し: 1 つずつ入れ直すだけで済ませず、意図（窓が土台の plugin を全部入れて立つ）とのずれから入り、入らない形になった原因を細目 §3「まず構造を疑う」で探して直す"
+FIX = ("AI が環境の setup script を docs/核の届け方.md の形に照らして直す（道具 get_environment → update_environment）。"
+       "直せない時（他のアカウントの環境・道具が無い）だけオーナーへ知らせる。")
 
 
 def home() -> Path:
@@ -261,7 +263,7 @@ def main() -> int:
             at_setup, tip_why = None, str(e)
         market, names = catalog()  # 取り直した名簿を読み直す
     except ValueError as e:
-        notice(f"土台の plugin を入れられなかった: {e}。核と守りの hook がこの窓で効いていない。最初にオーナーへ知らせる。")
+        notice(f"土台の plugin を入れられなかった: {e}。核と守りの hook がこの窓で効いていない。" + FIX)
         print(f"✗ {e} {ROOT_CAUSE}")
         return 2
     for n in names:
@@ -292,7 +294,7 @@ def main() -> int:
     if unknown:
         bad.append(f"入った版が分からない（入った台帳に installPath が読まれる dir と同じ行が無い）: {' '.join(unknown)}")
     if bad:
-        notice("。".join(bad) + "。その plugin の決まりと守りの hook がこの窓で古いか効いていない。最初にオーナーへ知らせる。")
+        notice("。".join(bad) + "。その plugin の決まりと守りの hook がこの窓で古いか効いていない。" + FIX)
     else:
         notice(None)
     save_state({"entry": "scripts/setup_plugins.py", "market": market, "plugins": names, "missing": lack,
