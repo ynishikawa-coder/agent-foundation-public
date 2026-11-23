@@ -6,6 +6,7 @@ import json
 import os
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 import pytest
@@ -22,7 +23,7 @@ def env(tmp_path):
     (tmp_path / "scratch").mkdir()
     e = {k: v for k, v in os.environ.items() if not k.startswith(("AF_", "SKILL_VALUES", "CLAUDE_PROJECT_DIR"))}
     e.update({"AF_GUARD_TMP": str(tmp_path / "tmp"), "AF_GUARD_STATE": str(tmp_path / "state"),
-              "CLAUDE_PROJECT_DIR": str(proj), "PYTHONDONTWRITEBYTECODE": "1",
+              "CLAUDE_PROJECT_DIR": str(proj), "PYTHONDONTWRITEBYTECODE": "1", "AF_RULES_GIT": str(RULES_CLONE),
               "TMPDIR": str(tmp_path / "scratch"),
               # 判定を出す窓の本物の id の記録（harness が窓の環境に置く cse_<x>）。試験はレビューの窓に固定する
               "CLAUDE_CODE_REMOTE_SESSION_ID": "cse_" + REVIEWER[len("session_"):]})
@@ -38,6 +39,10 @@ def deny_reason(env, payload):
 
 
 CHECKER = ROOT / "plugins" / "checker" / "scripts"
+sys.path.insert(0, str(ROOT / "tests"))
+import rules_git  # noqa: E402
+# 作り物の決まりの git（今の SKILL.md の 1 版＝main の先端）。判定の 3 行目はこの版で書く
+RULES_CLONE, RULES_SHA = rules_git.make(tempfile.mkdtemp(prefix="af-rules-"))
 CLEANUP_TPL = ROOT / "plugins" / "dev-flow" / "skills" / "preimpl-cleanup" / "整地受領証.template.md"
 WRITER = "session_01AAAAAAAAAAAAAAAAAAAAAAAA"
 REVIEWER = "session_01BBBBBBBBBBBBBBBBBBBBBBBB"
@@ -52,7 +57,7 @@ def gh(tool, owner="fake-owner", repo="fake-private", **ti):
 FAKE_HEAD = "0123456789ab" + "c" * 28
 
 
-def _fake_gh(env, head=FAKE_HEAD, writer=WRITER, fail=False, commits=None, total=None, visibility="private"):
+def _fake_gh(env, head=FAKE_HEAD, writer=WRITER, fail=False, commits=None, total=None, comments=(), visibility="private"):
     """作り物の gh を PATH の頭に置く。実の GitHub へは出ない。
     PR を引く呼び出しには先端と本文の `書いた窓:`（写し）を、commit を引く呼び出しには各 commit の説明（`Claude-Session:` の
     記録。既定は書いた窓の 1 本・1 本ごとに JSON の 1 行）を返す。commits の None の要素は記録の無い commit。
@@ -66,16 +71,18 @@ def _fake_gh(env, head=FAKE_HEAD, writer=WRITER, fail=False, commits=None, total
     msgs = "".join(json.dumps("作り物の commit\n\n" + ("Claude-Session: https://claude.ai/code/%s\n" % c if c else ""),
                               ensure_ascii=False).replace("\\", "\\\\") + "\\n" for c in commits)
     total = len(commits) if total is None else total
+    # PR のコメント（初めの判定の決まりの版を読む）: 本文 1 つごとに JSON の 1 行。既定は判定の無い PR
+    comments = "".join(json.dumps(c, ensure_ascii=False).replace("\\", "\\\\") + "\\n" for c in comments)
     gh_path.write_text("#!/bin/sh\n" + ("echo 'not found' >&2; exit 1\n" if fail else
-                       'case "$*" in %s *"/commits"*) printf \'%s\' ;; *) printf \'%%s\\n%%s\\n%%s\' \'%s\' \'%s\' \'%s\' ;; esac\n'
+                       'case "$*" in %s *"/commits"*) printf \'%s\' ;; *"/issues/"*"/comments"*) printf \'%s\' ;; *) printf \'%%s\\n%%s\\n%%s\' \'%s\' \'%s\' \'%s\' ;; esac\n'
                        % ('*".visibility"*) ' + ("echo 'not found' >&2; exit 1 ;;" if visibility is None else
-                                                 "echo %s ;;" % visibility), msgs, head, total, body)), encoding="utf-8")
+                                                 "echo %s ;;" % visibility), msgs, comments, head, total, body)), encoding="utf-8")
     gh_path.chmod(0o755)
     env["PATH"] = str(bindir) + os.pathsep + env.get("PATH", "")
     return env
 
 
-def verdict_comment(judged="green", head="0123456789ab", fail=None, stop=False, line1=None):
+def verdict_comment(judged="green", head="0123456789ab", fail=None, stop=False, line1=None, rules=None):
     """review-pr の見る点の表から組んだ判定のコメント（点を写さず、表を直に読む）。"""
     sys.path.insert(0, str(CHECKER))
     import verdict_form  # noqa: E402
@@ -86,7 +93,7 @@ def verdict_comment(judged="green", head="0123456789ab", fail=None, stop=False, 
         rows.append("- %d %s: %s" % (no, name, val))
     first = line1 or "レビューした窓: %s 判定: %s" % (REVIEWER, judged)
     fix = [verdict_form.ROOT_CAUSE] if judged == "red" else []
-    lines = [first] + (["見た先端: " + head] if head else []) + ["", "## verdict", judged] + fix + ["", "## 点"] + rows
+    lines = [first] + (["見た先端: " + head, "決まりの版: " + (rules or RULES_SHA)[:12]] if head else []) + ["", "## verdict", judged] + fix + ["", "## 点"] + rows
     cards, steps = verdict_form.load_cards()                                    # 札と段も正本（SKILL.md）から道具で読む
     later = [c for c in cards if c != verdict_form.STOP_CARD][0]
     lines += ["", "## 所見", "- [%s｜%s] 作り物の欠け" % (verdict_form.STOP_CARD, steps[0]) if stop else "- [%s｜%s] 作り物の残り" % (later, steps[0])]

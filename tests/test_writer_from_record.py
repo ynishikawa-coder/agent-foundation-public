@@ -3,13 +3,14 @@
 前の形: 判定した窓は 1 行目に手で書いた「レビューした窓:」の字、書いた窓は 1 つ（本文の写しか先端の 1 窓）だった。
 今の形: 判定した窓は出す窓の記録（--reviewer）、書いた窓は PR の commit 全部の `Claude-Session:` の組。
 """
+import os
 import subprocess
 import sys
 from pathlib import Path
 
 import pytest
 
-from test_pr_text import (REVIEWER, STRANGER, WRITER, _fake_gh, cleanup_body, deny_reason, env, gh,  # noqa: F401
+from test_pr_text import (REVIEWER, RULES_CLONE, STRANGER, WRITER, _fake_gh, cleanup_body, deny_reason, env, gh,  # noqa: F401
                           verdict_comment)
 from test_pr_writer import commit, git
 
@@ -22,7 +23,9 @@ HEAD = "0123456789ab" + "c" * 28
 def form(tmp_path, *args, body=None):
     f = tmp_path / "v.md"
     f.write_text(body or verdict_comment(), encoding="utf-8")
-    p = subprocess.run([sys.executable, str(FORM), str(f), "--head", HEAD, *args], capture_output=True, text=True)
+    run_env = dict(os.environ, AF_RULES_GIT=str(RULES_CLONE))     # 判定の決まりの版を読む決まりの git（作り物）
+    p = subprocess.run([sys.executable, str(FORM), str(f), "--head", HEAD, "--first", "なし", *args],
+                       capture_output=True, text=True, env=run_env)
     return p.returncode, p.stdout + p.stderr
 
 
