@@ -5,9 +5,9 @@ from test_guard import ask_result, env, hook  # noqa: F401  （env は fixture�
 
 
 def test_答えが返れば行き先を知らせ答えが無ければ知らせない(env):
-    """答えを台帳から降ろすだけで行き先（決定の記録・決まり・原因の台帳の行）を言わない古い形に戻すと赤（A9 の注入）。"""
+    """答えを台帳から降ろすだけで行き先（細目 §8「決めた事」）を言わない古い形に戻すと赤（A9 の注入）。"""
     note = hook(env, "post", ask_result(answered=True)).get("additionalContext", "")
-    assert "<answer-return>" in note and "細目 §8「決めた事」" in note and "原因の台帳の行" in note
+    assert "<answer-return>" in note and "細目 §8「決めた事」" in note
     assert "作り物の置き場を A と B のどちらにしますか" in note
     assert "<answer-return>" not in hook(env, "post", ask_result(sid="s9")).get("additionalContext", "")
 
@@ -20,3 +20,10 @@ def test_答えの知らせに値の表の書き方が載る(env, tmp_path):
         json.dumps({"guard": {"answer_record": "作り物の記録の口に書く"}}, ensure_ascii=False), encoding="utf-8")
     data = dict(ask_result(answered=True), cwd=str(repo))
     assert "この repo の書き方: 作り物の記録の口に書く" in hook(env, "post", data).get("additionalContext", "")
+
+
+def test_答えの知らせは細目8の道と欄を写さない(env):
+    """知らせが §8 の道・欄を自分の言葉で写すと、§8 を直した時にずれる（レビューの red の注入）。"""
+    note = hook(env, "post", ask_result(answered=True)).get("additionalContext", "")
+    for copied in ("意図｜決めた中身", "原文｜時刻", "決まりの文へ", "直す窓"):
+        assert copied not in note, copied
