@@ -311,7 +311,7 @@ class Guard:
             mode, blob = index.get(rel, ("", ""))
             if mode == "160000":
                 self.unchecked.append(f"中身: submodule {self.place(rel)} の中身（別の repo。名だけ照らした）")
-                yield rel, ""
+                yield rel, None
             elif path.is_symlink():
                 # git が symlink として入れる中身は指す先の字そのもの。作業の木の今の指す先を照らす（index は古い時がある）
                 yield rel, os.fsdecode(os.readlink(path))
@@ -322,11 +322,14 @@ class Guard:
             else:
                 # 作業の木で普通の file でも symlink でもなく、index にも中身が無い物（FIFO など）。照らせた物に数えず名指す
                 self.unchecked.append(f"中身: {self.place(rel)}（普通の file でも symlink でもなく、index にも中身が無い）")
-                yield rel, ""
+                yield rel, None
 
     def check_files(self) -> list[str]:
         hits = []
         for rel, text in self.tracked_files():
+            if text is None:   # 中身を読めなかった物（名指し済み）は名だけ照らし、照らせた数に入れない
+                hits += self.text_hits(self.place(rel), rel, rel)
+                continue
             self.files_n += 1
             hits += self.text_hits(self.place(rel), rel + "\n" + text, rel)
         if not self.files_n:
@@ -347,7 +350,9 @@ class Guard:
             if before and set(before) != {"0"}:
                 return [f"{before}..{after}"]
             return self.new_branch_revs(event, after)
-        if not in_ci():
+        if event.get(EVENT_UNREADABLE):
+            self.unchecked.append(f"外側: PR の題・本文と照らす範囲（CI の event を読めない: {event[EVENT_UNREADABLE]}）")
+        elif not in_ci():
             # 手元には PR の event が無い（GITHUB_EVENT_PATH を渡せば読む）。PR の題・本文は照らしていない
             self.unchecked.append("外側: PR の題・本文（手元には PR の event が無い。CI の job public-guard と、出す前の守りの"
                                   " hook pr_text が照らす）")
@@ -495,11 +500,24 @@ def diff_path(spec: str) -> str | None:
     return spec[2:] if spec.startswith("b/") else UNREADABLE_PATH
 
 
+EVENT_UNREADABLE = "__af_event_unreadable__"
+
+
 def load_event() -> dict:
+    """CI の event。手元で無いのは普通（{}）。CI で無い・読めない・壊れた時は {} と取り違えず、訳を持たせて返す
+    （revs が照らしていない物に名指す＝exit 3。黙って緑にしない）。"""
     path = os.environ.get("GITHUB_EVENT_PATH", "")
-    if path and Path(path).is_file():
-        return json.loads(Path(path).read_text(encoding="utf-8"))
-    return {}
+    if not path:
+        return {EVENT_UNREADABLE: "GITHUB_EVENT_PATH が無い"} if in_ci() else {}
+    try:
+        event = json.loads(Path(path).read_text(encoding="utf-8"))
+    except (OSError, ValueError) as e:
+        if in_ci():
+            return {EVENT_UNREADABLE: e.__class__.__name__}
+        if isinstance(e, OSError):   # 手元で渡した path が無いのは event 無しと同じ（照らしていない物に名指す）
+            return {}
+        raise
+    return event if isinstance(event, dict) else {EVENT_UNREADABLE: "event が辞書でない"}
 
 
 def words_unchecked(words_file: str | None, words: list[str]) -> list[str]:
