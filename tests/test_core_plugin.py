@@ -448,33 +448,13 @@ class Foundation:
         return json.loads(r.stdout)["hookSpecificOutput"]["additionalContext"] if r.stdout else ""
 
 
-def test_起動の後に_plugin_が変わったら先端の核を差し込み窓はそのまま続ける(tmp_path):
-    """注入: 窓が立った後に main の先端で plugin を変える → 次の問いで先端の核が差し込まれ、引き継ぎ・閉じは求めない。"""
-    f = Foundation(tmp_path)
-    f.install()
-    assert "土台が古い" not in f.hook("inject")
-    assert f.hook("fresh") == ""                         # まだ先端と同じ
-    _commit(f.work, {"plugins/guard/x.py": "x\n", "plugins/core/核.md": "核 3\n"}, "守りと核を変える")
-    text = f.hook("fresh")
-    assert "新しい核をここで読み" in text and "そのまま頼みを続ける" in text and "guard" in text
-    assert "### main の先端の 核.md" in text and "核 3" in text
-    for old in ("create_session", "archive_session", "引き継いで閉じる"):
-        assert old not in text.replace("create_session・archive_session をしない", ""), old
-    assert f.hook("fresh") == ""                         # 同じ先端は 1 回だけ（問いのたびに繰り返さない）
-    _commit(f.work, {"plugins/checker/y.py": "y\n"}, "また変える")
-    assert f.hook("fresh") == ""                         # 核の本文が同じなら、plugin が動いても送り直さない
-    _commit(f.work, {"plugins/core/核.md": "核 5\n"}, "核をまた変える")
-    again = f.hook("fresh")
-    assert "核 5" in again and "核 3" not in again        # 核が変われば、変わった物だけをもう 1 度
-
-
 @pytest.mark.parametrize("source", ["compact", "clear", "resume"])
 def test_途中で古くなった窓は圧縮や_resume_の後も先端の核をもう一度差し込む(tmp_path, source):
     """注入: 起動 → main を進める → 先端の核を差し込む → SessionStart がもう 1 回（圧縮・/clear・resume）→ 同じ物を差し込む。"""
     f = Foundation(tmp_path)
     f.install()
     f.hook("inject")
-    _commit(f.work, {"plugins/guard/x.py": "x\n"}, "守りを変える")
+    _commit(f.work, {"plugins/guard/x.py": "x\n"}, "急ぎの安全: 守りを変える")
     assert "新しい核をここで読み" in f.hook("fresh")
     again = f.hook("inject", source=source)
     assert "土台が古いまま立った窓" not in again           # 「起動の時から古い」と取り違えない
@@ -525,7 +505,7 @@ def test_比べられない時は窓を替えない(tmp_path):
     g = Foundation(tmp_path / "g")
     g.install()
     g.hook("inject", sid="s2")
-    _commit(g.work, {"plugins/core/核.md": "核 3\n"}, "核を変える")
+    _commit(g.work, {"plugins/core/核.md": "核 3\n"}, "急ぎの安全: 核を変える")
     g.remote.rename(g.tmp / "gone.git")                 # remote に出られない
     text = g.hook("fresh", sid="s2")
     assert "比べられなかった" in text and "出所（origin）の先端を聞けない" in text and "。。" not in text
@@ -549,7 +529,7 @@ def test_挙げた原因は全部台帳に行き先つきで持ち_全部済む�
     for word in ["1 つ 1 行", "`直す窓`", "`直した`", "`直さない`", "オーナーが決めた理由"]:
         assert word in s3d, f"細目 §3 の原因の台帳に無い: {word}"   # 行き先の細かさは細目が正本（核は芯だけ）
     s7 = _節(kaku_text, 7)
-    assert "「直した」か「直さない」になるまで終わったと言わない" in s7 and "直す窓の行が残れば一部" in s7
+    assert "終わったかは合意した目標で決め" in s7 and "外で見つけた穴は直さず" in s7
     s4 = _節(kaku_text, 4)
     assert "並べて 1 つ選ばせる問いを出さない" in s4 and "全部やり、分け方は AI が決める" in s4
     saimoku = 細目の全文()

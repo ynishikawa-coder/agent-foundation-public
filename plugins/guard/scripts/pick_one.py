@@ -17,9 +17,16 @@
     （原因はどの資料に書いてありますか）の問いには当たらない。ただし言い回しの推し量りなので、試験に置いた形の外では誤りうる
   - 値の表 guard.ask_pick_one_exempt（問いの文に当てる正規表現の並び）に当たる問い（誤って止まる形を PR とレビューで外す）
 見分けは問いの文の語の形による推し量り（意味は読まない）。言い換えれば抜けられる＝残る穴は PR と SKILL に書く。
+
+同じ見張りのもう 1 つ（check_fix_window・範囲の外へ黙って広げない・オーナー決定 2026-11-22）:
+  create_session の頼みの文か題に「直す窓」が在り、頼みの文に `オーナーの答え: 「…」` の行が無いか、引いた「…」（4 字以上）が
+  会話ログのオーナーの打った行・選択肢の画面の答えにそのままの字で無ければ止める（目標の外の穴は終わりの報告で聞き、
+  「直して」と答えた物にだけ直す窓を立てる・細目 §3 原因の台帳・§7 報告の書き方）。助手の中・会話ログが読めない時は通す。
+  残る穴: 「直す窓」と書かずに立てれば抜けられる。
 """
 from __future__ import annotations
 
+import json
 import os
 import re
 import sys
@@ -27,6 +34,7 @@ import sys
 sys.dont_write_bytecode = True
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib"))
 import skill_values as SV  # noqa: E402  値の表の当て方の 1 本の口（土台の skill-values/ への symlink）
+import guard_common as G  # noqa: E402
 
 ASK_TOOL = "AskUserQuestion"
 
@@ -95,7 +103,7 @@ def classify(question, vals=None):
 def check(data, vals):
     """止めるなら理由、通すなら ""。"""
     if str(data.get("tool_name") or "") != ASK_TOOL:
-        return ""
+        return check_fix_window(data, vals)
     ti = data.get("tool_input")
     qs = ti.get("questions") if isinstance(ti, dict) else None
     if not isinstance(qs, list):
@@ -109,3 +117,68 @@ def check(data, vals):
         return ""
     return ("[guard] 選択肢の画面で、作業・論点・原因を並べて 1 つだけ選ばせる問いは出さない（相談で出た事は全部やる・"
             "オーナー決定 2026-11-19）。画面はまだ人に出ていない。\n" + "\n".join(hit) + "\n" + HOW)
+
+FIX_MARK = "直す窓"
+QUOTE = re.compile(r"オーナーの答え\s*[:：]\s*「([^」]{4,})」")
+
+
+def _squash(text):
+    return re.sub(r"\s+", "", str(text or ""))
+
+
+def owner_words(tpath):
+    """オーナーの打った行と選択肢の画面の答えを、空白を詰めて 1 本の字にする。"""
+    asks, out = set(), []
+    for row in G.iter_rows(tpath):
+        msg = row.get("message")
+        content = msg.get("content") if isinstance(msg, dict) else None
+        if G.is_owner_row(row) and not G.seeded_by_record(row):
+            out.append(G.text_of(row))
+            continue
+        if not isinstance(content, list):
+            continue
+        for b in content:
+            if not isinstance(b, dict):
+                continue
+            if b.get("type") == "tool_use" and b.get("name") == ASK_TOOL:
+                asks.add(b.get("id"))
+            elif b.get("type") == "tool_result" and b.get("tool_use_id") in asks:
+                c = b.get("content")
+                out.append(c if isinstance(c, str) else json.dumps(c, ensure_ascii=False))
+        tr = row.get("toolUseResult")
+        if isinstance(tr, dict) and isinstance(tr.get("answers"), dict):
+            out.extend(str(v) for v in tr["answers"].values())
+    return _squash("\n".join(out))
+
+
+FIX_HOW = ("直し方: 目標の外で見つけた穴なら、直す窓を立てずに終わりの報告の後に穴ごとに「何が穴か／放っておくと何が起きうるか／"
+       "AI の案」を添えて「どうしますか」と聞く（細目 §7「報告の書き方」）。オーナーが「直して」と答えた穴、または合意した目標の"
+       "中の行なら、頼みの文に `オーナーの答え: 「<オーナーの言葉をそのまま>」` の行を書いて立て直す（細目 §3 原因の台帳）。")
+
+
+def check_fix_window(data, vals):
+    """直す窓を立てる create_session を止めるなら理由、通すなら ""。"""
+    if not str(data.get("tool_name") or "").endswith("create_session"):
+        return ""
+    ti = data.get("tool_input")
+    if not isinstance(ti, dict):
+        return ""
+    prompt = str(ti.get("prompt") or "")
+    if FIX_MARK not in prompt and FIX_MARK not in str(ti.get("title") or ""):
+        return ""
+    tpath = str(data.get("transcript_path") or "")
+    if not tpath or not os.path.isfile(tpath) or "/subagents/" in tpath.replace(os.sep, "/"):
+        return ""
+    quotes = QUOTE.findall(prompt)
+    head = "[guard] 直す窓を立てる頼みに、それを頼んだオーナーの答えが照らせないので止めた（窓はまだ立っていない）。"
+    if not quotes:
+        return "\n".join([head, "頼みの文に `オーナーの答え: 「…」` の行が無い。", FIX_HOW])
+    try:
+        words = owner_words(tpath)
+    except Exception:          # noqa: BLE001  会話ログが読めない＝見張りの故障。窓を止めない
+        return ""
+    missing = [q for q in quotes if _squash(q) not in words]
+    if not missing:
+        return ""
+    return "\n".join([head, "引いた答えが、この窓のオーナーの打った行・選択肢の画面の答えに、そのままの字で無い: %s"
+                      % "／".join("「%s」" % q[:40] for q in missing[:3]), FIX_HOW])

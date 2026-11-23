@@ -2,7 +2,7 @@
 
 setup は箱を作る時に走り、窓は何時間も後にその箱を使う（2026-11-20 実測 7 時間）。
 - setup の後に main が進んだだけの窓に setup script を直させない（先端の核を差し込むだけ・窓は引き継がない）。
-  問いの時は窓が立った時の main の先端から plugin が変わった時だけ、先端の核をもう 1 度差し込む。
+  問いの時は窓が立った後に急ぎの安全の直し（題の頭が「急ぎの安全:」）が入った時だけ、先端の核をもう 1 度差し込む。
 - 起動の時に使う側の hook が入口を回し直し、setup.json と台帳が新しい版を指しても、今動いている版の記録で決める。
 """
 import json
@@ -29,7 +29,7 @@ def test_setup_の後に_main_が進んだだけの窓に_setup_script_を直せ
     assert "土台が古いまま立った窓" not in f.hook("inject", source="compact")
     _commit(f.work, {"plugins/checker/y.py": "y\n"}, "窓が立った後に checker を変える")
     assert f.hook("fresh") == ""                            # 核の本文が同じなら送り直さない
-    _commit(f.work, {"plugins/checker/y.py": "y2\n", "plugins/core/核.md": "核 2\n"}, "checker と核を変える")
+    _commit(f.work, {"plugins/checker/y.py": "y2\n", "plugins/core/核.md": "核 2\n"}, "急ぎの安全: checker と核を変える")
     told = f.hook("fresh")
     assert "新しい核をここで読み" in told and "核 2" in told and "checker" in told and SETUP_FIX not in told
     assert "create_session で" not in told and "引き継いで閉じる" not in told
@@ -137,7 +137,7 @@ def test_立った後に古くなった窓は圧縮の後も先端の核をも�
     f = Foundation(tmp_path)
     f.install(main_at_setup=f.installed)
     f.hook("inject")
-    _commit(f.work, {"plugins/guard/x.py": "x\n", "plugins/core/核.md": "核 2\n"}, "立った後に守りと核を変える")
+    _commit(f.work, {"plugins/guard/x.py": "x\n", "plugins/core/核.md": "核 2\n"}, "急ぎの安全: 立った後に守りと核を変える")
     assert "新しい核をここで読み" in f.hook("fresh")
     again = f.hook("inject", source="compact")
     assert "土台が古いまま立った窓" not in again and "起動の後に新しくなっている" in again

@@ -1156,6 +1156,41 @@ def _lock_rule():
     return af_place
 
 
+# 開いている窓へも届ける直し（題の頭の印）。権限・秘密・お金・社外への送信・本番の守りの急ぎの直しだけに付ける。
+# 印の無い直しは、開いている窓には届けず、次に立つ窓から効く（窓は立った時の版で終わりまで動く）。
+URGENT_MARK = "急ぎの安全:"
+_URGENT = re.compile(r"急ぎの安全[:：]")
+
+
+def urgent_since(base: str, tip: str) -> list[str]:
+    """base（窓が最後に取った先端）から tip（今の先端）までに main へ入った土台の直し（plugins/・.claude-plugin/ に
+    触れた commit）のうち、題が急ぎの安全の印で始まる物の題。空＝開いている窓へ届ける物は無い。
+    目録の clone は浅い（先端だけ）ので、base へ届くまで歴史を足して取る。取れない・base が tip の祖先でない時は
+    Incomparable（「急ぎは無い」と読ませない）。"""
+    if base == tip:
+        return []
+    loc = catalog_source()[0].get("installLocation")
+    if not loc:
+        return []
+    for more in ("--deepen=50", "--deepen=500", "--unshallow"):
+        if _git(loc, "merge-base", "--is-ancestor", base, tip) is not None:
+            break
+        try:
+            _git_run(loc, "fetch", "--quiet", more, "origin", tip, timeout=60)
+        except GitFailed as e:
+            if more != "--unshallow":  # 浅くない clone に --unshallow は失敗する（下の祖先の問いで決める）
+                raise Incomparable(f"{base[:12]} から {tip[:12]} の歴史を取って来られない — {e}") from None
+    else:
+        if _git(loc, "merge-base", "--is-ancestor", base, tip) is None:
+            raise Incomparable(f"窓が取った先端 {base[:12]} が今の先端 {tip[:12]} の祖先に無い")
+    try:
+        subjects = _git_run(loc, "log", "--format=%s", f"{base}..{tip}", "--", *CARRIERS)
+    except GitFailed as e:
+        raise Incomparable(f"{base[:12]} から {tip[:12]} の題を読めない — {e}") from None
+    return [s for s in subjects.splitlines() if _URGENT.match(s.strip())]
+
+
+
 def _refresh_file(name: str) -> Path:
     return Path(_lock_rule().refresh_file(_home(), name))
 
@@ -1273,7 +1308,7 @@ def start_cause(f: dict | None) -> str | None:
 
 
 CONTINUE = ("窓は立て直さず・引き継がず・閉じず、そのまま頼みを続ける（create_session・archive_session をしない）。"
-            "下の main の先端の核と振る舞いの既定が、起動の時に差し込まれた物に代わって効く。"
+            "急ぎの安全の直しなので、開いている窓にも今届ける。下の main の先端の核と振る舞いの既定が、起動の時に差し込まれた物に代わって効く。"
             "守りの hook は裏で先端の版を入れ直し、済んだ後の呼び出しから先端の版で動く（hook の足し・外しと skill は次に立つ窓から）。\n")
 
 
@@ -1367,9 +1402,10 @@ def unknown_at_start_text(f: dict) -> str:
 
 def update_text(f: dict, core: str) -> str:
     """起動の後に核か振る舞いの既定の文が変わった時の知らせ。core＝変わった物だけの全文（changed_core_text）。"""
-    return ("## 土台が新しくなった — 新しい核をここで読み、窓はそのまま続ける\n"
+    urgent = "".join(f"- {u}\n" for u in f.get("urgent") or [])
+    return ("## 土台に急ぎの安全の直しが入った — 新しい核をここで読み、窓はそのまま続ける\n"
             f"土台の main の先端で、窓が読んでいる核か振る舞いの既定の文が変わった（{_short(f)}）。"
-            + CONTINUE + core)
+            + CONTINUE + (f"急ぎの安全の直し:\n{urgent}" if urgent else "") + core)
 
 
 # 起動の時の知らせの締め（核は上に先端の本文で 1 枚だけ差し込んでいるので、ここでは本文を重ねない）
@@ -1468,7 +1504,9 @@ def inject() -> int:
 
 
 def fresh() -> int:
-    """起動の後に土台が新しくなったかを見る。新しくなっていれば、main の先端の核と振る舞いの既定をこの窓に差し込み、
+    """起動の後に土台へ急ぎの安全の直し（題が URGENT_MARK で始まる commit）が入ったかを見る。窓は立った時の版で
+    終わりまで動き、印の無い直しは開いている窓へ届けない（核の差し込みも守りの入れ直しもしない・次に立つ窓から効く）。
+    急ぎの直しが入っていれば、main の先端の核と振る舞いの既定をこの窓に差し込み、守りを先端の版へ入れ直し、
     窓はそのまま頼みを続ける（引き継がせない・閉じさせない）。同じ先端は 1 回だけ見る（問いのたびに繰り返さない）。
     核と振る舞いの既定は、この窓が読んだ本文から変わった物だけを送る（本文が同じなら守りの入れ直しだけで黙る）。"""
     data, bad_input = _hook_input()
@@ -1494,10 +1532,14 @@ def fresh() -> int:
     text = None
     try:
         got = freshness()
-        if got and got["plugins"] and state.get("start_main"):
-            # 入った版でなく、この窓が立った時の先端と比べる（作り置きの箱で立った窓を、立つ前の main の進みで数えない）
-            moved = moved_since(state["start_main"], got["main"])
-            got = dict(got, plugins=moved) if moved else None
+        if got and got["plugins"]:
+            # 入った版でなく、この窓が立った時の先端と比べる（作り置きの箱で立った窓を、立つ前の main の進みで数えない）。
+            # 開いている窓へ届けるのは、この窓が最後に取った先端の後の急ぎの安全の直しが在る時だけ。
+            start = state.get("start_main")
+            moved = moved_since(start, got["main"]) if start else []
+            taken = (state.get("told") or {}).get("main") or start
+            urgent = urgent_since(taken, got["main"]) if moved else []
+            got = dict(got, plugins=moved, urgent=urgent) if urgent else None
     except Incomparable as e:  # 比べられない時は「新しくなっていない」と読まず名指す（間を置いて 1 回）
         got, text = None, _incomparable_text(e)
     except Exception as e:  # noqa: BLE001  見張りが壊れても問いは止めない。壊れた事は名指しする（間を置いて 1 回）
