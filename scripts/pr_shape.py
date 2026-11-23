@@ -88,9 +88,12 @@ def fresh_main(root: Path, ref: str = "main") -> str:
     return tip
 
 
-def show(root: Path, ref: str, path: str) -> str | None:
+def show(root: Path, ref: str, path: str) -> str:
+    """ref の木に在ると分かった path の中身。git が読めない時は OSError（「無い」と取り違えない）。"""
     r = subprocess.run(["git", "show", f"{ref}:{path}"], cwd=root, capture_output=True, text=True)
-    return r.stdout if r.returncode == 0 else None
+    if r.returncode != 0:
+        raise OSError(f"git show {ref}:{path} が読めない（{r.stderr.strip() or r.returncode}）")
+    return r.stdout
 
 
 def check(root: Path, branch: str, base: str) -> list[str]:
@@ -154,14 +157,17 @@ def tests_shape(src: str) -> dict[str, int]:
 
 
 def _blob(root: Path, ref: str, path: str, hops: int = 8) -> str | None:
-    """ref の path の中身（symlink は指す先を ref の木の中で辿った中身）。無ければ None。"""
+    """ref の path の中身（symlink は指す先を ref の木の中で辿った中身）。ref の木に無ければ None。
+    git が失敗した時（ref が無い・壊れた取り出し）は OSError＝「path が無い」と読んで照らす物を 0 にしない。"""
     for _ in range(hops):
         r = subprocess.run(["git", "ls-tree", ref, "--", path], cwd=root, capture_output=True, text=True)
-        meta = r.stdout.split("\t", 1)[0].split() if r.returncode == 0 else []
+        if r.returncode != 0:
+            raise OSError(f"git ls-tree {ref} -- {path} が読めない（{r.stderr.strip() or r.returncode}）")
+        meta = r.stdout.split("\t", 1)[0].split()
         if not meta:
             return None
         body = show(root, ref, path)
-        if meta[0] != "120000" or body is None:
+        if meta[0] != "120000":
             return body
         path = posixpath.normpath(posixpath.join(posixpath.dirname(path), body.strip()))
     return None

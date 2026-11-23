@@ -871,16 +871,17 @@ def _setup_text() -> str | None:
                      "土台が plugin を足しても入らず、入れ損ねの見張りにも入らない。土台の docs/核の届け方.md の形に貼り替える"
                      "（Javis の環境は get_environment → update_environment。直せない環境は親の窓・連絡板へ頼み、オーナーへ 1 行知らせる）。\n")
     # 名簿は setup が入れた版（入った core の commit）の物を読む（目録の clone の今の作業の木は setup の後に進みうる）
+    catalog_named = False   # 名簿を読めない訳を名指したか（文の字で見分けない＝言い回しを変えても分かれ道が変わらない）
     try:
         want = catalog_at(m["installLocation"], installed_sha())
     except Unreadable as e:  # 1 つ読めない物で、ほかに見つけた欠け（上の入口の記録など）を消さない＝並べて名指す
-        want = None
+        want, catalog_named = None, True
         parts.append(f"- 入った版の土台の名簿が読めない: {e}。入っていない plugin を照らしていない（入っていないと決まったのでも、"
                      "全部入ったと決まったのでもない）。目録の clone（git）の中身を見て直す。直せない時は親の窓・オーナーへ 1 行知らせる。\n")
     have, on = set(_foundation_rows()), _enabled()
     lack = [p.get("name") for p in (want or {}).get("plugins") or []
             if isinstance(p, dict) and (p.get("name") not in have or f"{p.get('name')}@{MARKET}" not in on)]
-    if want is None and not any("名簿が読めない" in x for x in parts):
+    if want is None and not catalog_named:
         parts.append("- 入った版の土台の名簿（.claude-plugin/marketplace.json）が目録の clone から読めず、入っていない plugin を照らしていない。"
                      "AI が setup script を土台の docs/核の届け方.md の形に直す。\n")
     if lack:
