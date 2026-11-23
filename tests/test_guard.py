@@ -64,10 +64,14 @@ def test_hooks_json_が3つの出来事で入口を回し_Stop_で差し戻す�
         assert "${CLAUDE_PLUGIN_ROOT}/scripts/guard.py" in cmd and cmd.endswith(" " + arg)
 
 
-def test_壊れた入力では何も出さず通す(env):
+def test_壊れた入力は_pre_では止め_post_と_start_では何も出さない(env):
     for event in ("pre", "post", "start"):
         p = subprocess.run([sys.executable, str(GUARD), event], input="こわれた", capture_output=True, text=True, env=env)
-        assert p.returncode == 0 and p.stdout.strip() == ""
+        assert p.returncode == 0
+        if event == "pre":
+            assert json.loads(p.stdout)["hookSpecificOutput"]["permissionDecision"] == "deny"
+        else:
+            assert p.stdout.strip() == ""
 
 
 # ── paid_upstream（試験から有料の上流）──
