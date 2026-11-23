@@ -118,7 +118,7 @@ def test_土台の新しさの知らせは窓をそのまま続けさせる(monk
 
 def test_起動の後の知らせは同じ先端で繰り返さない():
     import inspect
-    src = inspect.getsource(kaku.fresh)
+    src = inspect.getsource(kaku._fresh_text)  # fresh は知らせを束ねるだけ・先端の知らせの本体はここ
     assert 'state.get("told")' in src and "handover" not in src
 
 
