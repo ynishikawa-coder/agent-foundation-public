@@ -1502,11 +1502,12 @@ def fresh() -> int:
     try:
         got = freshness()
         if got and got["plugins"]:
-            # 入った版でなく、この窓が立った時の先端と比べる（作り置きの箱で立った窓を、立つ前の main の進みで数えない）。
-            # 開いている窓へ届けるのは、この窓が最後に取った先端の後の急ぎの安全の直しが在る時だけ。
+            # 入った版でなく、この窓が最後に取った先端（届けた先端・無ければ立った時の先端）から数える。変わった plugin と
+            # 急ぎの直しは同じ起点から数える（届けた plugin を次の知らせでまた挙げない・作り置きの箱で立った窓を、
+            # 立つ前の main の進みで数えない）。開いている窓へ届けるのは、その後に急ぎの安全の直しが在る時だけ。
             start = state.get("start_main")
-            moved = moved_since(start, got["main"]) if start else []
             taken = (state.get("told") or {}).get("main") or start
+            moved = moved_since(taken, got["main"]) if taken else []
             urgent = urgent_since(taken, got["main"]) if moved else []
             got = dict(got, plugins=moved, urgent=urgent) if urgent else None
     except Incomparable as e:  # 比べられない時は「新しくなっていない」と読まず名指す（間を置いて 1 回）

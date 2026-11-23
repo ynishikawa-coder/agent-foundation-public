@@ -31,6 +31,8 @@ def _github(runs):
             return {"state": "open", "merged": False, "mergeable_state": "clean", "head": {"sha": HEAD}, "base": {"ref": "main"}}
         if "/check-runs" in path:
             return {"check_runs": runs}
+        if "/actions/runs" in path:   # どの suite も workflow の走りに無い＝別の検査として数える
+            return {"workflow_runs": []}
         return []
     return get
 
