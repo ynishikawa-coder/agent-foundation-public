@@ -10,7 +10,8 @@
 知らせは誰も数えていなかった。
 
 数える物（字数＝len(str)。バイトは UTF-8）:
-  起動     skill の説明文（全 plugin の SKILL.md の頭の description。窓の一覧に毎回載る）と、核の差し込み（kaku.inject_text）。
+  起動     skill の説明文（全 plugin の SKILL.md の頭の description。窓の一覧に毎回載る）と、核の差し込み（kaku.inject_text。中の細目の dir の
+           絶対 path は「<細目の dir>」に置き換える＝置き場の path の長さで数が変わらない）。
   毎ターン 題の無いクラウドの窓に UserPromptSubmit の hook が付ける知らせ（session_watch の remind_title。人の窓・子の窓・
            頼みの文が別の窓を指す窓の 3 つ）と、Stop の知らせの頭と足（NOTE_HEAD・STOP_FOOT）。
   skill    skill ごとの説明文・本文（SKILL.md の頭の後）・同じ dir の他の文の file（.md・.py・.mjs・.json など）。
@@ -29,6 +30,8 @@ ROOT = Path(__file__).resolve().parent.parent
 PLUGINS = ROOT / "plugins"
 TEXT_EXT = {".md", ".py", ".mjs", ".js", ".json", ".txt", ".html", ".css", ".yaml", ".yml", ".sh"}
 COPY_MARK = "まず構造を疑う"
+SAIMOKU_MARK = "<細目の dir>"
+SELF = Path(__file__)
 
 
 def load(name: str, path: Path):
@@ -48,6 +51,13 @@ def split_front(text: str) -> tuple[str, str]:
     return str(head.get("description") or ""), text[m.end():]
 
 
+def need(v, what: str):
+    """数える物が無い・空の時は 0 字と数えず止める（数え漏れを減ったと読ませない）。"""
+    if not v:
+        raise SystemExit(f"measure_load: {what} が無い・空（0 字と数えず止める）")
+    return v
+
+
 def size(s: str) -> dict:
     return {"字": len(s), "バイト": len(s.encode("utf-8"))}
 
@@ -56,6 +66,7 @@ def skills(plugins: Path = PLUGINS) -> list[dict]:
     out = []
     for md in sorted(plugins.glob("*/skills/*/SKILL.md")):
         desc, body = split_front(md.read_text(encoding="utf-8"))
+        need(desc, f"{md} の description")
         extra = 0
         for f in sorted(md.parent.rglob("*")):
             if f.is_file() and f != md and f.suffix in TEXT_EXT:
@@ -69,7 +80,7 @@ def every_turn(plugins: Path = PLUGINS) -> dict:
     sw = load("af_measure_session_watch", plugins / "session-watch" / "scripts" / "session_watch.py")
     empty = sw.Log([])
     texts = {
-        "題の無い人の窓（remind_title）": sw.remind_title(empty, {"prompt": "x"}) or "",
+        "題の無い人の窓（remind_title）": need(sw.remind_title(empty, {"prompt": "x"}), "題の無い人の窓への remind_title の知らせ"),
         "題の無い子の窓（REMIND_CHILD）": sw.REMIND_CHILD,
         "頼みの文が別の窓を指す窓（REMIND_PARENT）": sw.REMIND_PARENT,
         "Stop の知らせの頭（NOTE_HEAD）": sw.NOTE_HEAD,
@@ -81,7 +92,7 @@ def every_turn(plugins: Path = PLUGINS) -> dict:
 def copies(root: Path = ROOT) -> dict:
     hits = {}
     for f in sorted([*(root / "plugins").rglob("*.py"), *(root / "scripts").glob("*.py")]):
-        if f.resolve() == Path(__file__).resolve():
+        if f.resolve() == Path(__file__).resolve() or f == root / "scripts" / SELF.name:
             continue
         n = sum(1 for line in f.read_text(encoding="utf-8", errors="ignore").splitlines() if COPY_MARK in line)
         if n:
@@ -94,7 +105,8 @@ def measure(root: Path = ROOT) -> dict:
     kaku = load("af_measure_kaku", plugins / "core" / "scripts" / "kaku.py")
     sk = skills(plugins)
     desc = sum(s["説明文"] for s in sk)
-    inj = kaku.inject_text()
+    # 差し込みの終わりの文は細目の dir の絶対 path を含む。置き場の path の長さで数が変わらないよう、決まった印に置き換えて数える
+    inj = kaku.inject_text().replace(str(kaku.SAIMOKU), SAIMOKU_MARK)
     return {
         "起動": {"skill の説明文": {"字": desc, "skill の数": len(sk)},
                  "核の差し込み": size(inj),

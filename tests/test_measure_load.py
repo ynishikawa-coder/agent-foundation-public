@@ -52,3 +52,35 @@ def test_この_repo_を数えて全部の欄を出す():
     assert m["起動"]["核の差し込み"]["字"] > 0
     assert m["起動"]["計（字）"] == m["起動"]["skill の説明文"]["字"] + m["起動"]["核の差し込み"]["字"]
     assert all(v["字"] > 0 for v in m["毎ターン"].values())
+
+
+def _copy_repo(dst):
+    import shutil
+    shutil.copytree(ROOT / "plugins", dst / "plugins", symlinks=True)
+    shutil.copytree(ROOT / "skill-values", dst / "skill-values", symlinks=True)
+    (dst / "scripts").mkdir()
+    shutil.copy2(ROOT / "scripts" / "measure_load.py", dst / "scripts" / "measure_load.py")
+
+
+def test_同じ中身を長さの違う置き場で数えても起動の量が同じ(tmp_path):
+    _copy_repo(tmp_path / "a")
+    _copy_repo(tmp_path / "置き場の名を長くした別の版の_checkout")
+    a = ml.measure(tmp_path / "a")["起動"]
+    b = ml.measure(tmp_path / "置き場の名を長くした別の版の_checkout")["起動"]
+    assert a == b
+
+
+def test_別の版の数える道具そのものを写しと数えない(tmp_path):
+    (tmp_path / "plugins").mkdir()
+    (tmp_path / "scripts").mkdir()
+    (tmp_path / "scripts" / "measure_load.py").write_text(f'COPY_MARK = "{ml.COPY_MARK}"\n', encoding="utf-8")
+    assert ml.copies(tmp_path) == {"行": 0, "file": {}}
+
+
+def test_説明文の無いskillは0字と数えず止める(tmp_path):
+    import pytest
+    d = tmp_path / "p" / "skills" / "a"
+    d.mkdir(parents=True)
+    (d / "SKILL.md").write_text("---\nname: a\n---\n本文", encoding="utf-8")
+    with pytest.raises(SystemExit):
+        ml.skills(tmp_path)
