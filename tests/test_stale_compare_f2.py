@@ -265,6 +265,8 @@ def test_check_all_の回した先端は_CI_の_PR_では_PR_の先端(tmp_path)
     (repo / "scripts").mkdir(parents=True)
     shutil.copy2(ROOT / "scripts" / "check_all.sh", repo / "scripts" / "check_all.sh")
     shutil.copy2(ROOT / "scripts" / "pr_shape.py", repo / "scripts" / "pr_shape.py")
+    (repo / "skill-values").mkdir()
+    shutil.copy2(ROOT / "skill-values" / "af_lines.py", repo / "skill-values" / "af_lines.py")  # pr_shape が読む行の区切り
     (repo / "scripts" / "pytest.sh").write_text("echo '1 passed'\n", encoding="utf-8")
     (repo / "tests").mkdir()
     subprocess.run(["git", "init", "-q", str(repo)], check=True)

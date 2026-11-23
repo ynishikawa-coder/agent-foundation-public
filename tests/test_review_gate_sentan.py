@@ -34,6 +34,11 @@ def lay(tmp: Path, tip_text: str) -> Path:
     (work / REL).write_text(tip_text, encoding="utf-8")
     shutil.copy(GATE.parent / "verdict_form.py", work / REL.replace("review_gate.py", "verdict_form.py"))  # 関所が読む隣の道具
     (work / "plugins/checker/README.md").write_text("checker\n", encoding="utf-8")
+    # 隣の道具が import する行の区切りの部品は repo の 1 か所に在り、plugin からは symlink で指す（main と同じ形）
+    (work / "skill-values").mkdir()
+    shutil.copy(ROOT / "skill-values/af_lines.py", work / "skill-values/af_lines.py")
+    (work / "plugins/checker/lib").mkdir()
+    os.symlink("../../../skill-values/af_lines.py", work / "plugins/checker/lib/af_lines.py")
     git("add", "-A", cwd=work)
     git("commit", "-q", "-m", "tip", cwd=work)
     git("push", "-q", str(origin), "main", cwd=work)

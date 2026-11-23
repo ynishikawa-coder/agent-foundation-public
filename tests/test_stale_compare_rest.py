@@ -173,7 +173,7 @@ def _checks_repo(tmp_path):
     remote, writer, work = tmp_path / "remote.git", tmp_path / "書く側", tmp_path / "枝"
     subprocess.run(["git", "init", "-q", "--bare", "-b", "main", str(remote)], check=True)
     subprocess.run(["git", "clone", "-q", str(remote), str(writer)], check=True, capture_output=True)
-    for rel in ("scripts/pr_shape.py", "scripts/checks/pr_shape.sh"):
+    for rel in ("scripts/pr_shape.py", "scripts/checks/pr_shape.sh", "skill-values/af_lines.py"):
         (writer / rel).parent.mkdir(parents=True, exist_ok=True)
         shutil.copy(ROOT / rel, writer / rel)
     _commit(writer, {"CHANGELOG.d/20261118-mae.txt": "- 足した: 前\n", "tests/test_old.py": "def test_a():\n    pass\n"}, "始め")

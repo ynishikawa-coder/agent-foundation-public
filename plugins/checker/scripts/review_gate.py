@@ -34,6 +34,7 @@ import argparse
 import io
 import json
 import os
+import posixpath
 import re
 import shutil
 import subprocess
@@ -255,6 +256,24 @@ def main(argv=None, read=read_facts) -> int:
 MARKET = "agent-foundation"     # 土台の marketplace の取り出し（~/.claude/plugins/marketplaces/<MARKET>）
 TIP_ENV = "AF_REVIEW_GATE_TIP"  # 先端の版へ回し直した印（回し直した先でまだ違えば止まる＝回り続けない）
 ME_IN_REPO = "plugins/checker/scripts/review_gate.py"
+PLUGIN_IN_REPO = "plugins/checker"
+
+
+def _plugin_paths(market, tip):
+    """取り出す path＝plugin の dir と、その中の symlink の先（lib/af_lines.py → skill-values/af_lines.py 等）。
+    原因: plugin の dir だけを取り出すと、repo の外へ向く symlink の先が無く、隣の道具の import が落ちた。"""
+    out = [PLUGIN_IN_REPO]
+    for row in _git(market, "ls-tree", "-r", tip, PLUGIN_IN_REPO).splitlines():
+        meta, _, path = row.partition("\t")
+        if meta.split()[0] != "120000":
+            continue
+        link = _git(market, "cat-file", "blob", meta.split()[2]).strip()
+        target = posixpath.normpath(posixpath.join(posixpath.dirname(path), link))
+        if target.startswith("../") or posixpath.isabs(target):
+            raise RuntimeError("%s の先が repo の外を指す（%s）" % (path, link))
+        if target not in out:
+            out.append(target)
+    return out
 TIP = ""                        # ensure_tip が読んだ main の先端（自分が先端の版の時。回し直した先は TIP_ENV で受ける）
 
 
@@ -297,7 +316,7 @@ def ensure_tip(me: Path, argv: list[str], env=None) -> int | None:
         if not ((dest / ME_IN_REPO).exists() and _git(market, "hash-object", str(dest / ME_IN_REPO)) == tip_blob):
             base.mkdir(parents=True, exist_ok=True)
             tmp = Path(tempfile.mkdtemp(dir=base, prefix=".tmp-"))
-            data = _git(market, "archive", "--format=tar", tip, "plugins/checker", binary=True)
+            data = _git(market, "archive", "--format=tar", tip, *_plugin_paths(market, tip), binary=True)
             with tarfile.open(fileobj=io.BytesIO(data)) as t:
                 t.extractall(tmp, filter="data")
             if _git(market, "hash-object", str(tmp / ME_IN_REPO)) != tip_blob:
