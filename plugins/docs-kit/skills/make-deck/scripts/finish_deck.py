@@ -52,7 +52,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."
 import skill_values  # noqa: E402  値の表の 1 本の口（plugin の lib/＝土台の skill-values/ への symlink）
 
 # 止まる時の最後の行（中身は細目 §3 が正本＝ここは指すだけ）
-from root_cause import root_cause  # noqa: E402  根治の 1 文の 1 本の口＝skill-values/root_cause.py の root_cause（plugin の lib/ の symlink）
+from root_cause import root_cause  # noqa: E402  根治の 1 文の 1 本の口＝lib/root_cause.py の root_cause（正本へ戻る symlink）
 ROOT_CAUSE = root_cause("表紙と透かしを決まりどおりに仕上げる", cause="要確認が出た", shortcut="当て直して出し直す", where="（材料・型・検査の形）")
 DEFAULT_ACCENT = "#334155"   # 中立の既定（会社の色は config/skill-values.json の docs-kit.make-deck.accent）
 

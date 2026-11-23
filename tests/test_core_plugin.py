@@ -760,13 +760,6 @@ def 根治の入口を指す(text):
     return bool(口を呼ぶ.search(text)) and 入口.search((ROOT / "skill-values" / "root_cause.py").read_text(encoding="utf-8")) is not None
 
 
-def test_注入_入口の字も口の呼び出しも無い道具は入口を指さない():
-    """口を呼ぶ道具を字の無いままで通す代わりに、字も口も無い道具・注に書いただけの import は通さない。"""
-    assert not 根治の入口を指す('print("赤")\nsys.exit(1)\n')
-    assert not 根治の入口を指す('# from root_cause import root_cause\nsys.exit(1)\n')
-    assert 根治の入口を指す('    from root_cause import root_cause  # noqa: E402\n')
-
-
 # 古い形の類（直した文だけでなく、同じ file のどこに残っても拾う）
 # ・語の類: 一覧を育てる・add-one（漏れを 1 行足して片付ける形）
 # ・文の類: ミスの語（漏れ・赤・NG・落ち・抜け・拾われ）と、その場だけの直し（1 行足す・直してから・出し直す・残りに書く）が

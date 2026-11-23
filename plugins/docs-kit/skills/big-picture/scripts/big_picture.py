@@ -45,7 +45,7 @@ VERSION = re.compile(r"^\d{4}-\d{2}-\d{2}\.\d+$")
 ID = re.compile(r"^[A-Za-z][A-Za-z0-9_-]*$")
 TEMPLATE = Path(__file__).resolve().parent.parent / "references" / "template.html"
 SLOT = "/*__BIG_PICTURE_DATA__*/null"
-from root_cause import root_cause  # noqa: E402  根治の 1 文の 1 本の口＝skill-values/root_cause.py の root_cause（plugin の lib/ の symlink）
+from root_cause import root_cause  # noqa: E402  根治の 1 文の 1 本の口＝lib/root_cause.py の root_cause（正本へ戻る symlink）
 ROOT_CAUSE = root_cause("絵が照らせる正の形を保つ", cause="誤りが入った", shortcut="形の誤りを 1 つずつ潰して出し直す")
 ROOT_CAUSE_DIFF = "直し: 差を見せ、絵と実物のどちらに合わせるかをオーナーに決めてもらう（合流は止めない。実物を直す時は合意した絵の意図とのずれから入り、細目 §3「まず構造を疑う」で原因を探す）"
 

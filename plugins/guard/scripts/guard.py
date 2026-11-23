@@ -29,7 +29,7 @@ import guard_common as G  # noqa: E402  （lib/ を道に足す）
 EVENTS = {"pre": "PreToolUse", "post": "PostToolUse", "start": "SessionStart"}
 # 止めた時の最後の行（どの見張りの止めにも 1 か所で付ける。中身は細目「直すは根治」が正本＝ここは指すだけ）
 def root_cause_line():
-    """根治の 1 文の 1 本の口＝skill-values/root_cause.py の root_cause（lib/ の symlink・止める・知らせる時だけ読む＝写した見張りの照らしは読まずに動く）"""
+    """根治の 1 文の 1 本の口＝lib/root_cause.py の root_cause（正本へ戻る symlink・止める・知らせる時だけ読む＝写した見張りの照らしは読まずに動く）"""
     from root_cause import root_cause
     return root_cause("止めた守りが守る物", shortcut="止められた所を直して出し直す")
 

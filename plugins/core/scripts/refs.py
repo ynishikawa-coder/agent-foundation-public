@@ -314,7 +314,7 @@ def main(argv=None) -> int:
     if total:
         print(f"refs: 赤 外れた指し {total} 件")
         sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
-        from root_cause import root_cause  # noqa: E402  根治の 1 文の 1 本の口＝skill-values/root_cause.py の root_cause（plugin の lib/ の symlink）
+        from root_cause import root_cause  # noqa: E402  根治の 1 文の 1 本の口＝lib/root_cause.py の root_cause（正本へ戻る symlink）
         print(root_cause("指しが土台の今の名に合う", cause="指しが外れた", shortcut="指しを今の名に替える")
               + "（番号は付けない。名が消えた・変わった訳は土台の変更の記録＝CHANGELOG.d の「壊れる」を引く）")
         return 1

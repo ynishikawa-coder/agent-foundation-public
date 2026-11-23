@@ -30,7 +30,7 @@ CHROME_ENV = "CHROME"   # 明示の時だけ（既定は下の探し方）
 TIMEOUT_SEC = 90
 # NG の時の最後の行（中身は細目 §3 が正本＝ここは指すだけ）
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent.parent / "lib"))
-from root_cause import root_cause  # noqa: E402  根治の 1 文の 1 本の口＝skill-values/root_cause.py の root_cause（plugin の lib/ の symlink）
+from root_cause import root_cause  # noqa: E402  根治の 1 文の 1 本の口＝lib/root_cause.py の root_cause（正本へ戻る symlink）
 ROOT_CAUSE = root_cause("枠どおりに触れて答えを貼り戻せるモック", cause="", shortcut="NG の行を 1 つずつ潰す", where="（枠の使い方・題材の組み方）")
 
 

@@ -144,7 +144,7 @@ def main(argv=None) -> int:
     if errs:
         print("pr_writer: 赤")
         sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
-        from root_cause import root_cause  # noqa: E402  根治の 1 文の 1 本の口＝skill-values/root_cause.py の root_cause（plugin の lib/ の symlink）
+        from root_cause import root_cause  # noqa: E402  根治の 1 文の 1 本の口＝lib/root_cause.py の root_cause（正本へ戻る symlink）
         print(root_cause("書いた窓の名乗りが commit の記録と 1 つに合う", cause="写しが正本からずれた", shortcut="本文の頭を直す"))
         return 1
     print("pr_writer: 緑")
