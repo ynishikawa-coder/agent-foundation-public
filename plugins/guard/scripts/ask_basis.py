@@ -1,4 +1,4 @@
-"""PostToolUse — 選択肢の画面（AskUserQuestion）が出た後に、その前のチャットに「具体例:」と「判断を頼む理由:」の 2 行が
+"""ask_shape の PostToolUse の知らせから呼ぶ部品（自分の hook は持たない）— 選択肢の画面（AskUserQuestion）が出た後に、その前のチャットに「具体例:」と「判断を頼む理由:」の 2 行が
 在ったかを照らし、欠けていれば AI に知らせる（止めない）。
 
 意図: オーナーに判断を頼む時は、この件で実際に何が起きるか（具体例）と、なぜ AI が決めずに頼むか（理由）を先に見せ、
@@ -25,7 +25,6 @@ import ask_shape
 import guard_common as G
 
 ASK_TOOL = "AskUserQuestion"
-HOOKS = {"post": "notice"}
 
 LABELS = {
     "具体例": re.compile(r"(?m)^[\s>*\-・]*\**具体例\**\s*[:：]\s*\S"),

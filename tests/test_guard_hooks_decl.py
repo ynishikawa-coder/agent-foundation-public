@@ -14,7 +14,7 @@ from test_guard import env  # noqa: F401  （fixture）
 from uses import py_code
 
 SCRIPTS = Path(__file__).resolve().parent.parent / "plugins" / "guard" / "scripts"
-HELPERS = {"guard", "guard_common"}
+HELPERS = {"guard", "guard_common", "ask_basis"}  # ask_basis は ask_shape の知らせから呼ぶ部品（守りの数に入れない）
 
 
 def test_見張りの_file_は全部_HOOKS_を宣言する():

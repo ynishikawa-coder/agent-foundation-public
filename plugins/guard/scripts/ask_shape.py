@@ -305,7 +305,13 @@ def rec_kind_notes(qs, vals, bad=None):
 
 
 def notice(data, vals):
-    """PostToolUse: 推奨の印が済んだか・意図の問いに付いていたら知らせる（止めない）。"""
+    """PostToolUse: 推奨の印の知らせと、画面の前のチャットに `具体例:`・`判断を頼む理由:` が無い時の知らせ（止めない）。"""
+    import ask_basis  # 遅れて読む（ask_basis は ask_shape を読む）
+    return "\n".join(x for x in (_rec_notice(data, vals), ask_basis.notice(data, vals)) if x)
+
+
+def _rec_notice(data, vals):
+    """推奨の印が済んだか・意図の問いに付いていたら知らせる。"""
     if str(data.get("tool_name") or "") != ASK_TOOL:
         return ""
     ti = data.get("tool_input")

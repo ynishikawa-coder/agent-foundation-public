@@ -1,5 +1,5 @@
 """オーナーに判断を頼む前に、チャットで具体例と判断を頼む理由を見せる（細目 §4「見せてから聞く」）。
-guard の ask_basis が、2 行の無い選択肢の画面を画面の後に知らせ、止めないか（誤りの例をわざと入れる試験）。"""
+guard の ask_shape の知らせ（部品 ask_basis）が、2 行の無い選択肢の画面を画面の後に知らせ、止めないか（誤りの例をわざと入れる試験）。"""
 import pathlib
 import re
 
@@ -118,4 +118,4 @@ def test_聞き方は判断を頼む前に具体例と頼む理由を見せ_理�
                 "済んだかは、AI が確かめられる所（ファイル・設定・画面の結果）を先に確かめ", "その答えに頼らない仕事を進める"]:
         assert old not in s4, f"畳んだ文が残る: {old}"
     skill = (ROOT / "plugins" / "guard" / "skills" / "guard-rules" / "SKILL.md").read_text(encoding="utf-8")
-    assert "| ask_basis（判断を頼む前の具体例と理由） | PostToolUse |" in skill
+    assert "| ask_shape の notice（推奨の印の知らせ・判断を頼む前の具体例と理由の知らせ＝部品 ask_basis） | PostToolUse |" in skill
