@@ -7,6 +7,7 @@ from pathlib import Path
 
 import needs
 import pytest
+from test_guard_okiba import 推奨の指し先の外れ, 根治の指し先の外れ, 根治の行の外れ
 
 ROOT = Path(__file__).resolve().parent.parent
 PLUGIN = ROOT / "plugins" / "guard"
@@ -98,7 +99,7 @@ def test_試験から有料の上流へつなぐ線を止める(env, name, paylo
 
 def test_有料の上流を止めた文は根治の入口を指す(env):
     """止めた file の直し方だけを並べる古い形（線を書いた原因を見させない）に戻すと赤。"""
-    assert "細目 §3「まず構造を疑う」" in deny_reason(env, PAID_CASES[0][1])
+    assert 根治の指し先の外れ(deny_reason(env, PAID_CASES[0][1])) == []
 
 
 def test_有料の印は値の表で足せる(env, tmp_path):
@@ -128,7 +129,7 @@ def test_出し直させる文は根治の入口を指す(env):
     """答えの無い問いを出し直させるだけの古い形（原因を見させない）に戻すと赤。"""
     hook(env, "post", ask_result())
     again = hook(env, "start", {"session_id": "s2"}).get("additionalContext", "")
-    assert "細目 §3「まず構造を疑う」" in again
+    assert 根治の指し先の外れ(again) == []
 
 
 def test_答えが返れば台帳から降りて冒頭に出ない(env):
@@ -167,7 +168,7 @@ def test_離席中はメールを送る道具も止め別の窓は止めない(e
 def test_離席の止めの文は根治の入口を指す(env):
     """同じ問いを出し直させるだけの古い形に戻すと赤。"""
     hook(env, "post", ask_result())
-    assert "細目 §3「まず構造を疑う」" in deny_reason(env, bash(DROP))
+    assert 根治の指し先の外れ(deny_reason(env, bash(DROP))) == []
 
 
 def test_答えが返ると離席の止めが解ける(env):
@@ -482,7 +483,7 @@ def test_qa_page_型を写さない独自の問いのページは止まる(env, 
     why = deny_reason(env, publish("kakunin.html", cwd=str(tmp_path)))
     assert "qa-html の検査を通っていない" in why and "<script> の JSON に questions／qs" in why
     assert "型の qa:css の印が無い" in why
-    assert "細目 §3「まず構造を疑う」" in why and "もう一度 publish する" not in why, "止めた文が出し直しだけを促す古い形に戻った"
+    assert 根治の指し先の外れ(why) == [] and "もう一度 publish する" not in why, "止めた文が出し直しだけを促す古い形に戻った"
 
 
 @needs_node
@@ -641,7 +642,7 @@ def test_pick_one_作業や論点や原因を1つだけ選ばせる問いを止�
     assert out.get("permissionDecision") == "deny"
     assert "全部" in out["permissionDecisionReason"] and "ask_pick_one_exempt" in out["permissionDecisionReason"]
     # 推奨の印は作り方の分かれ道だけ（細目 §4）。止めた文がやり方の問いに印を勧めると、答えを寄せる問いを作り直させる。
-    assert "（推奨）」" not in out["permissionDecisionReason"] and "細目 §4「推奨の印」" in out["permissionDecisionReason"]
+    assert "（推奨）」" not in out["permissionDecisionReason"] and 推奨の指し先の外れ(out["permissionDecisionReason"]) == []
 
 
 @pytest.mark.parametrize("question", [
@@ -741,7 +742,7 @@ def test_ask_shape_読みにくい問いは画面を出す前に止め何でど�
     why = deny_reason(env, payload)
     assert want in why, why
     assert "直し方" in why and "画面はまだ人に出ていない" in why
-    assert "直して出し直す。" not in why and why.strip().splitlines()[-1].endswith("細目 §3「まず構造を疑う」で探して直す"), \
+    assert "直して出し直す。" not in why and 根治の行の外れ(why) == [], \
         "止めた文が出し直しだけを促す古い形に戻った"
 
 
@@ -998,5 +999,5 @@ def test_推奨の印の崩れと1つだけ選ばせる問いが両方当たれ�
     """ask_shape の rec と pick_one は同じ pre で走る。片方の理由が他方を消すと、AI が片方だけ直して 2 度止まる。"""
     why = deny_reason(env, ask_pre(q("どれを進めますか", header="進め方", labels=("作り物の A", "作り物の B（推奨）", "分からない"))))
     assert "[rec]" in why and "1 つ目でない" in why, why
-    assert "ask_pick_one_exempt" in why and "細目 §4「推奨の印」" in why, why
-    assert why.strip().splitlines()[-1].endswith("細目 §3「まず構造を疑う」で探して直す"), why
+    assert "ask_pick_one_exempt" in why and 推奨の指し先の外れ(why) == [], why
+    assert 根治の行の外れ(why) == [], why

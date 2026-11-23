@@ -3,7 +3,8 @@ import json
 import re
 from pathlib import Path
 
-from md_yomi import 太字の欄, 節
+from test_dev_flow_okiba import (ほんまにできる表の外れ, 原因の段の外れ, 未来の段の外れ, 行き先の外れ, 論点の窓の外れ,
+                                 step1の外れ, verify_の外れ)
 from test_seichi_nokoru_ana import 残る穴の行
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -76,44 +77,37 @@ def test_整地は根治の_5_段を持ち_解決の段に注入の試験と残�
         assert any(lab.endswith(hole) for lab in labels), f"残る穴の欄に行が無い: {hole}（欄の行: {labels}）"
     skill = (skill_dir / "SKILL.md").read_text(encoding="utf-8")
     assert "5 段（意図→課題→原因→解決→未来" in frontmatter(skill)["description"]
-    assert "読むだけの助手" in skill and "自分の読みや直し方は渡さない" in skill, "同じ原因の他の問題を別の目が探す段が無い"
-    assert "試験を足す段ではない" in skill or "試験の名を並べる欄ではない" in skill, "未来が試験の段に縮んでいる"
+    assert 原因の段の外れ(skill, tpl) == []
+    assert 未来の段の外れ(skill, tpl) == []
     for old in ["3 つの問い", "4 つの問い", "構造の原因"]:
         assert old not in skill and old not in tpl, f"古い根治の言い回しが残る: {old}"
 
 
 def test_規律を足す時も止める物かの後に誤りが入れない形と注入の試験を書く():
     skill = (PLUGIN / "skills" / "register-rule" / "SKILL.md").read_text(encoding="utf-8")
-    step1 = skill[skill.index("## Step 1"):skill.index("## Step 2")]
-    for word in ["誤りが入れない形のどれか", "注入の試験", "核 §3・細目 §3"]:
-        assert word in step1, f"register-rule Step 1 に無い: {word}"
-    out = skill[skill.index("## 出力の形"):]
-    assert out.index("止める物か") < out.index("注入の試験"), "出力の形で止める物かの後に形と注入の試験が無い"
+    assert step1の外れ(skill) == []
     for old in ["3 つの問い", "文を 1 本足すことを直しの中心にしない"]:
         assert old not in skill, f"古い根治の言い回しが残る: {old}"
 
 
 def test_verify_は申告でなく記録で確かめる():
     skill = (PLUGIN / "skills" / "verify" / "SKILL.md").read_text(encoding="utf-8")
-    assert "申告でなく記録" in skill and "記録の所在" in skill
+    assert verify_の外れ(skill) == []
 
 
 def test_ほんまにできる表に届く先と写しの残りの行が在る():
     text = (PLUGIN / "skills" / "design-mode" / "SKILL.md").read_text(encoding="utf-8")
-    rows = {m.group(1).strip() for m in re.finditer(r"^\s*\|\s*([^|]+?)\s*\|", text, flags=re.M)}
-    for row in ("届く先", "写しの残り"):
-        assert row in rows, f"ほんまにできる表に「{row}」の行が無い"
+    assert ほんまにできる表の外れ(text) == []
 
 
 def test_設計の相談は論点ごとに窓を並べ_1_本の列にしない():
     text = (PLUGIN / "skills" / "design-mode" / "SKILL.md").read_text(encoding="utf-8")
-    assert "論点ごとに窓を並べて同時に進める" in text and "1 本の列にしない" in text
+    assert 論点の窓の外れ(text) == []
     assert "一番手前" not in text, "問いを表の一番手前の 1 つから取る形が戻った"
 
 
 def test_整地の解決は全部の原因に行き先を付ける():
     d = PLUGIN / "skills" / "preimpl-cleanup"
     skill, tpl = (d / "SKILL.md").read_text(encoding="utf-8"), (d / "整地受領証.template.md").read_text(encoding="utf-8")
-    assert "全部に行き先" in skill and "原因の台帳" in skill
-    assert "**行き先**" in tpl and "整地受領証: v8" in tpl
+    assert 行き先の外れ(skill, tpl) == []
     assert "どれを今回直す" not in skill + tpl
