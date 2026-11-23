@@ -48,6 +48,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import verdict_form  # noqa: E402  初めの判定の決まりの版を読む 1 か所（写さない）
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
+from af_lines import text_lines  # noqa: E402  行の区切りの 1 本の口（土台の af_lines.py への symlink）
 
 API = "https://api.github.com"
 OK = {"success", "neutral", "skipped"}
@@ -263,7 +265,7 @@ def _plugin_paths(market, tip):
     """取り出す path＝plugin の dir と、その中の symlink の先（lib/af_lines.py → skill-values/af_lines.py 等）。
     原因: plugin の dir だけを取り出すと、repo の外へ向く symlink の先が無く、隣の道具の import が落ちた。"""
     out = [PLUGIN_IN_REPO]
-    for row in _git(market, "ls-tree", "-r", tip, PLUGIN_IN_REPO).splitlines():
+    for row in text_lines(_git(market, "ls-tree", "-r", tip, PLUGIN_IN_REPO)):
         meta, _, path = row.partition("\t")
         if meta.split()[0] != "120000":
             continue
