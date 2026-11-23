@@ -1,1 +1,1 @@
-- 壊れる: 公開の検査（public-guard/guard.py）は CI で event の file（GITHUB_EVENT_PATH）が無いと PR の題・本文を照らしていないとして exit 3、event が読めない（壊れた JSON・dict でない・utf-8 でない）と手元でも CI でも exit 2 で止める（前は空の event として通した）
+- 壊れる: 公開の検査（public-guard/guard.py）は CI で event の file（GITHUB_EVENT_PATH）が無いと PR の題・本文を照らしていないとして exit 3、event が読めない（壊れた JSON・dict でない・utf-8 でない）と手元でも CI でも exit 2 で止める（前は空の event として通した）。土台の中だけ: event の file は GitHub の runner が書く物で、使う側の repo の file・setup script の行・action の呼び口（with:）に、無い・壊れた event に頼る形は無い（呼び口の形は変えていない）ので 1 段で入れる。
