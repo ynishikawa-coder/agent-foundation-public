@@ -1,3 +1,4 @@
 - 直した: skill から呼ぶ道具（codex_pack・seal・check.mjs・big_picture・check_blueprint・check_theory_mock・render_prompt・finish_deck・values_keys・unanswered・verdict_form・pr_writer・session_watch・skill_values）が、窓が立った時の古い版の dir から呼ばれても、入った中でいちばん新しい版で回る（lib/af_place.py の run_newest・入れ直しの途中は待ち、待ち切れない・失敗は訳を名指して続ける）
 - 足した: guard の stale_path（知らせるだけ）。窓が立った時の版の skill の本文・置き場の path を使った時に、先端の版の path を名指す
 - 直した: 入れ直しの途中で浅い clone が先へ進んでも、守りの hook が入った版の public-guard/guard.py を見失わない（setup_plugins.py が取り直す前に版ごとに取り置く）
+- 直した: 裏の入れ直しの途中は、守りの hook が窓が立った時の揃った版で回り、隣の plugin の file（qa-html の check.mjs など）は同じ版で入るのを待ってから引く（半端な版を掴まない）

@@ -117,6 +117,51 @@ def test_入れ直しの途中は錠が外れるまで待ち_待ち切れなけ�
     assert "済まなかった" in note and root is not None and run.parent.parent.parent.name == NEW
 
 
+def _hook_box(tmp):
+    hooks = json.dumps({"hooks": {"PreToolUse": [{"hooks": [{"type": "command",
+                                                             "command": 'python3 "${CLAUDE_PLUGIN_ROOT}/scripts/h.py"'}]}]}})
+    files = {"scripts/h.py": "print(1)\n", "hooks/hooks.json": hooks}
+    box = make_box(tmp, {"guard": {"old": files, "new": files}})
+    hr = af_place.load_module("t_hook_run_t", box["plugins"] / "marketplaces" / kaku.MARKET / "plugins" / "core"
+                              / "scripts" / "hook_run.py")
+    return box, hr
+
+
+def test_hook_は入れ直しの途中なら待たずに窓が立った時の揃った版で回る(tmp_path):
+    box, hr = _hook_box(tmp_path)
+    old, new = box["dirs"][("guard", "old")], box["dirs"][("guard", "new")]
+    env = {"CLAUDE_PLUGIN_ROOT": str(old)}
+    assert hr.target(old / "scripts" / "h.py", [], env, box["claude"]) == (new / "scripts" / "h.py", new)
+    lock = box["claude"] / "af-foundation" / "refresh.lock"
+    lock.parent.mkdir(parents=True)
+    lock.write_text("1", encoding="utf-8")
+    assert hr.target(old / "scripts" / "h.py", [], env, box["claude"]) == (old / "scripts" / "h.py", None)
+    os.utime(lock, (1, 1))  # 古すぎる錠（落ちた入れ直しの残り）は見ない
+    assert hr.target(old / "scripts" / "h.py", [], env, box["claude"]) == (new / "scripts" / "h.py", new)
+
+
+def test_隣の_plugin_が同じ版で入るのを入れ直しの間だけ待つ(tmp_path, monkeypatch):
+    import threading
+
+    rel = os.path.join("skills", "qa-html", "check.mjs")
+    box = make_box(tmp_path, {"guard": {"old": {}, "new": {}}, "docs-kit": {"old": {rel: "x"}, "new": {}}})
+    guard_new = str(box["dirs"][("guard", "new")])
+    want = box["dirs"][("docs-kit", "new")] / rel
+    assert af_place.sibling_plugin_file("docs-kit", rel, guard_new) == ""  # 錠が無ければ待たない・別の版へ降りない
+    lock = box["claude"] / "af-foundation" / "refresh.lock"
+    lock.parent.mkdir(parents=True)
+    lock.write_text("1", encoding="utf-8")
+    monkeypatch.setattr(af_place, "SIBLING_WAIT", 0.5)
+    assert af_place.sibling_plugin_file("docs-kit", rel, guard_new) == ""  # 待ち切れなければ空（呼ぶ側が名指す）
+    monkeypatch.setattr(af_place, "SIBLING_WAIT", 10)
+
+    def land():
+        want.parent.mkdir(parents=True, exist_ok=True)
+        want.write_text("x", encoding="utf-8")
+    threading.Timer(0.6, land).start()
+    assert af_place.sibling_plugin_file("docs-kit", rel, guard_new) == str(want)
+
+
 def test_目録の_clone_が無ければ今の版で続けて訳を出す(tmp_path):
     box, rel = probe_box(tmp_path)
     shutil.rmtree(box["plugins"] / "marketplaces")

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import os
 import re
+import time
 
 
 def sibling_plugin_file(plugin, rel, plugin_root):
@@ -23,7 +24,36 @@ def sibling_plugin_file(plugin, rel, plugin_root):
     ver = os.path.basename(here)
     market = os.path.dirname(os.path.dirname(here))
     same = os.path.join(market, plugin, ver, rel)
+    if os.path.isfile(same):
+        return same
+    # 裏の入れ直しは plugin を 1 つずつ入れる: 呼ぶ plugin が先に先端の版へ入り、隣がまだ前の版の間は同じ版が無い。
+    # 錠が在る間は SIBLING_WAIT 秒まで待って引き直す（別の版へは降りない）
+    lock = _refresh_lock(here)
+    end = time.time() + SIBLING_WAIT
+    while lock and _fresh(lock) and time.time() < end:
+        time.sleep(0.5)
+        if os.path.isfile(same):
+            return same
     return same if os.path.isfile(same) else ""
+
+
+SIBLING_WAIT = 30   # 隣の plugin が同じ版で入るのを待つ上限（秒・hook の中で呼ばれるので短く）
+LOCK_AGE = 660      # 錠をまだ生きているとみなす上限（秒・core の kaku.REFRESH_TIMEOUT＋60 と同じ）
+
+
+def _refresh_lock(plugin_root):
+    """plugin_root が入れた形 <.claude>/plugins/cache/<市場>/<plugin>/<版> なら裏の入れ直しの錠の path、違えば ""。"""
+    parts = os.path.normpath(plugin_root).split(os.sep)
+    if len(parts) < 6 or parts[-4] != "cache" or parts[-5] != "plugins":
+        return ""
+    return os.path.join(os.sep.join(parts[:-5]) or os.sep, "af-foundation", "refresh.lock")
+
+
+def _fresh(lock):
+    try:
+        return time.time() - os.stat(lock).st_mtime <= LOCK_AGE
+    except OSError:
+        return False
 
 
 def _clone_git(clone, *args):

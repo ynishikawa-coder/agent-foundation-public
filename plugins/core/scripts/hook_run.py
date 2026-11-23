@@ -25,6 +25,7 @@ skill から呼ぶ script も同じ口で先端へ乗り換える（newest・lib
     入れ直しが失敗した時は、その訳を名指して今の版で続ける（止めない・黙らない）。
   命令から: hook_run.py --where <script> で回す path を 1 行で出す（python でない入口・check.mjs が使う）。
   hook として回す時は、窓が立った時の dir を AF_HOOK_STARTED_ROOT に残す（守りの hook が「窓が読んだ skill の本文の版」を知る口）。
+  hook は待たない: 裏の入れ直しの途中（錠が在る）は、台帳が半端な版を指しうるので窓が立った時の版で回す（済めば次の呼び出しから先端）。
 """
 from __future__ import annotations
 
@@ -82,7 +83,9 @@ def target(script: Path, args: list[str], env: dict, home: Path) -> tuple[Path, 
 
         row = kaku.current_row(rows)
         new_root = Path(str(row["installPath"])).resolve() if row else root
-        if new_root == root:
+        if new_root == root or _refreshing(home):
+            # 裏の入れ直しの途中は、台帳の今読まれる行が半端な版（隣の plugin や file が揃う前）を指しうる。
+            # hook は待たせない（PreToolUse を止める）ので、揃った窓が立った時の版で回す
             return script, None
         if not _same_hook(new_root, rel, args):
             return None
@@ -104,6 +107,17 @@ def plugin_root_of(script: Path) -> Path | None:
                 and d.parents[3].name == "plugins":
             return d
     return None
+
+
+def _refreshing(claude: Path) -> bool:
+    """裏の入れ直しの錠が在って古すぎないか（入れ直しの途中か）。"""
+    import kaku
+
+    lock = claude / "af-foundation" / "refresh.lock"
+    try:
+        return time.time() - lock.stat().st_mtime <= kaku.REFRESH_TIMEOUT + 60
+    except OSError:
+        return False
 
 
 def _wait_refresh(claude: Path, wait: float) -> str:
