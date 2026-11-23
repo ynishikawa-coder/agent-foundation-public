@@ -10,7 +10,7 @@
     python3 big_picture.py explain <絵.json> <起きた問題の id>
     python3 big_picture.py pick    <repo の根> <PR が触った file>...
 
-check:   形の誤り（欄の欠け・知らない値・重なった id・行き先の無い矢印・無い箱を指す問題）は exit 1。
+check:   形の誤り（欄の欠け・知らない値・重なった id・行き先の無い矢印・無い箱を指す問題・in／see の指す先の誤り）は exit 1。
          合意の絵で意図が空の箱は「赤い点」として 1 行ずつ警告する（exit 0・止めない）。
 render:  check を通った絵だけ HTML にする（誤りがあれば exit 1 で書かない）。
 compare: 合意した版（kind 合意・agreed あり）と、レビューの窓がコードから描いた実物（kind 実物・drawn_from あり）を
@@ -128,6 +128,38 @@ def check(pic):
         elif kind == "合意" and not _text(b.get("intent")):
             reds.append("赤い点: %s ›「%s」— オーナーの意図をまだ聞いていない" % (TABS.get(b.get("tab"), "?"), b.get("t", bid)))
 
+    for bid, b in seen.items():                      # 入れ子（in）と別のタブの箱への参照（see）＝箱の関わりを文に写さず欄で持つ
+        if "in" in b:
+            up = b["in"]
+            if not isinstance(up, str) or up not in seen:
+                errs.append("%s: in（中に入る箱）%r が絵に無い" % (bid, up))
+            elif up == bid:
+                errs.append("%s: in が自分を指す" % bid)
+            elif seen[up].get("tab") != b.get("tab"):
+                errs.append("%s: in の箱 %s が別のタブ（入れ子は同じタブの中だけ）" % (bid, up))
+            else:
+                chain, cur = {bid}, up
+                while isinstance(cur, str) and cur in seen:
+                    if cur in chain:
+                        errs.append("%s: in がめぐって輪になる" % bid)
+                        break
+                    chain.add(cur)
+                    cur = seen[cur].get("in")
+        if "see" in b:
+            see = b["see"]
+            if not isinstance(see, list) or not see:
+                errs.append("%s: see（別のタブの関わる箱）が箱の id の並びでない" % bid)
+                continue
+            for x in see:
+                if not isinstance(x, str) or x not in seen:
+                    errs.append("%s: see の箱 %r が絵に無い" % (bid, x))
+                elif x == bid:
+                    errs.append("%s: see が自分を指す" % bid)
+                elif seen[x].get("tab") == b.get("tab"):
+                    errs.append("%s: see の箱 %s が同じタブ（同じタブの関わりは矢印で描く）" % (bid, x))
+            if len(set(map(str, see))) != len(see):
+                errs.append("%s: see の箱が重なる" % bid)
+
     pairs = set()
     for a in pic.get("arrows") or []:
         f, t = a.get("from"), a.get("to")
@@ -206,6 +238,14 @@ def compare(agreed, actual):
             lines.append("- 箱のタブが違う: %s 合意＝%s 実物＝%s" % (name(i), TABS[A[i]["tab"]], TABS[X[i]["tab"]]))
         if A[i]["k"] != X[i]["k"]:
             lines.append("- 箱の種類が違う: %s 合意＝%s 実物＝%s" % (name(i), KINDS[A[i]["k"]], KINDS[X[i]["k"]]))
+        if A[i].get("in") != X[i].get("in"):
+            lines.append("- 入っている箱が違う: %s 合意＝%s 実物＝%s" % (
+                name(i), name(A[i]["in"]) if A[i].get("in") else "どこにも入らない",
+                name(X[i]["in"]) if X[i].get("in") else "どこにも入らない"))
+        if sorted(A[i].get("see") or []) != sorted(X[i].get("see") or []):
+            lines.append("- 別のタブで関わる箱が違う: %s 合意＝%s 実物＝%s" % (
+                name(i), "・".join(name(j) for j in sorted(A[i].get("see") or [])) or "なし",
+                "・".join(name(j) for j in sorted(X[i].get("see") or [])) or "なし"))
     ae = {(a["from"], a["to"]) for a in agreed.get("arrows") or []}
     xe = {(a["from"], a["to"]) for a in actual.get("arrows") or []}
     for f, t in sorted(ae - xe):

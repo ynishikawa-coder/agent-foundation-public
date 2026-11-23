@@ -47,6 +47,7 @@ button:focus-visible,select:focus-visible{outline:2px solid var(--accent);outlin
 .intent.asked{background:var(--owner-bg)}
 .intent.none{background:var(--ask-bg);color:var(--ask)}
 .why{border-radius:8px;padding:8px 10px;background:var(--hit-bg)}
+.jump{font:inherit;margin:0 6px 6px 0;padding:2px 8px;border:1px solid var(--line);border-radius:6px;background:var(--panel);color:var(--fg);cursor:pointer}
 .pair{display:grid;grid-template-columns:1fr 1fr;gap:8px}
 .hint{color:var(--muted);font-size:.85rem}
 g.node{cursor:pointer}
@@ -131,13 +132,20 @@ function svg(tab){const T=(PIC.tabs||{})[tab]||{};const bs=PIC.boxes.filter(b=>b
  const areas=(T.areas||[]).map(a=>{const c=KC[a.k]||KC.part;return `<rect x="${a.x}" y="${a.y}" width="${a.w}" height="${a.h}" rx="12" fill="none" stroke="var(${c[0]})" stroke-dasharray="6 5"/><text x="${a.x+14}" y="${a.y+22}" font-size="13" fill="var(${c[0]})" font-weight="700">${esc(a.t)}</text>`}).join('');
  const ids=new Set(bs.map(b=>b.id));
  return `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(TABS[tab])}"><defs><marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" fill="var(--muted)"/></marker></defs>${lanes}${areas}${(PIC.arrows||[]).filter(a=>ids.has(a.from)).map(arrow).join('')}${bs.map(box).join('')}</svg>`}
+function jump(id){const b=B[id];if(!b)return;st.tab=b.tab;draw();show(id)}
+function link(id){const b=B[id];return `<button class="jump" data-j="${esc(id)}">${esc(b.t)}${b.tab===st.tab?'':'（'+esc(TABS[b.tab])+'）'}</button>`}
+function rel(b){let h='';const kids=PIC.boxes.filter(x=>x.in===b.id);
+ if(b.in&&B[b.in])h+=`<div><div class="lab">入っている箱</div><p>${link(b.in)}</p></div>`;
+ if(kids.length)h+=`<div><div class="lab">中にある箱</div><p>${kids.map(x=>link(x.id)).join(' ')}</p></div>`;
+ if((b.see||[]).length)h+=`<div><div class="lab">別のタブで関わる箱</div><p>${b.see.filter(i=>B[i]).map(link).join(' ')}</p></div>`;
+ return h}
 function boxSide(id){const b=B[id];const ps=probsAt(id);const p=P.find(x=>x.id===st.p);
  const intent=`<div class="intent ${b.intent?'asked':'none'}"><div class="lab">オーナーの意図</div><p>${esc(b.intent||'まだ聞いていない。設計の初めに AI が問う所。')}</p></div>`;
- let html=`<h2>${esc(b.t)}</h2><div><div class="lab">何か</div><p>${esc(b.what)}</p></div><div><div class="lab">記録にある理由（AI が書いた文）</div><p>${esc(b.why)}</p></div><div class="lab">境: ${esc(b.side)}${b.role?'・人が'+esc(b.role)+'所':''}</div>`;
+ let html=`<h2>${esc(b.t)}</h2><div><div class="lab">何か</div><p>${esc(b.what)}</p></div><div><div class="lab">記録にある理由（AI が書いた文）</div><p>${esc(b.why)}</p></div><div class="lab">境: ${esc(b.side)}${b.role?'・人が'+esc(b.role)+'所':''}</div>`+rel(b);
  if(st.layer==='explain'&&p&&p.cause===id){html+=`<div class="pair">${intent}<div class="why"><div class="lab">なぜここから起きたか（${p.origin==='構造'?'構造から来る':'単発'}）</div><p>${esc(p.why_here)}</p></div></div>`}else if(st.layer==='explain'&&p&&p.at.includes(id)){html+=`<div class="pair">${intent}<div class="why"><div class="lab">課題（この意図とのずれ＝起きた事）</div><p>${esc(p.title)}</p></div></div>`}else html+=intent;
  if(ps.length)html+=`<div><div class="lab">この箱で起きた問題（${ps.length} 件）</div><ul class="plist">${ps.map(x=>`<li>${esc(x.date)} ${esc(x.title)}（${x.cause===id?'原因':'起きた所'}・${esc(x.origin)}）</li>`).join('')}</ul></div>`;
  return html}
-function show(id){stage.querySelectorAll('g.node').forEach(g=>g.classList.toggle('sel',g.dataset.id===id));side.innerHTML=boxSide(id)}
+function show(id){stage.querySelectorAll('g.node').forEach(g=>g.classList.toggle('sel',g.dataset.id===id));side.innerHTML=boxSide(id);side.querySelectorAll('button.jump').forEach(x=>x.addEventListener('click',()=>jump(x.dataset.j)))}
 function explainMarks(){const p=P.find(x=>x.id===st.p);if(st.layer!=='explain'||!p)return;
  stage.querySelector('svg')&&stage.querySelector('svg').classList.add('dim');
  stage.querySelectorAll('g.node').forEach(g=>{const id=g.dataset.id;g.classList.toggle('at',(p.at||[]).includes(id));g.classList.toggle('cause',p.cause===id)});

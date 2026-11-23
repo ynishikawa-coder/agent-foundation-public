@@ -243,8 +243,10 @@ def test_main_へ入れる手を片方の_AI_に限らない():
     for f in ("CONTRIBUTING.md", ".github/pull_request_template.md"):
         text = (ROOT / f).read_text(encoding="utf-8")
         assert "Javis 側の親窓" not in text, f"{f} に畳んだ決まりの写しが残っている"
-    github = next(b for b in agreed()["boxes"] if b["id"] == "github")
-    assert github["intent"] and "どちらの AI" in github["what"]
+    B = {b["id"]: b for b in agreed()["boxes"]}
+    # 決まりは GitHub の箱の意図と main へ入れる段（f8）が持つ。GitHub の箱は f8 を see で指し、what に段の中身を写さない
+    assert "どちらの AI" in B["github"]["intent"] and "f8" in B["github"]["see"]
+    assert "どちらの AI でもよい" in B["f8"]["what"] and "どちらの AI" not in B["github"]["what"]
 
 
 # --- 1 repo に製品が複数ある形（頼まれた照らしの pick） ---
