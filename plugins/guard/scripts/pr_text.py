@@ -19,7 +19,8 @@
 照らす物（見分けは正本を直に読む・呼ぶ。ここに決まりを写さない）:
   verdict … （材料は記録から: 出す先の PR の先端と、PR の commit 全部の `Claude-Session:` の窓（書いた窓の組）を gh で引き
             --head・--writer で、判定を出す窓の本物の id を窓の環境の記録（CLAUDE_CODE_REMOTE_SESSION_ID）から読み --reviewer で
-            渡す。判定の 1 行目の名乗りは手で書いた写しで、照らされる側。本文の `書いた窓:` は読まない。どれかが引けなければ止める）
+            渡す。判定の 1 行目の名乗りは手で書いた写しで、照らされる側。本文の `書いた窓:` は読まない。PR のコメントから初めの判定の
+            決まりの版を verdict_form.first_rules で読み --first で渡す〔無ければ なし〕。どれかが引けなければ止める）
             コメントがレビューの判定（どの行かに `レビューした窓: … 判定: green|red` が揃うか、verdict の見出しが在る）なら、checker の
             `scripts/verdict_form.py` をそのまま呼ぶ。赤なら止める。道具が見つからない・壊れた時も止める
   cleanup … PR の本文（本文を渡す時だけ）に、dev-flow の preimpl-cleanup の `整地受領証.template.md` の見出し
@@ -201,6 +202,42 @@ def poster_id(env=None):
     return "session_" + m.group(1) if m else ""
 
 
+def pr_number(repo, ti):
+    number = next((ti.get(k) for k in NUMBER_KEYS if ti.get(k)), None)
+    if not number and ti.get("comment_id"):
+        p = _gh(["repos/%s/issues/comments/%s" % (repo, ti["comment_id"]), "--jq", ".issue_url"])
+        number = p.stdout.strip().rsplit("/", 1)[-1] if p.returncode == 0 else None
+    return number
+
+
+def first_rules(repo, ti, tool):
+    """PR のコメントから初めの判定の決まりの版（SHA12）か NO_FIRST の `なし`、と誤り。読み方は判定の形の道具の
+    first_rules をそのまま呼ぶ（写さない）。コメントを引けない時は誤り（初めの版を照らさずに判定を通さない）。
+    道具が first_rules を持たない古い checker なら (None, "")＝--first を渡さず前の形で照らす（壊れる変更の 1 段目の間）。"""
+    import importlib.util
+    try:
+        spec = importlib.util.spec_from_file_location("af_verdict_form", tool)
+        vf = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(vf)
+    except (Exception, SystemExit) as e:  # noqa: BLE001  読めない・読むと抜ける道具で版を決めない（hook ごと落ちない）
+        return "", "判定の形の道具が壊れた（読むと %s）。初めの判定の決まりの版を読めない" % e.__class__.__name__
+    if not hasattr(vf, "first_rules"):
+        return None, ""   # 1 段目の間: 決まりの版を知らない古い checker は --first を渡さず前の形で照らす（CONTRIBUTING.md §8）
+    try:
+        number = pr_number(repo, ti)
+        c = _gh(["--paginate", "repos/%s/issues/%s/comments" % (repo, number), "--jq", ".[].body | @json"]) \
+            if number else None
+    except (OSError, subprocess.SubprocessError) as e:
+        return "", "PR のコメントを引けなかった（%s）" % e.__class__.__name__
+    if c is None or c.returncode != 0:
+        return "", "PR のコメントを引けず、初めの判定の決まりの版を読めない"
+    try:
+        bodies = [json.loads(ln) for ln in c.stdout.splitlines() if ln.strip()]
+    except ValueError:
+        return "", "PR のコメントが読めない"
+    return vf.first_rules(bodies) or vf.NO_FIRST, ""
+
+
 def pr_facts(repo, ti):
     """判定を出す先の PR の (先端の SHA, 書いた窓の組, 誤り)。GitHub から引く（判定の形の道具が要る材料・写さない）。
 
@@ -210,11 +247,8 @@ def pr_facts(repo, ti):
     引けない時は誤りを返す（欠けた材料で判定を通さない）。"""
     if not repo:
         return "", [], "出す先の repo（owner・repo）が道具の入力に無い"
-    number = next((ti.get(k) for k in NUMBER_KEYS if ti.get(k)), None)
     try:
-        if not number and ti.get("comment_id"):
-            p = _gh(["repos/%s/issues/comments/%s" % (repo, ti["comment_id"]), "--jq", ".issue_url"])
-            number = p.stdout.strip().rsplit("/", 1)[-1] if p.returncode == 0 else None
+        number = pr_number(repo, ti)
         if not number:
             return "", [], "判定を出す先の PR の番号が分からない"
         p = _gh(["repos/%s/pulls/%s" % (repo, number), "--jq",
@@ -267,9 +301,12 @@ def check_verdict(body, data):
     head, writers, err = pr_facts(_repo_name(ti), ti)
     if err:
         return ["判定の材料: " + err]
+    first, err = first_rules(_repo_name(ti), ti, tool)
+    if err:
+        return ["判定の材料: " + err]
     try:
-        p = _run([sys.executable, tool, _tmp_file(body, "verdict"), "--writer", ",".join(writers), "--head", head,
-                  "--reviewer", poster])
+        p = _run([sys.executable, tool, _tmp_file(body, "verdict"), "--writer", ",".join(writers), "--head", head]
+                 + (["--first", first] if first is not None else []) + ["--reviewer", poster])
     except (OSError, subprocess.SubprocessError) as e:
         return ["判定の形の道具が走らなかった: %s" % e.__class__.__name__]
     if p.returncode == 0:
@@ -539,7 +576,8 @@ HOW = {
     "broken": "一時の置き場（TMPDIR・AF_GUARD_TMP）に書けるか・入れた plugin が揃っているかを確かめ、直してから出し直す。"
               "直せない時は止めた文を添えて親の窓へ返す（見張りを外して出さない）。",
     "verdict": "判定のコメントは skill `checker:review-pr` の「判定の形」で書き直す（形の正本はその SKILL.md と verdict_form.py・"
-               "ここに写さない）。`python3 <verdict_form.py> <下書き> --writer <書いた窓> --head <PR の先端>` が exit 0 になってから出す。",
+               "ここに写さない）。`python3 <verdict_form.py> <下書き> --writer <書いた窓> --head <PR の先端> --first <関所が出した値>` が "
+               "exit 0 になってから出す。",
     "cleanup": "PR 本文の「何をどう変えたか」の後に `## 整地（根治の段）` を置き、skill `dev-flow:preimpl-cleanup` の雛形の見出しで"
                "書く（中身は頭が書く・`〔…〕` を残さない）。振る舞いを変えない PR（誤字・記録だけ・版だけ等）なら、欄の代わりに "
                "`整地: 不要（<なぜ要らないか>）` の 1 行を書く（訳はレビューが照らす）。",

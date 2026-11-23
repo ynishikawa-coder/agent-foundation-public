@@ -55,6 +55,7 @@ def test_別の_suite_の同名が走り中なら通さない(monkeypatch):
 
 
 def test_別の_suite_が両方緑なら通す(monkeypatch):
+    monkeypatch.setattr(rg, "TIP", "fedcba987654")   # main の先端の版（判定が従う決まりの版）
     monkeypatch.setattr(rg, "_get", _github([_cr("success", "2026-11-23T01:00:00Z", suite=10),
                                              _cr("success", "2026-11-23T01:00:05Z", suite=11)]))
     assert rg.main(["--repo", "o/r", "--pr", "1"]) == 0
