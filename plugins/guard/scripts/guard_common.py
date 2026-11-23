@@ -40,11 +40,26 @@ def foundation_file(rel, guard_root=None):
 load_module = P.load_module
 
 
+def _repo_root(d):
+    """d を含む git の作業の木の根（.git の在る所まで上る）。無ければ d のまま。"""
+    cur = os.path.abspath(d)
+    while True:
+        if os.path.exists(os.path.join(cur, ".git")):
+            return cur
+        up = os.path.dirname(cur)
+        if up == cur:
+            return os.path.abspath(d)
+        cur = up
+
+
 def project_dir(payload=None):
-    d = os.environ.get("CLAUDE_PROJECT_DIR") or ""
-    if not d and isinstance(payload, dict) and isinstance(payload.get("cwd"), str):
-        d = payload["cwd"]
-    return d
+    """窓の repo の根。正本は入力の cwd（道具が今立つ所）の作業の木の根で、CLAUDE_PROJECT_DIR は cwd が無い・在らない時だけ。
+    窓を立てた dir（CLAUDE_PROJECT_DIR）は、後から clone した別の repo で働く窓では別の repo を指す＝それで照らすと違う repo の
+    表・取り出しを読む（既定で通す側へ倒れる）。"""
+    cwd = payload.get("cwd") if isinstance(payload, dict) else None
+    if isinstance(cwd, str) and cwd and os.path.isdir(cwd):
+        return _repo_root(cwd)
+    return os.environ.get("CLAUDE_PROJECT_DIR") or ""
 
 
 def _starts(payload):
@@ -73,6 +88,30 @@ def table(section, payload=None):
         return {}
     got = tbl.get(section) if isinstance(tbl, dict) else None
     return got if isinstance(got, dict) else {}
+
+
+def broken_pattern_rows(key, payload=None):
+    """止める鍵（型 patterns）を読めない訳の並び。表が読めない・欄や鍵の型が違う・正規表現として読めない行を名指す。
+    values() はその鍵を既定（[]）へ落とす＝止める鍵ではそれが黙って通す側になる。止める見張りはこれを見て止める側へ倒す。"""
+    try:
+        path = SV.find(starts=_starts(payload))
+        tbl, problems = SV.load(path)
+    except Exception as e:  # noqa: BLE001  読めない事そのものを訳にする
+        return ["値の表を読めない: %s" % e]
+    if problems:
+        return ["値の表 %s を読めない: %s" % (path, "; ".join(map(str, problems)))]
+    sec = tbl.get("guard") if isinstance(tbl, dict) else None
+    if sec is None:
+        return []
+    if not isinstance(sec, dict):
+        return ["値の表 %s の guard が {…} でない" % path]
+    if key not in sec:
+        return []
+    rows = sec[key]
+    if not isinstance(rows, list):
+        return ["値の表 %s の guard.%s が並びでない" % (path, key)]
+    return ["値の表 %s の guard.%s の行 %s が正規表現として読めない" % (path, key, json.dumps(r, ensure_ascii=False))
+            for r in SV.bad_pattern_rows(rows)]
 
 
 def values_problems(payload=None):

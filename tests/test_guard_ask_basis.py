@@ -1,5 +1,5 @@
 """オーナーに判断を頼む前に、チャットで具体例と判断を頼む理由を見せる（細目 §4「見せてから聞く」）。
-guard の ask_shape の知らせ（部品 ask_basis）が、2 行の無い選択肢の画面を画面の後に知らせ、止めないか（誤りの例をわざと入れる試験）。"""
+具体例は ask_shape の premise（画面の前に止める）が照らし、理由の行は ask_shape の知らせ（部品 ask_basis）が画面の後に知らせ、止めないか（誤りの例をわざと入れる試験）。"""
 import pathlib
 import re
 
@@ -41,28 +41,27 @@ def mine(out):
 
 
 BAD = [
-    ("具体例も理由も無い", [say("名指しの検査が切れるので決めてください。")], ["具体例:", "判断を頼む理由:"]),
-    ("具体例だけ", [say(EXAMPLE)], ["判断を頼む理由:"]),
-    ("理由だけ", [say(REASON)], ["具体例:"]),
-    ("2 行は前の頼みの中だけ", [say(EXAMPLE + "\n" + REASON), owner("次の作り物の頼み", "u2"), say("決めてください")],
-     ["具体例:", "判断を頼む理由:"]),
-    ("2 行は 1 つ前の画面の前だけ", [say(EXAMPLE + "\n" + REASON),
-                              use("AskUserQuestion", {"questions": [q("作り物の色を変えますか")]}), say("続けて")],
-     ["具体例:", "判断を頼む理由:"]),
-    ("文の中ほどに語が在るだけ", [say("ここでは具体例: を省きます。判断を頼む理由: も同じです。")], ["具体例:", "判断を頼む理由:"]),
-    ("中身の無い行", [say("具体例:\n判断を頼む理由:")], ["具体例:", "判断を頼む理由:"]),
+    ("理由が無い", [say("名指しの検査が切れるので決めてください。")]),
+    ("具体例だけ", [say(EXAMPLE)]),
+    ("理由は前の頼みの中だけ", [say(EXAMPLE + "\n" + REASON), owner("次の作り物の頼み", "u2"), say("決めてください")]),
+    ("理由は 1 つ前の画面の前だけ", [say(EXAMPLE + "\n" + REASON),
+                              use("AskUserQuestion", {"questions": [q("作り物の色を変えますか")]}), say("続けて")]),
+    ("文の中ほどに語が在るだけ", [say("ここでは判断を頼む理由: を省きます。")]),
+    ("中身の無い行", [say("具体例: 作り物\n判断を頼む理由:")]),
 ]
 
 
-@pytest.mark.parametrize("name,rows,lack", BAD, ids=[c[0] for c in BAD])
-def test_ask_basis_具体例か理由が欠けた画面は画面の後に知らせる(env, tmp_path, name, rows, lack):
+@pytest.mark.parametrize("name,rows", BAD, ids=[c[0] for c in BAD])
+def test_ask_basis_理由が欠けた画面は画面の後に知らせる(env, tmp_path, name, rows):
     txt = shown(env, tmp_path, *rows, use("AskUserQuestion", {"questions": [ASK]}))
     assert "見せてから聞く" in txt and "止めていない" in txt, txt
-    for word in lack:
-        assert "「%s」" % word in txt, (word, txt)
-    for word in {"具体例:", "判断を頼む理由:"} - set(lack):
-        assert "「%s」" % word not in txt.splitlines()[0], (word, txt)
+    assert "「判断を頼む理由:」" in txt, txt
     assert "AI が決めて進め" in txt
+
+
+def test_ask_basis_具体例は見ない_正本は画面の前の_premise(env, tmp_path):
+    """具体例の行は ask_shape の premise が画面を出す前に照らす。画面の後の知らせで 2 度照らさない。"""
+    assert shown(env, tmp_path, say(REASON), use("AskUserQuestion", {"questions": [ASK]})) == ""
 
 
 GOOD = [
@@ -73,13 +72,13 @@ GOOD = [
 
 
 @pytest.mark.parametrize("name,rows", GOOD, ids=[c[0] for c in GOOD])
-def test_ask_basis_2行が画面の前に在れば黙る(env, tmp_path, name, rows):
+def test_ask_basis_理由が画面の前に在れば黙る(env, tmp_path, name, rows):
     assert shown(env, tmp_path, *rows, use("AskUserQuestion", {"questions": [ASK]})) == ""
 
 
 def test_ask_basis_今の画面がまだ会話ログに無くても最後の頼みより後の文を見る(env, tmp_path):
-    assert shown(env, tmp_path, say(EXAMPLE + "\n" + REASON)) == ""
-    assert "「具体例:」" in shown(env, tmp_path, say("決めてください"), name="c.jsonl")
+    assert shown(env, tmp_path, say(REASON)) == ""
+    assert "「判断を頼む理由:」" in shown(env, tmp_path, say("決めてください"), name="c.jsonl")
 
 
 def test_ask_basis_済んだかの確かめだけの画面と助手の中と画面の外は黙る(env, tmp_path):
@@ -88,7 +87,7 @@ def test_ask_basis_済んだかの確かめだけの画面と助手の中と画�
     tpath = write_log(tmp_path / "m.jsonl", [owner("作り物の頼み"), say("手順はこう")])
     out = hook(env, "post", {"tool_name": "AskUserQuestion", "session_id": "s1", "transcript_path": tpath,
                              "tool_input": {"questions": [done, ASK]}})
-    assert "「具体例:」" in mine(out), "判断を頼む問いが混ざれば照らす"
+    assert "「判断を頼む理由:」" in mine(out), "判断を頼む問いが混ざれば照らす"
     d = tmp_path / "subagents"
     d.mkdir()
     tpath = write_log(d / "a.jsonl", [owner("作り物の頼み"), say("決めて")])
@@ -110,12 +109,13 @@ def test_聞き方は判断を頼む前に具体例と頼む理由を見せ_理�
     kaku = _sec4((CORE / "核.md").read_text(encoding="utf-8"))
     assert "オーナーだけの情報・言葉の解釈" in kaku, "核 §4 の聞く線（判断を頼む理由の元）が無い"
     s4 = (CORE / "細目" / "04-聞き方.md").read_text(encoding="utf-8")
-    for word in ["判断を頼む時は①に行の頭で `具体例:`", "この件で実際に起きる事＝物の本当の名・今の状態・選ぶと何が変わるか",
-                 "`判断を頼む理由:`（「選ばせない」の聞く時のどれか）", "理由が書けなければ聞かず AI が決める",
-                 "この件で何を指すかを `具体例:` の行に書く"]:
+    for word in ["「具体例:」（問いが懸かる実物の 1 例＝物の本当の名・今の状態・選ぶと何が変わるか）",
+                 "判断を頼む時は①に行頭の「判断を頼む理由:」（「選ばせない」の聞く時のどれか）", "理由が書けなければ聞かず AI が決める",
+                 "「この件で何を指すか・選ぶと何が変わるか」を `具体例:` の行に書く"]:
         assert word in s4, f"細目 §4 に無い: {word}"
-    for old in ["「この件で何を指すか・選ぶと何が変わるか」を具体で 1 行添える", "窓を読んでいない人がチャットと画面だけで答えられる",
+    assert s4.count("具体例:") == 2, "具体例の行の決まりは「見せてから聞く」の 1 か所（「問いの言葉」はそこを指すだけ）"
+    for old in ["「この件で何を指すか・選ぶと何が変わるか」を具体で 1 行添える",
                 "済んだかは、AI が確かめられる所（ファイル・設定・画面の結果）を先に確かめ", "その答えに頼らない仕事を進める"]:
         assert old not in s4, f"畳んだ文が残る: {old}"
     skill = (ROOT / "plugins" / "guard" / "skills" / "guard-rules" / "SKILL.md").read_text(encoding="utf-8")
-    assert "| ask_shape の notice（推奨の印の知らせ・判断を頼む前の具体例と理由の知らせ＝部品 ask_basis） | PostToolUse |" in skill
+    assert "| ask_shape の notice（推奨の印の知らせ・判断を頼む理由の知らせ＝部品 ask_basis） | PostToolUse |" in skill

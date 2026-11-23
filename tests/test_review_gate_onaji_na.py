@@ -57,6 +57,7 @@ def test_古い同名の_workflow_が走り中なら通さない(monkeypatch):
 
 
 def test_両方の_event_が緑なら通す(monkeypatch):
+    monkeypatch.setattr(rg, "TIP", "fedcba987654")   # main の先端の版（判定が従う決まりの版）
     monkeypatch.setattr(rg, "_get", _github([_run("ci", "pull_request", "success", "2026-11-23T01:00:00Z"),
                                              _run("ci", "push", "success", "2026-11-23T01:00:05Z")]))
     assert rg.main(["--repo", "o/r", "--pr", "1"]) == 0

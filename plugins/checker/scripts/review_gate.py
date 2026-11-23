@@ -24,6 +24,9 @@ exit: 0=入ってよい / 1=まだ・済み（訳を 1 行ずつ）/ 2=読めな
 材料を file で受ける口は置かない（窓が書いた材料で関所を通さない）。試験は decide を直に呼ぶ。
 入口は main の先端の版でしか判定しない（ensure_tip）: skill は窓が立った時の版の dir を指すので、自分の中身が
 main の先端の物と違えば先端の版を取り出してそちらで回し直し、先端を取れなければ exit 2 で止まる（古い決まり・古い不具合で判定しない）。
+入ってよい時は、判定が従う決まりの版も出す（レビューは始めた時の決まりで見る）: PR に決まりの版を持つ判定が既に在れば
+その初めの判定の版（verdict_form.first_rules で読む＝写さない）、無ければ main の先端。`決まりの版: <SHA12>` の行と
+verdict_form.py に渡す `--first <版|なし>` を出す。main の先端が分からない時は exit 2（版を決めずに入らない）。
 """
 from __future__ import annotations
 
@@ -41,6 +44,9 @@ import time
 import urllib.error
 import urllib.request
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import verdict_form  # noqa: E402  初めの判定の決まりの版を読む 1 か所（写さない）
 
 API = "https://api.github.com"
 OK = {"success", "neutral", "skipped"}
@@ -63,19 +69,30 @@ def required_contexts(rules: list) -> list[str]:
 
 
 def check_states(runs: list, statuses: list) -> dict[str, str]:
-    """{検査の名: 状態}。check run は終わっていれば conclusion・まだなら status。同じ名は新しい物を取る。"""
-    out: dict[str, tuple[str, str]] = {}
+    """{検査の名: 状態}。check run は終わっていれば conclusion・まだなら status。
+    check run は (名, app, check_suite) で束ね、その中の新しい 1 本を取る（同じ app・同じ suite の走り直しは新しい方）。
+    名が同じでも app か check_suite が違う run は別の検査として数え、どれかが緑でない・終わっていなければ、その名の状態は
+    緑でない方にする（名だけで束ねると、別の suite の赤が同じ名の新しい緑で隠れ、関所が通った）。"""
+    groups: dict[tuple, tuple[str, str]] = {}
     for r in runs or []:
+        name = r.get("name") or ""
+        if not name:
+            continue
         when = r.get("completed_at") or r.get("started_at") or ""
         state = r.get("conclusion") if r.get("status") == "completed" else (r.get("status") or "queued")
-        name = r.get("name") or ""
-        if name and (name not in out or when >= out[name][0]):
-            out[name] = (when, state or "")
+        app, suite = r.get("app") or {}, r.get("check_suite") or {}
+        key = (name, app.get("id") or app.get("slug") or "", suite.get("id") or "")
+        if key not in groups or when >= groups[key][0]:
+            groups[key] = (when, state or "")
+    out: dict[str, str] = {}
+    for (name, _app, _suite), (_when, state) in groups.items():
+        if name not in out or (out[name] in OK and state not in OK):
+            out[name] = state
     for s in statuses or []:   # commit status（古い口）。check run が無い名だけ
         name = s.get("context") or ""
         if name and name not in out:
-            out[name] = (s.get("updated_at") or "", s.get("state") or "")
-    return {k: v[1] for k, v in out.items()}
+            out[name] = s.get("state") or ""
+    return out
 
 
 def workflow_states(wruns: list) -> dict[str, str]:
@@ -220,7 +237,15 @@ def main(argv=None, read=read_facts) -> int:
     if kind == "入ってよい":
         what = ("必須の検査 %s" % "・".join(required)) if required is not PLAN_NONE else \
             ("走った検査 %s" % ("・".join(states) or "なし（必須の検査を持てない repo）"))
+        tip = TIP or os.environ.get(TIP_ENV) or ""
+        first = verdict_form.first_rules([(c or {}).get("body") or "" for c in comments])
+        if not first and not re.fullmatch(r"[0-9a-f]{12,40}", tip):
+            print("review_gate: 読めない — main の先端の版が分からず、判定が従う決まりの版を決められない。判定に入らない")
+            return 2
         print("review_gate: 入ってよい — #%d@%s %s が緑・mergeable_state clean・この先端の判定はまだ無い" % (a.pr, head, what))
+        print("決まりの版: %s（%s）" % ((first or tip)[:12], "この PR の初めの判定の版＝始めた時の決まりで見る" if first
+                                     else "main の先端＝この PR の初めの判定"))
+        print("verdict_form に --first %s" % (first or verdict_form.NO_FIRST))
         return 0
     print("review_gate: %s — #%d@%s（判定に入らない。書いた窓へ「%s」と訳だけを返す）" % (kind, a.pr, head, kind))
     print("直し: 書いた窓は訳を 1 つずつ潰さず、意図（レビューは中身だけを 1 回見る）とのずれから入り、検査の赤・衝突の原因を細目 §3「まず構造を疑う」で探して直してからレビューを頼む")
@@ -230,6 +255,7 @@ def main(argv=None, read=read_facts) -> int:
 MARKET = "agent-foundation"     # 土台の marketplace の取り出し（~/.claude/plugins/marketplaces/<MARKET>）
 TIP_ENV = "AF_REVIEW_GATE_TIP"  # 先端の版へ回し直した印（回し直した先でまだ違えば止まる＝回り続けない）
 ME_IN_REPO = "plugins/checker/scripts/review_gate.py"
+TIP = ""                        # ensure_tip が読んだ main の先端（自分が先端の版の時。回し直した先は TIP_ENV で受ける）
 
 
 def _git(market: Path, *args: str, binary: bool = False):
@@ -261,6 +287,8 @@ def ensure_tip(me: Path, argv: list[str], env=None) -> int | None:
         tip_blob = _git(market, "rev-parse", "%s:%s" % (tip, ME_IN_REPO))
         my_blob = _git(market, "hash-object", str(me))
         if my_blob == tip_blob:
+            global TIP
+            TIP = tip
             return None
         if env.get(TIP_ENV):
             raise RuntimeError("先端 %s の版へ回し直した後もまだ中身が違う" % env[TIP_ENV][:12])

@@ -11,7 +11,8 @@
   rm より前に cd 以外の命令がある〔`mv keep gone && rm -rf gone`〕）は止める側に倒す。
 
 射程の天井: 判定は列挙であって証明ではない（`find … -delete`・再帰なしの `rm -f`・`git restore .` などは素通り）。
-  足したい形は値の表の irreversible_bash_extra / irreversible_tools_extra へ。
+  足したい形は値の表の irreversible_bash_extra / irreversible_tools_extra へ。足した形が読めない（表が壊れた・正規表現でない行）時は、
+  その鍵が当たりうる道具（Bash・MCP の道具）を止める側に倒す（読めない行を捨てると足した形が黙って素通りする）。
 費用: 在席中は離席の印の stat 1 回で終わる。
 """
 from __future__ import annotations
@@ -51,10 +52,7 @@ def _compile(pairs):
     out = []
     for p in pairs:
         pat, why = (p.get("pattern"), p.get("why")) if isinstance(p, dict) else p
-        try:
-            out.append((re.compile(str(pat), re.IGNORECASE), str(why or "戻せない操作")))
-        except re.error:
-            continue
+        out.append((re.compile(str(pat), re.IGNORECASE), str(why or "戻せない操作")))   # 読めない形は例外で上げる（guard.py が止める）
     return out
 
 
@@ -199,9 +197,22 @@ def rm_restorable(cmd, cwd):
         return False
 
 
-def match(tool_name, tool_input, cwd, vals):
+def _extra_broken(name, payload):
+    """足した形（値の表の irreversible_*_extra）を読めない時の訳。読めない鍵が当たりうる道具の時だけ返す
+    （bash_extra は Bash、tools_extra は MCP の道具）。読めない行を黙って捨てると、足した形が素通りする。"""
+    keys = ["irreversible_tools_extra"] if name.startswith("mcp__") else []
+    if name == "Bash":
+        keys.append("irreversible_bash_extra")
+    why = [w for k in keys for w in G.broken_pattern_rows(k, payload)]
+    return ("足した戻せない操作の形を読めない（%s）" % " / ".join(why)) if why else ""
+
+
+def match(tool_name, tool_input, cwd, vals, payload=None):
     """戻せない操作なら理由、そうでなければ ""。"""
     name = str(tool_name or "")
+    broken = _extra_broken(name, payload if payload is not None else {"cwd": cwd})
+    if broken:
+        return broken
     for rx, why in _compile(_TOOLS):
         if rx.search(name):
             return why
@@ -248,7 +259,7 @@ def check(data, vals):
     if not win:
         return ""
     cwd = data.get("cwd") if isinstance(data.get("cwd"), str) else ""
-    why = match(data.get("tool_name"), data.get("tool_input") or {}, cwd, vals)
+    why = match(data.get("tool_name"), data.get("tool_input") or {}, cwd, vals, data)
     if not why:
         return ""
     if owner_returned_since(str(data.get("transcript_path") or ""), win.get("since")):
@@ -263,6 +274,6 @@ def check(data, vals):
         "答えを聞けないまま閉じた問いが %d 件あり、オーナーは席を外しているとみなしています。"
         "その間は戻せない操作（%s）を行いません。\n"
         "閉じた問い: %s\n"
-        "進め方: ①戻せる作業を先に進める ②この操作が要るなら AskUserQuestion で同じ問いを出し直し、"
+        "進め方: ①戻せる作業を先に進める ②この操作が要るなら、前提と「具体例:」「判断の物差し:」の 2 行をチャットに書いてから AskUserQuestion で同じ問いを出し直し、"
         "答えが返ってから行う（答えが返るか、オーナーが何か打てば、この止めは自動で解けます）。"
     ) % (len(qs), why, stems)

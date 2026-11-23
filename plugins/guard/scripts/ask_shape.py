@@ -15,6 +15,10 @@ AI だけ止めて書き直させる）。止まるのは AI の呼び出しだ�
   rec    … 推奨の印の付け方が崩れている: 見出しに推奨の語が決まりの形（見出しの末の「(推奨)」「（推奨）」「(Recommended)」）
             以外で在る・1 問に 2 つ以上・1 つ目でない選択肢に在る・「分からない」の選択肢に在る（細目 §4「推奨の印」）。
             どの問いに付けてよいか（作り方の分かれ道か）は字の形で見分けられないので見ない（残る穴）
+  premise … 画面の前のチャット（会話ログの、人が打った最後の頼みより後の AI の文）に、行頭が「具体例:」と「判断の物差し:」の
+            2 行が無い（オーナーの声「判断させる時は、具体例と、どんな理由で判断してほしいかを先に示して確かめてから
+            聞く」・細目 §4「見せてから聞く」）。形は 2 行の見出しの 1 つに閉じる（知らない言い回しは既定で止める）。中身が
+            本当に具体か・物差しが筋かは字の形で見分けられないので見ない（残る穴）。会話ログが読めない・助手の中は照らさない
 知らせるだけの物（PostToolUse・notice・止めない）:
   rec_kind … 推奨の印が付いた問いの文が、済んだかの確認か意図・考えを聞く形に見える（印は作り方の分かれ道の問いだけ）。
             画面は出た後なので、AI に「印を外すべきだったか」を知らせるだけ（親窓の決定 2026-11-19: 止めずに知らせる）。
@@ -31,7 +35,9 @@ import sys
 
 sys.dont_write_bytecode = True
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib"))
+sys.path.insert(1, os.path.dirname(os.path.abspath(__file__)))  # guard_common（会話ログの読み方と番の切り方の正本）を直に読む
 import skill_values as SV  # noqa: E402  値の表の当て方の 1 本の口（土台の skill-values/ への symlink）
+import guard_common as G  # noqa: E402  会話ログの読み方と番の切り方の正本
 
 ASK_TOOL = "AskUserQuestion"
 
@@ -244,7 +250,32 @@ def findings(qs, vals):
     return out
 
 
+# 判断の前提の 2 行（行頭の見出しの形を 1 つに閉じる。箇条の印・太字は許す）
+PREMISE = tuple((name, re.compile(r"^[ \t]*(?:[-・*][ \t]*)?(?:\*\*)?%s(?:\*\*)?[ \t]*[:：][ \t]*(?:\*\*)?[ \t]*\S" % name, re.M))
+                for name in ("具体例", "判断の物差し"))
+
+
+def premise_missing(tpath):
+    """会話ログの、番を切る最後の行（人が打った頼み）より後の AI の文に無い 2 行の名の並び。読めない・助手の中なら []。"""
+    if not tpath or not os.path.isfile(tpath) or "/subagents/" in tpath.replace(os.sep, "/"):
+        return []
+    texts = []
+    try:
+        for row in G.iter_rows(tpath):
+            if G.starts_turn(row):
+                texts = []
+            elif row.get("type") == "assistant":
+                texts.append(G.text_of(row))
+    except Exception:          # noqa: BLE001  会話ログが読めない＝見張りの故障。窓を止めない
+        return []
+    body = "\n".join(texts)
+    return [name for name, pat in PREMISE if not pat.search(body)]
+
+
 HOW = {
+    "premise": "画面を出す前に、チャットに 2 行を書いて確かめる: 「具体例: 」の行にこの問いが懸かる実物の 1 例（どの画面の"
+               "どの値・どの頼みのどの文など）、「判断の物差し: 」の行にどんな理由で選んでほしいか（何を大事にするなら"
+               "どれ）。それから同じ問いを出し直す（細目 §4「見せてから聞く」）。",
     "long": "問いの文は「何を決めるか」の 1 文にする。背景・前提・材料は画面を出す前にチャットで見せ、違いと選ぶとどうなるかは"
             "選択肢の説明（description）に書く（細目 §4）。",
     "inner": "番号・版・file 名・path・識別子は、それが何かを日常の言葉で言い換える（例: 「Q202611-67」→「先週聞いた"
@@ -348,10 +379,15 @@ def check(data, vals):
     if not isinstance(qs, list) or not qs:
         return ""
     found = findings(qs, vals)
+    if any(isinstance(q, dict) and _text(q.get("question")) and not _exempt(_text(q.get("question")), vals) for q in qs):
+        miss = premise_missing(str(data.get("transcript_path") or ""))
+        if miss:
+            found.insert(0, ("premise", "画面の前のチャットに「%s」の行が無い（判断させる前に具体例と判断の物差しを先に見せる）"
+                             % "」「".join(m + ":" for m in miss)))
     if not found:
         return ""
-    lines = ["[guard] 選択肢の画面の問いが読みにくい形なので、画面を出す前に止めた（オーナー同意 2026-11-19・人の操作は"
-             "止めていない・画面はまだ人に出ていない）。"]
+    lines = ["[guard] 選択肢の画面の問いが読みにくい形か、判断の前提を先に見せていないので、画面を出す前に止めた（オーナー同意"
+             " 2026-11-19・人の操作は止めていない・画面はまだ人に出ていない）。"]
     lines += ["- [%s] %s" % (code, msg) for code, msg in found]
     lines.append("直し方:")
     for code in dict.fromkeys(c for c, _ in found):
