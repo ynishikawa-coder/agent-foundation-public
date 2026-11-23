@@ -106,8 +106,8 @@ def test_注入_手の窓の題を別の欄へ移す_古い印へ戻すと赤_�
     f = 欄(d, "手の窓")
     title = f"題 `{sw.HAND} <何を>` の窓を立てて頼む（済んだら `{sw.HAND}✅`）。"
     assert title in f
-    # 手の窓の欄から消し、環境の欄へ移す（全体には字が残る）
-    moved = d.replace(title, "窓を立てて頼む。", 1).replace("- **環境** — ", "- **環境** — " + title, 1)
+    # 手の窓の欄から消し、別の欄へ移す（全体には字が残る。移す先は作り物の欄＝細目の他の文に頼らない）
+    moved = d.replace(title, "窓を立てて頼む。", 1) + f"\n- **作り物** — {title}\n"
     assert title in moved and 手の窓の外れ(moved, sw.HAND)
     # 古い作業名の印へ戻す
     assert any("手:" in x for x in 手の窓の外れ(d.replace(title, title + "題は `🙋⏳ 手: <何を>`。", 1), sw.HAND))
