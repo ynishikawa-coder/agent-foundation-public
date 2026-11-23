@@ -231,6 +231,7 @@ def _installed_copy(tmp_path: Path, scripts=("kaku.py", "refs.py", "copies.py"),
     (d / "scripts").mkdir(parents=True)
     for s in scripts:
         shutil.copy2(SCRIPTS / s, d / "scripts" / s)
+    shutil.copytree(PLUGIN / "lib", d / "lib")  # 入れた形には lib/（根治の 1 文の口）も入る
     if docs:
         for n in ("核.md", "振る舞い.md"):
             shutil.copy2(PLUGIN / n, d / n)
