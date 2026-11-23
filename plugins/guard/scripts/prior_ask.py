@@ -60,19 +60,24 @@ def scan(tpath, patterns):
 
 
 def _bump(kind, key):
-    """印の数を 1 つ進めて返す。印を残せなければ大きい数（＝止めずに通す。毎回止めるより通す方を選ぶ）。"""
+    """印の数を 1 つ進めて返す。印を読めない・残せない時は None（数えた振りをしない。呼ぶ側が止める側で名指す）。"""
     path = os.path.join(G.tmp_dir("prior"), G.safe_id(key) + "." + kind)
     try:
         n = int(open(path).read().strip() or 0) if os.path.isfile(path) else 0
-    except (OSError, ValueError):
-        n = 0
-    try:
         os.makedirs(os.path.dirname(path), exist_ok=True)
         with open(path, "w") as f:
             f.write(str(n + 1))
-    except OSError:
-        return 1 << 30
+    except (OSError, ValueError):
+        return None
     return n + 1
+
+
+def _count_note(n, path_kind):
+    """数えられなかった時に止める文へ足す 1 行（数えられた時は ""）。"""
+    if n is not None:
+        return ""
+    return ("止めた数の印（%s の %s）を読めない・残せないので、数えた振りをせず止めた。通す回数の上限は効かない。"
+            "直し方: 一時 dir に書けるかを見る（空きの容量・権限）。" % (G.tmp_dir("prior"), path_kind))
 
 
 def _all_exempt(qs, vals):
@@ -102,26 +107,30 @@ def check(data, vals):
     head = ("[guard] 選択肢の画面を出す前に、この頼みの中で決定の記録と問いの表を引いた跡が会話ログに無いので止めた"
             "（オーナー同意 2026-11-19・人の操作は止めていない・画面はまだ人に出ていない）。")
     if not patterns:
-        if _bump("novalue", sid) > 1:
+        n = _bump("novalue", sid)
+        if n is not None and n > 1:
             return ""
-        return "\n".join([
+        return "\n".join(filter(None, [
             head,
+            _count_note(n, "novalue"),
             "この repo の値の表（config/skill-values.json の guard.ask_prior_lookup）に引く先が無いので、引いたかを機械で"
             "見分けられない。この窓では 1 回だけ止める（次からは通す）。",
             "直し方: " + HOW,
             "引く先を足す: 値の表の guard.ask_prior_lookup に、決定の記録と問いの表を引く道具の呼び出しに当たる正規表現"
             "（道具の名 + 入力の JSON に当てる）を足す PR を出す。細目は skill `guard:guard-rules`。",
-        ])
+        ]))
     try:
         turn, found = scan(tpath, patterns)
     except Exception:          # noqa: BLE001  会話ログが読めない＝見張りの故障。窓を止めない
         return ""
     if found:
         return ""
-    if _bump("deny", sid + "-" + (turn or "head")) > ASK_PRIOR_MAX:
+    n = _bump("deny", sid + "-" + (turn or "head"))
+    if n is not None and n > ASK_PRIOR_MAX:
         return ""
-    return "\n".join([
+    return "\n".join(filter(None, [
         head,
+        _count_note(n, "deny"),
         "跡と数える物: 最後の頼みより後の道具の呼び出しのうち、値の表 guard.ask_prior_lookup に当たる物"
         "（今の値: %s）。" % "・".join(str(r) for _, _, r in patterns[:6]),
         "直し方: " + HOW,
@@ -130,4 +139,4 @@ def check(data, vals):
         "誤って止めた時（引く要の無い問い。例: 手の作業が済んだかの確かめ）: 値の表の guard.ask_prior_exempt に問いの文に"
         "当てる正規表現を足す（PR とレビューを通す）。引いたのに止まった時は、使った道具に当たる形を guard.ask_prior_lookup "
         "に足す。細目は skill `guard:guard-rules`。",
-    ])
+    ]))

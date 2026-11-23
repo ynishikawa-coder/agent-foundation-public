@@ -46,6 +46,9 @@ SENDER = re.compile(
 JSON_SCRIPT = re.compile(r"<script\b([^>]*)>(.*?)</script>", re.I | re.S)
 Q_KEYS = ("questions", "qs")
 OPT_KEYS = ("options", "choices", "opts")
+# 読めない JSON の中に問いの並びの鍵が在るか（"questions": / "qs":）。在れば問いのページとして検査へ回す
+Q_KEY_TOKEN = re.compile(r"[\"']\s*(?:%s)\s*[\"']\s*:" % "|".join(Q_KEYS))
+BROKEN_JSON = "読めない JSON（questions／qs の鍵が在る。壊れた問いのデータとして検査へ回す）"
 
 
 
@@ -72,8 +75,8 @@ def why_question_page(path, raw):
     if path.lower().endswith(".json"):
         try:
             return "問いのデータ（questions／qs に選択肢）" if _has_question_list(json.loads(raw)) else ""
-        except ValueError:
-            return ""
+        except ValueError:   # 読めない JSON を「問いのページでない」と取り違えない（問いの鍵が在れば検査へ回す）
+            return BROKEN_JSON if Q_KEY_TOKEN.search(raw) else ""
     if TYPE_MARK.search(raw):
         return "確認ページの型の印（data-dest・CustomEvent('qa:submit')）"
     for attrs, body in JSON_SCRIPT.findall(raw):
@@ -82,7 +85,8 @@ def why_question_page(path, raw):
                 if _has_question_list(json.loads(body.strip())):
                     return "ページに埋めた問いのデータ（<script> の JSON に questions／qs と選択肢）"
             except ValueError:
-                pass
+                if Q_KEY_TOKEN.search(body):
+                    return "ページに埋めた JSON が読めない（<script> に questions／qs の鍵。壊れた問いのデータとして検査へ回す）"
     if RADIO.search(raw) and SENDER.search(raw):
         return "選ぶ問い（radio）と答えを外へ出す仕組みの両方"
     return ""

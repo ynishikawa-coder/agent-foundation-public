@@ -291,7 +291,7 @@ def check_title(data, vals):
 
 def check(data, vals):
     """止めるなら理由、通すなら ""。3 つは別々に走らせる（1 つが壊れても鍵の照らしを捨てない）。
-    secret が壊れた時は止める（照らせない物は外へ出さない）。number と title が壊れた時はその見分けだけを通す。"""
+    どれが壊れた時も止め、壊れた見分けを名指す（照らせない物を照らした物と取り違えて外へ出さない）。"""
     outs = []
     try:
         outs.append(check_secret(data, vals))
@@ -299,10 +299,11 @@ def check(data, vals):
         outs.append("[guard] 外へ渡す道具の入力の鍵を照らせないので、出す前に止めた（照らせない物は外へ出さない）: %s\n"
                     "  直し方: 値の表の guard.outbound_secret_allow の正規表現が崩れていないか見る。土台の plugin を市場から"
                     "入れ直す。" % type(e).__name__)
-    for f in (check_number, check_title):
+    for label, f in (("check_number（番号だけの頼み）", check_number), ("check_title（窓の題・手の窓の頼み）", check_title)):
         try:
             outs.append(f(data, vals))
         except Exception as e:  # noqa: BLE001
-            import sys
-            sys.stderr.write("[guard] outbound.%s: %s\n" % (f.__name__, e))
+            outs.append("[guard] 外へ渡す道具の入力の見分け %s が壊れて照らせないので、出す前に止めた（照らせない物を照らした物と"
+                        "取り違えない）: %s\n  直し方: 値の表の guard の鍵が崩れていないか見る。土台の plugin を市場から入れ直す。"
+                        % (label, type(e).__name__))
     return "\n\n".join(o for o in outs if o)
