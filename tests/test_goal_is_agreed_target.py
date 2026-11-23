@@ -52,7 +52,7 @@ def test_古い終わり方_台帳の全部が片付くまで終わらない_が
     assert not hits, hits
 
 
-# ── 2. 聞かずに立てる直す窓を止める（guard の fix_window）──
+# ── 2. 聞かずに立てる直す窓を止める（guard の pick_one の check_fix_window）──
 def _log(tmp_path, *rows):
     return write_log(tmp_path / "w.jsonl", [{"type": "user", "uuid": "u1", "message": {"content": "作り物の画面を作り替えて"}},
                                             *rows])
