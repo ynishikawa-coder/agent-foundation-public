@@ -1,0 +1,2 @@
+- 直した: 守りの hook などが土台の物（public-guard/guard.py など）を探す時、市場の浅い clone に入った版が無ければ plugin の台帳の full sha で出所から取り寄せて同じ版を読む（前は cache に無く marketplaces に在るのに「見つからない」と止まった）
+- 直した: それでも見つからず止める時は、止める文に訳と直し方（git fetch --unshallow）を添える
