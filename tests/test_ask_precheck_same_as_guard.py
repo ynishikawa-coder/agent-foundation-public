@@ -80,4 +80,4 @@ def test_見張りを足すと道具の照らしにも入る_一覧を写して�
 
 def test_細目の聞き方は出す前の照らしの道具を名で指し_その道具が在る():
     text = (PLUGIN.parent / "core" / "細目" / "04-聞き方.md").read_text(encoding="utf-8")
-    assert "`scripts/ask_precheck.py`" in text and TOOL.is_file()
+    assert "`ask_precheck.py`（plugin guard）" in text and TOOL.is_file()

@@ -67,4 +67,4 @@ def test_表を出す口は正本の表の文と同じ():
 
 def test_細目の窓の題は表から組む道具を名で指し_その道具が在る():
     text = (SCRIPTS.parent.parent / "core" / "細目" / "04-聞き方.md").read_text(encoding="utf-8")
-    assert "`scripts/title_build.py <種類> <状態> <作業名>`" in text and TOOL.is_file()
+    assert "`title_build.py`（plugin session-watch）" in text and TOOL.is_file()

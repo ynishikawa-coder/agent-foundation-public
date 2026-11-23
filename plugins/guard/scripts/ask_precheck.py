@@ -23,6 +23,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import guard  # noqa: E402  照らしの入口の正本（写さない）
 
 ASK_TOOL = "AskUserQuestion"
+ROOT_CAUSE = "直し: 止まる所を直すだけで済ませず、なぜその形で聞こうとしたかを細目「まず構造を疑う」で探す"
 
 
 def precheck(questions, cwd=None):
@@ -48,6 +49,8 @@ def main(argv):
         return 1
     ok, why = precheck(qs)
     print("通る" if ok else why)
+    if not ok:
+        sys.stderr.write(ROOT_CAUSE + "\n")
     return 0 if ok else 2
 
 

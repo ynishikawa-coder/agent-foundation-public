@@ -26,6 +26,7 @@ import session_watch as SW  # noqa: E402  表の正本（写さない）
 KIND_ALIASES = {"human": SW.HUMAN, "hand": SW.HAND, "ai": SW.AI}
 STATE_ALIASES = {"moving": SW.MOVING, "無し": SW.MOVING, "なし": SW.MOVING, "-": SW.MOVING,
                  "asking": SW.ASKING, "waiting": SW.WAITING, "stopped": SW.STOPPED, "done": SW.DONE}
+ROOT_CAUSE = "直し: 表に在る印で組み直すだけで済ませず、なぜ表に無い題を組もうとしたかを細目「まず構造を疑う」で探す"
 STATE_ALIASES.update({w: s for s, w in SW.CARD_WORDS.items()})   # 返事の札の言葉（終わった・答えて・待ち・止まった）
 
 
@@ -71,7 +72,7 @@ def main(argv):
         return 1
     title, probs = build(argv[1], argv[2], " ".join(argv[3:]))
     if title is None:
-        sys.stderr.write("題を組めない:\n" + "".join("- %s\n" % p for p in probs))
+        sys.stderr.write("題を組めない:\n" + "".join("- %s\n" % p for p in probs) + ROOT_CAUSE + "\n")
         return 2
     print(title)
     return 0
