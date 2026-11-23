@@ -328,11 +328,31 @@ def template_parts(path):
     return heads, holders
 
 
+CLEANUP_HEAD = re.compile(r"^#{1,6}\s*整地")
+ANY_HEAD = re.compile(r"^#{1,6}\s")
+
+
+def cleanup_place(body):
+    """`整地: 不要（…）` を置く所。本文に `整地` の見出し（PR の型の `## 整地（根治の段）`）が在ればその節の中だけ、
+    無ければ本文の全部（型を使わない本文）。節の外の説明・残りの行に在る `整地: 不要` で、空の整地の節を通さない。"""
+    lines = body.splitlines()
+    starts = [i for i, ln in enumerate(lines) if CLEANUP_HEAD.match(ln)]
+    if not starts:
+        return body
+    out = []
+    for i in starts:
+        for ln in lines[i + 1:]:
+            if ANY_HEAD.match(ln):
+                break
+            out.append(ln)
+    return "\n".join(out)
+
+
 def check_cleanup(body, repo, data, vals):
     if repo and _exempt("pr_cleanup_exempt_repos", repo, data, vals):
         return []
     body = FENCE.sub(" ", COMMENT.sub(" ", body))      # 注記（雛形の説明）とコードの囲みの中は数えない
-    if NOT_NEEDED.search(body):
+    if NOT_NEEDED.search(cleanup_place(body)):
         return []
     tpl = _find_sibling(*CLEANUP_TEMPLATE, data)
     if not tpl:

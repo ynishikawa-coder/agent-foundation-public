@@ -92,10 +92,33 @@ def load_points(path=SKILL, text=None):
     return points
 
 
+FORM_HEAD = "判定の形（PR のコメント）"
+
+
+def form_lines(text, path=SKILL):
+    """SKILL.md の `## 判定の形（PR のコメント）` の節の行。雛形の code block の中の `## ` は節の切れ目にしない
+    （雛形の `## verdict` 等で止まらない）。節が無ければ例外（ほかの節の `## 点`・`- 札は` を読まない）。"""
+    out, inside, fence = [], False, False
+    for ln in text.splitlines():
+        if ln.startswith("```"):
+            fence = not fence
+        elif ln.startswith("## ") and not fence:
+            if inside:
+                break
+            inside = ln.strip() == "## " + FORM_HEAD
+            continue
+        if inside:
+            out.append(ln)
+    if not inside:
+        raise ValueError("`## %s` の節が読めない: %s" % (FORM_HEAD, path))
+    return out
+
+
 def load_values(path=SKILL, text=None):
     """review-pr の「判定の形」の雛形の `## 点` の行から {番号: 選べる値の組}。点 3 の別の目の形は {"eye"}。
+    読むのは `## 判定の形（PR のコメント）` の節の中だけ（ほかの節の `## 点` を雛形として読まない）。
     雛形が読めない・点の値が読めない行が在る時は例外（黙って pass／fail／N/A を全部許さない）。"""
-    lines = [ln.strip() for ln in _text(path, text).splitlines()]
+    lines = [ln.strip() for ln in form_lines(_text(path, text), path)]
     try:
         start = lines.index("## 点")
     except ValueError:
@@ -121,9 +144,9 @@ def load_values(path=SKILL, text=None):
 
 
 def load_cards(path=SKILL, text=None):
-    """review-pr の「判定の形」の「札は」の行から (札の並び, 段の並び)。読めなければ例外（黙って既定で進めない）。"""
-    text = _text(path, text)
-    for ln in text.splitlines():
+    """review-pr の「判定の形」の「札は」の行から (札の並び, 段の並び)。読むのは `## 判定の形（PR のコメント）` の節の
+    中だけ（ほかの節の `- 札は` を読まない）。読めなければ例外（黙って既定で進めない）。"""
+    for ln in form_lines(_text(path, text), path):
         if ln.startswith("- 札は") and "段は" in ln:
             cards = re.findall(r"`\[([^｜|\]`]+)[｜|]<段>\]`", ln)
             m = re.search(r"段は((?:\s*`[^`]+`\s*・?)+)", ln)
@@ -315,10 +338,17 @@ def check(text, writer=None, head=None, points=None, cards=None, values=None, po
             errs.append("1 行目の `レビューした窓: %s` が判定を出す窓 %s と違う（名乗りは出す窓の id で書く。書いた窓の"
                         "中の助手は判定を出せない＝別の窓で当てる）" % (reviewer, poster))
         reviewer = poster
+    at = {}
     for h in ("verdict", "点", "所見"):
-        n = sum(1 for ln in lines if ln.strip() == "## " + h)
-        if n > 1:
-            errs.append("`## %s` の節が %d 個在る（1 つだけにする）" % (h, n))
+        idx = [i for i, ln in enumerate(lines) if ln.strip() == "## " + h]
+        if len(idx) > 1:
+            errs.append("`## %s` の節が %d 個在る（1 つだけにする）" % (h, len(idx)))
+        if idx:
+            at[h] = idx[0]
+    order = [h for h in ("verdict", "点", "所見") if h in at]
+    if [at[h] for h in order] != sorted(at[h] for h in order):
+        errs.append("節の順が `## verdict` → `## 点` → `## 所見` でない（今は %s）"
+                    % " → ".join("`## %s`" % h for h in sorted(order, key=at.get)))
     if m2 and head and not head.startswith(m2.group(1)):
         errs.append("見た先端 %s が PR の今の先端 %s と違う（見直して判定を足す）" % (m2.group(1), head[:12]))
     if reviewer and reviewer in writer_set(writer):

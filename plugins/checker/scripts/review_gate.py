@@ -50,8 +50,8 @@ import verdict_form  # noqa: E402  初めの判定の決まりの版を読む 1 
 
 API = "https://api.github.com"
 OK = {"success", "neutral", "skipped"}
-VERDICT = re.compile(r"^\s*レビューした窓\s*[:：]\s*(session_[A-Za-z0-9]+)\s+判定\s*[:：]\s*(green|red)\b", re.M)
-SEEN = re.compile(r"^\s*見た先端\s*[:：]\s*([0-9a-f]{12})\s*$", re.M)
+VERDICT = re.compile(r"^\s*レビューした窓\s*[:：]\s*(session_[A-Za-z0-9]+)\s+判定\s*[:：]\s*(green|red)\b")
+SEEN = re.compile(r"^\s*見た先端\s*[:：]\s*([0-9a-f]{12})\s*$")
 PLAN_NONE = None    # 無料のプランで必須の検査を持てない repo（rules が 403「Upgrade to GitHub Pro」）
 PLAN_403 = "Upgrade to GitHub Pro"
 UNKNOWN_TRIES = 4   # mergeable_state は GitHub が後で数える（unknown の間は少し待って読み直す）
@@ -112,11 +112,14 @@ def workflow_states(wruns: list) -> dict[str, str]:
 
 
 def verdicts_on(comments: list, head: str) -> list[str]:
-    """同じ先端に出た判定の 1 行目（`レビューした窓: … 判定: …`）の並び。"""
+    """同じ先端に出た判定の 1 行目（`レビューした窓: … 判定: …`）の並び。
+    判定は 1 行目が名乗り・2 行目が見た先端の物だけ（verdict_form の判定の形と同じ置き場）。本文の途中（例の code block・
+    引用）に在る名乗りの行は判定に数えない（数えると、判定の例を書いたコメントだけで「済み」になりレビューが止まる）。"""
     out = []
     for c in comments or []:
-        body = c.get("body") or ""
-        m, s = VERDICT.search(body), SEEN.search(body)
+        lines = (c.get("body") or "").splitlines()
+        m = VERDICT.match(lines[0]) if lines else None
+        s = SEEN.match(lines[1]) if len(lines) > 1 else None
         if m and s and head.startswith(s.group(1)):
             out.append(m.group(0).strip())
     return out

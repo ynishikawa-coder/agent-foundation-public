@@ -31,7 +31,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-WRITER = re.compile(r"^\s*書いた窓\s*[:：]\s*(\S+)", re.M)
+WRITER = re.compile(r"^\s*書いた窓\s*[:：]\s*(\S+)")
 SESSION = re.compile(r"^Claude-Session:\s*\S*?(session_[A-Za-z0-9]+)\s*$", re.M)
 ID = re.compile(r"^session_[A-Za-z0-9]+$")
 
@@ -80,11 +80,23 @@ def writer_sessions(root: Path, head: str, base: str) -> list[str]:
     return out
 
 
+def head_writer(body: str):
+    """本文の頭の塊（最初の空行まで＝前の型の頭の欄の置き場・guard の pr_text と同じ）の `書いた窓:` の欄。無ければ None。
+    頭の塊の外（本文の説明・例・引用）に在る `書いた窓:` の行は欄として読まない。"""
+    for ln in (body or "").splitlines():
+        if not ln.strip():
+            return None
+        m = WRITER.match(ln)
+        if m:
+            return m
+    return None
+
+
 def check(root: Path, head: str, base: str, body: str) -> list[str]:
     tip, sha = tip_session(root, head, base)
     if not tip:
         return [f"PR の commit（{base} との分かれ目から {head[:12]} まで）に `Claude-Session:` の行が無く、書いた窓が決まらない"]
-    m = WRITER.search(body)
+    m = head_writer(body)
     if not m:
         return []   # 写しを置かない今の型＝書いた窓は記録（commit の Claude-Session:）だけ
     if not ID.match(m.group(1)):

@@ -6,7 +6,10 @@
 
 止める: 試験らしい path（tests/・e2e/・spec/・__tests__/・test_*.py・*.test.js …）へ書く中身に、
   有料の上流の鍵名か公式のエンドポイントが現れた時。
-逃げ道: 中身に PAID_UPSTREAM_GUARD を書く（＝環境変数 1 本で本物へ切り替える共通の関所を通す宣言。既定は録画の再生か偽物）。
+逃げ道: 中身に PAID_UPSTREAM_GUARD の宣言を書く（＝環境変数 1 本で本物へ切り替える共通の関所を通す宣言。既定は録画の再生か偽物）。
+  宣言は決まった形だけ数える: 行の頭の注記が印で始まる行（`# PAID_UPSTREAM_GUARD`・`// PAID_UPSTREAM_GUARD: …`）か、
+  その環境変数を読む式（`os.environ.get("PAID_UPSTREAM_GUARD")`・`process.env.PAID_UPSTREAM_GUARD` 等）。
+  文字列の中・注記の文の途中に印の字が在るだけでは数えない（どこかに在るだけで file 全体を見逃さない）。
 
 見る口: Write / Edit / MultiEdit / NotebookEdit と、Bash で試験らしい path へ書く形（`>`・`>>` のリダイレクト・
   `tee`・`sed -i`／`perl -i` の的）。Bash は命令の文全体（heredoc の中身を含む）に印があるかを見る。
@@ -38,6 +41,19 @@ PAID_MARKERS = (
     "api.mistral.ai", "api.cohere.ai", "api.groq.com",
 )
 GUARD_MARKER = "PAID_UPSTREAM_GUARD"
+# 宣言の決まった形: 行の頭の注記が印で始まる行／その環境変数を読む式（関所そのもの）
+GUARD_DECL = re.compile(
+    r"^[ \t]*(?:#|//|--|/\*|\*|;|<!--)[ \t]*" + GUARD_MARKER + r"(?:[ \t]*(?:$|[:：—\-(（*]))"
+    r"|(?:environ(?:\.get)?\s*[\[(]\s*|getenv\s*\(\s*|Getenv\s*\(\s*|env\.get\s*\(\s*|ENV\s*\[\s*)['\"]"
+    + GUARD_MARKER + r"['\"]"
+    r"|process\.env(?:\.|\[\s*['\"])" + GUARD_MARKER + r"\b"
+    r"|\$\{?" + GUARD_MARKER + r"\b",
+    re.M)
+
+
+def declared(text):
+    """印が決まった形（行の頭の注記・環境変数を読む式）で在るか。"""
+    return bool(GUARD_DECL.search(text or ""))
 WRITE_TOOLS = {"Write", "Edit", "MultiEdit", "NotebookEdit"}
 CONTENT_KEYS = ("content", "new_string", "new_source")
 
@@ -71,7 +87,7 @@ def reason(path, hits):
         "開発中の自動試験が本物の API を叩き続けると、費用の大半がそこに消えます（実測がある）。\n"
         "進め方:\n"
         "  ① 既定は録画の再生か偽物にする（本物が無い時は赤で止める。『無ければ本物で』の逃げは黙って課金する）\n"
-        "  ② 本物を通す線が本当に要るなら、環境変数 1 本で切り替える共通の関所を通し、この file に `{}` を書く\n"
+        "  ② 本物を通す線が本当に要るなら、環境変数 1 本で切り替える共通の関所を通し、この file に `# {}` の行（行の頭の注記）を書く\n"
         "  ③ 手元のサーバが本物の鍵で中継していないかも、その行を引用して確かめる（この見張りからは見えない）"
     ).format(path, " / ".join(hits), GUARD_MARKER)
 
@@ -94,7 +110,7 @@ def bash_targets(cmd):
 def check_bash(data, vals):
     ti = data.get("tool_input")
     cmd = ti.get("command") if isinstance(ti, dict) else None
-    if not isinstance(cmd, str) or GUARD_MARKER in cmd:
+    if not isinstance(cmd, str) or declared(cmd):
         return ""
     tests = [t for t in bash_targets(cmd) if TEST_PATH_RE.search(t.replace(os.sep, "/"))]
     if not tests:
@@ -116,7 +132,7 @@ def check(data, vals):
     if not path or not TEST_PATH_RE.search(path.replace(os.sep, "/")):
         return ""
     body = _payload(tool_input)
-    if not body or GUARD_MARKER in body:
+    if not body or declared(body):
         return ""
     hits = SV.words_in(list(PAID_MARKERS) + list(vals.get("paid_markers_extra") or []), body)
     return reason(path, hits) if hits else ""
