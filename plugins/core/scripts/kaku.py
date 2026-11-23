@@ -1054,11 +1054,18 @@ def moved_since(base: str, tip: str) -> list[str]:
     return sorted(_carrier_names(names))
 
 
-REFRESH_TIMEOUT = 600  # 裏の入れ直し（入口 setup_plugins.py）を待つ上限（秒）
+def _lock_rule():
+    """裏の入れ直しの錠の決まり（置き場・待つ秒・生きている秒）の正本 af_place を core の lib/af_place.py（skill-values/
+    af_place.py への symlink）から引く。入れ直しの所でだけ読み、構造を読む所（試験の読み口）は kaku.py 1 つで動く。"""
+    lib = str(Path(__file__).resolve().parent.parent / "lib")
+    if lib not in sys.path:
+        sys.path.insert(0, lib)
+    import af_place
+    return af_place
 
 
 def _refresh_file(name: str) -> Path:
-    return _home() / "af-foundation" / name
+    return Path(_lock_rule().refresh_file(_home(), name))
 
 
 def start_refresh(tip: str) -> bool:
@@ -1078,7 +1085,7 @@ def start_refresh(tip: str) -> bool:
     lock = _refresh_file("refresh.lock")
     lock.parent.mkdir(parents=True, exist_ok=True)
     try:
-        if lock.exists() and time.time() - lock.stat().st_mtime > REFRESH_TIMEOUT + 60:
+        if lock.exists() and not _lock_rule().lock_alive(lock):
             lock.unlink()  # 前の入れ直しが落ちて残した錠
         fd = os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
         os.close(fd)
@@ -1093,8 +1100,8 @@ def start_refresh(tip: str) -> bool:
 def refresh(tip: str, entry: Path) -> int:
     """裏で回る入れ直しの本体（start_refresh が別の process で呼ぶ）。結果を refresh.json に書き、錠を外す。"""
     try:
-        p = subprocess.run([sys.executable, str(entry)], capture_output=True, text=True, timeout=REFRESH_TIMEOUT,
-                           stdin=subprocess.DEVNULL)
+        p = subprocess.run([sys.executable, str(entry)], capture_output=True, text=True,
+                           timeout=_lock_rule().REFRESH_TIMEOUT, stdin=subprocess.DEVNULL)
         code, out = p.returncode, (p.stdout + p.stderr).strip()
     except (OSError, subprocess.SubprocessError) as e:
         code, out = -1, f"{type(e).__name__}: {e}"

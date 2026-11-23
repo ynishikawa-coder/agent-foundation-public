@@ -346,3 +346,31 @@ def test_先端の版で_skill_の本文が畳まれていれば畳まれたと�
 def test_古い本文の知らせは見張りを足さず乗り換えの口の中だけ():
     assert not (ROOT / "plugins" / "guard" / "scripts" / "stale_path.py").exists()
     assert "_body_note" in (CORE / "scripts" / "hook_run.py").read_text(encoding="utf-8")
+
+
+def test_入れ直しの錠の決まりは_af_place_の_1_つを_core_も引く(tmp_path, monkeypatch):
+    """錠の置き場と生きている秒の正本は skill-values/af_place.py。core の kaku.py・hook_run.py は core の lib/af_place.py
+    （symlink）から引き、手で写さない。正本の秒を変えると core の両方の判定が一緒に変わる（写しなら変わらず赤）。"""
+    sys.path.insert(0, str(ROOT / "tests"))
+    from uses import py_code
+    link = CORE / "lib" / "af_place.py"
+    assert link.is_symlink() and link.resolve() == AF_PLACE.resolve()
+    for f in ("kaku.py", "hook_run.py"):
+        code = py_code((CORE / "scripts" / f).read_text(encoding="utf-8"))
+        assert "refresh.lock\"" not in code.replace("refresh_file(claude, \"refresh.lock\")", "") \
+            .replace("_refresh_file(\"refresh.lock\")", "").replace("rule.refresh_file(claude, \"refresh.lock\")", ""), f
+        assert not re.search(r"REFRESH_TIMEOUT\s*\+|\b660\b|\b600\b", code), f   # 秒を写すと赤
+        assert "\"af-foundation\" / \"refresh" not in code, f                   # 錠・結果の置き場を組み直すと赤
+    import hook_run
+    claude = tmp_path / ".claude"
+    lock = Path(af_place.refresh_file(claude, "refresh.lock"))
+    lock.parent.mkdir(parents=True)
+    lock.write_text("", encoding="utf-8")
+    old = __import__("time").time() - 100
+    os.utime(lock, (old, old))
+    monkeypatch.setattr(af_place, "LOCK_AGE", 50)
+    assert hook_run._refreshing(claude) is False and hook_run._wait_refresh(claude, 0) == ""
+    monkeypatch.setattr(af_place, "LOCK_AGE", 200)
+    assert hook_run._refreshing(claude) is True
+    monkeypatch.setenv("HOME", str(tmp_path))
+    assert kaku._refresh_file("refresh.lock") == lock and kaku._lock_rule() is af_place

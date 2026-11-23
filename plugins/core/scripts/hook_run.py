@@ -109,25 +109,26 @@ def plugin_root_of(script: Path) -> Path | None:
     return None
 
 
+def _lock_rule():
+    """裏の入れ直しの錠の決まりの正本（core の lib/af_place.py＝skill-values/af_place.py への symlink）。"""
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
+    import af_place
+    return af_place
+
+
 def _refreshing(claude: Path) -> bool:
     """裏の入れ直しの錠が在って古すぎないか（入れ直しの途中か）。"""
-    import kaku
-
-    lock = claude / "af-foundation" / "refresh.lock"
-    try:
-        return time.time() - lock.stat().st_mtime <= kaku.REFRESH_TIMEOUT + 60
-    except OSError:
-        return False
+    rule = _lock_rule()
+    return rule.lock_alive(rule.refresh_file(claude, "refresh.lock"))
 
 
 def _wait_refresh(claude: Path, wait: float) -> str:
     """裏の入れ直しの錠が在る間は wait 秒まで待つ。残る訳（待ち切れない・前の入れ直しの失敗）の 1 行か ""。"""
-    import kaku
-
-    lock = claude / "af-foundation" / "refresh.lock"
+    rule = _lock_rule()
+    lock = rule.refresh_file(claude, "refresh.lock")
     end = time.time() + wait
     told = False
-    while lock.exists() and time.time() - lock.stat().st_mtime <= kaku.REFRESH_TIMEOUT + 60:
+    while rule.lock_alive(lock):
         if time.time() >= end:
             return f"土台の裏の入れ直しが {int(wait)} 秒で済まなかった（錠 {lock}）。今入っている中でいちばん新しい版で続ける"
         if not told:
@@ -135,7 +136,7 @@ def _wait_refresh(claude: Path, wait: float) -> str:
             told = True
         time.sleep(1)
     try:
-        r = json.loads((claude / "af-foundation" / "refresh.json").read_text(encoding="utf-8"))
+        r = json.loads(Path(rule.refresh_file(claude, "refresh.json")).read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return ""
     if isinstance(r, dict) and r.get("code") not in (0, None):

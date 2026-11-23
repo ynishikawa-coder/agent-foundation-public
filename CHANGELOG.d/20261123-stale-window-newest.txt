@@ -2,3 +2,4 @@
 - 直した: skill から呼ぶ道具が先端の版へ乗り換えた時、その skill の本文（SKILL.md）が先端で変わっていれば先端の本文の path を名指す（知らせるだけ・見張りは足さない）
 - 直した: 入れ直しの途中で浅い clone が先へ進んでも、守りの hook が入った版の public-guard/guard.py を見失わない（setup_plugins.py が取り直す前に版ごとに取り置く）
 - 直した: 裏の入れ直しの途中は、守りの hook が窓が立った時の揃った版で回り、隣の plugin の file（qa-html の check.mjs など）は同じ版で入るのを待ってから引く（半端な版を掴まない）
+- 直した: 裏の入れ直しの錠の置き場と生きている秒を 3 か所（af_place.py・kaku.py・hook_run.py）で手で写していたのを、skill-values/af_place.py の 1 つにした（core も lib/af_place.py の symlink から引く）

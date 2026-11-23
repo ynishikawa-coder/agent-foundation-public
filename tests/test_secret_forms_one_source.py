@@ -106,8 +106,9 @@ def test_codex_は入った版の土台を探して読む(tmp_path):
 
 def test_在り処探しは_1_か所で_各_plugin_へ_symlink_で届く():
     src = ROOT / "skill-values" / "af_place.py"
-    for plugin in ("guard", "dev-flow", "session-watch"):
-        link = ROOT / "plugins" / plugin / "lib" / "af_place.py"
+    links = sorted((ROOT / "plugins").glob("*/lib/af_place.py"))   # どの plugin の lib に在っても写しでなく symlink
+    assert {p.parent.parent.name for p in links} >= {"core", "guard", "dev-flow", "session-watch"}
+    for link in links:
         assert link.is_symlink() and link.resolve() == src.resolve(), link
     common = (ROOT / "plugins" / "guard" / "scripts" / "guard_common.py").read_text(encoding="utf-8")
     common = py_code(common)                                            # 注釈・docstring の名は写しでない

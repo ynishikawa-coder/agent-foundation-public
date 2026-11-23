@@ -30,7 +30,7 @@ def sibling_plugin_file(plugin, rel, plugin_root):
     # 錠が在る間は SIBLING_WAIT 秒まで待って引き直す（別の版へは降りない）
     lock = _refresh_lock(here)
     end = time.time() + SIBLING_WAIT
-    while lock and _fresh(lock) and time.time() < end:
+    while lock and lock_alive(lock) and time.time() < end:
         time.sleep(0.5)
         if os.path.isfile(same):
             return same
@@ -38,7 +38,24 @@ def sibling_plugin_file(plugin, rel, plugin_root):
 
 
 SIBLING_WAIT = 30   # 隣の plugin が同じ版で入るのを待つ上限（秒・hook の中で呼ばれるので短く）
-LOCK_AGE = 660      # 錠をまだ生きているとみなす上限（秒・core の kaku.REFRESH_TIMEOUT＋60 と同じ）
+
+# 裏の入れ直しの錠の決まり（正本はここ 1 つ）。core の kaku.py（錠を掛ける・外す）と hook_run.py（錠の間は待つ）も
+# core の lib/af_place.py（symlink）からここを引く。手で写さない。
+REFRESH_TIMEOUT = 600              # 裏の入れ直し（入口 setup_plugins.py）を待つ上限（秒）
+LOCK_AGE = REFRESH_TIMEOUT + 60    # 錠をまだ生きているとみなす上限（秒・これより古い錠は落ちた入れ直しの残り）
+
+
+def refresh_file(claude, name):
+    """裏の入れ直しの file（錠 refresh.lock・結果 refresh.json）の path。claude は ~/.claude。"""
+    return os.path.join(str(claude), "af-foundation", name)
+
+
+def lock_alive(lock):
+    """錠が在って LOCK_AGE より新しいか（入れ直しの途中か）。"""
+    try:
+        return time.time() - os.stat(lock).st_mtime <= LOCK_AGE
+    except OSError:
+        return False
 
 
 def _refresh_lock(plugin_root):
@@ -46,14 +63,7 @@ def _refresh_lock(plugin_root):
     parts = os.path.normpath(plugin_root).split(os.sep)
     if len(parts) < 6 or parts[-4] != "cache" or parts[-5] != "plugins":
         return ""
-    return os.path.join(os.sep.join(parts[:-5]) or os.sep, "af-foundation", "refresh.lock")
-
-
-def _fresh(lock):
-    try:
-        return time.time() - os.stat(lock).st_mtime <= LOCK_AGE
-    except OSError:
-        return False
+    return refresh_file(os.sep.join(parts[:-5]) or os.sep, "refresh.lock")
 
 
 def _clone_git(clone, *args):
