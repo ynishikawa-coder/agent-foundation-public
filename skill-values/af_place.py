@@ -11,22 +11,6 @@ import re
 import tempfile
 
 
-def sibling_plugin_file(plugin, rel, plugin_root):
-    """隣の plugin の file の path か ""。正本を写さず直に読むための在り処探し。
-    repo の形: plugins/<呼ぶ plugin> と plugins/<plugin> が隣。
-    入れた plugin の形: cache/<市場>/<呼ぶ plugin>/<版> と cache/<市場>/<plugin>/<同じ版>。
-    同じ版だけを見る（別の版へ降りない＝正本と呼ぶ plugin の版が食い違ったまま照らさない。見つからなければ "" で、
-    呼ぶ側が止めて「同じ版で入れ直す」と名指しする）。"""
-    here = plugin_root
-    cand = os.path.join(os.path.dirname(here), plugin, rel)
-    if os.path.isfile(cand):
-        return cand
-    ver = os.path.basename(here)
-    market = os.path.dirname(os.path.dirname(here))
-    same = os.path.join(market, plugin, ver, rel)
-    return same if os.path.isfile(same) else ""
-
-
 # foundation_file が "" を返した訳と直し方（呼ぶ側が止める文に添える。見つかった時は ""）。
 MISS = ""
 

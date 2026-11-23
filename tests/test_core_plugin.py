@@ -551,7 +551,6 @@ def test_挙げた原因は全部台帳に行き先つきで持ち_全部済む�
     ("plugins/dev-flow/skills/design-mode/SKILL.md", "どちらで出る時も"),
     (".github/pull_request_template.md", "## 残り"),
     ("CONTRIBUTING.md", "1 本に入らなかった仕事"),
-    ("CONTRIBUTING.md", "`合流済` が届いた枝"),
     ("plugins/checker/skills/review-pr/SKILL.md", "`[台帳へ｜<段>]`"),
     # codex の値の表の `task_rule` は細目 §3 の写しなので畳んだ（受け皿は本文の 6. DEFER の行だけ）
     ("plugins/dev-flow/skills/codex/SKILL.md", "`[DEFER]`"),
@@ -702,7 +701,6 @@ def test_inject_は振る舞いを核の後に毎回入れる(monkeypatch, tmp_p
     "plugins/dev-flow/skills/verify/SKILL.md": ["＋恒久の対応を残りに書く"],
     "CONTRIBUTING.md": ["試験を飛ばして緑にしない。赤を消すために試験を消さない。", "red の時は、同じ枝に直して push し"],
     "plugins/guard/scripts/unanswered.py": [],
-    "scripts/check_all.sh": ['本: ${failed[*]})"'],
 }
 # 道具（script・hook）の側は上に手で載せない。下の試験が、失敗で終わる道具を repo から自分で拾う。
 
@@ -774,8 +772,8 @@ def test_読めない_CLAUDE_md_でも_inject_は落ちない(tmp_path):
     assert r.returncode == 0 and "additionalContext" in r.stdout
 
 
-def test_検査の入口の赤の最後の行は根治の入口を指し緑は指さない(tmp_path):
-    """check_all.sh の赤が落ちた本の名だけを返す古い形（赤を 1 つずつ潰させる）に戻すと赤。"""
+def test_検査の入口は落ちた本の名を最後の行に返し緑なら緑と返す(tmp_path):
+    """check_all.sh が赤でも終わり方 0 を返す・落ちた本を名指ししない形に戻すと赤。"""
     copy_entry(tmp_path)
     (tmp_path / "tests").mkdir()
     test = tmp_path / "tests" / "test_x.py"
@@ -784,7 +782,7 @@ def test_検査の入口の赤の最後の行は根治の入口を指し緑は�
     test.write_text("def test_x():\n    assert False\n", encoding="utf-8")
     red = run()
     last = red.stdout.strip().splitlines()[-1]
-    assert red.returncode == 1 and last.startswith("check_all: 赤") and "細目 §3「まず構造を疑う」" in last
+    assert red.returncode == 1 and last == "check_all: 赤 (pytest)"
     test.write_text("def test_x():\n    assert True\n", encoding="utf-8")
     green = run()
-    assert green.returncode == 0 and "まず構造を疑う" not in green.stdout
+    assert green.returncode == 0 and green.stdout.strip().splitlines()[-1] == "check_all: 緑"

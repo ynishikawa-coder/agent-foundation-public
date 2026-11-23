@@ -44,7 +44,7 @@ def _tools():
     out = []
     for base in ("plugins", "scripts", "public-guard"):
         for f in (ROOT / base).rglob("*"):
-            if f.suffix in {".py", ".sh", ".mjs", ".js"} and f.is_file() and "verdict_form.py" not in f.name:
+            if f.suffix in {".py", ".sh", ".mjs", ".js"} and f.is_file():
                 out.append(f)
     return out
 

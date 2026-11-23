@@ -19,5 +19,6 @@ if [ ${#failed[@]} -eq 0 ]; then
   echo "check_all: 緑"
   exit 0
 fi
+echo "直し: 赤を 1 つずつ潰さず、意図（main に入る物が全部照らされる）とのずれから入り、細目 §3「まず構造を疑う」で原因を探して直す"
 echo "check_all: 赤 (${failed[*]})"
 exit 1

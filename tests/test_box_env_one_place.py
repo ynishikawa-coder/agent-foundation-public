@@ -2,7 +2,7 @@
 
 前の形: 小箱で check_all を回す試験のうち GITHUB_* を消すのは一部だけで、test_check_all_sentan・test_pytest_config_teeth・
 test_core_plugin は外の環境を受け継いだ。CI（GITHUB_ACTIONS=true）と手元で小箱が違う形で回るのに名指されなかった
-（原因の台帳 束 F1）。今の形: 入口（check_all.sh・pytest.sh・scripts/checks/*.sh）を subprocess で回す呼び出しは、
+（原因の台帳 束 F1）。今の形: 入口（check_all.sh・scripts/checks/*.sh）を subprocess で回す呼び出しは、
 env に box_env(...) か、同じ関数の中で box_env(...) から作った名を渡す。ここが AST で全部の呼び出しを照らす。
 """
 import ast
@@ -11,7 +11,7 @@ from pathlib import Path
 from entry_box import box_env
 
 ROOT = Path(__file__).resolve().parent.parent
-ENTRY = ("check_all.sh", "pytest.sh", "scripts/checks", '"checks"')
+ENTRY = ("check_all.sh", "scripts/checks", '"checks"')
 
 
 def _runs_entry(call):

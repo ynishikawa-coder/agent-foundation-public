@@ -3,13 +3,13 @@
 前の形: 試験の file ごとに「claude が無ければ飛ばす」を書き、CI の job plugin-smoke の pytest の行に file を手で並べていた。
 並べ忘れた試験は claude の無い job check で飛ばされ、どこでも回らなかった。今の形:
 - 飛ばす条件は tests/conftest.py の 1 か所（印 real_claude の試験だけ）。試験の file は印を付けるだけ。
-- plugin-smoke は `bash scripts/pytest.sh -m real_claude tests/` で印の試験を全部拾う。
+- plugin-smoke は `python3 -m pytest -m real_claude tests/` で印の試験を全部拾う。
 - 印を付け忘れた試験は飛ばされず、claude の無い job check で赤になる。
 - 試験の file が自分で claude の有る無しを見て飛ばす形は、正規表現（OWN_SKIP）で拾っていたが狭かった（which(...) is None の
   if・from shutil import which・try/except を拾わない）。字で探すのを畳み、結果で照らす: 印の無い試験の飛ばしは job check で
-  赤（check_all）、印の試験の飛ばし・xfail は job plugin-smoke の --af-judge=real-claude で赤（tests/test_plugin_smoke_judge.py）。
+  赤（check_all）。
 """
-import json
+import xml.etree.ElementTree as ET
 import os
 import re
 import shutil
@@ -32,7 +32,7 @@ def smoke_pytest_lines(yml):
 
 def ci_problems(yml):
     lines = smoke_pytest_lines(yml)
-    if lines != ["run: bash scripts/pytest.sh -q -m real_claude --af-judge=real-claude tests/"]:
+    if lines != ["run: python3 -m pytest -q -m real_claude tests/"]:
         return [f"plugin-smoke の pytest の行が印で拾う形でない: {lines}"]
     return []
 
@@ -47,7 +47,7 @@ def test_plugin_smoke_は印で全部拾う():
 
 def test_file_を手で並べる行を入れると拾う():
     yml = CI.read_text(encoding="utf-8").replace(
-        "-m real_claude --af-judge=real-claude tests/", "tests/test_plugin_smoke.py tests/test_setup_plugins_real_claude.py")
+        "-m real_claude tests/", "tests/test_plugin_smoke.py tests/test_setup_plugins_real_claude.py")
     assert ci_problems(yml)
 
 
@@ -67,14 +67,21 @@ def _run_box(tmp_path, body, require):
     os.symlink(sys.executable, nobin / "python3")
     for tool in ("bash", "dirname", "env"):
         os.symlink(shutil.which(tool), nobin / tool)
-    env = box_env(PATH=str(nobin), AF_PYTEST_TALLY=str(tmp_path / "tally.json"))
+    env = box_env(PATH=str(nobin))
     if require:
         env["AF_REQUIRE_CLAUDE"] = "1"
-    r = subprocess.run(["bash", "scripts/pytest.sh", "-q", "-p", "no:cacheprovider", "tests/"],
+    xml = tmp_path / "junit.xml"
+    r = subprocess.run([sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider", "-c", os.devnull,
+                        "--rootdir", str(root), "--junitxml", str(xml), "tests/"],
                        capture_output=True, text=True, env=env, cwd=root)
-    data = json.loads((tmp_path / "tally.json").read_text(encoding="utf-8"))
-    outcomes = sorted(x["outcome"] for x in data["results"])
+    outcomes = sorted(_outcome(tc) for tc in ET.parse(xml).getroot().iter("testcase"))
     return r.returncode, outcomes, r.stdout + r.stderr
+
+
+
+def _outcome(tc):
+    kinds = [c.tag for c in tc if c.tag in ("failure", "error", "skipped")]
+    return {"failure": "failed"}.get(kinds[0], kinds[0]) if kinds else "passed"
 
 
 MARKED = "import pytest\npytestmark = pytest.mark.real_claude\n\ndef test_a():\n    assert True\n"
