@@ -25,7 +25,6 @@ green
 ## 点
 - 1 依頼の充足: pass
 - 2 触った path: pass
-- 3 別の目: 書いた窓 session_WRITER01 ≠ この窓
 - 4 回帰: pass（check_all: 緑）
 - 5 秘密・顧客の物: pass
 - 6 当て物・本番の効き目: pass
@@ -51,7 +50,6 @@ red
 ## 点
 - 1 依頼の充足: fail（作り物の欠け）
 - 2 触った path: pass
-- 3 別の目: 書いた窓 session_WRITER01 ≠ この窓
 - 4 回帰: pass（check_all: 緑）
 - 5 秘密・顧客の物: pass
 - 6 当て物・本番の効き目: pass
@@ -73,9 +71,10 @@ def test_型どおりの判定は通る():
     assert vf.check(RED, writer="session_WRITER01") == []
 
 
-def test_書いた窓とレビューした窓が同じなら誤り():
-    errs = vf.check(GREEN, writer="session_REVIEW01")
-    assert any("別の目" in e for e in errs)
+def test_書いた窓とレビューした窓が同じでも窓は照らさない():
+    """前の形は「別の目でない」と止めた。窓を分ける理由（並走の速さ・自分の物への甘い合格を避ける）は流れが満たし、
+    どの窓が見たかは照らさない（CONTRIBUTING.md §2）。"""
+    assert vf.check(GREEN, writer="session_REVIEW01", poster="session_REVIEW01") == []
 
 
 def test_止めるが在るのに_green_は誤り():
@@ -119,15 +118,15 @@ def test_見る点が写す元の一般の観点を全部持つ():
     ]:
         assert word in skill, f"見る点に無い: {word}"
     points = [l.split("|")[1].strip().split(" ")[0] for l in skill.splitlines() if l.startswith("| ") and l.split("|")[1].strip()[:2].strip().isdigit()]
-    assert points == [str(i) for i in range(1, 13)], points
+    assert points == [str(i) for i in range(1, 13) if i != 3], points   # 点 3（別の目）は畳んだ・番号は詰めない（前の版の判定の点の番号を保つ）
 
 
 # 注入の試験: 判定の `## 点` の欄に誤りをわざと入れ、形の道具が赤にする事を見る。
 # 点の正本は review-pr の SKILL.md の表（道具はそこを直に読む）。
 
 
-def test_点の正本は_skill_の表で_1_から_12():
-    assert sorted(vf.load_points()) == list(range(1, 13))
+def test_点の正本は_skill_の表で_1_から_12_点_3_は畳んだ():
+    assert sorted(vf.load_points()) == [i for i in range(1, 13) if i != 3]
 
 
 def test_点を_1_つ抜くと赤():
@@ -160,9 +159,10 @@ def test_点に_fail_が在るのに_green_は赤():
     assert any("判定は red" in e for e in errs)
 
 
-def test_点_3_の書いた窓が自分か名乗りと違えば赤():
-    assert any("点 3" in e for e in vf.check(GREEN.replace("書いた窓 session_WRITER01", "書いた窓 session_REVIEW01")))
-    assert any("点 3" in e for e in vf.check(GREEN, writer="session_OTHER01"))
+def test_今の決まりで畳んだ点_3_を書くと赤():
+    """点 3（別の目）は畳んだ。今の決まりで始めた判定に書き戻すと表に無い点として赤（前の版で始めた判定は前の形で通る）。"""
+    old = GREEN.replace("- 4 回帰:", "- 3 別の目: 書いた窓 session_WRITER01 ≠ この窓\n- 4 回帰:")
+    assert any("点 3" in e for e in vf.check(old))
 
 
 def test_見る点の表が読めない時は止まる(tmp_path):

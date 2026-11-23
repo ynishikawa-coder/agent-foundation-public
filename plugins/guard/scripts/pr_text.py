@@ -17,10 +17,9 @@
   commit … merge_pull_request（commit_title・commit_message）・push_files・create_or_update_file・delete_file（message）
            ＝MCP から出す commit の説明。公開の検査だけを当てる
 照らす物（見分けは正本を直に読む・呼ぶ。ここに決まりを写さない）:
-  verdict … （材料は記録から: 出す先の PR の先端と、PR の commit 全部の `Claude-Session:` の窓（書いた窓の組）を gh で引き
-            --head・--writer で、判定を出す窓の本物の id を窓の環境の記録（CLAUDE_CODE_REMOTE_SESSION_ID）から読み --reviewer で
-            渡す。判定の 1 行目の名乗りは手で書いた写しで、照らされる側。本文の `書いた窓:` は読まない。PR のコメントから初めの判定の
-            決まりの版を verdict_form.first_rules で読み --first で渡す〔無ければ なし〕。どれかが引けなければ止める）
+  verdict … （材料は記録から: 出す先の PR の先端を gh で引き --head で、PR のコメントから初めの判定の決まりの版を
+            verdict_form.first_rules で読み --first で渡す〔無ければ なし〕。どれかが引けなければ止める。どの窓が書き・
+            見たかは照らさない＝CONTRIBUTING.md §2）
             コメントがレビューの判定（どの行かに `レビューした窓: … 判定: green|red` が揃うか、verdict の見出しが在る）なら、checker の
             `scripts/verdict_form.py` をそのまま呼ぶ。赤なら止める。道具が見つからない・壊れた時も止める
   cleanup … PR の本文（本文を渡す時だけ）に、dev-flow の preimpl-cleanup の `整地受領証.template.md` の見出し
@@ -182,22 +181,11 @@ def looks_verdict(body):
     return bool(VERDICT_LINE.search(body) or VERDICT_HEAD.search(body))
 
 
-# commit の書き手の記録（窓が commit の度に付ける行）。PR の commit 全部から読み、書いた窓の組にする
-COMMIT_SESSION = re.compile(r"^Claude-Session:\s*\S*?(session_[A-Za-z0-9]+)\s*$", re.M)
-# 窓の環境の記録（harness が hook に渡す。cse_<x> → session_<x>）。道具の呼び出しの文では変えられない
-REMOTE_ID = re.compile(r"^cse_([A-Za-z0-9]+)$")
 NUMBER_KEYS = ("issue_number", "pullNumber", "pull_number")
 
 
 def _gh(args):
     return subprocess.run(["gh", "api", *args], capture_output=True, text=True, timeout=TIMEOUT)
-
-
-def poster_id(env=None):
-    """判定を出す窓の本物の session id（窓の環境の記録 CLAUDE_CODE_REMOTE_SESSION_ID の cse_<x> → session_<x>）か ""。
-    hook の入力の session_id は手元の会話ログの id（UUID）で、commit の Claude-Session・判定の名乗りの形と違うので使えない。"""
-    m = REMOTE_ID.match(str((os.environ if env is None else env).get("CLAUDE_CODE_REMOTE_SESSION_ID") or "").strip())
-    return "session_" + m.group(1) if m else ""
 
 
 def pr_number(repo, ti):
@@ -236,52 +224,45 @@ def first_rules(repo, ti, tool):
     return vf.first_rules(bodies) or vf.NO_FIRST, ""
 
 
-def pr_facts(repo, ti):
-    """判定を出す先の PR の (先端の SHA, 書いた窓の組, 誤り)。GitHub から引く（判定の形の道具が要る材料・写さない）。
+# 1 段目の間: 窓を照らしていた古い checker は --writer を欠かせない（欠けると判定が全部止まる）。窓は照らさないので、
+# 誰とも重ならない窓の id の形の値を渡す（CONTRIBUTING.md §2・§8）。新しい checker は --writer を受けて使わない
+OLD_CHECKER_WRITER = "session_none"
 
-    書いた窓の組は PR の commit 全部の `Claude-Session:` の窓（記録）だけ。途中の commit を書いた窓も入る。本文の頭の
-    `書いた窓:` は手の写しなので読まない（PR の型から畳んだ・写しが記録とずれるとレビューの窓を書いた窓に数えて弾いた）。
-    commit に記録が 1 つも無ければ誤り。
+
+def old_checker_args(tool):
+    """窓を照らす古い checker（writer_set を持つ）なら前の呼び方の足し、新しければ []。読めない道具は [] で
+    そのまま走らせる（壊れた道具は走らせた所で止まる）。"""
+    import importlib.util
+    try:
+        spec = importlib.util.spec_from_file_location("af_verdict_form_old", tool)
+        vf = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(vf)
+    except (Exception, SystemExit):  # noqa: BLE001
+        return []
+    return ["--writer", OLD_CHECKER_WRITER] if hasattr(vf, "writer_set") else []
+
+
+def pr_facts(repo, ti):
+    """判定を出す先の PR の (先端の SHA, 誤り)。GitHub から引く（判定の形の道具が要る材料・写さない）。
     引けない時は誤りを返す（欠けた材料で判定を通さない）。"""
     if not repo:
-        return "", [], "出す先の repo（owner・repo）が道具の入力に無い"
+        return "", "出す先の repo（owner・repo）が道具の入力に無い"
     try:
         number = pr_number(repo, ti)
         if not number:
-            return "", [], "判定を出す先の PR の番号が分からない"
-        p = _gh(["repos/%s/pulls/%s" % (repo, number), "--jq",
-                 '.head.sha + "\\n" + (.commits | tostring) + "\\n" + (.body // "")'])
+            return "", "判定を出す先の PR の番号が分からない"
+        p = _gh(["repos/%s/pulls/%s" % (repo, number), "--jq", ".head.sha"])
     except FileNotFoundError:
-        return "", [], "GitHub の CLI（gh）が無く、PR の先端と書いた窓を引けない"
+        return "", "GitHub の CLI（gh）が無く、PR の先端を引けない"
     except (OSError, subprocess.SubprocessError) as e:
-        return "", [], "PR を引けなかった（%s）" % e.__class__.__name__
+        return "", "PR を引けなかった（%s）" % e.__class__.__name__
     if p.returncode != 0:
-        return "", [], "PR #%s を引けなかった（判定は PR に出す・gh の認証か網を確かめる）: %s" % (
+        return "", "PR #%s を引けなかった（判定は PR に出す・gh の認証か網を確かめる）: %s" % (
             number, (p.stderr or "").strip().splitlines()[-1:] or "")
-    head, _, rest = p.stdout.partition("\n")
-    total, _, body = rest.partition("\n")
-    if not re.fullmatch(r"[0-9a-f]{40}", head.strip()):
-        return "", [], "PR #%s の先端の SHA が読めない" % number
-    try:
-        c = _gh(["--paginate", "repos/%s/pulls/%s/commits" % (repo, number), "--jq", ".[].commit.message | @json"])
-    except (OSError, subprocess.SubprocessError) as e:
-        return "", [], "PR #%s の commit を引けなかった（%s）" % (number, e.__class__.__name__)
-    if c.returncode != 0:
-        return "", [], "PR #%s の commit を引けなかった: %s" % (number, (c.stderr or "").strip().splitlines()[-1:] or "")
-    try:
-        msgs = [json.loads(ln) for ln in c.stdout.splitlines() if ln.strip()]
-    except ValueError:
-        return "", [], "PR #%s の commit の説明が読めない" % number
-    if not total.strip().isdigit() or len(msgs) < int(total):
-        # GitHub の PR の commit の一覧は 250 本で切れる。引けなかった commit を書いた窓を組から落としたまま通さない
-        return "", [], ("PR #%s の commit を全部は引けない（%s 本のうち %d 本・GitHub の一覧の上限）。書いた窓の組が欠けるので"
-                        "判定を通さない。PR を小さく分けるか、手元の取り出しで plugin checker の pr_writer.py --writers を回して照らす"
-                        % (number, total.strip() or "?", len(msgs)))
-    writers = list(dict.fromkeys(w for m in msgs for w in COMMIT_SESSION.findall(m)))
-    if not writers:
-        return head.strip(), [], ("PR #%s の commit に `Claude-Session:` の行が 1 つも無く、書いた窓が記録から決まらない"
-                                  "（本文の `書いた窓:` の写しだけで別の目を照らさない）" % number)
-    return head.strip(), writers, ""
+    head = p.stdout.strip()
+    if not re.fullmatch(r"[0-9a-f]{40}", head):
+        return "", "PR #%s の先端の SHA が読めない" % number
+    return head, ""
 
 
 def check_verdict(body, data):
@@ -292,19 +273,15 @@ def check_verdict(body, data):
         return ["判定の形の道具（checker の verdict_form.py）が見つからず、形を確かめられない。plugin checker を入れる"
                 "（または AF_VERDICT_FORM に path）"]
     ti = data.get("tool_input") or {}
-    poster = poster_id()
-    if not poster:
-        return ["判定の材料: 判定を出す窓の id が窓の環境の記録（CLAUDE_CODE_REMOTE_SESSION_ID）に無く、名乗りを照らせない"
-                "（判定はクラウドの窓で出す）"]
-    head, writers, err = pr_facts(_repo_name(ti), ti)
+    head, err = pr_facts(_repo_name(ti), ti)
     if err:
         return ["判定の材料: " + err]
     first, err = first_rules(_repo_name(ti), ti, tool)
     if err:
         return ["判定の材料: " + err]
     try:
-        p = _run([sys.executable, tool, _tmp_file(body, "verdict"), "--writer", ",".join(writers), "--head", head]
-                 + (["--first", first] if first is not None else []) + ["--reviewer", poster])
+        p = _run([sys.executable, tool, _tmp_file(body, "verdict"), "--head", head]
+                 + (["--first", first] if first is not None else []) + old_checker_args(tool))
     except (OSError, subprocess.SubprocessError) as e:
         return ["判定の形の道具が走らなかった: %s" % e.__class__.__name__]
     if p.returncode == 0:
@@ -574,7 +551,7 @@ HOW = {
     "broken": "一時の置き場（TMPDIR・AF_GUARD_TMP）に書けるか・入れた plugin が揃っているかを確かめ、直してから出し直す。"
               "直せない時は止めた文を添えて親の窓へ返す（見張りを外して出さない）。",
     "verdict": "判定のコメントは skill `checker:review-pr` の「判定の形」で書き直す（形の正本はその SKILL.md と verdict_form.py・"
-               "ここに写さない）。`python3 <verdict_form.py> <下書き> --writer <書いた窓> --head <PR の先端> --first <関所が出した値>` が "
+               "ここに写さない）。`python3 <verdict_form.py> <下書き> --head <PR の先端> --first <関所が出した値>` が "
                "exit 0 になってから出す。",
     "cleanup": "PR 本文の「何をどう変えたか」の後に `## 整地（根治の段）` を置き、skill `dev-flow:preimpl-cleanup` の雛形の見出しで"
                "書く（中身は頭が書く・`〔…〕` を残さない）。振る舞いを変えない PR（誤字・記録だけ・版だけ等）なら、欄の代わりに "

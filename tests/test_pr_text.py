@@ -74,9 +74,9 @@ def _fake_gh(env, head=FAKE_HEAD, writer=WRITER, fail=False, commits=None, total
     # PR のコメント（初めの判定の決まりの版を読む）: 本文 1 つごとに JSON の 1 行。既定は判定の無い PR
     comments = "".join(json.dumps(c, ensure_ascii=False).replace("\\", "\\\\") + "\\n" for c in comments)
     gh_path.write_text("#!/bin/sh\n" + ("echo 'not found' >&2; exit 1\n" if fail else
-                       'case "$*" in %s *"/commits"*) printf \'%s\' ;; *"/issues/"*"/comments"*) printf \'%s\' ;; *) printf \'%%s\\n%%s\\n%%s\' \'%s\' \'%s\' \'%s\' ;; esac\n'
+                       'case "$*" in %s *"/commits"*) printf \'%s\' ;; *"/issues/"*"/comments"*) printf \'%s\' ;; *".head.sha"*) echo \'%s\' ;; *) printf \'%%s\\n%%s\\n%%s\' \'%s\' \'%s\' \'%s\' ;; esac\n'
                        % ('*".visibility"*) ' + ("echo 'not found' >&2; exit 1 ;;" if visibility is None else
-                                                 "echo %s ;;" % visibility), msgs, comments, head, total, body)), encoding="utf-8")
+                                                 "echo %s ;;" % visibility), msgs, comments, head, head, total, body)), encoding="utf-8")
     gh_path.chmod(0o755)
     env["PATH"] = str(bindir) + os.pathsep + env.get("PATH", "")
     return env

@@ -43,4 +43,18 @@ def test_1段目_決まりの版を知らない古い_checker_には_first_を�
     env["AF_VERDICT_FORM"] = str(old)
     assert deny_reason(env, gh("add_issue_comment", issue_number=1, body=verdict_comment())) == ""
     argv = json.loads(seen.read_text(encoding="utf-8"))
-    assert "--first" not in argv and "--head" in argv and "--writer" in argv
+    assert "--first" not in argv and "--head" in argv and "--writer" not in argv   # 新しい形を知らない道具でも窓は渡さない
+
+
+def test_1段目_窓を照らす古い_checker_には誰とも重ならない窓の値を渡して止めない(env, tmp_path):
+    # 窓を照らしていた古い checker は --writer を欠かせない。窓は照らさないので誰とも重ならない値を渡す（CONTRIBUTING.md §2・§8）
+    _fake_gh(env)
+    seen = tmp_path / "argv.json"
+    old = tmp_path / "old" / "verdict_form.py"
+    old.parent.mkdir()
+    old.write_text("import json, sys\ndef writer_set(w):\n    return set()\nif __name__ == '__main__':\n"
+                   "    json.dump(sys.argv[1:], open(%r, 'w'))\n    sys.exit(0)\n" % str(seen), encoding="utf-8")
+    env["AF_VERDICT_FORM"] = str(old)
+    assert deny_reason(env, gh("add_issue_comment", issue_number=1, body=verdict_comment())) == ""
+    argv = json.loads(seen.read_text(encoding="utf-8"))
+    assert argv[argv.index("--writer") + 1] == "session_none"
