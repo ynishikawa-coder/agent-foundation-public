@@ -9,6 +9,8 @@
      `marketplace add` が「already on disk」で何もせず、`plugin update` も目録を進めないので、打たないと古い名簿のまま入る）。
      取り直して入口そのものが変わっていれば、新しい入口へ 1 度だけ移る（古い入口の手順で新しい名簿を入れない）。
   1. 取り直した配りの器の plugin を全部 `claude plugin install <名>@<目録> --scope user` し、`claude plugin update` で追いつかせる。
+     入った台帳に在る同じ目録の plugin のうち、取り直した配りの器に無い物（土台が畳んだ物）は `claude plugin uninstall`
+     で外す（目録の外の plugin は触らない・取り直せなかった時は外さない）。
   2. `claude plugin list --json` で全部が user scope で enabled か、入った台帳（installed_plugins.json の gitCommitSha）が
      目録の clone の HEAD（＝名簿の版）と同じかを照らす。台帳は installPath が list の読まれる dir と同じ行だけを読み、
      無ければ「分からない」と名指す（別の dir の行の版で揃ったと見ない）。取り直しに失敗した時も名指す（古い名簿で入れたと分かるように）。
@@ -179,6 +181,35 @@ def installed_shas(market: str, where: dict[str, str | None]) -> dict[str, str |
     return out
 
 
+def drop_gone(market: str, names: list[str]) -> tuple[list[str], list[str]]:
+    """入った台帳に在る目録 market の user scope の plugin のうち、取り直した名簿 names に無い物（土台が畳んだ plugin）を
+    `claude plugin uninstall` で外す。(外した名, 外せなかった名)。目録 market の外の plugin（使う側が自分で足した物）は見ない。
+    名簿に在る物を替えるだけでは、畳んだ plugin が古い版のまま入り続け、その hook が次に立つ窓でも動く。外した plugin の
+    hook は、もう立っている窓でも hook の入口 hook_run.py が回さない（台帳に行が無く名簿にも無い）。
+    台帳が無ければ外す物は無い。在るのに読めない・形が違う時は ValueError（「外す物が無い」と読まない）。"""
+    path = home() / "plugins" / "installed_plugins.json"
+    try:
+        table = json.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return [], []
+    except (OSError, ValueError) as e:
+        raise ValueError(f"入った台帳 {path} が読めない: {type(e).__name__}: {e}") from None
+    rows = table.get("plugins", {}) if isinstance(table, dict) else None
+    if not isinstance(rows, dict):
+        raise ValueError(f"入った台帳 {path} の plugins の形が dict でない")
+    gone = []
+    for key, row in rows.items():
+        name, _, m = str(key).partition("@")
+        if m == market and name not in names and isinstance(row, list) \
+                and any(isinstance(r, dict) and r.get("scope") == "user" for r in row):
+            gone.append(name)
+    removed, left = [], []
+    for name in sorted(gone):
+        r = claude("plugin", "uninstall", f"{name}@{market}", "--scope", "user")
+        (removed if r is not None and r.returncode == 0 else left).append(name)
+    return removed, left
+
+
 def main_tip(market: str | None = None) -> str | None:
     """目録が追う枝（source の ref＝`marketplace add <repo>#<枝>`。無ければ main）の先端を、目録の clone の出所へ直に聞く
     （取り直した clone の HEAD でなく出所の今の先端）。正本は kaku.source_ref・source_tip（起動の hook と同じ比べ方）。
@@ -268,6 +299,15 @@ def main() -> int:
         claude("plugin", "install", f"{n}@{market}", "--scope", "user")
         claude("plugin", "update", f"{n}@{market}")  # 前の setup で入った古い物を名簿の版へ追いつかせる
     bad = []
+    removed: list[str] = []
+    if fresh:  # 取り直せなかった古い名簿で外すと、後で足された plugin を外してしまう
+        try:
+            removed, left = drop_gone(market, names)
+        except ValueError as e:
+            left = []
+            bad.append(f"先端の名簿から消えた土台の plugin を照らせない（{e}）")
+        if left:
+            bad.append(f"先端の名簿から消えた土台の plugin を外せない: {' '.join(left)}（畳んだ見張りの hook が残る）")
     tip = catalog_head(market)
     try:
         where = listed()
@@ -296,7 +336,7 @@ def main() -> int:
     else:
         notice(None)
     save_state({"entry": "scripts/setup_plugins.py", "market": market, "plugins": names, "missing": lack,
-                "stale": stale, "refreshed": fresh, "catalog_sha": tip, "main_at_setup": at_setup, "at": time.strftime("%Y-%m-%dT%H:%M:%S%z")})
+                "stale": stale, "removed": removed, "refreshed": fresh, "catalog_sha": tip, "main_at_setup": at_setup, "at": time.strftime("%Y-%m-%dT%H:%M:%S%z")})
     print(("✗ " + "。".join(bad) + "。 " + ROOT_CAUSE) if bad else f"✅ 土台の plugin {len(names)} 本が名簿の版 {tip[:12]} で入った")
     return 1 if bad else 0
 

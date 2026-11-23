@@ -1,0 +1,1 @@
+- 直した: 起動の後の入れ直し（scripts/setup_plugins.py）が、先端の名簿から消えた土台の plugin（土台が畳んだ見張りなど）を `claude plugin uninstall` で外す。目録の外の plugin は触らない。もう立っている窓でも、hook の入口 hook_run.py が外した plugin の hook を回さない（古い版で立った窓で畳んだ見張りが動き続けていた）。
