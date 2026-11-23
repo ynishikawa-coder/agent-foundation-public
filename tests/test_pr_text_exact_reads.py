@@ -83,19 +83,16 @@ def test_名の一部にしか当たらない行は外さない(pats, repo):
 
 @pytest.mark.parametrize("key", ["pr_cleanup_exempt_repos", "pr_words_exempt_repos"])
 @pytest.mark.parametrize("pat", ["^fake-owner/", "fake-owner/fake-priv", "^fake-owner/fake$"])
-def test_外す鍵に前の形_一部の名を置いても外さず照らす(env, tmp_path, key, pat):  # noqa: F811
-    table = tmp_path / "values.json"
-    env["SKILL_VALUES"] = str(table)
-    table.write_text(json.dumps({"guard": {key: [pat]}}), encoding="utf-8")
+def test_外す鍵に前の形_一部の名を置いても外さず照らす(env, key, pat):  # noqa: F811
+    # 外す行は出す先の repo の既定の枝の値の表から引く（手元の表では外れない）
+    _fake_gh(env, contents={"fake-owner/fake-private": {"guard": {key: [pat]}}})
     body = "連絡: session_01CCCCCCCCCCCCCCCCCCCCCCCC\n"
     assert deny_reason(env, gh("update_pull_request", repo="fake-private", pullNumber=1, body=body)) != ""
 
 
-def test_外す鍵は全体の形の行なら外す(env, tmp_path):  # noqa: F811
-    table = tmp_path / "values.json"
-    env["SKILL_VALUES"] = str(table)
-    table.write_text(json.dumps({"guard": {"pr_cleanup_exempt_repos": ["^fake-owner/.*$"],
-                                           "pr_words_exempt_repos": ["^fake-owner/fake-private$"]}}), encoding="utf-8")
+def test_外す鍵は全体の形の行なら外す(env):  # noqa: F811
+    _fake_gh(env, contents={"fake-owner/fake-private": {"guard": {"pr_cleanup_exempt_repos": ["^fake-owner/.*$"],
+                                                                  "pr_words_exempt_repos": ["^fake-owner/fake-private$"]}}})
     body = "連絡: session_01CCCCCCCCCCCCCCCCCCCCCCCC\n"
     assert deny_reason(env, gh("update_pull_request", repo="fake-private", pullNumber=1, body=body)) == ""
 
@@ -156,11 +153,9 @@ def test_形の違う行が混じっても同じ並びの正しい行は効く_�
     assert "[public]" in deny_reason(env, p)
 
 
-def test_形の違う行が混じっても同じ並びの正しい行は効く_外す(env, tmp_path):  # noqa: F811
-    table = tmp_path / "values.json"
-    env["SKILL_VALUES"] = str(table)
-    table.write_text(json.dumps({"guard": {"pr_cleanup_exempt_repos": ["^fake-owner/fake-private$", "^x/"],
-                                           "pr_words_exempt_repos": ["^x/", "^fake-owner/fake-private$"]}}),
-                     encoding="utf-8")
+def test_形の違う行が混じっても同じ並びの正しい行は効く_外す(env):  # noqa: F811
+    _fake_gh(env, contents={"fake-owner/fake-private": {"guard": {
+        "pr_cleanup_exempt_repos": ["^fake-owner/fake-private$", "^x/"],
+        "pr_words_exempt_repos": ["^x/", "^fake-owner/fake-private$"]}}})
     body = "連絡: session_01CCCCCCCCCCCCCCCCCCCCCCCC\n"
     assert deny_reason(env, gh("update_pull_request", repo="fake-private", pullNumber=1, body=body)) == ""
