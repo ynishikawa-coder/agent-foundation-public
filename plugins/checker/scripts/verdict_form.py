@@ -357,6 +357,28 @@ def check(text, writer=None, head=None, points=None, cards=None, values=None, po
     return errs
 
 
+class Unreadable(Exception):
+    """決まりの版の見る点を読めない（決まりの git が無い・版が無い・先端の安全の点の行が無い）。呼ぶ側は通さずに止める。"""
+
+
+def check_posted(text, first, writer=None, head=None, poster=None, repo=None):
+    """1 つの判定を、その 3 行目の決まりの版（first＝この PR の初めの判定の版か `なし`）の見る点で照らし、誤りの並びを返す。
+    main と、判定を数える他の repo の関所（例: pixel-office の pr_review_gate）が呼ぶ 1 つの口（先端の点で照らす写しを持たせない）。
+    3 行目が無い判定は先端の点で照らし、3 行目が無い誤りを返す。版を読めない時は Unreadable。"""
+    lines = (text or "").splitlines()
+    m3 = LINE3.match(lines[2].strip()) if len(lines) > 2 else None
+    rules, rerrs = None, []
+    if m3:
+        try:
+            rules, rerrs = load_rules(m3.group(1), first, repo)
+        except (OSError, RuntimeError, ValueError, subprocess.SubprocessError) as e:
+            raise Unreadable("決まりの版 %s の見る点を読めない（%s）" % (m3.group(1), e)) from e
+    if rules:
+        return check(text, writer=writer, head=head, poster=poster,
+                     points=rules.points, values=rules.values, cards=rules.cards, rules=rules.ver)
+    return rerrs + check(text, writer=writer, head=head, poster=poster)
+
+
 def main(argv):
     args = argv[1:]
     if not args:
@@ -400,21 +422,12 @@ def main(argv):
     for path in paths:
         with open(path, encoding="utf-8") as f:
             text = f.read()
-        lines = text.splitlines()
-        m3 = LINE3.match(lines[2].strip()) if len(lines) > 2 else None
-        rules, rerrs = None, []
-        if m3:
-            try:
-                rules, rerrs = load_rules(m3.group(1), opts["--first"])
-            except (OSError, RuntimeError, ValueError, subprocess.SubprocessError) as e:
-                # 決まりの版を読めない時は照らさずに通さない（古い・知らない決まりで形を通さない）
-                sys.stderr.write("決まりの版 %s の見る点を読めない（%s）。照らさずに通さない\n" % (m3.group(1), e))
-                return 2
-        if rules:
-            errs = check(text, writer=opts["--writer"], head=opts["--head"], poster=opts["--reviewer"],
-                         points=rules.points, values=rules.values, cards=rules.cards, rules=rules.ver)
-        else:
-            errs = rerrs + check(text, writer=opts["--writer"], head=opts["--head"], poster=opts["--reviewer"])
+        try:
+            errs = check_posted(text, opts["--first"], writer=opts["--writer"], head=opts["--head"], poster=opts["--reviewer"])
+        except Unreadable as e:
+            # 決まりの版を読めない時は照らさずに通さない（古い・知らない決まりで形を通さない）
+            sys.stderr.write("%s。照らさずに通さない\n" % e)
+            return 2
         bad += bool(errs)
         for e in errs:
             print(("%s: %s" % (path, e)) if len(paths) > 1 else e)
