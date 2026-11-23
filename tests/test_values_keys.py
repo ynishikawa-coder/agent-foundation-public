@@ -10,6 +10,7 @@ import sys
 from pathlib import Path
 
 import pytest
+from uses import py_code
 
 ROOT = Path(__file__).resolve().parent.parent
 PLUGIN = ROOT / "plugins" / "guard"
@@ -196,9 +197,16 @@ def _コードが読む鍵(rel, text):
     return {k for pat in _鍵を読む形 for k in pat.findall(text)}
 
 
+def _読む字(rel):
+    """file が値の表に触れるかを照らす字。Python は注釈・docstring を除く（在り処の説明に名を書いただけの file を読む口と
+    取り違えない）。字の値（path の字）は残るので、値の表を開くコードは拾う。"""
+    text = (ROOT / rel).read_text(encoding="utf-8")
+    return py_code(text) if rel.endswith(".py") else text
+
+
 def test_values_keys_値の表を読む_file_は全部読む口に載る():
     out = subprocess.run(["git", "ls-files", "plugins"], cwd=ROOT, capture_output=True, text=True, check=True).stdout.split()
-    touch = [r for r in out if r.endswith((".py", ".mjs", ".js", ".sh")) and _値の表に触れる.search((ROOT / r).read_text(encoding="utf-8"))]
+    touch = [r for r in out if r.endswith((".py", ".mjs", ".js", ".sh")) and _値の表に触れる.search(_読む字(r))]
     assert "plugins/dev-flow/skills/spec-doc/seal.py" in touch, "拾い方が壊れた"
     unknown = [r for r in touch if r not in _読む口 and r not in _読まない口]
     assert not unknown, f"値の表を読むのに読む口に載っていない file（載せて鍵を照らす）: {unknown}"
