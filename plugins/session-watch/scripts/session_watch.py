@@ -19,6 +19,7 @@
              （選択肢の画面と同じ物を直に呼ぶ）。返し先が別の窓の窓（🤖）は人への文でないので見ない
   time     … 返事の時刻が日本時間でない（Z・UTC・GMT・+09:00 以外の時差）か、日付つきの時刻に日本時間の印が無いか（核 §6）
   done     … 1 行目が ✅ の返事に、終わったと言い切らない語（ほぼ・大体・たぶん・はず 等）が終わりの語と同じ文に在るか（核 §7）
+  holes    … 1 行目が ✅ の返事に、穴・直す窓・台帳の語が在るのに「どうしますか」と聞いていないか（細目 §7「報告の書き方」）
   secret   … 返事に鍵・トークンの形が在るか。形の正本は公開の検査 public-guard/guard.py の secret_labels（直に呼ぶ）
   neighbor … 上の inner・secret の正本（隣の plugin guard・公開の検査）が見つからず照らせないか
   unread   … 会話ログに読めない行（JSON として読めない・dict でない）が在るか（黙って飛ばして判定しない）
@@ -126,7 +127,7 @@ MOVING = ""     # 状態の印なし: AI が動いている（✋ はオーナ�
 ASKING = "❓"    # オーナーの答え待ち
 WAITING = "💤"   # ほかの何か（ほかの窓の返事・本流への取り込み・CI）待ち
 STOPPED = "🛑"   # 止まった（外し方は本文）
-DONE = "✅"      # 終わった・後継へ渡した（🙋✅ は AI の手は終わり・閉じるかはオーナー）
+DONE = "✅"      # 終わった・後継へ渡した（オーナーが立てた窓の 🙋✅ は AI の手は終わり・閉じるかはオーナー）
 STATES = (ASKING, WAITING, STOPPED, DONE)
 # 種類ごとに付けてよい状態（表に無い組み合わせは拒む）。
 TITLE_TABLE = {
@@ -667,6 +668,11 @@ def hedge_hits(body):
     return out
 
 
+# 報告の書き方（細目 §7）: 終わったの返事に目標の外の穴が出るなら、穴ごとに「どうしますか」と聞く。
+HOLE_WORD = re.compile(r"穴|直す窓|原因の台帳|台帳の行")
+HOLE_ASK = re.compile(r"どうしますか|どうするか")
+
+
 def ai_window(log):
     """返し先が別の窓の窓（🤖）か。種類の正本 window_kind（手の窓は 🙋）か、決まらなければ最後の題の種類で決める。"""
     last = None
@@ -737,7 +743,12 @@ def words(log, closing, data=None):
             if hh:
                 found.append(("done", "✅ の返事に、終わったと言い切らない語がある: %s" % "／".join("「%s」" % x for x in hh[:3])))
 
-    for name, fn in (("secret", secret), ("inner", inner), ("time", time), ("done", done)):
+    def holes():
+        lines = [ln.strip() for ln in closing.splitlines() if ln.strip()]
+        if lines and re.match(r"^[#>*\s]*✅", lines[0]) and HOLE_WORD.search(body) and not HOLE_ASK.search(body):
+            found.append(("holes", "✅ の返事に、見つけた穴・直す窓・台帳の残りが在るのに「どうしますか」と聞いていない"))
+
+    for name, fn in (("secret", secret), ("inner", inner), ("time", time), ("done", done), ("holes", holes)):
         part(name, fn)
     return found
 
@@ -1038,7 +1049,7 @@ def hook_remind(stdin):
 
 
 # ── 知らせる（Stop の hook が置き、次の頼みの時に UserPromptSubmit の hook が出す・差し戻さない）────────────────
-STOP_CODES = ("title", "card", "close", "plain", "inner", "time", "done", "secret", "neighbor", "unread", "nolog")
+STOP_CODES = ("title", "card", "close", "plain", "inner", "time", "done", "holes", "secret", "neighbor", "unread", "nolog")
 ONCE_CODES = ("neighbor", "unread", "nolog")   # AI には直せない＝窓ごとに 1 回だけ知らせる
 #   知らせる札（核 §1・§2・§4・§5・§6・§7 の、AI が読み飛ばすとそのまま人に届く所）。ほか（idk・unanswered・rest・hand）は
 #   手で回す点検だけ。neighbor（隣の正本が見つからない）・unread（会話ログに読めない行）は窓ごとに 1 回だけ知らせる（AI には直せない）。
@@ -1046,7 +1057,7 @@ ONCE_CODES = ("neighbor", "unread", "nolog")   # AI には直せない＝窓ご�
 NOTE_HEAD = ("[session-watch] 前の返事の形が崩れていた（返事は届いている・書き直さない・差し戻していない）。次の返事から下を合わせる。"
              "形の正本は核 §4・§5（細目 §5）・skill `session-watch:title-mark`。")
 STOP_HOW = {
-    "plain": "選ぶ問いは選択肢の画面で聞く（「分からない」も置く・推奨の印は作り方の分かれ道だけ）。意味・考え・前提を問う開いた問いは"
+    "plain": "選ぶ問いは「具体例:」「判断の物差し:」の 2 行をチャットに書いてから選択肢の画面で聞く（「分からない」も置く・推奨の印は作り方の分かれ道だけ）。意味・考え・前提を問う開いた問いは"
              "「AI の今の読み」を添えて書く。調べれば決まる事は AI が決めて進める（細目 §4）。",
     "inner": "番号・窓の id・`直し_0020` の形の名・commit の印は、それが何かを日常の言葉で言い換える（例: 「#616」→「昨日出した"
              "置き場の直し」と URL）。コード・path・file 名は数えていない（どうしても要る字は `…` で囲む）。",
@@ -1054,6 +1065,8 @@ STOP_HOW = {
     "done": "確かめた事だけを言い切る。確かめ切れていない所があれば 1 行目を `%s%s（一部）` か `%s%s` にし（札は表の 4 つだけ）、"
             "何が残るかを書く（核 §7）。" % (DONE, CARD_WORDS[DONE], STOPPED, CARD_WORDS[STOPPED]) +
             "人の言葉を引くだけなら「」で囲む。",
+    "holes": "頼まれた物が終わった事と前→後を先に書き、その後に目標の外で見つけた穴ごとに、何が穴か／放っておくと何が"
+             "起きうるか／AI の案を添えて「どうしますか」と聞く。聞かずに直す窓を立てない（細目 §7「報告の書き方」）。",
     "secret": "鍵・トークンの値を以後の返事に出さず、在り処（環境の値の名・設定の場所）だけを書く。出てしまった鍵は人に作り直しを頼む（核 §1）。",
     "nolog": "hook が渡す会話ログの path（transcript_path）か、その file が無い。AI には直せない。続くなら plugin "
              "session-watch の hooks.json と Claude Code の版を確かめる PR を出すか、あなたがやることに書く。",

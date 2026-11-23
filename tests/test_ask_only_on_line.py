@@ -15,6 +15,13 @@ AGREED = ("仕上がり", "要件", "顧客側", "計算の結果", "顧客に�
           "消すと出来る事が減る", "戻せない", "お金", "社外", "中の形を決めるのは聞かない")
 _LINE = re.compile(r"オーナーに聞くのは、[^\n]*?聞かない。")
 _COPY = re.compile(r"聞くのは[^。\n]*だけ")
+_ASKW = re.compile(r"聞|問")
+
+
+def copies(text):
+    """§3・§5 に置かれた聞く線の写し（字の形でなく中身で拾う）: 問う・聞く文が合意の項目を 1 つでも持つか、「聞くのは…だけ」の形。"""
+    return [s for s in re.split(r"[。\n]", text)
+            if _COPY.search(s) or (_ASKW.search(s) and any(a in s for a in AGREED))]
 
 
 # AI が既定で進める所＝既定の欄・既定の手順に「聞く」を戻さない（file → 照らす行の印）
@@ -52,7 +59,7 @@ def saimoku_ok(s03, s04, s05):
     line = ask_line(s04)
     return (bool(line) and all(t in line for t in AGREED)
             and "（中の形だけの前提は AI が決める" in s04 and "1 つずつの物について「直さない」か" not in s04
-            and "§4 の聞く線で決める" in s03 and not _COPY.search(s03) and not _COPY.search(s05)
+            and "§4 の聞く線で決める" in s03 and not copies(s03) and not copies(s05)
             and "1 行ずつオーナーに聞く" not in s03
             and "AI が外せる止めは直して続ける（🛑 にしない）" in s05)
 
@@ -74,7 +81,7 @@ def test_注入_線を戻すと赤():
         assert not saimoku_ok(s03, s04.replace(line, line.replace(t, "")), s05), t
     # §3・§5 に聞く線の短い写しを置く（正本が 2 つになる）
     copy = "「直さない」をオーナーに聞くのは仕上がり・顧客側に効く行だけ（AI の中の形・道具の行は直す）。"
-    assert not saimoku_ok(s03.replace("「直さない」をオーナーに聞くかは §4 の聞く線で決める（当たらない行は直す）。", copy), s04, s05)
+    assert not saimoku_ok(s03.replace("「直さない」をオーナーに聞くかは §4 の聞く線で決める。", copy), s04, s05)
     assert not saimoku_ok(s03, s04, s05 + "\n- オーナーに聞くのは顧客側の時だけ。")
     assert not saimoku_ok(s03, s04.replace("（中の形だけの前提は AI が決める・", "（"), s05)
     assert not saimoku_ok(s03, s04, s05.replace("AI が外せる止めは直して続ける（🛑 にしない）。", ""))
