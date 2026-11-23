@@ -13,7 +13,9 @@
 やる事: 渡された script が属する plugin（呼ばれた dir の plugin.json の名）の、入った台帳（~/.claude/plugins/installed_plugins.json）の今読まれる行
   （kaku.current_row＝dir が在る行のうち最後に入れた行）の dir を引き、それが呼ばれた dir と違えば、その版の
   同じ script を CLAUDE_PLUGIN_ROOT をその dir にして回す。その版の hooks.json に同じ命令が無ければ（先端が外した hook）
-  何もせず 0 で抜ける。引けない・読めない・何か壊れた時は、渡された script をそのまま回す（前の版で続ける・止めない）。
+  何もせず 0 で抜ける。台帳に行が無く、目録の clone の名簿にも無い plugin（土台が畳み、入れ直しが外した物）の hook も
+  何もせず 0 で抜ける（窓の途中で外しても Claude Code は hook を外さないので、古い窓で畳んだ見張りが動き続けない）。
+  引けない・読めない・何か壊れた時は、渡された script をそのまま回す（前の版で続ける・止めない）。
 秘密は読まない（読むのは台帳と hooks.json だけ）。
 """
 from __future__ import annotations
@@ -54,6 +56,28 @@ def _same_hook(new_root: Path, rel: str, args: list[str]) -> bool:
                for groups in hooks.values() for g in groups for h in (g.get("hooks") or []))
 
 
+def _dropped(root: Path) -> bool:
+    """root（呼ばれた dir）が土台の目録から入った plugin の版の dir（cache/<目録>/<plugin>/<版>）で、その plugin が
+    目録の clone の名簿（.claude-plugin/marketplace.json＝入れ直しが取り直した先端の名簿）に無いか
+    ＝土台が畳み、入れ直しが外した plugin。名簿が読めない・土台の置き場の外（使う側が自分で足した plugin・
+    開発の dir）は False（今までどおり回す）。"""
+    import kaku
+
+    if root.parent.parent.name != kaku.MARKET or root.parent.parent.parent.name != "cache":
+        return False
+    try:
+        name = json.loads((root / ".claude-plugin" / "plugin.json").read_text(encoding="utf-8")).get("name")
+    except (OSError, ValueError, AttributeError):
+        name = root.parent.name
+    try:
+        manifest = json.loads((Path(__file__).resolve().parents[3] / ".claude-plugin" / "marketplace.json")
+                              .read_text(encoding="utf-8"))
+        names = {p["name"] for p in manifest["plugins"]}
+    except (OSError, ValueError, KeyError, TypeError):
+        return False
+    return manifest.get("name") == kaku.MARKET and bool(names) and name not in names
+
+
 def target(script: Path, args: list[str], env: dict, home: Path) -> tuple[Path, Path | None] | None:
     """(回す script, その plugin の dir＝渡す CLAUDE_PLUGIN_ROOT。None なら替えない)。
     None＝先端の版はこの hook を外した（何もしない）。決められなければ渡された script のまま。"""
@@ -63,7 +87,7 @@ def target(script: Path, args: list[str], env: dict, home: Path) -> tuple[Path, 
         table = json.loads((home / "plugins" / "installed_plugins.json").read_text(encoding="utf-8"))
         rows = _rows_of(root, table)
         if not rows:
-            return script, None
+            return None if _dropped(root) else (script, None)
         import kaku
 
         row = kaku.current_row(rows)
