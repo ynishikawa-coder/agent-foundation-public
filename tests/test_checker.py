@@ -96,8 +96,8 @@ def test_札と形の崩れを拾う():
 
 
 def test_skill_が判定の形の道具を指す():
-    skill = (PLUGIN / "skills" / "review-pr" / "SKILL.md").read_text(encoding="utf-8")
-    assert "verdict_form.py" in skill
+    from test_review_pr_okiba import SKILL, 形の道具の外れ   # 判定を出す段の中で照らす（注入の試験も同じ file）
+    assert 形の道具の外れ(SKILL.read_text(encoding="utf-8"), Path(vf.__file__).name) == []
     assert json.loads((PLUGIN / ".claude-plugin" / "plugin.json").read_text(encoding="utf-8"))["name"] == "checker"
 
 
@@ -194,5 +194,5 @@ def test_red_が根治の入口を指さないと誤り():
 
 
 def test_判定の形の見本が根治の入口を指す行を持つ():
-    text = (PLUGIN / "skills" / "review-pr" / "SKILL.md").read_text(encoding="utf-8")
-    assert vf.ROOT_CAUSE in text
+    from test_review_pr_okiba import SKILL, 見本の入口の外れ   # 見本の囲いの verdict の節で照らす（注入の試験も同じ file）
+    assert 見本の入口の外れ(SKILL.read_text(encoding="utf-8"), vf.ROOT_CAUSE) == []

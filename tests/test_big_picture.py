@@ -232,10 +232,10 @@ def test_土台の絵は配りの器から全部の_plugin_へ流れを描く():
 
 def test_設計書の型は全体の絵の下に置かれる():
     """全体の絵が上・spec-doc は部品ごとの細部（決定 2026-11-19）。両方の SKILL が互いを指す。"""
-    spec_doc = (ROOT / "plugins" / "dev-flow" / "skills" / "spec-doc" / "SKILL.md").read_text(encoding="utf-8")
-    assert "big-picture" in spec_doc and "全体の絵の下で部品ごとの細部" in spec_doc
+    from test_bunsho_okiba import SPEC, 上下の外れ   # 両方の「上下」の欄で照らす（注入の試験も同じ file）
+    spec_doc = (SPEC / "SKILL.md").read_text(encoding="utf-8")
+    assert 上下の外れ(spec_doc, (SKILL / "SKILL.md").read_text(encoding="utf-8")) == []
     assert "唯一の正解" not in spec_doc, "設計書を全体の絵より上の正と書かない"
-    assert "spec-doc" in (SKILL / "SKILL.md").read_text(encoding="utf-8")
 
 
 def test_main_へ入れる手を片方の_AI_に限らない():

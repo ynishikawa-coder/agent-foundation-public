@@ -61,9 +61,8 @@ def test_注入_原因から入る直しの文は拒む():
 
 
 def test_CONTRIBUTING_の赤と_red_は意図とのずれから入る():
-    c = _read("CONTRIBUTING.md")
-    assert "外れた意図とのずれから入って細目 §3「まず構造を疑う」で原因を探して直し" in c
-    assert "その試験が守る意図とのずれから入って細目 §3「まず構造を疑う」で原因を探して直す。" in c
+    from test_mgk_okiba import 赤の入口の外れ   # 節の中の直しの文を照らす（注入の試験も同じ file）
+    assert 赤の入口の外れ(_read("CONTRIBUTING.md")) == []
 
 
 # ── 全体の絵 ───────────────────────────────────────────────────
@@ -87,14 +86,10 @@ def test_注入_合意の絵に意図が無いと赤い点で名指す():
 def test_説明は起きた所の箱の意図を課題より先に出す():
     pic = json.loads(DODAI.read_text(encoding="utf-8"))
     p = pic["problems"][0]
-    text = bp.explain(pic, p["id"])
-    lines = text.splitlines()
-    i = next(n for n, l in enumerate(lines) if l.startswith("- 意図（起きた所の箱が何のために在るか）: "))
-    k = next(n for n, l in enumerate(lines) if l.startswith("- 課題（意図とのずれ＝起きた事）: "))
-    c = next(n for n, l in enumerate(lines) if l.startswith("- 原因の箱: "))
-    assert i < k < c
+    from test_mgk_5_dan import 核の段, _3節
+    from test_mgk_okiba import 説明の順の外れ   # 欄の名の頭を核の段から読む（注入の試験も同じ file）
     at = {b["id"]: b for b in pic["boxes"]}[p["at"][0]]
-    assert (at.get("intent") or "まだ聞いていない") in lines[i]
+    assert 説明の順の外れ(bp.explain(pic, p["id"]), 核の段(_3節()[1]), at.get("intent") or "まだ聞いていない") == []
 
 
 def test_絵の型は意図と課題を分けて出す():

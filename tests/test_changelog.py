@@ -170,7 +170,8 @@ def test_決まりの文が断片の形を指す():
         p = ROOT / rel
         if p.exists():
             text = p.read_text(encoding="utf-8")
-            assert "CHANGELOG.d/" in text, f"{rel} が断片の置き場を指さない"
+            from test_bunsho_okiba import 記録の置き場の外れ   # 配り方の節の地の行で照らす（注入の試験も同じ file）
+            assert 記録の置き場の外れ(text) == [], f"{rel} が配り方の節で断片の置き場を指さない"
             assert "「合流ごと」に" not in text and "「合流ごと」へ" not in text, f"{rel} に古い書き方が残る"
 
 

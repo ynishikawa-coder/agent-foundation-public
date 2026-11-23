@@ -1,0 +1,1 @@
+- 直した: 根治の 5 段・review-pr・CONTRIBUTING・spec-doc と big-picture の上下・後へ回す言葉の外の表を照らす試験を、全文の字の有無でなく節・欄・表の行・手順の段・見本の囲い（tests/md_yomi.py）で照らす形にし、名は動く物から読むようにした。別の節・注記へ移すと赤、言い回しを変えると緑の注入の試験を tests/test_mgk_okiba.py・test_review_pr_okiba.py・test_bunsho_okiba.py に置いた

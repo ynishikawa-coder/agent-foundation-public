@@ -18,14 +18,14 @@ def test_PR_の型は触った_path_と残りの行き先を手で写させな�
     assert not re.search(r"^\s*(?:#+\s*|[-*]\s*)?\**触る path\**\s*[:：]?\s*$|^\s*(?:[-*]\s*)?\**触る path\**\s*[:：]", t, re.M), \
         "PR の型に「触る path」の欄（見出し・欄の行）が在る"                # 書かないと説明する文は欄でない
     assert "行き先: 直す窓" not in t and "`- 台帳の行 <行の id の末尾 12 字>` だけ" in t
+    from test_bunsho_okiba import 冒頭の欄の外れ, 冒頭の鍵   # 「枝と PR」の節の地の行で照らす（注入の試験も同じ file）
     c = (ROOT / "CONTRIBUTING.md").read_text(encoding="utf-8")
-    assert "冒頭の欄は job の 1 行" in c and "冒頭 3 行" not in c   # 書いた窓・検査は記録を読む（写しの欄を置かない）
+    assert 冒頭の欄の外れ(c, 冒頭の鍵()) == [] and "冒頭 3 行" not in c   # 書いた窓・検査は記録を読む（写しの欄を置かない）
 
 
 def test_レビューは触った_path_を差分から取る():
-    s = (ROOT / "plugins" / "checker" / "skills" / "review-pr" / "SKILL.md").read_text(encoding="utf-8")
-    row = next(ln for ln in s.splitlines() if ln.startswith("| 2 "))
-    assert "git diff --name-only" in row and "触る path:" not in row
+    from test_review_pr_okiba import SKILL, vf, 触った_path_の外れ   # 見る点の表の行で照らす（注入の試験も同じ file）
+    assert 触った_path_の外れ(SKILL.read_text(encoding="utf-8"), vf.load_points()) == []
 
 
 def _descriptions():

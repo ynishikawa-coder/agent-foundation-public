@@ -53,8 +53,8 @@ def _後へ回す行(root):
 def test_後へ回す言葉を使う決まりは全部原因の台帳を指す():
     """新しい名の受け皿（「後で 🍀箱へ」など）を足すと、古い言い回しの一覧に無くても赤。"""
     assert _後へ回す行(ROOT) == []
-    for r, key in 後へ回す言葉の外:           # 外の表の行が消えたら表からも消す（古い外を残さない）
-        assert any(key in ln for ln in (ROOT / r).read_text(encoding="utf-8").splitlines()), f"外の表の行が無い: {r}: {key}"
+    from test_bunsho_okiba import 外の表の外れ   # 鍵の行が今も後へ回す行か（外の表の行が消えたら表からも消す・注入の試験も同じ file）
+    assert 外の表の外れ(ROOT, 後へ回す言葉の外) == []
 
 
 @pytest.mark.parametrize("line", [
