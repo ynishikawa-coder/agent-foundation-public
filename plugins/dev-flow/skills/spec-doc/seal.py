@@ -69,7 +69,7 @@ def repo_root(start: Path) -> Path | None:
 
 def load_values(root: Path | None, path: str | None) -> dict:
     try:
-        return skill_values.section("dev-flow", "spec-doc", explicit=path, starts=[str(root or Path.cwd())])
+        return skill_values.section("dev-flow", "spec-doc", explicit=path, starts=[str(root)])
     except skill_values.ValuesError as e:
         raise Abort(str(e))
 
@@ -198,14 +198,16 @@ FIX = """直し方:
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description="設計書の封の入口（決定照合を照らしてから gate --lock を呼ぶ）")
     ap.add_argument("spec_dir", help="設計書の dir")
-    ap.add_argument("--values", help="値の表の path（既定は今の repo の根の config/skill-values.json）")
+    ap.add_argument("--values", help="値の表の path（既定は設計書の在る repo の根の config/skill-values.json）")
     ap.add_argument("--match-only", action="store_true", help="決定照合だけを照らす（gate を呼ばない）")
     a = ap.parse_args(argv)
     try:
         spec = Path(a.spec_dir)
         if not spec.is_dir():
             raise Abort(f"設計書の dir が無い: {spec}")
-        root = repo_root(Path.cwd())
+        root = repo_root(spec.resolve())   # 照らす設計書の repo の表と型（窓が立つ所の repo の物では照らさない）
+        if root is None:
+            raise Abort(f"設計書の dir が git の repo の中に無い（値の表と型を決める repo が無い）: {spec}")
         values = load_values(root, a.values)
         stops, notes = check_match(spec, values)
         for n in notes:
@@ -221,7 +223,7 @@ def main(argv=None) -> int:
             return 0
         tdir = values.get("template_dir")
         base = Path(tdir).expanduser() if tdir else None
-        if base is not None and not base.is_absolute() and root is not None:
+        if base is not None and not base.is_absolute():
             base = root / base   # 型の置き場は repo の根からの相対で書いてよい
         gate = base / "check_spec_doc.py" if base is not None else None
         if gate is None or not gate.is_file():

@@ -46,6 +46,7 @@
 """
 from __future__ import annotations
 
+import base64
 import glob
 import json
 import os
@@ -121,11 +122,35 @@ def _repo_rows(key, data, vals):
     return [r for r in rows if r not in bad], bad
 
 
+TARGET_TABLE = "config/skill-values.json"
+_TARGET_GUARD = {}
+
+
+def _target_guard(repo):
+    """出す先の repo の既定の枝（GitHub の記録）に在る値の表の guard の節。引けない・読めない・無い時は {}。
+    外す鍵は照らされる側の作業の木・枝で書き足した物では効かない（守りは照らす相手が今従う既定の枝の決まりで照らす）。"""
+    if repo not in _TARGET_GUARD:
+        sec = {}
+        try:
+            p = _gh(["repos/%s/contents/%s" % (repo, TARGET_TABLE), "--jq", ".content"])
+            if p.returncode == 0 and p.stdout.strip():
+                tbl = json.loads(base64.b64decode("".join(p.stdout.split())).decode("utf-8"))
+                got = tbl.get("guard") if isinstance(tbl, dict) else None
+                sec = got if isinstance(got, dict) else {}
+        except (OSError, subprocess.SubprocessError, ValueError):
+            sec = {}
+        _TARGET_GUARD[repo] = sec
+    return _TARGET_GUARD[repo]
+
+
 def _exempt(key, repo, data, vals):
-    """外す側の鍵（pr_cleanup_exempt_repos・pr_words_exempt_repos）に repo が在るか。名の全体の形の行だけで当てる
+    """外す側の鍵（pr_cleanup_exempt_repos・pr_words_exempt_repos）に repo が在るか。読むのは出す先の repo の既定の枝の
+    値の表だけ（窓の取り出しの表・作業の木の書き足し・別の repo の表では外れない）。名の全体の形の行だけで当てる
     （形の違う行は外さず照らす向き＝値の表の照らしが名指す）。"""
-    good, _ = _repo_rows(key, data, vals)
-    return _matches(good, repo)
+    rows = _target_guard(repo).get(key) if repo else None
+    rows = rows if isinstance(rows, list) else []
+    bad = G.SV.bad_repo_names(rows)
+    return _matches([r for r in rows if r not in bad], repo)
 
 
 def _public_extra(repo, data, vals):
@@ -143,16 +168,13 @@ def _public_extra(repo, data, vals):
     return False
 
 
-def _find_sibling(plugin, rel, env_name, data):
-    """隣の plugin の正本の在り処。探す順: 環境変数 → 窓の repo の作業の木（見る点を変える PR の枝でもその枝の表で照らす）
-    → 土台の共通の在り処探し（guard_common.sibling_plugin_file・qa_page と同じ口）。"""
+def _find_sibling(plugin, rel, env_name, data=None):
+    """隣の plugin の正本の在り処。探す順: 環境変数 → 入った guard と同じ版（guard_common.sibling_plugin_file・qa_page と
+    同じ口・起動の hook が土台の main の先端に保つ）。窓の取り出しの作業の木は読まない（照らされる PR の枝で緩めた形で
+    その PR が通らない）。"""
     env = os.environ.get(env_name) or ""
     if env:
         return env if os.path.isfile(env) else ""
-    root = G.project_dir(data)
-    cand = os.path.join(root, "plugins", plugin, rel) if root else ""
-    if cand and os.path.isfile(cand):
-        return cand
     return G.sibling_plugin_file(plugin, rel)
 
 
@@ -507,15 +529,13 @@ def public_target(repo, data, vals, unread=None):
 
 
 def find_public_guard(top=""):
-    """public-guard/guard.py の path か ""（土台の repo の根に在る・plugin の外）。探す順: 環境変数 → 出す先の repo の取り出し
-    （土台そのものへ出す時）→ 土台の共通の在り処探し（guard_common.foundation_file）。"""
+    """public-guard/guard.py の path か ""（土台の repo の根に在る・plugin の外）。探す順: 環境変数 → 入った guard と同じ版
+    （guard_common.foundation_file）。出す先の取り出しの作業の木は読まない（土台そのものへ出す PR の枝で緩めた検査で
+    その PR が通らない）。top は呼ぶ側の形のために受けるだけ。"""
     env = os.environ.get("AF_PUBLIC_GUARD") or ""
     if env:
         return env if os.path.isfile(env) else ""
-    rel = os.path.join("public-guard", "guard.py")
-    if top and os.path.isfile(os.path.join(top, rel)):
-        return os.path.join(top, rel)
-    return G.foundation_file(rel)
+    return G.foundation_file(os.path.join("public-guard", "guard.py"))
 
 def check_public(texts, repo, data, vals):
     is_public, top, words = public_target(repo, data, vals)

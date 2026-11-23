@@ -1,0 +1,4 @@
+- 壊れる: PR の文の見張り（guard の pr_text）は、整地・言葉の照らしから外す repo（pr_cleanup_exempt_repos・pr_words_exempt_repos）を、出す先の repo の既定の枝の config/skill-values.json を gh で読んだ時だけ外す。窓の手元・枝の表では外れず、gh で読めなければ照らす
+- 直した: PR の文の見張りは、判定の形の道具・整地の雛形・公開の検査を、いつも入れた plugin の版（土台の main の先端）から読む。窓の作業場・照らす枝の写しに置いた緩い物では照らさない
+- 直した: 設計書の封の入口（spec-doc の seal.py）は、値の表と型を設計書の在る repo から読む（窓が立つ所の repo の物では照らさない）。設計書が git の repo の外なら止める
+- 直した: PR 本文の書いた窓の照らし（checker の pr_writer.py）は、比べる元を省くと出所の既定の枝（ls-remote --symref で聞く）の先端で比べる（main と決め打ちしない）

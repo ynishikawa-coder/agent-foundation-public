@@ -43,20 +43,31 @@ def git(root: Path, *args: str) -> str:
     return r.stdout
 
 
+def default_branch(root: Path) -> str:
+    """出所（origin）の既定の枝の ref（例 refs/heads/main）。出所へ直に聞く（名を決め打ちしない＝既定の枝が main でない
+    repo でも、その repo が今従う枝で比べる）。聞けない時は OSError。"""
+    for ln in git(root, "ls-remote", "--symref", "origin", "HEAD").splitlines():
+        part = ln.split()
+        if len(part) == 3 and part[0] == "ref:" and part[2] == "HEAD" and part[1].startswith("refs/heads/"):
+            return part[1]
+    raise OSError("出所（origin）の既定の枝を聞けない（出所に出られる所で回す）")
+
+
 def live_main(root: Path) -> str:
-    """出所（origin）の今の main の commit。出所へ直に聞き、その commit が手元に無ければ取って来る（手元の origin/main は
+    """出所（origin）の今の既定の枝の commit。出所へ直に聞き、その commit が手元に無ければ取って来る（手元の origin/main は
     動かさない）。聞けない・取れない時は OSError（古い手元の main で書いた窓を数えない）。"""
-    out = git(root, "ls-remote", "origin", "refs/heads/main").split()
+    ref = default_branch(root)
+    out = git(root, "ls-remote", "origin", ref).split()
     tip = out[0] if out else ""
     if not re.fullmatch(r"[0-9a-f]{40}|[0-9a-f]{64}", tip):
-        raise OSError("出所（origin）の main を聞けない（出所に出られる所で回す）")
+        raise OSError(f"出所（origin）の {ref} を聞けない（出所に出られる所で回す）")
     has = lambda: subprocess.run(["git", "cat-file", "-e", f"{tip}^{{commit}}"], cwd=root,  # noqa: E731
                                  capture_output=True).returncode == 0
     if not has():
-        subprocess.run(["git", "fetch", "--quiet", "--no-tags", "origin", "+refs/heads/main:refs/af/fresh/main"], cwd=root,
+        subprocess.run(["git", "fetch", "--quiet", "--no-tags", "origin", f"+{ref}:refs/af/fresh/default"], cwd=root,
                        capture_output=True)
     if not has():
-        raise OSError(f"出所の main の先端 {tip[:12]} を手元へ取って来られない")
+        raise OSError(f"出所の {ref} の先端 {tip[:12]} を手元へ取って来られない")
     return tip
 
 

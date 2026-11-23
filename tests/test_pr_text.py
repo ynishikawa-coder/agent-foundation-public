@@ -57,12 +57,15 @@ def gh(tool, owner="fake-owner", repo="fake-private", **ti):
 FAKE_HEAD = "0123456789ab" + "c" * 28
 
 
-def _fake_gh(env, head=FAKE_HEAD, writer=WRITER, fail=False, commits=None, total=None, comments=(), visibility="private"):
+def _fake_gh(env, head=FAKE_HEAD, writer=WRITER, fail=False, commits=None, total=None, comments=(), visibility="private",
+             contents=None):
     """作り物の gh を PATH の頭に置く。実の GitHub へは出ない。
     PR を引く呼び出しには先端と本文の `書いた窓:`（写し）を、commit を引く呼び出しには各 commit の説明（`Claude-Session:` の
     記録。既定は書いた窓の 1 本・1 本ごとに JSON の 1 行）を返す。commits の None の要素は記録の無い commit。
     total は PR の commit の数（既定は返す commit の数。GitHub が commit の一覧を 250 本で切る時の作り物に、返す数より大きくする）。
-    repo の見え方を引く呼び出しには visibility を返す（None なら引けない＝exit 1）。"""
+    repo の見え方を引く呼び出しには visibility を返す（None なら引けない＝exit 1）。
+    contents は {owner/repo: 値の表} で、その repo の既定の枝の config/skill-values.json を引く呼び出しに base64 で返す
+    （他の repo・None は引けない＝exit 1）。"""
     bindir = Path(env["CLAUDE_PROJECT_DIR"]).parent / "fakebin"
     bindir.mkdir(exist_ok=True)
     gh_path = bindir / "gh"
@@ -73,8 +76,12 @@ def _fake_gh(env, head=FAKE_HEAD, writer=WRITER, fail=False, commits=None, total
     total = len(commits) if total is None else total
     # PR のコメント（初めの判定の決まりの版を読む）: 本文 1 つごとに JSON の 1 行。既定は判定の無い PR
     comments = "".join(json.dumps(c, ensure_ascii=False).replace("\\", "\\\\") + "\\n" for c in comments)
+    import base64
+    cont = "".join('*"repos/%s/contents/config/skill-values.json"*) printf \'%s\' ;; ' % (
+        r, base64.b64encode(json.dumps(t, ensure_ascii=False).encode("utf-8")).decode("ascii"))
+        for r, t in (contents or {}).items()) + '*"/contents/"*) echo \'not found\' >&2; exit 1 ;; '
     gh_path.write_text("#!/bin/sh\n" + ("echo 'not found' >&2; exit 1\n" if fail else
-                       'case "$*" in %s *"/commits"*) printf \'%s\' ;; *"/issues/"*"/comments"*) printf \'%s\' ;; *) printf \'%%s\\n%%s\\n%%s\' \'%s\' \'%s\' \'%s\' ;; esac\n'
+                       'case "$*" in ' + cont + '%s *"/commits"*) printf \'%s\' ;; *"/issues/"*"/comments"*) printf \'%s\' ;; *) printf \'%%s\\n%%s\\n%%s\' \'%s\' \'%s\' \'%s\' ;; esac\n'
                        % ('*".visibility"*) ' + ("echo 'not found' >&2; exit 1 ;;" if visibility is None else
                                                  "echo %s ;;" % visibility), msgs, comments, head, total, body)), encoding="utf-8")
     gh_path.chmod(0o755)
@@ -213,12 +220,13 @@ def test_pr_text_判定の形は道具を直に呼び無ければ止める(env, 
     assert "壊れた" in deny_reason(env, gh("add_issue_comment", issue_number=1, body=verdict_comment()))
 
 
+EXEMPT_TABLE = {"guard": {"pr_cleanup_exempt_repos": ["^fake-owner/fake-private$"],
+                           "pr_words_exempt_repos": ["^fake-owner/.*$"]}}
+
+
 def test_pr_text_誤って止まる_repo_は値の表で外せる(env, tmp_path):
-    _fake_gh(env)
-    table = tmp_path / "values.json"
-    env["SKILL_VALUES"] = str(table)
-    table.write_text(json.dumps({"guard": {"pr_cleanup_exempt_repos": ["^fake-owner/fake-private$"],
-                                           "pr_words_exempt_repos": ["^fake-owner/.*$"]}}), encoding="utf-8")
+    """外すのは出す先の repo の既定の枝の値の表（gh で読む）だけ。"""
+    _fake_gh(env, contents={"fake-owner/fake-private": EXEMPT_TABLE})
     body = "## 何をどう変えたか\n直す窓 %s\n" % STRANGER
     assert deny_reason(env, gh("create_pull_request", title="作り物", head="b", base="main", body=body)) == ""
     assert "[cleanup]" in deny_reason(env, gh("create_pull_request", repo="other", title="作り物", head="b", base="main", body=body))
@@ -337,3 +345,50 @@ def test_pr_text_の照らす物は_plugin_の説明と一覧に欠けずに書�
     assert "GitHub へ出す前の PR の文（判定の形・整地の欄・窓の id・公開の repo に置かない物）" in desc
     readme = [ln for ln in (ROOT / "plugins" / "README.md").read_text(encoding="utf-8").splitlines() if ln.startswith("- **guard**")]
     assert len(readme) == 1 and "GitHub へ出す前の PR の文" in readme[0]
+
+
+# --- 照らす物を読む版（注入の試験）: 照らされる側の作業の木・枝で書き足した物では緩まない ---
+
+def test_pr_text_手元や枝の値の表で書き足した外す行では外れない(env, tmp_path):
+    """窓の取り出し（作業の木）の値の表・SKILL_VALUES の表に外す行を足しても、出す先の既定の枝に無ければ照らす。"""
+    _fake_gh(env)                                                   # 既定の枝の表は引けない
+    table = tmp_path / "values.json"
+    table.write_text(json.dumps(EXEMPT_TABLE), encoding="utf-8")
+    env["SKILL_VALUES"] = str(table)
+    proj = Path(env["CLAUDE_PROJECT_DIR"])
+    (proj / "config").mkdir()
+    (proj / "config" / "skill-values.json").write_text(json.dumps(EXEMPT_TABLE), encoding="utf-8")
+    body = "## 何をどう変えたか\n直す窓 %s\n" % STRANGER
+    why = deny_reason(env, gh("create_pull_request", title="作り物", head="b", base="main", body=body))
+    assert "[cleanup]" in why and "[words]" in why
+    # 既定の枝の表が別の repo の行だけなら外れない
+    _fake_gh(env, contents={"fake-owner/fake-private": {"guard": {"pr_cleanup_exempt_repos": ["^fake-owner/other$"]}}})
+    assert "[cleanup]" in deny_reason(env, gh("create_pull_request", title="作り物", head="b", base="main", body=body))
+
+
+def test_pr_text_作業の木に置いた緩い判定の道具と雛形は使わない(env):
+    """照らす枝の写し（窓の repo の plugins/…）に、いつも通す判定の道具と見出しを減らした雛形を置いても、入った版で照らす。"""
+    _fake_gh(env)
+    proj = Path(env["CLAUDE_PROJECT_DIR"])
+    vf = proj / "plugins" / "checker" / "scripts" / "verdict_form.py"
+    vf.parent.mkdir(parents=True)
+    vf.write_text("import sys\nsys.exit(0)\n", encoding="utf-8")
+    tpl = proj / "plugins" / "dev-flow" / "skills" / "preimpl-cleanup" / "整地受領証.template.md"
+    tpl.parent.mkdir(parents=True)
+    tpl.write_text("---\n---\n\n## 1. 意図\n〔…〕\n", encoding="utf-8")
+    assert "[verdict]" in deny_reason(env, gh("add_issue_comment", issue_number=1, body=verdict_comment(head="")))
+    why = deny_reason(env, gh("create_pull_request", title="作り物", head="b", base="main", body="## 1. 意図\n作り物。\n"))
+    assert "[cleanup]" in why and "5. 未来" in why
+
+
+def test_pr_text_出す先の取り出しに置いた緩い公開の検査は使わない(env):
+    """土台そのものへ出す時も、取り出しの public-guard/guard.py（いつも通す）ではなく入った版で照らす。"""
+    _fake_gh(env, visibility="public")
+    proj = Path(env["CLAUDE_PROJECT_DIR"])
+    _fake_public_repo(proj, PUBLIC_WORD)
+    pg = proj / "public-guard" / "guard.py"
+    pg.parent.mkdir(parents=True)
+    pg.write_text("import sys\nsys.exit(0)\n", encoding="utf-8")
+    why = deny_reason(env, gh("create_pull_request", repo="fake-public", title="作り物",
+                              head="b", base="main", body="整地: 不要（作り物）\n" + PUBLIC_WORD + "\n"))
+    assert "[public]" in why
