@@ -31,10 +31,17 @@ ci=0
 [ "${GITHUB_ACTIONS:-}" = "true" ] && ci=1
 ran=0
 # 回した先端は PR の先端（CI の PR では event の head.sha＝scripts/pr_shape.py の pr_head）。CI の PR の HEAD は main と
-# 合わせた merge の commit なので、その時はそれも添える（PR の先端と照らす人に食い違って見せない）。
+# 合わせた merge の commit なので、その時はそれも添える（PR の先端と照らす人に食い違って見せない）。PR の event なのに
+# 先端を読めない時は HEAD（merge の commit）を先端と書かず赤にする（読めない物を「PR の外」と同じに黙って通さない）。
 here=$(git rev-parse --short=12 HEAD 2>/dev/null || echo 不明)
-if [ "${GITHUB_EVENT_NAME:-}" = "pull_request" ] && head=$(python3 scripts/pr_shape.py --print-head 2>/dev/null); then
-  at="@${head:0:12}（PR の先端・回したのは main と合わせた ${here}）"
+if [ "${GITHUB_EVENT_NAME:-}" = "pull_request" ]; then
+  if head=$(python3 scripts/pr_shape.py --print-head 2>&1); then
+    at="@${head:0:12}（PR の先端・回したのは main と合わせた ${here}）"
+  else
+    echo "${head}"
+    at="@PR の先端は不明（回したのは main と合わせた ${here}）"
+    failed+=("PR の先端（CI の event から読めない）")
+  fi
 else
   at="@${here}"
 fi

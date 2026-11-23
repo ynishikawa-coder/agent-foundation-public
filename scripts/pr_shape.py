@@ -3,7 +3,8 @@
 
   python3 scripts/pr_shape.py --branch <枝の名> --base <比べる元の ref>
   python3 scripts/pr_shape.py --print-main   出所の今の main の commit を出す（比べる元の正本。checks の入口が読む）
-  python3 scripts/pr_shape.py --print-head   PR の先端の commit を出す（CI の PR は event の head.sha。PR の外・分からない時は exit 3）
+  python3 scripts/pr_shape.py --print-head   PR の先端の commit を出す（CI の PR は event の head.sha。PR の外は exit 3・
+                                            event が在るのに読めない時は exit 2）
 
 比べる元の main は出所の今の main（fresh_main）。手元の origin/main は fetch しなければ古く、main で足された物を枝の物と
 見て赤に倒れる。出所へ先端を聞き、その commit が手元に無ければ取って来て（手元の origin/main は動かさず、土台の専用の
@@ -46,20 +47,41 @@ def git(root: Path, *args: str) -> str:
     return r.stdout
 
 
+class EventUnreadable(OSError):
+    """CI の event（GITHUB_EVENT_PATH）が在るのに読めない・PR の先端の形でない（PR の外の None と分ける）。"""
+
+
 def pr_head(env=None) -> str | None:
     """PR の先端の commit（CI の PR では event の head.sha＝PR_HEAD_SHA か GITHUB_EVENT_PATH の pull_request.head.sha）。
-    HEAD は使わない（CI の PR の HEAD は main と合わせた merge の commit で、PR の先端でない）。PR の外・分からなければ None。"""
+    HEAD は使わない（CI の PR の HEAD は main と合わせた merge の commit で、PR の先端でない）。
+    None は PR の外（PR_HEAD_SHA も event も無い・event が PR の物でない）の時だけ。event が渡されたのに読めない・壊れて
+    いる・PR の event なのに head.sha が commit の形でない時は EventUnreadable（「PR の外」と読ませない＝呼ぶ側が
+    HEAD の merge の commit を先端と取り違えない）。"""
     import json
     import os
     env = os.environ if env is None else env
     sha = (env.get("PR_HEAD_SHA") or "").strip()
-    if not sha and env.get("GITHUB_EVENT_PATH"):
-        try:
-            event = json.loads(Path(env["GITHUB_EVENT_PATH"]).read_text(encoding="utf-8"))
-            sha = str(((event.get("pull_request") or {}).get("head") or {}).get("sha") or "")
-        except (OSError, ValueError, AttributeError):
-            sha = ""
-    return sha if re.fullmatch(r"[0-9a-f]{40}|[0-9a-f]{64}", sha) else None
+    if sha:
+        if not re.fullmatch(r"[0-9a-f]{40}|[0-9a-f]{64}", sha):
+            raise EventUnreadable(f"PR_HEAD_SHA が commit の形でない（{sha[:40]}）")
+        return sha
+    path = env.get("GITHUB_EVENT_PATH")
+    if not path:
+        return None
+    try:
+        event = json.loads(Path(path).read_text(encoding="utf-8"))
+    except (OSError, ValueError) as e:
+        raise EventUnreadable(f"CI の event {path} を読めない（{type(e).__name__}: {e}）") from None
+    if not isinstance(event, dict):
+        raise EventUnreadable(f"CI の event {path} が JSON の object でない")
+    pr = event.get("pull_request")
+    if pr is None:
+        return None  # PR でない event（main への push など）
+    head = pr.get("head") if isinstance(pr, dict) else None
+    sha = str(head.get("sha") or "") if isinstance(head, dict) else ""
+    if not re.fullmatch(r"[0-9a-f]{40}|[0-9a-f]{64}", sha):
+        raise EventUnreadable(f"CI の event {path} の pull_request.head.sha が commit の形でない（{sha[:40] or '無い'}）")
+    return sha
 
 
 def fresh_main(root: Path, ref: str = "main") -> str:
@@ -246,10 +268,14 @@ def main(argv=None) -> int:
     ap.add_argument("--base")
     ap.add_argument("--repo", type=Path, default=ROOT)
     ap.add_argument("--print-main", action="store_true", help="出所の今の main の commit を出す（checks の入口が比べる元に使う）")
-    ap.add_argument("--print-head", action="store_true", help="PR の先端の commit を出す（PR の外・分からなければ exit 3）")
+    ap.add_argument("--print-head", action="store_true", help="PR の先端の commit を出す（PR の外は exit 3・event を読めなければ exit 2）")
     a = ap.parse_args(argv)
     if a.print_head:
-        head = pr_head()
+        try:
+            head = pr_head()
+        except EventUnreadable as e:
+            print(f"✗ PR の先端を読めない — {e}", file=sys.stderr)
+            return 2
         if not head:
             print("✗ PR の先端が分からない（PR_HEAD_SHA も event の pull_request.head.sha も無い）", file=sys.stderr)
             return 3

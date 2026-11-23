@@ -1,0 +1,4 @@
+- 直した: CI の PR で event を読めない・壊れている・head.sha が無い時、`scripts/pr_shape.py --print-head` は「PR の外」（exit 3）と分けて exit 2 で止め、`check_all` は main と合わせた merge の commit を PR の先端と書かず赤にする。
+- 直した: 開いている窓への 2 回目の急ぎの知らせの「変わった plugin」を、急ぎと同じく窓が最後に取った先端から数える（届けた plugin をまた挙げない）。
+- 直した: レビューの関所（checker の review_gate）が、同じ workflow を同じ event で走らせ直した新しい check suite（PR の本文を直した edited の走りなど）の結果で古い suite の赤を上書きする（別の workflow の同名の赤は今までどおり残す）。
+- 足した: 浅い目録の clone で急ぎの直しを段に歴史を足して見つける・取れない時に名指す試験。
