@@ -279,10 +279,13 @@ def test_pr_text_公開の_repo_で検査が見つからない時も止める(en
 def test_pr_text_手元に取り出しの無い公開の_repo_は値の表で足せる(env, tmp_path):
     table = tmp_path / "values.json"
     env["SKILL_VALUES"] = str(table)
+    table.write_text("{}", encoding="utf-8")                       # 表は在るが行が無い（表の file が無いのは読めない表＝公開と見る側）
     p = gh("add_issue_comment", issue_number=1, body="連絡は %s へ" % MAIL, repo="far-public")
     _fake_gh(env)                                                  # GitHub の記録は private（記録が違っても値の表で足せる）
     assert deny_reason(env, p) == ""
     table.write_text(json.dumps({"guard": {"public_repos_extra": ["^fake-owner/far-public$"]}}), encoding="utf-8")
+    assert "[public]" in deny_reason(env, p)
+    table.unlink()                                                 # 指した表が無い＝読めない表は公開と見て照らす
     assert "[public]" in deny_reason(env, p)
 
 
