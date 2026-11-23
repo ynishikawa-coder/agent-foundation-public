@@ -9,8 +9,8 @@ from pathlib import Path
 
 import pytest
 from entry_box import box_env, copy_entry
-from md_yomi import 箇条の子
-from uses import sh_code
+from md_yomi import 地の行
+import test_core_plugin_okiba as 照らし
 from saimoku import 全文 as 細目の全文
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -307,51 +307,29 @@ def test_核が上限を越えると赤(monkeypatch, tmp_path, capsys):
     assert "核" in capsys.readouterr().out
 
 
-def _節(text, n):
-    a = text.index(f"## {n}. ")
-    b = text.find("\n## ", a + 1)
-    return text[a:] if b < 0 else text[a:b]
-
+# 核・細目・振る舞いの要の語は、置かれた所（核の箇条・細目の欄）で test_core_plugin_okiba.py の照らしが読む（字のどこかに在るかで照らさない）。
 
 def test_核の根治は意図_課題_原因_解決_未来の_5_段で_未来は試験の段でない():
-    kaku_text = (PLUGIN / "核.md").read_text(encoding="utf-8")
-    s3 = _節(kaku_text, 3)
-    assert "仕組み・設計）が悪い前提" in s3 and "別の目の助手" in s3
-    # 段の名と順は tests/test_mgk_5_dan.py が細目 §3 の箇条の形で照らす（ここで字を数えて二重に照らさない）。
-    # ここは段の中身の要が、その段の箇条の中に在るか（別の段や別の節に在っても数えない）。
-    dan = dict(箇条の子(_節(細目の全文(), 3), "根治の 5 段"))
-    for step, words in {"原因": ["無理・無駄・重複", "聞かせ方", "混じって"], "未来": ["意図が果たされ", "試験を足す段ではない"]}.items():
-        missing = [w for w in words if w not in dan.get(step, "")]
-        assert not missing, f"細目 §3 の {step} の段に無い: {missing}"
+    # 段の名と順は tests/test_mgk_5_dan.py が細目 §3 の箇条の形で照らす。ここは段の中身の要がその段の箇条の中に在るか。
+    assert not 照らし.箇条の語(照らし.核(), 3, ["仕組み・設計）が悪い前提", "別の目の助手"])
+    assert not [p for p in 照らし.細目の崩れ(only=[3]) if "の段に無い" in p]
 
 
 def test_問いは選ぶ問いと開いた問いに分け_分からないを置き_言葉を混ぜない():
-    kaku_text = (PLUGIN / "核.md").read_text(encoding="utf-8")
-    s4 = _節(kaku_text, 4)
-    for word in ["選択肢の画面", "開いた問い", "AI の読み"]:
-        assert word in s4, f"核 §4 に無い: {word}"
-    assert "例え話にせず" in _節(kaku_text, 2)
-    s4d = _節(細目の全文(), 4)
-    for word in ["どの問いにも「分からない」の選択肢", "「分からない」が返った", "AI の今の読み", "選ぶ問いと開いた問い", "問いの言葉", "開発用語", "業界の専門用語", "決まりの言葉", "オーナーの言葉", "例え話に替えず"]:
-        assert word in s4d, f"細目 §4 に無い: {word}"
+    assert not 照らし.箇条の語(照らし.核(), 4, ["選択肢の画面", "開いた問い", "AI の読み"])
+    assert not 照らし.箇条の語(照らし.核(), 2, ["例え話にせず"])
+    for name in ["選ぶ問いと開いた問い", "問いの言葉"]:
+        assert not 照らし.細目の欄の語(4, name, 照らし.細目の語[4][name])
 
 
 def test_聞き方は見せてから聞き_前提の出所を分け_推奨の印は分かれ道だけ_待つ間は答えに頼らない事だけ():
     """原因の台帳の 4 行（2026-11-19）: 問いの文に全部を詰める・推奨の印が済んだかにも付く・前提に AI の推測を事実として置く・
     「待つ間も止まらない」が合意の要る事まで進める と読まれる。古い文を戻すと赤。"""
-    s4 = _節((PLUGIN / "核.md").read_text(encoding="utf-8"), 4)
-    for word in ["案と前提をチャットで先に見せ", "画面の問いは 1 文に", "推奨の印は作り方の分かれ道だけ",
-                 "済んだかは AI が確かめてから", "答えを待つ間は答えに頼らない事を進める"]:
-        assert word in s4, f"核 §4 に無い: {word}"
-    s4d = _節(細目の全文(), 4)
-    for word in ["**見せてから聞く**", "1 文（前提も①へ）", "選択肢の説明へ", "**前提の出所**", "オーナーの言葉／記録の事実／AI の読み",
-                 "「ずれ」と決め込まない", "「なぜこの形か」を問う", "**推奨の印**", "済んだかの確認には付けない",
-                 "**答えを待つ間**", "推奨で先に進めない", "「終わった」「うまくいかない」「分からない」・推奨の印は付けない"]:
-        assert word in s4d, f"細目 §4 に無い: {word}"
-    mock = (ROOT / "plugins" / "docs-kit" / "skills" / "theory-mock" / "SKILL.md").read_text(encoding="utf-8")
-    assert "作り方の分かれ道（画面・データ・流れをどう作るか）だけを置き" in mock and "推奨を付けずにチャットで聞く" in mock
-    reminder = (ROOT / "plugins" / "guard" / "scripts" / "unanswered.py").read_text(encoding="utf-8")
-    assert "この答えに頼らない作業だけを進めて" in reminder
+    assert not 照らし.箇条の語(照らし.核(), 4, 照らし.核の語[4][1])
+    assert not 照らし.細目の崩れ(only=[4])
+    assert not 照らし.理論モックの印の崩れ()
+    reminder = 照らし.待つ間の知らせ()     # 埋めて出る文で照らす（字の在り処でなく、出る知らせ）
+    assert "この答えに頼らない作業だけを進め" in reminder and "推奨で先に進めず" in reminder
     olds = ["答えを待つ間も止まらない", "①決めること ②なぜ今 ③材料", "推奨を 1 つ目に `(推奨)`", "「終わった（推奨）」",
             "戻せる作業だけを推奨案で進めて", "答え待ちで推奨を採った", "質問（`Q`）は必ず推奨と", "推奨を 1 つ目・", "推奨を 1 つ目・1 画面 4 問まで", "推奨で決めて"]
     hits = old_words_left(olds)
@@ -367,26 +345,18 @@ def test_古い根治と聞き方の言い回しが土台に残らない():
 
 def test_一言の返事は札と締めを省き_窓の役に決まった一覧を置かない():
     """同じ原因（決まりが 1 つの形に押し込める）の残り: 短い返事に 3 行を足さない・役の名を 5 つに閉じない。古い形を戻すと赤。"""
-    kaku_text = (PLUGIN / "核.md").read_text(encoding="utf-8")
-    assert "一言で済む返事は札と締めを省く" in _節(kaku_text, 5)
-    s5d = _節(細目の全文(), 5)
-    assert "**一言で済む返事**" in s5d and "札を付けたら締めも付ける" in s5d
+    assert not 照らし.箇条の語(照らし.核(), 5, ["一言で済む返事は札と締めを省く"])
+    assert not 照らし.細目の崩れ(only=[5])
     olds = ["の 5 つだけ。他の名を足さない", "親・書く・レビュー・調べ・手 の 5 つ", "社内で確かめてから答える", "問いの形（3 つだけ）", "決まった 4 文"]
     hits = old_words_left(olds)
     assert not hits, hits
 
 
 def test_核の根治は誤りが入れない形と注入の試験を持つ():
-    kaku_text = (PLUGIN / "核.md").read_text(encoding="utf-8")
-    s3 = _節(kaku_text, 3)
-    for word in ["誤りが入れない形", "1 つの正本", "写さない", "既定で止める", "証明", "人の関所", "わざと入れて"]:
-        assert word in s3, f"核 §3 に無い: {word}"
-    assert "申告でなく記録" in _節(kaku_text, 7)
-    saimoku = 細目の全文()
-    s3d = _節(saimoku, 3)
-    for word in ["写す工程を無くす", "誤った物が入れない", "正しい道だけが外へ出す", "防げない物は名指しで人の関所へ", "注入の試験", "古い道は残さず"]:
-        assert word in s3d, f"細目 §3 に無い: {word}"
-    assert "記録で確かめる" in _節(saimoku, 7)
+    assert not 照らし.核の崩れ()
+    for name in ["誤りが入れない形", "根治の 5 段"]:
+        assert not 照らし.細目の欄の語(3, name, 照らし.細目の語[3][name])
+    assert not 照らし.細目の欄の語(7, "記録で確かめる", [])
 
 
 # ── 古い土台で立った窓を見つける（入っている物と main の先端を比べる）。remote は作り物の git ──
@@ -533,20 +503,14 @@ def test_起動の記録が無い窓は見に行かない(tmp_path):
 
 def test_挙げた原因は全部台帳に行き先つきで持ち_全部済むまで終わったと言わない():
     """原因が 5 つ挙がって 1 つしか直らない形を戻すと赤（1 つ選ぶ・一番手前から取る・どれを今回直すか）。"""
-    kaku_text = (PLUGIN / "核.md").read_text(encoding="utf-8")
-    s3 = _節(kaku_text, 3)
-    for word in ["原因の台帳", "全部", "行き先"]:
-        assert word in s3, f"核 §3 に無い: {word}"
-    s3d = _節(細目の全文(), 3)
-    for word in ["1 つ 1 行", "`直す窓`", "`直した`", "`直さない`", "オーナーが決めた理由"]:
-        assert word in s3d, f"細目 §3 の原因の台帳に無い: {word}"   # 行き先の細かさは細目が正本（核は芯だけ）
-    s7 = _節(kaku_text, 7)
-    assert "「直した」か「直さない」になるまで終わったと言わない" in s7 and "直す窓の行が残れば一部" in s7
-    s4 = _節(kaku_text, 4)
-    assert "並べて 1 つ選ばせる問いを出さない" in s4 and "全部やり、分け方は AI が決める" in s4
-    saimoku = 細目の全文()
-    assert "**原因の台帳**" in _節(saimoku, 3) and "**選ばせない**" in _節(saimoku, 4) and "**根治の終わり**" in _節(saimoku, 7)
-    assert "1 本の列にせず" in (PLUGIN / "振る舞い.md").read_text(encoding="utf-8"), "引き継ぎの残りが番号の列に戻った"
+    k = 照らし.核()
+    assert not 照らし.箇条の語(k, 3, ["原因の台帳", "全部", "行き先"])
+    assert not 照らし.箇条の語(k, 7, 照らし.核の語[7][0])
+    assert not 照らし.箇条の語(k, 4, 照らし.核の語[4][0])
+    # 行き先の細かさは細目が正本（核は芯だけ）
+    assert not 照らし.細目の欄の語(3, "原因の台帳", 照らし.細目の語[3]["原因の台帳"])
+    assert not 照らし.細目の欄の語(4, "選ばせない", []) and not 照らし.細目の欄の語(7, "根治の終わり", [])
+    assert not 照らし.欄の語(照らし.振る舞い(), "後継へ渡す残り", ["1 本の列にせず"], "振る舞い.md"), "引き継ぎの残りが番号の列に戻った"
     olds = ["どれを今回直す", "一番手前の未決から取る", "どれから進めますか」と聞"]
     hits = old_words_left(olds)
     assert not hits, hits
@@ -586,14 +550,11 @@ def test_挙げた原因は全部台帳に行き先つきで持ち_全部済む�
 
 def test_残りの受け皿は原因の台帳_1_つで_名だけの受け皿を持たない():
     """古い形（自分の名の受け皿・A/B を 1 つ選ばせて捨てる・相談を出ると論点が消える）を戻すと赤。"""
-    s3d = _節(細目の全文(), 3)
-    assert "**残りの受け皿は原因の台帳 1 つ**" in s3d
-    for word in ["`台帳へ` の札", "DEFER", "一時しのぎ", "「一部」の残り", "どの窓も持たなかった論点", "選ばれなかった案",
-                 "1 窓 1 枝 1 PR に入らなかった仕事", "合流の後の続き", "道具の都合", "正本は台帳"]:
-        assert word in s3d, f"細目 §3 の残りの受け皿に無い: {word}"
+    name = "残りの受け皿は原因の台帳 1 つ"
+    assert not 照らし.細目の欄の語(3, name, 照らし.細目の語[3][name])
     missing = []
-    for rel, key in 残りの所:
-        lines = [ln for ln in (ROOT / rel).read_text(encoding="utf-8").splitlines() if key in ln]
+    for rel, key in 残りの所:   # 注記・囲いの中の行は数えない（地の行）
+        lines = [ln for ln in 地の行((ROOT / rel).read_text(encoding="utf-8")) if key in ln]
         if len(lines) != 1 or "原因の台帳" not in lines[0]:   # 2 行に当たる語は、片方を古い形に戻しても緑になる
             missing.append(f"{rel}: {key}")
     assert not missing, missing
@@ -606,34 +567,20 @@ def test_残りの受け皿は原因の台帳_1_つで_名だけの受け皿を�
 
 def test_土台の直しは使う側の写しの残りも同じ仕事で直し_合流まで終わったと言わない():
     """写しの残りを洗い出すだけで終わる形（直す持ち主が無い）を戻すと赤。"""
-    s7d = _節(細目の全文(), 7)
-    line = [ln for ln in s7d.splitlines() if "**土台の直しの終わり**" in ln]
-    assert len(line) == 1, "細目 §7 に「土台の直しの終わり」が無い"
-    for word in ["使う側の repo", "同じ仕事の中で直す", "洗い出しだけで終わらせない", "使う側の写しの残り", "合流するまで「終わった」と言わない", "原因の台帳の行"]:
-        assert word in line[0], f"土台の直しの終わりに無い: {word}"
+    name = "土台の直しの終わり"
+    assert not 照らし.細目の欄の語(7, name, 照らし.細目の語[7][name])
     # PR の型がこの欄を節として持つかは test_PR_の型は決まりが名で指す欄を節として持ち_残りは最後で台帳を指す が照らす
-    assert "土台の直しの終わり" in (ROOT / "CONTRIBUTING.md").read_text(encoding="utf-8")
-    dm = [ln for ln in (ROOT / "plugins/dev-flow/skills/design-mode/SKILL.md").read_text(encoding="utf-8").splitlines() if ln.startswith("   | 写しの残り |")]
-    assert len(dm) == 1 and "同じ仕事の中" in dm[0], "design-mode の写しの残りが洗い出すだけに戻った"
+    assert not 照らし.土台の直しの所の崩れ()   # CONTRIBUTING の置き場（1. 枝と PR）と design-mode の表の行
 
 
 def test_ミスが出たらまず構造を疑い_単発と言うのは絵の上で示せた時だけ():
     """根治の入口を「直す・作る時」だけに戻す・単発で片付ける道を戻す・規律を 2 度目まで足し続ける形を戻すと赤。"""
-    kaku_text = (PLUGIN / "核.md").read_text(encoding="utf-8")
-    s3 = _節(kaku_text, 3)
-    first = s3.split("\n- ", 1)[1]
-    assert first.startswith("ミスが出た時（画面の見た目を除く）と直す・作る時の既定は根治"), "根治の入口が直す・作る時だけに戻った"
-    for word in ["まず構造（上位の前提", "単発の誤りと言うのは構造に原因が無いと示せた時だけ（絵があれば絵の上で）",
-                 "守り（確かめ・決まり）を足さず"]:
-        assert word in s3, f"核 §3 に無い: {word}"
-    s3d = _節(細目の全文(), 3)
-    assert "**まず構造を疑う**" in s3d
-    for word in ["作業の途中・レビュー・検査・引き継ぎ", "画面の見た目の崩れだけは除く", "示した所を書く（合意した全体の絵があれば絵のどこを見たか、無ければ言葉で）",
-                 "根に届いていない合図で、原因の段へ戻る"]:
-        assert word in s3d, f"細目 §3 の「まず構造を疑う」に無い: {word}"
+    assert not 照らし.核の崩れ(), "根治の入口が直す・作る時だけに戻った・単発で片付ける道が戻った"
+    name = "まず構造を疑う"
+    assert not 照らし.細目の欄の語(3, name, 照らし.細目の語[3][name])
     rr = (ROOT / "plugins" / "dev-flow" / "skills" / "register-rule" / "SKILL.md").read_text(encoding="utf-8")
-    assert "細目 §3「まず構造を疑う」" in rr, "register-rule が規律を足す前に原因の段へ戻さない"
-    assert "細目 §3「まず構造を疑う」" in (ROOT / "CONTRIBUTING.md").read_text(encoding="utf-8"), "red を単発の手直しで済ませる形に戻った"
+    assert 照らし.入口が赤の隣に在る(rr, with_word=re.compile(r"規律|足す")), "register-rule が規律を足す前に原因の段へ戻さない"
+    assert not 照らし.入口の崩れ("CONTRIBUTING.md"), "red を単発の手直しで済ませる形に戻った"
     olds = ["同じ種類の失敗が 2 度なら", "原因は仕組み・設計が悪い前提で探し"]
     hits = old_words_left(olds)
     assert not hits, hits
@@ -641,36 +588,17 @@ def test_ミスが出たらまず構造を疑い_単発と言うのは絵の上�
 
 def test_核から細目へ移した物が細目に在る():
     """量を空けるために核から移した物が、どこにも無くならない。"""
-    saimoku = 細目の全文()
-    assert "「ほぼ終わった」と書かない" in _節(saimoku, 7)
-    s8 = _節(saimoku, 8)
-    assert "Javis は Notion と Drive" in s8 and "**またぐ連絡**" in s8
+    assert not 照らし.細目の崩れ(only=[7, 8])
 
 
 # ---- 振る舞いの既定（AI の癖と逆を求める物）は核と一緒に毎回差し込む ----
-
-FURUMAI_WORDS = {  # 既定の要の語: 振る舞い.md だけに在り、細目に戻らない（2 か所に書かない）
-    "並走": ["着手と言われたら確認させずに進め", "5 分を超える作業は窓・助手を並べて同時に進める",
-             "読むだけの調べは助手", "書く仕事と互いに待たない長い仕事は窓"],
-    "後継": ["1 本の列にせず"],
-    "範囲": ["止まる条件は狭く", "黙って縮めない"],
-    "聞かない": ["自分の枝への push の前に聞かない", "依頼文の出来を人に見てもらわない"],
-    "引く": ["決定の記録と問いの表を問いと同じ言葉で引く"],
-    "人の手": ["まず Claude in Chrome に貼る文"],
-    "正本": ["「無い」「止まった」と言い切る前に正本を読む"],
-    "ぼかさない": ["「たぶん」「概ね」「〜と思われます」と書かず", "前→後"],
-    "逃げ場": ["「できれば」「間に合わなければ後で」と書かない"],
-    "呼び出し": ["2 回で打ち方を変えるか止める"],
-    "一覧": ["削らず選ばず全部を原因の台帳へ", "直す窓は行ごとでなく関係しない束ごとに並べる"],
-    "MGK": ["「MGK して」と言ったら"],
-}
+# 既定の要の語（欄の名ごと）の正本は test_core_plugin_okiba.py の 振る舞いの語（振る舞い.md のその欄だけに在り、細目に戻らない）
 
 
 def test_振る舞いの既定は全部_振る舞い_md_に在り細目に戻らない():
-    furumai = (PLUGIN / "振る舞い.md").read_text(encoding="utf-8")
     saimoku = 細目の全文()
-    missing = [w for ws in FURUMAI_WORDS.values() for w in ws if w not in furumai]
-    assert not missing, f"振る舞いの既定に無い: {missing}"
+    missing = 照らし.振る舞いの崩れ()
+    assert not missing, f"振る舞いの既定の欄に無い: {missing}"
     olds = ["自分の枝への push の前", "「無い」「止まった」と言い切る前", "間に合わなければ後で", "2 回で打ち方を変える",
             "「たぶん」「概ね」", "削らない・選ばない", "5 分を超え", "③は 1 本の列", "説明・振り返りの頼みでもこの 4 段",
             "広く任された物として進め", "依頼文の出来を人に求めない"]
@@ -735,8 +663,8 @@ def test_失敗で終わる道具は一覧に載せなくても全部根治の�
     tools = [r for r in out.stdout.split() if r.endswith((".py", ".sh", ".mjs", ".js"))]
     found = [r for r in tools if 失敗で終わる.search((ROOT / r).read_text(encoding="utf-8"))]
     assert "public-guard/guard.py" in found and "plugins/guard/scripts/guard.py" in found, "拾い方が壊れた"
-    entry = re.compile(r"細目(?:\s*§\s*\d+)?「まず構造を疑う」")  # 番号は付けても付けなくても（合うかは refs.py が照らす）
-    missing = [r for r in found if not entry.search((ROOT / r).read_text(encoding="utf-8"))]
+    # 入口は注釈の外で、赤・止めの文と同じまとまりに在るか（番号の有無は問わない・合うかは refs.py が照らす）
+    missing = [p for r in found for p in 照らし.入口の崩れ(r)]
     assert not missing, f"失敗で終わるのに根治の入口を指さない道具: {missing}"
 
 
@@ -760,9 +688,9 @@ def 単発の手直しの文(text):
 @pytest.mark.parametrize("rel", sorted(赤を返す所))
 def test_赤を返す所は根治の入口を指し単発の手直しの形が無い(rel):
     """赤・red・抜けを返す所が、直して出し直す・1 行足すだけの古い形に戻ると赤。指す先の正本が無くなっても赤。"""
-    assert "**まず構造を疑う**" in _節(細目の全文(), 3), "指す先の正本が無い"
+    assert not 照らし.細目の欄の語(3, "まず構造を疑う", []), "指す先の正本が無い"
     text = (ROOT / rel).read_text(encoding="utf-8")
-    assert "細目 §3「まず構造を疑う」" in text, f"{rel} が根治の入口（細目 §3「まず構造を疑う」）を指さない"
+    assert not 照らし.入口の崩れ(rel, text), f"{rel} が赤の文の隣で根治の入口（細目 §3「まず構造を疑う」）を指さない"
     for old in 赤を返す所[rel]:
         assert old not in text, f"{rel} に単発の手直しの古い形が残る: {old}"
     left = list(単発の手直しの文(text))
@@ -863,10 +791,9 @@ def test_差し込む物を足すと増え方の照らしもそれを見る(monk
     assert "三つ目.md" in capsys.readouterr().out
 
 
-def test_増え方の照らしは検査の入口から回る():
+def test_増え方の照らしは検査の入口から回る(tmp_path):
     assert kaku.injected() == (kaku.KAKU, kaku.FURUMAI)
-    sh = sh_code((ROOT / "scripts" / "checks" / "kaku_growth.sh").read_text(encoding="utf-8"))   # 注釈の字は回すことにならない
-    assert "kaku.py grow --base" in sh and "pr_shape.py --print-main" in sh   # 比べる元は出所の今の main（前は注釈の origin/main の字で緑だった）
-    ci = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
-    check_job = ci.split("public-guard:")[0]
-    assert "fetch-depth: 0" in check_job, "CI の check が origin/main を取らず、比べる元が無くなる"
+    # 入口を作り物の python3・git で回し、出所の今の main との分かれ目で grow を呼ぶか（字の在り処でなく回した結果）
+    rc, log = 照らし.増え方の入口を回す(tmp_path, "a" * 40)
+    assert rc == 0 and "--print-main" in log and f"grow --base {'a' * 40}" in log
+    assert 照らし.ci_の_check_は全部の歴史を取る(), "CI の check が origin/main を取らず、比べる元が無くなる"
