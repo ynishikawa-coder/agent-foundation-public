@@ -19,6 +19,7 @@
                                       核の写しの枠を持たないかも照らす。
   python3 kaku.py grow --base REF     増やさない物（guarded() の一覧＝毎回差し込む物と形の細目）が git の REF の時より
                                       増えていないかを照らす。足すなら同じ変更で同じだけ畳む（上限の内で足し続けて満杯にしない）。
+                                      守りの数（guard の見張り・scripts/checks の検査・review-pr の点。安全の守りは除く）も REF と比べる。
   python3 kaku.py olds DIR...         使う側の repo の main（origin の既定の枝）の中身に古い形.json の古い形が残っていないかを照らす
                                       （main を持たない dir は checkout を読む）
                                       （「壊れる（2 段目）」の前に、使う側が移ったのを記録で確かめる口）。
@@ -1593,7 +1594,90 @@ def base_text(ref: str, path: Path) -> str:
     raise OSError(f"{ref}:{rel} に .md が無い")
 
 
+# 守りの数（オーナー同意 2026-11-23: 守るための守りを足し続けない）。見張り（guard の hook）・CI の検査・レビューの点の数が
+# REF より増えたら赤（足すなら同じ変更で 1 つ畳む）。安全の守り（戻せない操作・秘密と外への送信・お金・公開の検査）は数えない。
+# 試験は数を出すだけで止めない。
+REPO = PLUGIN.parent.parent
+GUARD_HOOKS = "plugins/guard/scripts"
+CHECKS = "scripts/checks"
+WORKFLOWS = ".github/workflows"
+REVIEW_POINTS = "plugins/checker/skills/review-pr/SKILL.md"
+SAFETY = frozenset({"irreversible.py", "outbound.py", "paid_upstream.py", "public_guard.sh"})
+COUNT_FIX = "直し: 守りを足すなら同じ変更で同じ種類を 1 つ畳む（近い見張り・検査・点へ寄せる）。安全の守りは数えない（SAFETY）"
+
+
+def guard_counts(ref: str | None = None, root: Path | None = None) -> dict[str, int]:
+    """守りの数。ref が None なら手元の中身、在れば git の ref の時の中身を数える。読めない時は OSError で止める。"""
+    root = root or REPO
+
+    def names(rel: str) -> list[str]:
+        if ref is None:
+            d = root / rel
+            if not d.is_dir():
+                raise OSError(f"{rel} が無い")
+            return sorted(x.name for x in d.iterdir())
+        r = subprocess.run(["git", "-c", "core.quotepath=off", "ls-tree", "--full-tree", "--name-only", f"{ref}:{rel}"],
+                           cwd=root, capture_output=True)
+        if r.returncode != 0:
+            raise OSError(f"{ref}:{rel} が読めない: {r.stderr.decode('utf-8', 'replace').strip()}")
+        return sorted(r.stdout.decode("utf-8").splitlines())
+
+    def has(rel: str) -> bool:
+        if ref is None:
+            return (root / rel).is_file()
+        return subprocess.run(["git", "cat-file", "-e", f"{ref}:{rel}"], cwd=root, capture_output=True).returncode == 0
+
+    def text(rel: str) -> str:
+        if ref is None:
+            return (root / rel).read_text(encoding="utf-8")
+        r = subprocess.run(["git", "show", f"{ref}:{rel}"], cwd=root, capture_output=True)
+        if r.returncode != 0:
+            raise OSError(f"{ref}:{rel} が読めない: {r.stderr.decode('utf-8', 'replace').strip()}")
+        return r.stdout.decode("utf-8")
+
+    hooks = sum(1 for n in names(GUARD_HOOKS) if n.endswith(".py") and n not in SAFETY
+                and re.search(r"^HOOKS\b\s*(:[^=\n]*)?=", text(f"{GUARD_HOOKS}/{n}"), re.M))
+    entries = 0  # plugin の hooks.json に登録した hook の口（guard の外に見張りを置いても数える）
+    for plug in names("plugins"):
+        rel = f"plugins/{plug}/hooks/hooks.json"
+        if has(rel):
+            entries += sum(len(m.get("hooks", [])) for arr in json.loads(text(rel)).get("hooks", {}).values() for m in arr)
+    checks = sum(1 for n in names(CHECKS) if n.endswith(".sh") and n not in SAFETY)
+    steps = sum(1 for n in names(WORKFLOWS) if n.endswith((".yml", ".yaml"))
+                for line in text(f"{WORKFLOWS}/{n}").splitlines()
+                if re.match(r"\s*(- )?run:", line) and not re.search(r"public[-_]guard", line))
+    points = len(re.findall(r"^\| *\d+ ", text(REVIEW_POINTS), re.M))
+    return {"守りの見張り（guard の hook）": hooks, "hook の口（plugin の hooks.json）": entries,
+            "CI の検査（scripts/checks）": checks, "CI の段（workflow の run）": steps, "レビューの点（review-pr）": points}
+
+
+def test_count(root: Path | None = None) -> str:
+    """試験の数（出すだけ・止めない）。"""
+    files = sorted((root or REPO).glob("tests/test_*.py"))
+    funcs = sum(len(re.findall(r"^def test_", f.read_text(encoding="utf-8"), re.M)) for f in files)
+    return f"・試験: {len(files)} file・{funcs} 本（数えるだけ・止めない）"
+
+
 def grow(ref: str) -> int:
+    over = []
+    try:
+        now_n, before_n = guard_counts(), guard_counts(ref)
+    except UNREADABLE as e:
+        print(f"✗ 守りの数を照らせない: {e}")
+        return 2
+    for k, now in now_n.items():
+        if now > before_n[k]:
+            over.append(f"{k} が {ref} より増えた: {before_n[k]} → {now}（+{now - before_n[k]}）")
+        else:
+            print(f"・{k}: {before_n[k]} → {now}")
+    for b in over:
+        print(f"✗ {b}")
+    if over:
+        print(COUNT_FIX)
+    try:
+        print(test_count())
+    except UNREADABLE:
+        pass  # 数を出すだけ（止めない）
     bad = []
     for path in guarded():
         try:
@@ -1611,8 +1695,9 @@ def grow(ref: str) -> int:
         print(f"✗ {b}")
     if bad:
         print(GROW_FIX)
+    if bad or over:
         return 1
-    print("✅ 毎回差し込む物と細目は増えていない")
+    print("✅ 毎回差し込む物・細目・守りの数は増えていない")
     return 0
 
 
