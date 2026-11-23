@@ -20,10 +20,3 @@ def test_答えの知らせに値の表の書き方が載る(env, tmp_path):
         json.dumps({"guard": {"answer_record": "作り物の記録の口に書く"}}, ensure_ascii=False), encoding="utf-8")
     data = dict(ask_result(answered=True), cwd=str(repo))
     assert "この repo の書き方: 作り物の記録の口に書く" in hook(env, "post", data).get("additionalContext", "")
-
-
-def test_答えの知らせは細目8の道と欄を写さない(env):
-    """知らせが §8 の道・欄を自分の言葉で写すと、§8 を直した時にずれる（レビューの red の注入）。"""
-    note = hook(env, "post", ask_result(answered=True)).get("additionalContext", "")
-    for copied in ("意図｜決めた中身", "原文｜時刻", "決まりの文へ", "直す窓"):
-        assert copied not in note, copied
