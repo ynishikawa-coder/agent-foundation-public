@@ -45,6 +45,7 @@ import os
 import re
 import subprocess
 import sys
+from datetime import datetime, timezone
 
 sys.dont_write_bytecode = True
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -121,15 +122,19 @@ def split_response(tool_response):
 # ── 台帳（窓をまたいで残す）──
 def repo_home(root):
     """台帳の鍵にする repo の本体の根。作業部屋（git worktree）から起動しても本体と同じ 1 冊を指すよう、
-    git の共通の dir（--git-common-dir）の親を使う。git の外・読めない時は root そのもの。"""
+    git の共通の dir（--git-common-dir）の親を使う。git の外（git がそう言った時）は root そのもの。
+    git が失敗した・時間切れ・打てない時は ""（cwd の根へ黙って落とすと、作業部屋では本体と別の冊を読む。
+    呼ぶ側は置き場を決められないと名指す）。"""
     real = os.path.realpath(root)
     try:
         out = subprocess.run(["git", "-C", real, "rev-parse", "--path-format=absolute", "--git-common-dir"],
                              capture_output=True, text=True, timeout=10,
                              env={k: v for k, v in os.environ.items() if not k.startswith("GIT_")})
-        common = out.stdout.strip() if out.returncode == 0 else ""
-    except Exception:
-        common = ""
+    except Exception:  # noqa: BLE001  git を打てない＝どの冊か決められない
+        return ""
+    if out.returncode != 0:
+        return real if "not a git repository" in (out.stderr or "") else ""
+    common = out.stdout.strip()
     if common and os.path.basename(common.rstrip(os.sep)) == ".git":
         return os.path.realpath(os.path.dirname(common.rstrip(os.sep)))
     return real
@@ -142,6 +147,8 @@ def ledger_path(vals, payload=None):
     if not base or not root:
         return ""
     real = repo_home(root)
+    if not real:
+        return ""
     key = "%s-%s" % (G.safe_id(os.path.basename(real), 40) or "repo",
                      hashlib.sha1(real.encode("utf-8")).hexdigest()[:10])
     return os.path.join(base, key, LEDGER_NAME)
@@ -346,16 +353,26 @@ def close_away(session_id):
 
 
 def read_away(session_id):
-    """開いていれば中身、閉じていれば None（在席中はここで終わる＝stat 1 回）。"""
+    """開いていれば中身、閉じていれば None（在席中はここで終わる＝stat 1 回）。
+    印が在るのに読めない・壊れている時は離席の側に倒す（在席と取り違えて戻せない操作を通さない）。
+    その時の since は印の file の時刻（席に戻ったかはそこから見る）。"""
     p = away_path(session_id)
-    if not p or not os.path.isfile(p):
+    if not p or not os.path.exists(p):
         return None
     try:
         with open(p, encoding="utf-8") as f:
             d = json.load(f)
-        return d if isinstance(d, dict) else None
-    except Exception:
-        return None
+        if isinstance(d, dict) and G.parse_ts(d.get("since")) is not None:
+            return d
+        why = "中身が離席の印の形でない"
+    except Exception as e:  # noqa: BLE001  読めない事そのものを訳にする
+        why = "%s" % type(e).__name__
+    try:
+        since = datetime.fromtimestamp(os.path.getmtime(p), timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    except OSError:
+        since = ""
+    return {"since": since, "session_id": session_id, "broken": why,
+            "questions": ["(離席の印 %s を読めない: %s。離席として扱う)" % (p, why)]}
 
 
 # ── hook の口 ──

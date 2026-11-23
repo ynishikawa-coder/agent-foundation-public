@@ -1079,13 +1079,18 @@ def _note_path(env, sid):
 
 
 def put_note(env, sid, text):
-    """次の頼みの時に出す知らせを置く（前の知らせは新しい物に替える＝溜めない）。置けなければ黙る。"""
+    """次の頼みの時に出す知らせを置く（前の知らせは新しい物に替える＝溜めない）。置けたら True。
+    置けない時は黙らず、置き場と訳を stderr に名指し、知らせの本文もそこへ出す（窓は止めない）。"""
+    path = _note_path(env, sid)
     try:
         os.makedirs(stop_tmp(env), exist_ok=True)
-        with open(_note_path(env, sid), "w", encoding="utf-8") as f:
+        with open(path, "w", encoding="utf-8") as f:
             f.write(text)
-    except OSError:
-        pass
+        return True
+    except OSError as e:
+        sys.stderr.write("[session-watch] 次の頼みの時の知らせを置けなかった（%s: %s %s）。知らせの本文:\n%s\n"
+                         % (path, type(e).__name__, str(e)[:80], text))
+        return False
 
 
 def take_note(env, sid):
@@ -1136,8 +1141,9 @@ def _seen(env, sid, what):
     try:
         os.makedirs(d, exist_ok=True)
         open(path, "w").close()
-    except OSError:
-        pass
+    except OSError as e:   # 印を置けない＝次も知らせる側（黙って捨てず、置けない事を名指す）
+        sys.stderr.write("[session-watch] 「%s」を知らせた印を置けなかった（%s: %s）。次の返事でも同じ知らせが出る\n"
+                         % (what, path, type(e).__name__))
     return False
 
 
