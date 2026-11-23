@@ -38,7 +38,7 @@ CI では exit 0 でない物は皆赤。
   だけ＝見落としは出ない）。手元の origin/main も無ければ照らさずに止める（exit 2）。
   ALL は全ての commit（公開の前に歴史ごと照らす時）。
 exit: 0=当たり 0 で照らす物を全部照らした / 1=当たりあり・CI に顧客の語が無い /
-      2=使い方・束の形が違う・置かない語の表が無い・比べる元の main が取れない /
+      2=使い方・束の形が違う・置かない語の表が無い・比べる元の main が取れない・CI の event が読めない /
       3=照らしていない（当たりは 0 だが照らしていない物が在り、それを名指す。--text の口は 0 のまま・緑とは言わない）
 """
 from __future__ import annotations
@@ -495,11 +495,23 @@ def diff_path(spec: str) -> str | None:
     return spec[2:] if spec.startswith("b/") else UNREADABLE_PATH
 
 
-def load_event() -> dict:
+class BadEvent(Exception):
+    """GITHUB_EVENT_PATH の event が在るのに読めない（空の event と取り違えて PR の題・本文を照らさずに通さない）。"""
+
+
+def load_event() -> dict | None:
+    """GITHUB_EVENT_PATH の event。名指しが無い・file が無い時は None（呼ぶ側が CI なら照らしていないと名指す）。
+    file が在るのに読めない・JSON の形でない・中が dict でない時は BadEvent（{} にして通さない）。"""
     path = os.environ.get("GITHUB_EVENT_PATH", "")
-    if path and Path(path).is_file():
-        return json.loads(Path(path).read_text(encoding="utf-8"))
-    return {}
+    if not path or not Path(path).is_file():
+        return None
+    try:
+        event = json.loads(Path(path).read_text(encoding="utf-8"))
+    except (OSError, ValueError) as e:
+        raise BadEvent(f"{e.__class__.__name__}") from e
+    if not isinstance(event, dict):
+        raise BadEvent(f"中が {type(event).__name__}（dict でない）")
+    return event
 
 
 def words_unchecked(words_file: str | None, words: list[str]) -> list[str]:
@@ -518,7 +530,12 @@ def scan(repo: Path, rev_range: str | None, words_file: str | None, skip: list[s
     # 語が 0 は 1 段目: 名指しは main がして exit 0（前の形は止めない）。exit 3 の unchecked には足さない。
     hits = guard.check_files()
     if not files_only:
-        event = load_event() if event is None else event
+        if event is None:
+            event = load_event()
+            if event is None:
+                if in_ci():   # CI は event を必ず渡す。無いのに {} で回すと PR の題・本文と範囲を照らさずに通る
+                    guard.unchecked.append("外側: PR の題・本文と照らす範囲（CI なのに GITHUB_EVENT_PATH の event の file が無い）")
+                event = {}
         revs = guard.revs(rev_range, event)
         hits += guard.check_history(revs) + guard.check_meta(revs, event)
     return sorted(set(hits)), guard.unchecked, guard
@@ -611,6 +628,9 @@ def main(argv=None) -> int:
     empty_words = words_unchecked(a.deny_words_file, named_words)
     try:
         hits, unchecked, g = scan(repo, a.rev_range, a.deny_words_file, a.pattern_skip, files_only=a.files_only)
+    except BadEvent as e:
+        print(f"✗ 照らせない: GITHUB_EVENT_PATH の event を読めない — {e}（PR の題・本文と範囲を照らさずに通さない）")
+        return 2
     except NoBase as e:
         print(f"✗ 照らせない: 手元の範囲の元（出所の今の main）が取れない — {e}（--range で範囲を渡すこともできる）")
         return 2
