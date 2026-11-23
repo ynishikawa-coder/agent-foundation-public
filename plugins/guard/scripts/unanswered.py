@@ -8,6 +8,9 @@
 3 つの口:
   capture（PostToolUse・AskUserQuestion の返り）
     - 答えの無い問いを台帳へ積み、答えが返った問いは台帳から降ろす（前の窓から持ち越した問いも閉じる）。
+    - 答えが返ったら、答えの行き先（決定なら決定の記録に書き、決まりか原因の台帳の行へ戻す＝細目 §8「決めた事」）を
+      隣に知らせる（止めない）。会社ごとの書き方は値の表の answer_record。答えを台帳から降ろすだけで行き先を言わないと、
+      畳む・変えると決めた事が窓と一緒に消える。
     - 1 つも答えが返らなければ「離席の窓」を開き、隣に 1 行鳴らす（ここから先は元に戻せる作業だけ）。
       1 つでも返れば窓を閉じる。窓は irreversible が読む。
   resurface（SessionStart）
@@ -370,6 +373,22 @@ git で戻せない削除は、答えが返るかオーナーが何か打つま�
 </unanswered-question>"""
 
 
+ANSWERED = """<answer-return>
+選択肢の画面に答えが返りました（{n} 件: {stems}）。答えが決定なら、この窓が決定の記録に書き
+（欄 意図｜決めた中身｜原文｜時刻｜決まりへ）、決まりの読み方が変わる物は決まりの文へ、今の PR に入らない直し（畳む・変える・
+別の repo）は原因の台帳の行（欄 決定・行き先 直す窓）にして、`決まりへ` を埋めます（細目 §8「決めた事」）。{record}
+</answer-return>"""
+
+
+def answered_note(pairs, vals):
+    """答えが返った問いの行き先の知らせ（無ければ ""）。"""
+    if not pairs:
+        return ""
+    record = str(vals.get("answer_record") or "").strip()
+    stems = " / ".join("「%s」" % pr[1][:48] for pr in pairs)
+    return ANSWERED.format(n=len(pairs), stems=stems, record=("この repo の書き方: " + record) if record else "")
+
+
 def capture(data, vals):
     """PostToolUse。隣に出す文（無ければ ""）。"""
     if (data.get("tool_name") or "") != ASK_TOOL or G.unattended_by_env(vals):
@@ -388,10 +407,12 @@ def capture(data, vals):
         close_away(session_id)
     elif unanswered:
         open_away(session_id, unanswered)
+    note = answered_note(pairs, vals)
     if not unanswered:
-        return ""
+        return note
     stems = " / ".join("「%s」" % i["question"][:48] for i in unanswered)
-    return REMINDER.format(n=len(unanswered), stems=stems, ttl=LEDGER_TTL_HOURS, ledger=path or "(置き場を決められず)")
+    reminder = REMINDER.format(n=len(unanswered), stems=stems, ttl=LEDGER_TTL_HOURS, ledger=path or "(置き場を決められず)")
+    return "\n".join(x for x in (reminder, note) if x)
 
 
 def _lines_for(n, it, with_key=True):

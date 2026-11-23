@@ -136,7 +136,7 @@ def test_出し直させる文は根治の入口を指す(env):
 
 def test_答えが返れば台帳から降りて冒頭に出ない(env):
     hook(env, "post", ask_result())
-    assert hook(env, "post", ask_result(answered=True, sid="s2")) == {}
+    assert "答えのないまま閉じました" not in hook(env, "post", ask_result(answered=True, sid="s2")).get("additionalContext", "")
     assert hook(env, "start", {"session_id": "s3"}) == {}
 
 
