@@ -9,6 +9,7 @@ from pathlib import Path
 import pytest
 
 from test_guard import (PLUGIN, ROOT, STATE_PAGE, bash, denied, deny_reason, env, publish, without_check)  # noqa: F401  （env は fixture）
+from test_dougu_bun_okiba import 鍵で止めた文, 鍵で止めた文の頭
 
 
 # ── outbound（人や他の窓へ渡る道具の入力: 鍵・番号だけの頼み・窓の題と手の窓の 4 欄）──
@@ -39,7 +40,7 @@ def tool(name, **ti):
 def test_outbound_外へ渡す道具の入力に鍵の形があれば出す前に止め鍵の字は返さない(env, label, payload):
     key = FAKE_KEYS[label]
     why = deny_reason(env, payload(key))
-    assert "鍵・認証情報の形" in why and label in why
+    assert 鍵で止めた文(payload(key)) in why and label in why
     assert key not in why                       # 止めた文にも鍵を出さない
 
 
@@ -48,8 +49,9 @@ def test_outbound_Artifact_で出す_file_と_files_の中の鍵も止める(env
     (tmp_path / "r.html").write_text("<p>報告</p><!-- %s -->" % key, encoding="utf-8")
     (tmp_path / "ok.html").write_text("<p>報告</p>", encoding="utf-8")
     (tmp_path / "d.json").write_text(json.dumps({"k": key}), encoding="utf-8")
-    assert "鍵・認証情報の形" in deny_reason(env, publish("r.html", cwd=str(tmp_path)))
-    assert "鍵・認証情報の形" in deny_reason(env, publish("ok.html", cwd=str(tmp_path), files={"data/d.json": "d.json"}))
+    for p in (publish("r.html", cwd=str(tmp_path)), publish("ok.html", cwd=str(tmp_path), files={"data/d.json": "d.json"})):
+        head = 鍵で止めた文の頭(p)
+        assert head and head in deny_reason(env, p)
     assert not denied(env, publish("ok.html", cwd=str(tmp_path)))
 
 
@@ -217,16 +219,18 @@ def test_paid_upstream_Bash_の読みと試験の外への書き込みと関所�
 def test_outbound_他の見分けが壊れても鍵は止まり_鍵の見分けが壊れたら止まる(env, tmp_path):
     key = FAKE_KEYS["GitHub のトークン"]
     p = tool(CREATE, title="🤖 作り物の作業", prompt="この鍵で入って %s" % key)
+    head = 鍵で止めた文の頭(p)
+    assert head
     old = tmp_path / "session_watch.py"              # 題の形の見分けが無い古い版の正本
     old.write_text("import re\n", encoding="utf-8")
-    assert "鍵・認証情報の形" in deny_reason(dict(env, AF_SESSION_WATCH=str(old)), p)
+    assert head in deny_reason(dict(env, AF_SESSION_WATCH=str(old)), p)
     broke = tmp_path / "broke.py"                     # 読むと壊れる正本
     broke.write_text("raise RuntimeError('作り物の故障')\n", encoding="utf-8")
-    assert "鍵・認証情報の形" in deny_reason(dict(env, AF_SESSION_WATCH=str(broke)), p)
+    assert head in deny_reason(dict(env, AF_SESSION_WATCH=str(broke)), p)
     proj = Path(env["CLAUDE_PROJECT_DIR"])
     (proj / "config").mkdir()
     table = proj / "config" / "skill-values.json"
     table.write_text(json.dumps({"guard": {"number_request_exempt": ["(崩れた"]}}), encoding="utf-8")
-    assert "鍵・認証情報の形" in deny_reason(env, p)     # number が壊れても鍵は止まる
+    assert head in deny_reason(env, p)     # number が壊れても鍵は止まる
     table.write_text(json.dumps({"guard": {"outbound_secret_allow": ["(崩れた"]}}), encoding="utf-8")
     assert "照らせない" in deny_reason(env, p)          # 外す形が壊れたら、鍵を外さず止める

@@ -2,6 +2,7 @@
 import pytest
 
 from test_guard import bash, denied, env, hook  # noqa: F401  （env は fixture）
+from test_dougu_bun_okiba import 根治の入口を指す
 
 
 @pytest.mark.parametrize("cmd", [
@@ -13,7 +14,7 @@ def test_gate_を_lock_で直に呼ぶ手は止める(env, cmd):
     out = hook(env, "pre", bash(cmd))
     assert out.get("permissionDecision") == "deny", cmd
     assert "seal.py" in out["permissionDecisionReason"]
-    assert "細目 §3「まず構造を疑う」" in out["permissionDecisionReason"]
+    assert 根治の入口を指す(out["permissionDecisionReason"])
 
 
 @pytest.mark.parametrize("cmd", [

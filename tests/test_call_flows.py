@@ -5,6 +5,7 @@ import sys
 from pathlib import Path
 
 import pytest
+from test_dougu_bun_okiba import 根治の入口を指す
 
 ROOT = Path(__file__).resolve().parent.parent
 TOOL = ROOT / "scripts" / "call_flows.py"
@@ -65,7 +66,7 @@ def test_絵に無い流れは赤で根治の入口を指す(fake, tmp_path, lab
     res = run("check", str(picture(tmp_path, arrows)), "--repo", str(fake))
     assert res.returncode == 1, label
     assert "絵に無い流れ: alpha → beta" in res.stdout
-    assert "細目 §3「まず構造を疑う」" in res.stdout.strip().splitlines()[-1]
+    assert 根治の入口を指す(res.stdout.strip().splitlines()[-1])
 
 
 def test_path_ごと書いた呼び出しも拾う(fake, tmp_path):

@@ -16,6 +16,7 @@ import pytest
 
 from test_pr_text import STRANGER, WRITER, cleanup_body, deny_reason, env, gh  # noqa: F401  env は fixture
 from test_session_watch import CLOUD, sw
+from test_dougu_bun_okiba import 案内の印
 
 ROOT = Path(__file__).resolve().parent.parent
 GC_PATH = ROOT / "plugins" / "guard" / "scripts" / "guard_common.py"
@@ -44,7 +45,7 @@ def test_ログに行が無く文が別の窓を指せば_parent_session_id_で�
 
 def test_ログに行が無く返し先がオーナーなら_オーナー相手の窓(tmp_path):
     text = sw.remind({"prompt": "作り物を見て（返し先=オーナー）", "transcript_path": empty_log(tmp_path)}, CHILD_ENV)
-    assert text and "付け直す" not in text and "🙋（最初の頼みの返し先から）" in text, text
+    assert text and "付け直す" not in text and 案内の印(text) == [sw.HUMAN], text
 
 
 def test_注入_頼みの行が人の記録なら子の窓にしない():

@@ -13,6 +13,7 @@ from pathlib import Path
 
 import needs
 import pytest
+from test_dougu_bun_okiba import 入口の名, 根治の入口を指す
 
 ROOT = Path(__file__).resolve().parent.parent
 QA = ROOT / "plugins" / "docs-kit" / "skills" / "qa-html"
@@ -164,9 +165,9 @@ def test_答えの形の赤は根治の入口を指し緑なら出さない():
         return subprocess.run([NODE, str(CHECK), "--answer", "-"], input=json.dumps(obj, ensure_ascii=False),
                               capture_output=True, text=True, timeout=60)
     bad = run({"form": "qa-html/1"})
-    assert bad.returncode == 1 and "細目 §3「まず構造を疑う」" in bad.stdout.strip().splitlines()[-1]
+    assert bad.returncode == 1 and 根治の入口を指す(bad.stdout.strip().splitlines()[-1])
     good = run(GOOD)
-    assert good.returncode == 0 and "まず構造を疑う" not in good.stdout
+    assert good.returncode == 0 and 入口の名() not in good.stdout
 
 
 @needs_node

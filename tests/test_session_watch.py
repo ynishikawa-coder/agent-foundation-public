@@ -9,6 +9,7 @@ from pathlib import Path
 import re
 
 import pytest
+from test_dougu_bun_okiba import 案内の印, 根治の入口を指す
 
 ROOT = Path(__file__).resolve().parent.parent
 PLUGIN = ROOT / "plugins" / "session-watch"
@@ -183,12 +184,12 @@ def test_クラウドの窓で題に種類が無ければ知らせる(tmp_path):
     log.write_text(json.dumps({"type": "user", "message": {"role": "user", "content": "作り物を直して（返し先=オーナー）"}},
                               ensure_ascii=False) + "\n", encoding="utf-8")
     text = sw.remind({"transcript_path": str(log)}, CLOUD)
-    assert "set_session_title" in text and "🙋（最初の頼みの返し先から）" in text
+    assert "set_session_title" in text and 案内の印(text) == [sw.HUMAN]
 
 
 def test_最初の頼みの前でも知らせ_種類が決まらなければ両方を書く():
     text = sw.remind({"prompt": "作り物を直して"}, CLOUD)
-    assert "オーナーと話す窓なら 🙋" in text
+    assert 案内の印(text) == list(sw.KINDS)
 
 
 def test_題に種類を付けた窓とクラウドでない窓には知らせない():
@@ -425,7 +426,7 @@ def test_拾えば最後の行で根治の入口を指し拾わなければ出�
     """拾った物を出し直すだけで返す古い形（指す行が無い）に戻すと赤。"""
     bad = subprocess.run([sys.executable, str(SCRIPT), str(LOGS / "plain_unanswered.jsonl")], capture_output=True, text=True)
     assert bad.returncode == 1 and bad.stdout.strip().splitlines()[-1] == sw.ROOT_CAUSE
-    assert "細目 §3「まず構造を疑う」" in sw.ROOT_CAUSE
+    assert 根治の入口を指す(sw.ROOT_CAUSE)
     ok = subprocess.run([sys.executable, str(SCRIPT), str(LOGS / "child_ok.jsonl")], capture_output=True, text=True)
     assert ok.returncode == 0 and sw.ROOT_CAUSE not in ok.stdout
 

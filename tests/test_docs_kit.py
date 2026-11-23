@@ -11,6 +11,7 @@ from pathlib import Path
 
 import needs
 import pytest
+from test_dougu_bun_okiba import 入口の名, 根治の入口を指す
 
 ROOT = Path(__file__).resolve().parent.parent
 PLUGIN = ROOT / "plugins" / "docs-kit"
@@ -91,7 +92,7 @@ def test_make_deck_の差し込みが埋まる_欠ければ止まる(tmp_path):
     ng = subprocess.run([sys.executable, "-B", str(render), "render", "--values", str(thin), "--out", str(tmp_path / "q.txt")],
                         capture_output=True, text=True)
     assert ng.returncode != 0
-    assert "細目 §3「まず構造を疑う」" in ng.stderr.strip().splitlines()[-1], "欠けを埋めて出し直させるだけの古い形に戻った"
+    assert 根治の入口を指す(ng.stderr.strip().splitlines()[-1]), "欠けを埋めて出し直させるだけの古い形に戻った"
 
 
 # ── qa-html の検査 ──────────────────────────────────────────────────
@@ -871,16 +872,16 @@ def test_file_を2つ渡して1つでも赤なら根治の入口を指す(tmp_pa
     good = tmp_path / "確認.html"
     good.write_text(filled_template("copy"), encoding="utf-8")
     res = subprocess.run([NODE, str(CHECK), str(good), str(DATA / "bad.json")], capture_output=True, text=True, cwd=tmp_path)
-    assert res.returncode == 1 and "まず構造を疑う" in res.stdout and "赤 1" in res.stdout
+    assert res.returncode == 1 and 根治の入口を指す(res.stdout) and "赤 1" in res.stdout
 
 
 @needs_node
 def test_検査が赤なら根治の入口を指し緑なら出さない():
     """赤の行だけを返す古い形（原因から直させない）に戻すと赤。"""
     bad = subprocess.run([NODE, str(CHECK), str(DATA / "bad.json")], capture_output=True, text=True)
-    assert bad.returncode == 1 and "細目 §3「まず構造を疑う」" in bad.stdout.strip().splitlines()[-1]
+    assert bad.returncode == 1 and 根治の入口を指す(bad.stdout.strip().splitlines()[-1])
     good = subprocess.run([NODE, str(CHECK), str(DATA / "good.json")], capture_output=True, text=True)
-    assert good.returncode == 0 and "まず構造を疑う" not in good.stdout
+    assert good.returncode == 0 and 入口の名() not in good.stdout
 
 
 def _load(path, name):
@@ -904,10 +905,10 @@ def test_理論モックの検査は_NG_なら最後に根治の入口を指し_
     monkeypatch.setattr(tm, "find_chrome", lambda: "chrome")
     monkeypatch.setattr(tm, "dump_dom", lambda cmd: _dom(selftest))
     assert tm.main(["x", str(page)]) == 1
-    assert "細目 §3「まず構造を疑う」" in capsys.readouterr().out.strip().splitlines()[-1]
+    assert 根治の入口を指す(capsys.readouterr().out.strip().splitlines()[-1])
     monkeypatch.setattr(tm, "dump_dom", lambda cmd: _dom("SELFTEST OK 3 screens"))
     assert tm.main(["x", str(page)]) == 0
-    assert "まず構造を疑う" not in capsys.readouterr().out
+    assert 入口の名() not in capsys.readouterr().out
 
 
 @pytest.mark.parametrize("selftest", ["SELFTEST NG\ntab1/s1: 根拠が空", None])
@@ -917,10 +918,10 @@ def test_Blueprint_の検査は_NG_なら最後に根治の入口を指し_OK_�
     page.write_text("<html></html>", encoding="utf-8")
     monkeypatch.setattr(bp, "open_dom", lambda target, mode: _dom(selftest))
     assert bp.check(str(page)) == 1
-    assert "細目 §3「まず構造を疑う」" in capsys.readouterr().out.strip().splitlines()[-1]
+    assert 根治の入口を指す(capsys.readouterr().out.strip().splitlines()[-1])
     monkeypatch.setattr(bp, "open_dom", lambda target, mode: _dom("SELFTEST OK 1 tabs 2 steps"))
     assert bp.check(str(page)) == 0
-    assert "まず構造を疑う" not in capsys.readouterr().out
+    assert 入口の名() not in capsys.readouterr().out
 
 
 def test_Blueprint_の比較で材料が読めなければ最後に根治の入口を指す(tmp_path, monkeypatch, capsys):
@@ -930,4 +931,4 @@ def test_Blueprint_の比較で材料が読めなければ最後に根治の入�
         f.write_text("<html></html>", encoding="utf-8")
     monkeypatch.setattr(bp, "open_dom", lambda target, mode: "<html></html>")
     assert bp.compare(str(a), str(b)) == 1
-    assert "細目 §3「まず構造を疑う」" in capsys.readouterr().out.strip().splitlines()[-1]
+    assert 根治の入口を指す(capsys.readouterr().out.strip().splitlines()[-1])

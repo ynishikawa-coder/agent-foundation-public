@@ -20,6 +20,7 @@ import guard  # noqa: E402
 import patrol  # noqa: E402
 import yaml
 from uses import sh_code
+from test_dougu_bun_okiba import 入口の名, 根治の入口を指す
 
 GUARD = ROOT / "public-guard" / "guard.py"
 OK_MAIL = "1+someone@users.noreply.github.com"
@@ -204,16 +205,16 @@ def test_CIで顧客の語が無ければ赤(tmp_path):
 def test_赤の最後の行は根治の入口を指し緑は指さない(tmp_path):
     """当たりだけを並べて返す古い形（消して出し直させる）に戻すと赤。"""
     red = _cli(_repo(tmp_path), {"GITHUB_ACTIONS": "true"})
-    assert red.returncode == 1 and "細目 §3「まず構造を疑う」" in red.stdout.strip().splitlines()[-1], red.stdout
+    assert red.returncode == 1 and 根治の入口を指す(red.stdout.strip().splitlines()[-1]), red.stdout
     (tmp_path / "g").mkdir()
     green = _cli(_repo(tmp_path / "g"), {"AF_DENY_WORDS": "置かない作り物の語"})
-    assert green.returncode == 0 and "まず構造を疑う" not in green.stdout
+    assert green.returncode == 0 and 入口の名() not in green.stdout
 
 
 def test_見回りで外れが在れば最後の行が根治の入口を指す(monkeypatch, capsys):
     monkeypatch.setattr(patrol, "GitHub", lambda token=None: FakeGitHub(_routes("o/x", None, rules=["public-guard"])))
     assert patrol.main(["--owner", "o"]) == 1
-    assert "細目 §3「まず構造を疑う」" in capsys.readouterr().out.strip().splitlines()[-1]
+    assert 根治の入口を指す(capsys.readouterr().out.strip().splitlines()[-1])
 
 
 def test_注入_手元で顧客の語が無ければ照合を飛ばし緑に数えない(tmp_path):

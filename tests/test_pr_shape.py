@@ -4,6 +4,7 @@ import sys
 from pathlib import Path
 
 import pytest
+from test_dougu_bun_okiba import 根治の入口を指す
 
 TOOL = Path(__file__).resolve().parent.parent / "scripts" / "pr_shape.py"
 BR = "claude/20261119-sakumono"
@@ -52,7 +53,7 @@ def test_枝と違う名の断片は赤(repo):
     commit(repo)
     res = run(repo)
     assert res.returncode == 1 and "CHANGELOG.d/20261119-sakumono.txt" in res.stdout
-    assert "細目 §3「まず構造を疑う」" in res.stdout.strip().splitlines()[-1]
+    assert 根治の入口を指す(res.stdout.strip().splitlines()[-1])
 
 
 def test_元から在る試験の_file_の末尾に試験を足すと赤(repo):
