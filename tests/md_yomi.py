@@ -114,3 +114,41 @@ def 表の行(text: str, first: str) -> list[list[str]]:
                 rows.append(row)
             return rows
     return []
+
+
+def 欄(text: str, name: str) -> str | None:
+    """行の頭の太字の名が name の欄（`- **name** — …` か `**name**: …`）の中身。次の欄の行・見出し・字下げの浅い箇条の
+    手前まで（欄の下の字下げした行は含む）。無い・2 つ在る時は None（どの欄かを決められないので照らさせない）。"""
+    lines = 地の行(text)
+    hits = []
+    for n, line in enumerate(lines):
+        m = _FIELD.match(line)
+        if m and re.split(r"[（(]", m.group(1))[0].strip() == name:
+            hits.append((n, m.end()))
+    if len(hits) != 1:
+        return None
+    start, end = hits[0]
+    lead = len(lines[start]) - len(lines[start].lstrip(" \t"))
+    body = [lines[start][end:]]
+    for line in lines[start + 1:]:
+        if not line.strip():
+            body.append("")
+            continue
+        here = len(line) - len(line.lstrip(" \t"))
+        if _HEAD.match(line) or (here <= lead and (_FIELD.match(line) or line.lstrip().startswith(("- ", "* ", "|")))):
+            break
+        body.append(line)
+    return "\n".join(body).strip().lstrip("—-:：").strip()
+
+
+def 置き場(text: str, word: str) -> list[str]:
+    """地の行（注記・コードの囲いの外）で word が在る所の、いちばん内の見出しの名を出る順に返す（見出しの前は ""）。
+    注記や囲いの中にしか無ければ [] ＝字が在っても決まりとして置かれていない。"""
+    out, here = [], ""
+    for line in 地の行(text):
+        m = _HEAD.match(line)
+        if m:
+            here = m.group(2)
+        if word in line:
+            out.append(here)
+    return out

@@ -2,11 +2,13 @@
 import importlib.util
 import json
 import pathlib
+import re
 import subprocess
 
 import pytest
 from uses import sh_code, yaml_on, yaml_runs
 from saimoku import 全文 as 細目の全文
+from test_github_ai_te_okiba import 守りの名, 守りの設定の外れ, 手の窓の外れ
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 
@@ -16,15 +18,11 @@ def _read(rel):
 
 
 def test_付いていないrepoはpushで付けて打ち_拒まれた時だけ原文を添えて人へ回す():
-    t = 細目の全文()
-    assert "repo が付いていなければ `add_repo`（push）で付けて打ち" in t
-    assert "打って拒まれた時だけ拒みの原文を添えて人へ回す。" in t
+    assert 手の窓の外れ(細目の全文()) == []                             # 細目の「手の窓」の欄に add_repo・拒み
 
 
 def test_守りの設定は正本のfileをPRで直しCIが書き戻す():
-    t = _read("CONTRIBUTING.md")
-    assert "正本は `.github/rulesets/main.json`。直す時は AI がこの file を PR で直し" in t
-    assert "鍵 `RULESET_TOKEN` が無い時は書き戻しが赤で止まる" in t
+    assert 守りの設定の外れ(_read("CONTRIBUTING.md"), 守りの名()) == []  # 名は道具と workflow から読む
 
 
 def test_守りの正本の必須の検査は重複なく今の3つ():
@@ -44,18 +42,14 @@ def test_書き戻しは鍵が無いと止まりPRでは回らない(monkeypatch
 
 
 def test_AIの道具で打てる手は自分で打ち_人にしか打てない手だけ手の窓で頼む():
-    t = 細目の全文()
-    assert "push・PR・合流・調べる・見張る・Notion や Drive への書き込み）は自分で打つ。" in t
-    assert "人にしか打てない手（許し・アカウントと支払い・PC やスマホにしか無い物・社外への go・他社のオーナーへの連絡）だけ" in t
+    assert 手の窓の外れ(細目の全文()) == []                             # 自分で打つ・人にしか打てない手・✋ が同じ欄に
 
 
 def test_鍵はmainだけのenvironmentから読み_手動でも回らない():
-    t = _read(".github/workflows/rulesets.yml")
-    assert "environment: rulesets" in t
-    assert "workflow_dispatch" not in yaml_on(t)
-    c = _read("CONTRIBUTING.md")
-    assert "鍵は environment `rulesets` の秘密に置く" in c
-    assert "Deployment branches を「Selected branches and tags」にして `main` だけを足し" in c
+    n = 守りの名()
+    assert re.search(rf"^\s+environment:\s*{re.escape(n['env'])}\s*$", n["wf"], re.M)
+    assert "workflow_dispatch" not in yaml_on(n["wf"])
+    assert 守りの設定の外れ(_read("CONTRIBUTING.md"), n) == []
 
 
 def _apply():

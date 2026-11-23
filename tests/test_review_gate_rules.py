@@ -16,6 +16,7 @@ spec = importlib.util.spec_from_file_location("pr_overlap_files", TOOL)
 po = importlib.util.module_from_spec(spec)
 sys.dont_write_bytecode = True
 spec.loader.exec_module(po)
+from test_review_gate_okiba import GATE, review_pr_の外れ, レビューの節の外れ, 並走の外れ
 
 
 def _read(rel):
@@ -23,8 +24,9 @@ def _read(rel):
 
 
 def test_並走に触る_file_の宣言と列の文が在る():
-    assert "触る file を先に宣言し、同じ file を取る窓は列に。" in _read("plugins/core/振る舞い.md")
-    assert "--files <path>" in _read("scripts/pr_overlap.py") and "振る舞いの既定「並走」" in _read("scripts/pr_overlap.py")
+    assert 並走の外れ(_read("plugins/core/振る舞い.md")) == []       # 振る舞いの既定「並走」の欄に
+    res = subprocess.run([sys.executable, "-B", str(TOOL), "--help"], capture_output=True, text=True)
+    assert "--files" in res.stdout                                     # 宣言を受ける口が動く
 
 
 def test_宣言した_file_を開いている_PR_が書き換えていれば名指す():
@@ -40,18 +42,9 @@ def test_files_は_repo_無しでは重ならないと言わない():
 
 
 def test_CONTRIBUTING_の_2_にレビューの関所と別の_PR_への文が在る():
-    t = _read("CONTRIBUTING.md")
-    assert "**レビューを頼むのは関所を通ってから。**" in t
-    assert "通らない間に頼まれたレビューの窓は、判定に入らず「まだ」とだけ返す。" in t
-    assert "**レビューが始まった後に、依頼に無い話を同じ PR へ足さない。**" in t
-    assert "足されていたら、レビューの窓は判定せず「別の PR へ」と返す。" in t
-    assert "1 つの先端に判定は 1 つ（1 回の見直しで全部の点を見る）。" in t
+    assert レビューの節の外れ(_read("CONTRIBUTING.md")) == []         # 「2. レビュー」の節の欄に・道具の置き場と揃って
 
 
 def test_review_pr_は関所を回してから見て_判定は先端に_1_つ():
-    t = _read("plugins/checker/skills/review-pr/SKILL.md")
-    assert '"${CLAUDE_PLUGIN_ROOT}/scripts/review_gate.py" --repo <owner/name> --pr <番号>' in t
-    assert "exit 1・2 の時は見ず・判定を書かず・PR にコメントを残さず" in t
-    assert "**1 つの先端に判定は 1 つ**" in t
-    assert "**前回から足された話は見ない**" in t and "`別の PR へ <PR> <枝>@<SHA12> 話=" in t
-    assert (ROOT / "plugins" / "checker" / "scripts" / "review_gate.py").is_file()
+    assert review_pr_の外れ(_read("plugins/checker/skills/review-pr/SKILL.md")) == []
+    assert GATE.is_file()
