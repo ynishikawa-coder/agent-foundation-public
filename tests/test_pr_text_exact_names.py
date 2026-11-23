@@ -4,7 +4,6 @@
 値の表の repo の名の正規表現が似た名の repo を外さない事を見る。直す前（`uses:\\s*\\S*public-guard\\b` の部分一致・錨なしの
 re.search）では、ここの「取り違えない」側の試験が赤になる。
 """
-import json
 import sys
 from pathlib import Path
 
@@ -18,7 +17,7 @@ import patrol  # noqa: E402
 
 from test_wf_reader import whole  # noqa: E402  断片を PR で走る workflow の job の steps に包む
 
-from test_pr_text import MAIL, deny_reason, env, gh  # noqa: E402,F401  作り物の箱と GitHub の道具の入力を共に使う
+from test_pr_text import MAIL, _fake_gh, deny_reason, env, gh  # noqa: E402,F401  作り物の箱と GitHub の道具の入力を共に使う
 
 F = patrol.FOUNDATION
 
@@ -70,10 +69,10 @@ def test_値の表の_repo_の名は全体で当てる(pats, repo, want):
     assert P._matches(pats, repo) is want
 
 
-def test_全体の形で書いた外す行は似た名の_repo_を外さない(env, tmp_path):  # noqa: F811
-    table = tmp_path / "values.json"
-    env["SKILL_VALUES"] = str(table)
-    table.write_text(json.dumps({"guard": {"pr_words_exempt_repos": ["^fake-owner/fake$"]}}), encoding="utf-8")
+def test_全体の形で書いた外す行は似た名の_repo_を外さない(env):  # noqa: F811
+    # 外す行は出す先の既定の枝の値の表から引く（手元の表では外れない）。両方の repo の既定の枝に同じ行を置く
+    t = {"guard": {"pr_words_exempt_repos": ["^fake-owner/fake$"]}}
+    _fake_gh(env, contents={"fake-owner/fake": t, "fake-owner/fake-private": t})
     body = "## 整地（根治の段）\n整地: 不要（試し）\n連絡: session_01CCCCCCCCCCCCCCCCCCCCCCCC\n"
     assert deny_reason(env, gh("update_pull_request", repo="fake", pullNumber=1, body=body)) == ""
     assert "[words]" in deny_reason(env, gh("update_pull_request", repo="fake-private", pullNumber=1, body=body))
