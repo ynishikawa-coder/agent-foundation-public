@@ -4,7 +4,7 @@
 まま。skill から呼ぶ script（codex_pack・seal・check.mjs・判定の型など）・skill の本文・雛形が古い版で動き、
 入れ直しの途中では守りの hook が入った版の public-guard/guard.py を見失った。
 形: script は入口の 1 行（lib/af_place.py の run_newest・check.mjs の runNewest）で目録の clone の hook_run.py の newest
-へ聞き、台帳の今読まれる行の版の同じ script へ乗り換える。本文・path は guard の stale_path が先端の版の path を名指す。
+へ聞き、台帳の今読まれる行の版の同じ script へ乗り換える。乗り換えた時に skill の本文が先端で変わっていれば、その本文の path を名指す（見張りは足さない）。
 入れ直しの前に入った版の土台の根の file を取り置く（setup_plugins.keep_installed → af_place.keep_version）。
 ここは本物の claude なしで、作り物の箱（目録の clone・古い版と新しい版の dir・台帳）に古い版の状態をわざと作って照らす。
 """
@@ -312,60 +312,37 @@ def test_foundation_file_が読む物は全部取り置く根の下():
         assert rel.split("/", 1)[0] in af_place.KEEP_ROOTS, rel
 
 
-# ── skill の本文・path: guard の stale_path が先端の版を名指す（知らせるだけ） ──
+# ── skill の本文: 乗り換えの口が先端の本文の path を名指す（知らせるだけ・見張りは足さない） ──
 
-def _stale_path(box):
-    sys.path.insert(0, str(ROOT / "plugins" / "guard" / "scripts"))
-    try:
-        import stale_path
-    finally:
-        sys.path.pop(0)
-    return stale_path
-
-
-def _skill_box(tmp, old_body, new_body):
-    rel = "skills/codex/SKILL.md"
-    vers = {"old": {rel: old_body}, "new": {rel: new_body} if new_body is not None else {}}
-    return make_box(tmp, {"dev-flow": vers, "guard": {"old": {}, "new": {}}})
+def _body_box(tmp, old_body, new_body):
+    rel = "skills/x/probe.py"
+    old = {rel: PROBE.format(ver="old"), "skills/x/SKILL.md": old_body}
+    new = {rel: PROBE.format(ver="new")}
+    if new_body is not None:
+        new["skills/x/SKILL.md"] = new_body
+    return make_box(tmp, {"docs-kit": {"old": old, "new": new}}), rel
 
 
 def test_古い版の_skill_の本文で動いた時は先端の版の本文を名指す(tmp_path):
-    box = _skill_box(tmp_path, "古い本文\n", "新しい本文\n")
-    sp = _stale_path(box)
-    env = {"AF_HOOK_STARTED_ROOT": str(box["dirs"][("guard", "old")])}
-    line = sp.skill_line({"tool_name": "Skill", "tool_input": {"skill": "dev-flow:codex"}}, env)
-    assert str(box["dirs"][("dev-flow", "new")] / "skills" / "codex" / "SKILL.md") in line
-    assert "止めていない" in line
+    box, rel = _body_box(tmp_path, "古い本文\n", "新しい本文\n")
+    r = run_py(box["dirs"][("docs-kit", "old")] / rel, box)
+    assert r.stdout.split()[0] == "new"
+    assert str(box["dirs"][("docs-kit", "new")] / "skills" / "x" / "SKILL.md") in r.stderr
 
 
-def test_本文が同じなら黙る(tmp_path):
-    box = _skill_box(tmp_path, "同じ\n", "同じ\n")
-    sp = _stale_path(box)
-    env = {"AF_HOOK_STARTED_ROOT": str(box["dirs"][("guard", "old")])}
-    assert sp.skill_line({"tool_name": "Skill", "tool_input": {"skill": "dev-flow:codex"}}, env) == ""
+def test_本文が同じなら本文は名指さない(tmp_path):
+    box, rel = _body_box(tmp_path, "同じ\n", "同じ\n")
+    r = run_py(box["dirs"][("docs-kit", "old")] / rel, box)
+    assert r.stdout.split()[0] == "new"
+    assert "SKILL.md" not in r.stderr
 
 
-def test_先端の版で_skill_が畳まれていれば畳まれたと知らせる(tmp_path):
-    box = _skill_box(tmp_path, "古い本文\n", None)
-    sp = _stale_path(box)
-    env = {"AF_HOOK_STARTED_ROOT": str(box["dirs"][("guard", "old")])}
-    assert "畳まれた" in sp.skill_line({"tool_name": "Skill", "tool_input": {"skill": "dev-flow:codex"}}, env)
+def test_先端の版で_skill_の本文が畳まれていれば畳まれたと知らせる(tmp_path):
+    box, rel = _body_box(tmp_path, "古い本文\n", None)
+    r = run_py(box["dirs"][("docs-kit", "old")] / rel, box)
+    assert "畳まれた" in r.stderr
 
 
-def test_古い版の置き場の_path_を使えば先端の版の同じ_path_を名指す(tmp_path):
-    box = _skill_box(tmp_path, "古い本文\n", "新しい本文\n")
-    sp = _stale_path(box)
-    old = box["dirs"][("dev-flow", "old")] / "skills" / "codex" / "SKILL.md"
-    lines = sp.path_lines({"tool_name": "Read", "tool_input": {"file_path": str(old)}})
-    assert lines and str(box["dirs"][("dev-flow", "new")] / "skills" / "codex" / "SKILL.md") in lines[1]
-    new = box["dirs"][("dev-flow", "new")] / "skills" / "codex" / "SKILL.md"
-    assert sp.path_lines({"tool_name": "Read", "tool_input": {"file_path": str(new)}}) == []
-
-
-def test_stale_path_は知らせるだけ(tmp_path):
-    sys.path.insert(0, str(ROOT / "plugins" / "guard" / "scripts"))
-    try:
-        import stale_path
-    finally:
-        sys.path.pop(0)
-    assert stale_path.HOOKS == {"post": "notice"}
+def test_古い本文の知らせは見張りを足さず乗り換えの口の中だけ():
+    assert not (ROOT / "plugins" / "guard" / "scripts" / "stale_path.py").exists()
+    assert "_body_note" in (CORE / "scripts" / "hook_run.py").read_text(encoding="utf-8")

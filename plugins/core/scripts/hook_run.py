@@ -24,7 +24,8 @@ skill から呼ぶ script も同じ口で先端へ乗り換える（newest・lib
     済むのを WAIT 秒まで待つ（入れ直しの途中の半端な版を掴まない）。先端の版に同じ script が無い・待ち切れない・
     入れ直しが失敗した時は、その訳を名指して今の版で続ける（止めない・黙らない）。
   命令から: hook_run.py --where <script> で回す path を 1 行で出す（python でない入口・check.mjs が使う）。
-  hook として回す時は、窓が立った時の dir を AF_HOOK_STARTED_ROOT に残す（守りの hook が「窓が読んだ skill の本文の版」を知る口）。
+  乗り換えた時は、窓が読んだ skill の本文（SKILL.md）が先端の版で変わっていれば先端の本文の path を名指す
+    （AI が読む本文は script のように乗り換えられない。知らせるだけ・見張りは足さない＝乗り換えの口の中で 1 度だけ）。
   hook は待たない: 裏の入れ直しの途中（錠が在る）は、台帳が半端な版を指しうるので窓が立った時の版で回す（済めば次の呼び出しから先端）。
 """
 from __future__ import annotations
@@ -36,7 +37,6 @@ import time
 from pathlib import Path
 
 WAIT = 120          # 裏の入れ直しの錠が外れるのを待つ上限（秒）
-STARTED_ENV = "AF_HOOK_STARTED_ROOT"
 
 
 def _rows_of(root: Path, table: dict) -> list[dict] | None:
@@ -146,7 +146,7 @@ def _wait_refresh(claude: Path, wait: float) -> str:
 
 def newest_dir(path) -> tuple[Path | None, Path | None]:
     """path が入った plugin の (path の版の dir, 入った台帳の今読まれる行の dir)。置き場の形でない・台帳に行が無ければ
-    片方か両方が None。待たない（裏の入れ直しの錠を見ない）。守りの hook の知らせ（guard の stale_path）も使う。"""
+    片方か両方が None。待たない（裏の入れ直しの錠を見ない）。"""
     root = plugin_root_of(Path(os.path.abspath(path)))
     if root is None:
         return None, None
@@ -156,6 +156,25 @@ def newest_dir(path) -> tuple[Path | None, Path | None]:
 
     row = kaku.current_row(rows) if rows else None
     return root, (Path(os.path.abspath(str(row["installPath"]))) if row else None)
+
+
+def _body_note(rel: Path, root: Path, new_root: Path) -> str:
+    """rel（版の dir からの script の path）が skills/<名>/ の下なら、その skill の本文が先端の版で変わった時の 1 行か ""。
+    plugin の scripts/ の下なら、先端の版の skills/ を名指す 1 行。"""
+    parts = rel.parts
+    if len(parts) >= 3 and parts[0] == "skills":
+        old, new = root / "skills" / parts[1] / "SKILL.md", new_root / "skills" / parts[1] / "SKILL.md"
+        try:
+            if old.read_bytes() == new.read_bytes():
+                return ""
+        except OSError:
+            pass
+        if not new.is_file():
+            return (f"skill {parts[1]} は先端の版（{new_root.name}）に本文が無い（畳まれた）。"
+                    f"{new_root}/skills/ と CHANGELOG を見て今の道を選び直す")
+        return (f"skill {parts[1]} の本文は窓が立った時の版（{root.name}）から変わっている。"
+                f"{new} を Read して、そちらの手順・雛形に従う")
+    return f"skill の本文・雛形は窓が立った時の版（{root.name}）。先端の版の {new_root}/skills/ の物を Read して従う"
 
 
 def newest(script, wait: float = WAIT) -> tuple[Path, Path | None, str]:
@@ -174,7 +193,7 @@ def newest(script, wait: float = WAIT) -> tuple[Path, Path | None, str]:
         if not new.is_file():
             return script, None, (f"いちばん新しい版（{new_root.name}）に {script.relative_to(root)} が無い。"
                                   f"窓が立った時の版（{root.name}）で続ける。skill の本文を {new_root} から読み直す")
-        return new, new_root, note
+        return new, new_root, "\n".join(x for x in [note, _body_note(script.relative_to(root), root, new_root)] if x)
     except Exception as e:  # noqa: BLE001  入口が壊れても止めない＝渡された script のまま
         return script, None, f"いちばん新しい版を引けなかった（{type(e).__name__}: {e}）。今の版で続ける"
 
@@ -197,8 +216,6 @@ def main(argv: list[str]) -> int:
         return 0
     run, root = got
     env = dict(os.environ, **({"CLAUDE_PLUGIN_ROOT": str(root)} if root else {}))
-    if os.environ.get("CLAUDE_PLUGIN_ROOT") and STARTED_ENV not in os.environ:
-        env[STARTED_ENV] = os.environ["CLAUDE_PLUGIN_ROOT"]
     sys.stdout.flush()
     os.execve(sys.executable, [sys.executable, str(run), *args], env)
     return 0  # 届かない（execve は戻らない）
