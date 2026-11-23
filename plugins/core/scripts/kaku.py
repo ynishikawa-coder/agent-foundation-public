@@ -45,6 +45,8 @@ FURUMAI = PLUGIN / "振る舞い.md"
 SAIMOKU = PLUGIN / "細目"
 # 割る前の 1 枚の名。比べる元（main）がまだ割る前の形の時だけ読む（土台の中の移り目・割った形が main に入れば読まれない）。
 SAIMOKU_ONE_FILE = "細目.md"
+# 差し込みの案内に出す節の名の例（細目の節は `- **名** —` の行。実の節と合うかは tests/test_saimoku_setsu_hiku.py が照らす）
+SAIMOKU_EXAMPLE = "**見せてから聞く**"
 OLDS = PLUGIN / "古い形.json"
 FRAME_BEGIN = "<!-- AF-CORE:BEGIN"
 # 越えた時の最後の行（中身は細目 §3 が正本＝ここは指すだけ）
@@ -864,8 +866,8 @@ def inject_text(texts: dict[str, str | None] | None = None) -> str:
             parts.append(f"（毎回差し込む {path} が読めず、差し込まれていない。土台の plugin を入れ直し、直せない時は返事の締めに 1 行書く）")
     return ("\n\n".join(parts) + "\n\n"
             + "（この核と振る舞いの既定は土台の plugin core が起動時に差し込んだ。"
-            + f"返事・問い・手の窓などの形の細目は {SAIMOKU} の中の、核の節と同じ番号で始まる file（例: 03-直すは根治.md）。"
-            + "その形を書く時に Read する）\n")
+            + f"形の細目は {SAIMOKU} の中の、核の節と同じ番号で始まる file。節の名（例 `{SAIMOKU_EXAMPLE}`）で Grep し、"
+            + "その節だけ Read する）\n")
 
 
 # ── 土台の新しさ（入っている物と main の先端を比べる） ──
