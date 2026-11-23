@@ -644,7 +644,7 @@ def test_pick_one_作業や論点や原因を1つだけ選ばせる問いを止�
     out = hook(env, "pre", ask(question))
     assert out.get("permissionDecision") == "deny"
     assert "全部" in out["permissionDecisionReason"] and "ask_pick_one_exempt" in out["permissionDecisionReason"]
-    # 推奨の印は作り方の分かれ道だけ（細目 §4）。止めた文がやり方の問いに印を勧めると、答えを寄せる問いを作り直させる。
+    # 推奨の印は作り方の分かれ道だけ（細目「聞き方」）。止めた文がやり方の問いに印を勧めると、答えを寄せる問いを作り直させる。
     assert "（推奨）」" not in out["permissionDecisionReason"] and "細目 §4「推奨の印」" in out["permissionDecisionReason"]
 
 

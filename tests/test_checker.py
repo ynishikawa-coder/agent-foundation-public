@@ -115,7 +115,7 @@ def test_見る点が写す元の一般の観点を全部持つ():
         "呼ぶ側と呼ばれる側",                   # 共通の仕組みの参照切れ
         "except: pass", "shell=True", "set -euo pipefail", "未クォート", "await",  # 言語ごとの点
         "注入の試験",                           # 根治と言う直しに、誤りの類をわざと入れて拒む試験が在るか
-        "既定で止まる", "黙って既定の値", "申告だけ",  # 誤りが入れない形（核 §3）
+        "既定で止まる", "黙って既定の値", "申告だけ",  # 誤りが入れない形（核「直すは根治」）
     ]:
         assert word in skill, f"見る点に無い: {word}"
     points = [l.split("|")[1].strip().split(" ")[0] for l in skill.splitlines() if l.startswith("| ") and l.split("|")[1].strip()[:2].strip().isdigit()]
@@ -200,7 +200,7 @@ def test_知らない印と値の無い印は止まる(tmp_path):
     assert vf.main(["verdict_form.py", str(good), "--writr", "x"]) == 2
     assert vf.main(["verdict_form.py", str(good), "--writer"]) == 2
     assert vf.main(["verdict_form.py", str(good), "--writer", "a", "--writer", "b"]) == 2
-    # --first が無い呼び方は 1 段目の間は古い形として通す（tests/test_rules_version.py・CONTRIBUTING.md §8）
+    # --first が無い呼び方は 1 段目の間は古い形として通す（tests/test_rules_version.py・CONTRIBUTING.md「配り方と「壊れる:」変更」）
     assert vf.main(["verdict_form.py", str(good), "--writer", "session_W1", "--head", "0123456789ab", "--first", "x"]) == 2
 
 

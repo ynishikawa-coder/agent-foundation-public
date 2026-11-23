@@ -24,7 +24,7 @@ def test_初めの版の判定は後から足された点なしで通り_違う�
     assert vf.check_posted(verdict(v1), "なし", head="0123456789ab", repo=clone)            # 初めの判定を古い版で
     assert vf.check_posted(verdict(v2, "\n- 13 作り物の新しい点: pass"), v1[:12], head="0123456789ab", repo=clone)  # 違う版
     no_line3 = verdict(v1).replace("決まりの版: %s\n" % v1[:12], "")
-    assert vf.check_posted(no_line3, v1[:12], head="0123456789ab", repo=clone) == []        # 3 行目が無い古い形は 1 段目の間は通す（CONTRIBUTING.md §8）
+    assert vf.check_posted(no_line3, v1[:12], head="0123456789ab", repo=clone) == []        # 3 行目が無い古い形は 1 段目の間は通す（CONTRIBUTING.md「配り方と「壊れる:」変更」）
 
 
 def test_決まりの_git_が読めなければ通さず_Unreadable(tmp_path):
@@ -34,7 +34,7 @@ def test_決まりの_git_が読めなければ通さず_Unreadable(tmp_path):
 
 def test_1段目_決まりの版を知らない古い_checker_には_first_を渡さず前の形で照らす(env, tmp_path):
     # guard と checker は別の plugin で、入れ直しの間は guard だけ新しい事がある。古い checker（first_rules が無く --first を
-    # 知らない）に --first を渡すと「知らない印」で判定が全部止まるので、1 段目の間は渡さずに前の形で照らす（CONTRIBUTING.md §8）
+    # 知らない）に --first を渡すと「知らない印」で判定が全部止まるので、1 段目の間は渡さずに前の形で照らす（CONTRIBUTING.md「配り方と「壊れる:」変更」）
     _fake_gh(env)
     seen = tmp_path / "argv.json"
     old = tmp_path / "old" / "verdict_form.py"

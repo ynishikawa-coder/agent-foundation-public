@@ -113,7 +113,7 @@ def test_注入_PR_の_commit_を全部引けなければ判定を通さない(e
 
 
 def test_注入_親窓の欄は古い形の行が在る間は通し_畳んだら数える(env):
-    """壊れる 2 段（CONTRIBUTING.md §8）を古い形の一覧の行 1 つで決める: pr-parent-field の行が在る間（1 段目）は、使う側の
+    """壊れる 2 段（CONTRIBUTING.md「配り方と「壊れる:」変更」）を古い形の一覧の行 1 つで決める: pr-parent-field の行が在る間（1 段目）は、使う側の
     古い本文の頭の塊の `親窓: <窓の id>` を通す。行を消した 2 段目からは窓の id として数える。手で試験を書き替えずに切り替わる。"""
     olds = json.loads((ROOT / "plugins" / "core" / "古い形.json").read_text(encoding="utf-8"))["olds"]
     stage1 = any(o["id"] == "pr-parent-field" for o in olds)

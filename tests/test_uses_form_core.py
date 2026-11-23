@@ -115,8 +115,8 @@ def test_copies_自分の文として書いた写しは今も赤(tmp_path):
 # ── refs（コードの囲みの中は指しでない） ──
 def test_refs_囲みの中の例の番号だけの指しは外れにしない_地の文は今も外れ():
     c = refs.contract()
-    fenced = "例:\n\n```md\n細目 §3 を読む\n```\n"
-    plain = "細目 §3 を読む\n"
+    fenced = "例:\n\n```md\n細目 §3 を読む\n```\n"  # 番号の見本
+    plain = "細目 §3 を読む\n"  # 番号の見本
     assert refs.check_text(c, fenced) == []
     assert refs.check_text(c, plain), "地の文の番号だけの指しが外れにならない"
 
@@ -185,7 +185,7 @@ NESTED = "````md\n```\n%s\n```\n````\n"          # 4 字の囲みの中に 3 字
 def test_読み口_囲みの見分けが_copies_refs_古い形_試験で揃う():
     """4 字の囲みの中の 3 字の行は閉じでない（CommonMark）。所ごとに読み方を写すと、どこかが 3 字の行で閉じて中を地の文に読む。"""
     from test_core_plugin import used_text
-    assert refs.check_text(refs.contract(), NESTED % "細目 §3 を読む") == []
+    assert refs.check_text(refs.contract(), NESTED % "細目 §3 を読む") == []  # 番号の見本
     assert RULE not in copies.own_text(NESTED % RULE)
     assert OLD not in used_text("x.md", NESTED % ("## " + OLD))
     assert not kaku.old_hit(ROWS["tasu-mado-heading"], "x.md", NESTED % ("## " + OLD))

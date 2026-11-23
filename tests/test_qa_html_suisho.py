@@ -11,7 +11,7 @@ import pytest
 from test_docs_kit import DATA, filled_template, needs_node, run_check
 
 
-# 推奨の印（細目 §4と同じ決め方）: オーナー宛て（copy・artifact）の作り方の分かれ道の問い（judge）だけ・1 問に 1 つ・
+# 推奨の印（細目「聞き方」と同じ決め方）: オーナー宛て（copy・artifact）の作り方の分かれ道の問い（judge）だけ・1 問に 1 つ・
 # 1 つ目の選択肢だけ・「分からない」に付けない・理由つき。お客さん宛て（send）と事実を聞く問いは印なし（見込みは .estimate の別枠）
 REC = '<small class="rec">貸した物の手入れは今も貸した側がしている</small>'
 

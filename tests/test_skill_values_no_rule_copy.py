@@ -108,13 +108,13 @@ def _insert_row(text, row):
 
 def test_注入_根治の定義の写しの鍵を戻すと赤():
     text = _insert_row(PREIMPL.read_text(encoding="utf-8"),
-                       "| `common.rules.root_fix` | 根治の定義の repo の正本 | 核 §3・細目 §3 |")
+                       "| `common.rules.root_fix` | 根治の定義の repo の正本 | 核「直すは根治」・細目「直すは根治」 |")
     assert problems(text)
 
 
 def test_注入_4_状態の定義の写しの鍵を戻すと赤():
     text = _insert_row(VERIFY.read_text(encoding="utf-8"),
-                       "| `completion_states_doc` | 4 状態の定義表の正本 | 核の細目 §7 |")
+                       "| `completion_states_doc` | 4 状態の定義表の正本 | 核の細目「完了の 4 状態」 |")
     assert problems(text)
 
 

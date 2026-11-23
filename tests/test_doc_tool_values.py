@@ -68,11 +68,11 @@ def _read(p):
     return Path(p).read_text(encoding="utf-8")
 
 
-# ── 1 「分からない」の選択肢の見分け（正本は guard の ask_shape.is_dunno・細目 §4）──────────────
+# ── 1 「分からない」の選択肢の見分け（正本は guard の ask_shape.is_dunno・細目「聞き方」）──────────────
 
 def _dunno_word(text):
     m = re.search(r"どの問いにも「(.+?)」の選択肢", text)
-    assert m, "細目 §4 の「どの問いにも「分からない」の選択肢」の文が無いか形が変わった"
+    assert m, "細目「聞き方」の「どの問いにも「分からない」の選択肢」の文が無いか形が変わった"
     return m.group(1)
 
 

@@ -235,7 +235,7 @@
     "dev-flow.register-rule.hook_places": "v0.3.0 で畳んだ（register-rule は読まない）。消すか、repo 自身の欄へ移す",
     "dev-flow.register-rule.subagent_contract": "v0.3.0 で畳んだ（register-rule は読まない）。消すか、repo 自身の欄へ移す",
     "dev-flow.register-rule.roster": "v0.3.0 で畳んだ（register-rule は読まない）。消すか、repo 自身の欄へ移す",
-    "dev-flow.register-rule.root_fix": "v0.3.0 で畳んだ（根治の定義の正本は核 §3・細目 §3）。消す",
+    "dev-flow.register-rule.root_fix": "v0.3.0 で畳んだ（根治の定義の正本は核「直すは根治」・細目「直すは根治」）。消す",
     "common.rules": "2026-11-19 に畳んだ（土台の規律の写しだった。正本の核・細目・skill の本文を直に読む・PR #43）。消す",
     "dev-flow.codex.no_double_output": "2026-11-19 に畳んだ（土台の規律の写しだった。正本の核・細目・skill の本文を直に読む・PR #43）。消す",
     "dev-flow.codex.review_only_rule": "2026-11-19 に畳んだ（土台の規律の写しだった。正本の核・細目・skill の本文を直に読む・PR #43）。消す",
@@ -243,7 +243,7 @@
     "dev-flow.verify.code_done_rule": "2026-11-19 に畳んだ（土台の規律の写しだった。正本の核・細目・skill の本文を直に読む・PR #43）。消す",
     "dev-flow.spec-doc.branch_rule": "2026-11-19 に畳んだ（土台の規律の写しだった。正本の核・細目・skill の本文を直に読む・PR #43）。消す",
     "dev-flow.spec-doc.supersede_rule": "2026-11-19 に畳んだ（土台の規律の写しだった。正本の核・細目・skill の本文を直に読む・PR #43）。消す",
-    "dev-flow.codex.task_rule": "2026-11-19 に畳んだ（DEFER・新しい仕事は原因の台帳の行にする＝細目 §3 の写しだった・PR #36）。消す",
-    "dev-flow.preimpl-cleanup.cleanup_followup": "2026-11-19 に畳んだ（[後片付け] は原因の台帳の行にする＝細目 §3・PR #36）。消す"
+    "dev-flow.codex.task_rule": "2026-11-19 に畳んだ（DEFER・新しい仕事は原因の台帳の行にする＝細目「直すは根治」の写しだった・PR #36）。消す",
+    "dev-flow.preimpl-cleanup.cleanup_followup": "2026-11-19 に畳んだ（[後片付け] は原因の台帳の行にする＝細目「直すは根治」・PR #36）。消す"
   }
 }

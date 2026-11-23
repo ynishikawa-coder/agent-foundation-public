@@ -82,7 +82,7 @@ def test_返事の中身が崩れると_AI_へ差し戻す(tmp_path, bad, code):
 GOOD_REPLIES = [
     # 普通の終わった返事
     owner_reply("作り物を直した。", "根拠: 作り物の試験が緑。"),
-    # URL・コード・path・file 名・版は数えない（核 §2 コード・パス・固有名は英語でよい）
+    # URL・コード・path・file 名・版は数えない（核「日本語」コード・パス・固有名は英語でよい）
     owner_reply("直しは https://github.com/example/repo/pull/616 です。"),
     owner_reply("`session_watch.py` の `check()` を直した。", "置き場は plugins/session-watch/scripts です。"),
     owner_reply("config/skill-values.json に 1 行足した。版は v0.3.0 のまま。"),

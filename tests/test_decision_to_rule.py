@@ -24,7 +24,7 @@ def stamps(text):
 
 
 def route_ok(kiroku, register):
-    """細目 §8 の「決めた事」に `決まりへ` の欄と register-rule への道が在り、register-rule の Step 5 がその欄を書くか。"""
+    """細目「記録」の「決めた事」に `決まりへ` の欄と register-rule への道が在り、register-rule の Step 5 がその欄を書くか。"""
     line = next((l for l in kiroku.splitlines() if "**決めた事**" in l), "")
     return ("`意図｜決めた中身｜原文｜時刻｜決まりへ`" in line and "register-rule" in line and "この 1 本" in line and "決まりの文には日付・原文・経緯を書かない。" in line
             and re.search(r"決定の記録のその行の `決まりへ` に", register) is not None)

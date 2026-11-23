@@ -109,7 +109,7 @@ export const RULES = {
   },
   // 先に決めておきたい事（later）の最初の問いのまとまりの 1 行（決まった文・会社の表の docs-kit.qa-html.later_lead で替えられる）
   "later_lead": "今月の計算には関係しません。起きた時の決め方を先に伺います。",
-  // 推奨の印（選択肢の画面の印と同じ決め方＝細目 §4）: オーナー宛て（dests）の作り方の分かれ道の問い（kinds）だけ・
+  // 推奨の印（選択肢の画面の印と同じ決め方＝細目「聞き方」）: オーナー宛て（dests）の作り方の分かれ道の問い（kinds）だけ・
   //   1 問に 1 つ・1 つ目の選択肢だけ・「分からない」に付けない・理由はその選択肢に 1 行（HTML は <small class="rec">理由</small>＝
   //   「推奨」の字は型の CSS が出す・JSON は "recommended": "理由"）。お客さん宛て（send）と事実を聞く問いは印なし＝見込みは .estimate の枠だけ
   "rec": { "dests": ["copy", "artifact"], "kinds": ["judge"] },

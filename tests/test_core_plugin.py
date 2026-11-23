@@ -318,16 +318,16 @@ def test_核の根治は意図_課題_原因_解決_未来の_5_段で_未来は
     assert "意図→課題→原因→解決→未来" in s3
     assert "仕組み・設計）が悪い前提" in s3 and "別の目の助手" in s3
     s3d = _節(細目の全文(), 3)
-    assert "意図が果たされ、同じ課題と同じ原因の他の問題が起きない状態" in s3d, "細目 §3 の未来が直した後の姿でない"
+    assert "意図が果たされ、同じ課題と同じ原因の他の問題が起きない状態" in s3d, "細目「直すは根治」の未来が直した後の姿でない"
     for word in ["**意図**", "**課題**", "**原因**", "**同じ原因の他の問題**", "**解決**", "**未来**",
                  "無理・無駄・重複", "聞かせ方", "混じって", "試験を足す段ではない"]:
-        assert word in s3d, f"細目 §3 に無い: {word}"
+        assert word in s3d, f"細目「直すは根治」に無い: {word}"
 
 
 def test_MGK_は根治の_5_段の呼び名で説明の頼みにも_5_段で答える():
-    assert "意図→課題→原因→解決→未来" in _節((PLUGIN / "核.md").read_text(encoding="utf-8"), 3), "核 §3 に 5 段が無い"
+    assert "意図→課題→原因→解決→未来" in _節((PLUGIN / "核.md").read_text(encoding="utf-8"), 3), "核「直すは根治」に 5 段が無い"
     s3d = _節(細目の全文(), 3)
-    assert "（呼び名 MGK。" in s3d, "細目 §3 に MGK の呼び名が無い"
+    assert "（呼び名 MGK。" in s3d, "細目「直すは根治」に MGK の呼び名が無い"
     line = next(l for l in (PLUGIN / "振る舞い.md").read_text(encoding="utf-8").splitlines() if "**MGK**" in l)
     for word in ["説明", "根治の 5 段の見出しで答える"]:
         assert word in line, f"振る舞いの既定の MGK の行に無い: {word}"
@@ -337,11 +337,11 @@ def test_問いは選ぶ問いと開いた問いに分け_分からないを置�
     kaku_text = (PLUGIN / "核.md").read_text(encoding="utf-8")
     s4 = _節(kaku_text, 4)
     for word in ["選択肢の画面", "開いた問い", "AI の読み"]:
-        assert word in s4, f"核 §4 に無い: {word}"
+        assert word in s4, f"核「聞き方」に無い: {word}"
     assert "例え話にせず" in _節(kaku_text, 2)
     s4d = _節(細目の全文(), 4)
     for word in ["どの問いにも「分からない」の選択肢", "「分からない」が返った", "AI の今の読み", "選ぶ問いと開いた問い", "問いの言葉", "開発用語", "業界の専門用語", "決まりの言葉", "オーナーの言葉", "例え話に替えず"]:
-        assert word in s4d, f"細目 §4 に無い: {word}"
+        assert word in s4d, f"細目「聞き方」に無い: {word}"
 
 
 def test_聞き方は見せてから聞き_前提の出所を分け_推奨の印は分かれ道だけ_待つ間は答えに頼らない事だけ():
@@ -350,13 +350,13 @@ def test_聞き方は見せてから聞き_前提の出所を分け_推奨の印
     s4 = _節((PLUGIN / "核.md").read_text(encoding="utf-8"), 4)
     for word in ["案と前提をチャットで先に見せ", "画面の問いは 1 文に", "推奨の印は作り方の分かれ道だけ",
                  "済んだかは AI が確かめてから", "答えを待つ間は答えに頼らない事を進める"]:
-        assert word in s4, f"核 §4 に無い: {word}"
+        assert word in s4, f"核「聞き方」に無い: {word}"
     s4d = _節(細目の全文(), 4)
     for word in ["**見せてから聞く**", "1 文（前提も①へ）", "選択肢の説明へ", "**前提の出所**", "オーナーの言葉／記録の事実／AI の読み",
                  "「ずれ」と決め込まない", "「なぜこの形か」を問う", "**推奨の印**", "済んだかの確認には付けない",
                  "**答えを待つ間**", "推奨で先に進めない", "「終わった」「うまくいかない」「分からない」・推奨の印は付けない",
                  "AI が確かめられる済んだ目印を先に確かめ"]:
-        assert word in s4d, f"細目 §4 に無い: {word}"
+        assert word in s4d, f"細目「聞き方」に無い: {word}"
     mock = (ROOT / "plugins" / "docs-kit" / "skills" / "theory-mock" / "SKILL.md").read_text(encoding="utf-8")
     assert "作り方の分かれ道（画面・データ・流れをどう作るか）だけを置き" in mock and "推奨を付けずにチャットで聞く" in mock
     reminder = (ROOT / "plugins" / "guard" / "scripts" / "unanswered.py").read_text(encoding="utf-8")
@@ -389,12 +389,12 @@ def test_核の根治は誤りが入れない形と注入の試験を持つ():
     kaku_text = (PLUGIN / "核.md").read_text(encoding="utf-8")
     s3 = _節(kaku_text, 3)
     for word in ["誤りが入れない形", "1 つの正本", "写さない", "既定で止める", "証明", "人の関所", "わざと入れて"]:
-        assert word in s3, f"核 §3 に無い: {word}"
+        assert word in s3, f"核「直すは根治」に無い: {word}"
     assert "申告でなく記録" in _節(kaku_text, 7)
     saimoku = 細目の全文()
     s3d = _節(saimoku, 3)
     for word in ["写す工程を無くす", "誤った物が入れない", "正しい道だけが外へ出す", "防げない物は名指しで人の関所へ", "注入の試験", "古い道は残さず"]:
-        assert word in s3d, f"細目 §3 に無い: {word}"
+        assert word in s3d, f"細目「直すは根治」に無い: {word}"
     assert "記録で確かめる" in _節(saimoku, 7)
 
 
@@ -525,10 +525,10 @@ def test_挙げた原因は全部台帳に行き先つきで持ち_全部済む�
     kaku_text = (PLUGIN / "核.md").read_text(encoding="utf-8")
     s3 = _節(kaku_text, 3)
     for word in ["原因の台帳", "全部", "行き先"]:
-        assert word in s3, f"核 §3 に無い: {word}"
+        assert word in s3, f"核「直すは根治」に無い: {word}"
     s3d = _節(細目の全文(), 3)
     for word in ["1 つ 1 行", "`直す窓`", "`直した`", "`直さない`", "オーナーが決めた理由"]:
-        assert word in s3d, f"細目 §3 の原因の台帳に無い: {word}"   # 行き先の細かさは細目が正本（核は芯だけ）
+        assert word in s3d, f"細目「直すは根治」の原因の台帳に無い: {word}"   # 行き先の細かさは細目が正本（核は芯だけ）
     s7 = _節(kaku_text, 7)
     assert "終わったかは合意した目標で決め" in s7 and "外で見つけた穴は直さず" in s7
     s4 = _節(kaku_text, 4)
@@ -554,7 +554,7 @@ def test_挙げた原因は全部台帳に行き先つきで持ち_全部済む�
     ("CONTRIBUTING.md", "1 本に入らなかった仕事"),
     ("CONTRIBUTING.md", "`合流済` が届いた枝"),
     ("plugins/checker/skills/review-pr/SKILL.md", "`[台帳へ｜<段>]`"),
-    # codex の値の表の `task_rule` は細目 §3 の写しなので畳んだ（受け皿は本文の 6. DEFER の行だけ）
+    # codex の値の表の `task_rule` は細目「直すは根治」の写しなので畳んだ（受け皿は本文の 6. DEFER の行だけ）
     ("plugins/dev-flow/skills/codex/SKILL.md", "`[DEFER]`"),
     ("plugins/dev-flow/skills/codex/SKILL.md", "**RETURN_TO_DESIGN**"),
     ("plugins/dev-flow/skills/codex/SKILL.md", "6. **DEFER"),
@@ -581,7 +581,7 @@ def test_残りの受け皿は原因の台帳_1_つで_名だけの受け皿を�
     assert "**残りの受け皿は原因の台帳 1 つ**" in s3d
     for word in ["`台帳へ` の札", "DEFER", "一時しのぎ", "「一部」の残り", "どの窓も持たなかった論点", "選ばれなかった案",
                  "1 窓 1 枝 1 PR に入らなかった仕事", "合流の後の続き", "道具の都合", "正本は台帳"]:
-        assert word in s3d, f"細目 §3 の残りの受け皿に無い: {word}"
+        assert word in s3d, f"細目「直すは根治」の残りの受け皿に無い: {word}"
     missing = []
     for rel, key in 残りの所:
         lines = [ln for ln in (ROOT / rel).read_text(encoding="utf-8").splitlines() if key in ln]
@@ -599,7 +599,7 @@ def test_土台の直しは使う側の写しの残りも同じ仕事で直し_�
     """写しの残りを洗い出すだけで終わる形（直す持ち主が無い）を戻すと赤。"""
     s7d = _節(細目の全文(), 7)
     line = [ln for ln in s7d.splitlines() if "**土台の直しの終わり**" in ln]
-    assert len(line) == 1, "細目 §7 に「土台の直しの終わり」が無い"
+    assert len(line) == 1, "細目「完了の 4 状態」に「土台の直しの終わり」が無い"
     for word in ["使う側の repo", "同じ仕事の中で直す", "洗い出しだけで終わらせない", "使う側の写しの残り", "合流するまで「終わった」と言わない", "原因の台帳の行"]:
         assert word in line[0], f"土台の直しの終わりに無い: {word}"
     assert "## 使う側の写しの残り" in (ROOT / ".github" / "pull_request_template.md").read_text(encoding="utf-8")
@@ -616,12 +616,12 @@ def test_ミスが出たらまず構造を疑い_単発と言うのは絵の上�
     assert first.startswith("ミスが出た時（画面の見た目を除く）と直す・作る時の既定は根治"), "根治の入口が直す・作る時だけに戻った"
     for word in ["まず構造（上位の前提", "単発の誤りと言うのは構造に原因が無いと示せた時だけ（絵があれば絵の上で）",
                  "守り（確かめ・決まり）を足さず"]:
-        assert word in s3, f"核 §3 に無い: {word}"
+        assert word in s3, f"核「直すは根治」に無い: {word}"
     s3d = _節(細目の全文(), 3)
     assert "**まず構造を疑う**" in s3d
     for word in ["作業の途中・レビュー・検査・引き継ぎ", "画面の見た目の崩れだけは除く", "示した所を書く（合意した全体の絵があれば絵のどこを見たか、無ければ言葉で）",
                  "根に届いていない合図で、原因の段へ戻る"]:
-        assert word in s3d, f"細目 §3 の「まず構造を疑う」に無い: {word}"
+        assert word in s3d, f"細目「直すは根治」の「まず構造を疑う」に無い: {word}"
     rr = (ROOT / "plugins" / "dev-flow" / "skills" / "register-rule" / "SKILL.md").read_text(encoding="utf-8")
     assert "細目 §3「まず構造を疑う」" in rr, "register-rule が規律を足す前に原因の段へ戻さない"
     assert "細目 §3「まず構造を疑う」" in (ROOT / "CONTRIBUTING.md").read_text(encoding="utf-8"), "red を単発の手直しで済ませる形に戻った"

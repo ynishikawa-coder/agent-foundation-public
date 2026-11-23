@@ -71,7 +71,7 @@ def test_初めの判定を古い版で書くと赤(two, tmp_path, monkeypatch):
 
 
 def test_1段目_決まりの版の行が無い古い形も前の形で通す(two, tmp_path, monkeypatch):
-    # 壊れる変更の 1 段目（CONTRIBUTING.md §8）: 3 行目の無い判定・--first の無い呼び方・check を直に呼ぶ使う側の関所
+    # 壊れる変更の 1 段目（CONTRIBUTING.md「配り方と「壊れる:」変更」）: 3 行目の無い判定・--first の無い呼び方・check を直に呼ぶ使う側の関所
     # （古い形.json の verdict-no-rules-line）は、前の形＝道具の入っている SKILL.md の点で照らして通す。形の崩れは今まで通り拒む
     clone, v1, _ = two
     old = verdict(v1).replace("決まりの版: %s\n" % v1[:12], "")

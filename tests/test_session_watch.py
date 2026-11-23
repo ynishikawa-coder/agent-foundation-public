@@ -214,7 +214,7 @@ def test_知らせる口は止めず_JSON_で隣に出す():
     assert again.returncode == 0 and again.stdout == ""
 
 
-# ── 動かしていない AI がこの後やること（核 §5）──
+# ── 動かしていない AI がこの後やること（核「返事の形」）──
 def test_AI_の残りを書いて動かさずに締めると拾い_子窓を立てれば拾わない():
     close = "\nAI がこの後やること: レビューして合流（今日中・レビューの窓で）\nあなたがやること: なし。この窓は閉じて大丈夫です。"
     rs = set_last_text(rows("owner_ok.jsonl"), "✅終わった（一部）\nPR を出した。" + close)
@@ -243,7 +243,7 @@ def test_Workflow_は残りを動かす手に数える():
     assert "rest" not in codes(rs[:-1] + [wf, rs[-1]])
 
 
-# ── 頼んだ窓のあなたがやること（手の窓の URL だけ・細目 §4）──
+# ── 頼んだ窓のあなたがやること（手の窓の URL だけ・細目「聞き方」）──
 AI_DONE = "\nAI がこの後やること: なし\n"
 STEPS = [
     "あなたがやること: 1. 作り物の画面を開く 2. 値を貼る。これが済むまで合流に進めません。",
@@ -268,7 +268,7 @@ def test_あなたがやることに手順を直に書けば拾い_URL_なし_�
     rs = rows("owner_ok.jsonl")
     for owner in STEPS:
         found = [m for c, m in sw.check(sw.Log(reply(rs, owner))) if c == "hand"]   # 締めの後のコードブロックは close も拾う
-        assert len(found) == 1 and "手の窓の URL だけ" in found[0] and "細目 §4" in found[0], owner
+        assert len(found) == 1 and "手の窓の URL だけ" in found[0] and "細目「聞き方」" in found[0], owner
     for owner in NO_STEPS:
         assert "hand" not in codes(reply(rs, owner)), owner
 
@@ -299,7 +299,7 @@ def test_前の返事に手順を直に書いた窓へ次の頼みで知らせ�
 
 
 def test_一言で済む返事は札と締めを求めない():
-    """細目 §5: 札も締めも無い 3 行以下の返事（問いを出していない）は card・close を拾わない。"""
+    """細目「返事の形」: 札も締めも無い 3 行以下の返事（問いを出していない）は card・close を拾わない。"""
     c = set_last_text(rows("child_ok.jsonl"), "はい、main の先端は d7b1191 です。")
     assert not {"card", "close"} & set(codes(c))
     c = set_last_text(rows("child_ok.jsonl"), "はい。\n枝は claude/20261119-x です。\n試験は通っています。")
