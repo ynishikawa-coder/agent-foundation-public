@@ -6,6 +6,8 @@ from pathlib import Path
 
 import pytest
 
+from test_kimari_okiba import 戻せない操作の文
+
 ROOT = Path(__file__).resolve().parent.parent
 TOOL = ROOT / "plugins" / "core" / "scripts" / "copies.py"
 def _load(name, path):
@@ -18,7 +20,7 @@ def _load(name, path):
 REFS = _load("af_refs_for_copies", ROOT / "plugins" / "core" / "scripts" / "refs.py")
 
 KAKU = (ROOT / "plugins" / "core" / "核.md").read_text(encoding="utf-8")
-ORIGINAL = "戻せない操作の前に人に聞く — 強制 push・DB の削除・人の手が入った物や git に無い一点物の削除。"
+ORIGINAL = 戻せない操作の文(KAKU) or ""   # 核 §1 の箇条から読む（写さない・読めなければ下の試験が赤）
 
 
 def run(tmp_path, text, *args):
@@ -28,7 +30,7 @@ def run(tmp_path, text, *args):
 
 
 def test_試験の元の文が今の核に在る():
-    assert ORIGINAL in KAKU, "核の文が変わった（この試験の元の文を合わせる）"
+    assert 戻せない操作の文((ROOT / "plugins" / "core" / "核.md").read_text(encoding="utf-8")), "核 §1 に「戻せない操作」の箇条が 1 つでない"
 
 
 @pytest.mark.parametrize("label,text", [

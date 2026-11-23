@@ -107,6 +107,6 @@ def test_細目は手の窓の種類を書き正本を指す():
 
 
 def test_細目は手の窓を種類で書き作業名の印を持たない():
-    text = DETAIL.read_text(encoding="utf-8")
-    assert "題 `✋ <何を>` の窓を立てて頼む（済んだら `✋✅`）。" in text
-    assert "手: <何を>" not in text
+    # 文の写しを留めず、細目 §4 の「手の窓」の欄が見張りの正本（HAND・DONE）の題と済んだ印を持つかを照らす
+    from test_kimari_okiba import 手の窓の外れ
+    assert 手の窓の外れ(DETAIL.read_text(encoding="utf-8"), sw.HAND, sw.DONE) == []

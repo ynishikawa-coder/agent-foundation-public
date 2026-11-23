@@ -5,6 +5,7 @@ import sys
 import pytest
 
 from test_checker import GREEN, PLUGIN, vf
+from test_kimari_okiba import 説明の外れ
 
 FORM = PLUGIN / "scripts" / "verdict_form.py"
 SKILL = PLUGIN / "skills" / "review-pr" / "SKILL.md"
@@ -35,10 +36,7 @@ def test_レビューの窓の判定は通る(tmp_path):
 
 
 def test_skill_は書いた窓が立てた助手を別の目と言わない():
-    text = SKILL.read_text(encoding="utf-8")
-    head = text.split("\n---", 1)[0]
-    assert "書いた窓が立てた助手は別の目にならない" in head
-    assert "書いた窓と別の目を立てる時は読むだけの助手" not in text
+    assert 説明の外れ(SKILL.read_text(encoding="utf-8")) == []
 
 
 def test_札と段は_skill_の行から読み_足した段も通る(tmp_path):
