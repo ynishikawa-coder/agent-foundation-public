@@ -5,7 +5,8 @@
   python3 kaku.py inject              SessionStart の hook が呼ぶ。核（同じ plugin の 核.md）と振る舞いの既定
                                       （振る舞い.md）を窓の文脈へいつも差し込み、形の細目（細目/ の節ごとの file）の在り処を知らせる。使う側に残った写し・古い形は名指しで知らせる:
                                       開いた repo の古い形（古い形.json の一覧・核の写しの枠など）／CLAUDE.md の量の上限越え／
-                                      古い形の setup script（土台の入口 scripts/setup_plugins.py を通っていない）／入っていない plugin。
+                                      古い形の setup script（土台の入口 scripts/setup_plugins.py を通っていない）／入っていない plugin／
+                                      非公開（か分からない）repo の Actions の workflow の外れ（docs/Actions の課金と workflow の形.md）。
                                       あわせて、窓の最初の 1 回だけ、入った土台が main の先端と同じかを見て窓ごとに覚える。古ければ、
                                       setup の時の main の先端の記録（setup.json の main_at_setup）と比べて、setup が古い物を入れた
                                       （setup script を直す）か setup の後に main が進んだ（作り置きの箱・setup script は直さない）かを分ける
@@ -667,6 +668,115 @@ def claude_md_text(project: Path) -> str | None:
     return (f"## この repo の CLAUDE.md が常に読まれる量の上限を越えている\n"
             f"{n} > {LIMITS['各社固有']} バイト（数は土台の plugin core の LIMITS の 1 か所・写さない）。"
             "その repo に固有の決まりだけを残し、細かい手順はその repo の文書へ移して指す 1 行にする。\n")
+
+
+# Actions の形（正本は docs/Actions の課金と workflow の形.md）。非公開の repo の workflow が外れていれば起動の時に名指す。
+ACTIONS_DOC = "docs/Actions の課金と workflow の形.md"
+ACTIONS_GH_TIMEOUT = 4  # 公開か非公開かを GitHub に聞く上限（秒）。越えたら「分からない」＝知らせる側へ倒す
+
+
+def _workflow_reader():
+    """workflow の読み手（正本 public-guard/workflow_reader.py）。土台の在り処探し（lib/af_place.py の symlink）で、
+    入った core と同じ版の物を読む（写さない）。見つからなければ例外（見張りの壊れとして名指す）。"""
+    sys.path.insert(0, str(PLUGIN / "lib"))
+    try:
+        import af_place as place
+    finally:
+        sys.path.pop(0)
+    path = place.foundation_file(os.path.join("public-guard", "workflow_reader.py"), str(PLUGIN))
+    if not path:
+        raise RuntimeError("workflow の読み手（public-guard/workflow_reader.py）が見つからない" + place.miss_note())
+    return place.load_module("af_core_workflow_reader", path)
+
+
+def _cancels(conc, reader) -> bool:
+    """concurrency の値が古い走りを止めるか（cancel-in-progress が在り、字どおりの false でない。式は走り得るので止めると読む）。"""
+    if not isinstance(conc, dict) or "cancel-in-progress" not in conc:
+        return False
+    v = conc["cancel-in-progress"]
+    return isinstance(v, str) and bool(v.strip()) and not reader.literal_false(v)
+
+
+def workflow_breaks(text: str, reader) -> list[str]:
+    """1 つの workflow の text が既定の形から外れている所（人に見せる 1 行ずつ）。外れが無ければ空。
+    見るのは 2 つ: PR で走るのに古い走りを止めない（concurrency の cancel-in-progress が workflow にも全部の job にも無い）・
+    push で全部の枝に走る（branches も tags も絞らない・branches-ignore だけ・branches に * か ** が在る）。"""
+    wf = reader.load(text)
+    on = wf.get("on", wf.get("true", ""))
+    names = reader.triggers(wf)
+    out = []
+    if names & {"pull_request", "pull_request_target"}:
+        jobs = wf.get("jobs") if isinstance(wf.get("jobs"), dict) else {}
+        every_job = bool(jobs) and all(isinstance(j, dict) and _cancels(j.get("concurrency"), reader) for j in jobs.values())
+        if not (_cancels(wf.get("concurrency"), reader) or every_job):
+            out.append("PR で走るのに、同じ PR の古い走りを止めない（concurrency の cancel-in-progress が無い）")
+    if "push" in names:
+        push = on.get("push") if isinstance(on, dict) else None
+        push = push if isinstance(push, dict) else {}
+        branches = push.get("branches")
+        if branches is None and "tags" not in push:
+            out.append("push で全部の枝に走る（branches で絞っていない）")
+        elif branches is not None:
+            pats = branches if isinstance(branches, list) else [branches]
+            if any(str(b).strip().strip("'\"") in ("*", "**") for b in pats):
+                out.append("push で全部の枝に走る（branches が * か **）")
+    return out
+
+
+def _origin_repo(project: Path) -> str | None:
+    """取り出しの origin の URL を owner/repo に読む（GitHub の https・ssh の形）。読めなければ None。"""
+    url = _git(str(project), "remote", "get-url", "origin", timeout=5) or ""
+    m = re.search(r"github\.com[/:]([^/\s]+)/([^/\s]+?)(?:\.git)?/?$", url)
+    return f"{m.group(1)}/{m.group(2)}" if m else None
+
+
+def repo_visibility(project: Path, texts: dict[str, str], reader) -> tuple[str, str]:
+    """開いた repo が公開か（"public"・"private"・"unknown"）と、そう読んだ訳。
+    workflow が土台の公開の検査（action public-guard）を PR・push で呼ぶ repo は公開（核 §1 の 4）。
+    それ以外は origin の repo を GitHub に聞く（gh api・短い上限）。聞けなければ unknown（知らせる側へ倒す）。"""
+    if any(reader.counted(t, reader.FOUNDATION) for t in texts.values()):
+        return "public", "公開の検査を呼ぶ"
+    repo = _origin_repo(project)
+    if not repo:
+        return "unknown", "origin が GitHub の repo として読めない"
+    try:
+        p = subprocess.run(["gh", "api", f"repos/{repo}", "--jq", ".private"], capture_output=True, text=True,
+                           timeout=ACTIONS_GH_TIMEOUT, env=dict(os.environ, GH_PROMPT_DISABLED="1"))
+    except (OSError, subprocess.SubprocessError) as e:
+        return "unknown", f"GitHub に {repo} を聞けない（{type(e).__name__}）"
+    ans = p.stdout.strip()
+    if p.returncode == 0 and ans in ("true", "false"):
+        return ("private" if ans == "true" else "public"), f"GitHub が {repo} を{'非公開' if ans == 'true' else '公開'}と答えた"
+    return "unknown", f"GitHub が {repo} の公開・非公開を答えない"
+
+
+def actions_text(project: Path) -> str | None:
+    """開いた repo が非公開（か分からない）で、その workflow が Actions の既定の形から外れていれば名指す文（止めない）。
+    外れが無い・workflow が無い・公開の repo は None。"""
+    wdir = project / ".github" / "workflows"
+    if not wdir.is_dir():
+        return None
+    texts, unread = {}, []
+    for f in sorted(list(wdir.glob("*.yml")) + list(wdir.glob("*.yaml"))):
+        try:
+            texts[f.name] = f.read_text(encoding="utf-8")
+        except UNREADABLE as e:
+            unread.append(f"{f.name}（{type(e).__name__}）")
+    reader = _workflow_reader()
+    hits = [f"`.github/workflows/{n}`: {why}" for n, t in texts.items() for why in workflow_breaks(t, reader)]
+    if not hits and not unread:
+        return None
+    vis, why = repo_visibility(project, texts, reader)
+    if vis == "public":
+        return None
+    head = ("非公開の repo" if vis == "private" else f"公開か非公開か分からない repo（{why}）")
+    lines = [f"## この repo（{project.name}）の Actions の workflow が既定の形から外れている — {head}\n",
+             "非公開の repo の Actions は job ごとに分へ切り上げて数えられ、失敗した走り・待つだけの時間も数えられる。"
+             f"既定の形は土台の `{ACTIONS_DOC}` が正本。この仕事のついでに直す（止めない・知らせるだけ）:\n"]
+    lines += [f"- {h}\n" for h in hits]
+    if unread:
+        lines.append("- 読めず照らしていない workflow: " + "・".join(unread) + "\n")
+    return "".join(lines)
 
 
 LOCAL_SOURCES = ("directory", "file")  # 手元の dir・file から入れた試し・CI（使う側の setup script を持たず main と比べない）
@@ -1403,7 +1513,8 @@ def inject() -> int:
     project = Path(os.environ.get("CLAUDE_PROJECT_DIR") or os.getcwd())
     parts = []
     for name, make in (("古い形", lambda: olds_text(find_olds_bounded(project), project)),
-                       ("CLAUDE.md の量", lambda: claude_md_text(project)), ("入れ方", setup_text)):
+                       ("CLAUDE.md の量", lambda: claude_md_text(project)),
+                       ("Actions の形", lambda: actions_text(project)), ("入れ方", setup_text)):
         try:
             t = make()
         except Exception as e:  # noqa: BLE001  見張りが壊れても核の差し込みは止めない。壊れた事は名指しする

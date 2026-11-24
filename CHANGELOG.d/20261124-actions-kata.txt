@@ -1,0 +1,1 @@
+- 足した: 非公開（か分からない）repo の Actions の workflow が既定の形（PR の古い走りを止める・push を全部の枝で走らせない）から外れていれば、plugin core の起動の hook が file の名で知らせる（止めない）。数え方の前提と既定の形の正本は docs/Actions の課金と workflow の形.md
