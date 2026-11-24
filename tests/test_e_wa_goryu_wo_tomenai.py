@@ -1,6 +1,9 @@
 """全体の絵は設計の時に掘り下げる元の図で、合流（main へ入れる）を止めない（オーナーの意図 2026-11-22）。
 核 §7・細目 §7・review-pr に、絵を合流の条件にする文や点が戻ると red。"""
+import re
 from pathlib import Path
+
+from test_core_plugin import used_text
 
 from saimoku import 全文 as 細目の全文
 
@@ -9,6 +12,8 @@ CORE = ROOT / "plugins" / "core" / "核.md"
 REVIEW = ROOT / "plugins" / "checker" / "skills" / "review-pr" / "SKILL.md"
 CONTRIB = ROOT / "CONTRIBUTING.md"
 
+合流の_1_行 = ("main へ入れる前に、使う側に届く誤りが無い事を、書いた窓と別の目で確かめる。"
+              "機械で証明できる所（版の束ね・CHANGELOG の形）は機械の緑がその確かめ。")
 戻ってはいけない = ["差がある・照らせない時は止めて聞く", "先に絵を描き", "③の照らし方", "点 13"]
 
 
@@ -21,7 +26,7 @@ def _節7(text):
 def test_核_7_は絵を設計の元の図とし合流を止めない():
     s = _節7(CORE.read_text(encoding="utf-8"))
     assert "全体の絵は設計の元の図で合流を止めず" in s
-    assert "今の先端にレビュー green・試験が緑で衝突なし" in s
+    assert 合流の_1_行 in s
     for w in 戻ってはいけない:
         assert w not in s, w
 
@@ -70,3 +75,30 @@ def test_絵が無い事を理由に止めない():
     sp = SPEC.read_text(encoding="utf-8")
     assert "先に big-picture で絵を描いて OK を取る" not in sp
     assert "全体の絵が無い仕組みでも、絵が無い事を理由に止めない" in sp
+
+
+# 合流の条件を核 §7 の外で言い直す写し（「レビュー green・試験が緑」の類・数で数える「n 回目」の印）。
+# 写しは核が変わっても付いて来ず、2 か所が食い違う（review-pr の 9 点目・細目 §7 と CONTRIBUTING §2 で起きた）。
+合流の写し = re.compile(r"レビュー(?:の)?\s*green[^。\n]{0,16}試験が緑|別窓レビュー|前回と同じ類（")
+
+
+def test_合流の写しの見分けは注入を拾い_核を指す文は拾わない():
+    for bad in ["今の先端にレビュー green・試験が緑で衝突なし", "今の先端にレビューの green・試験が緑・衝突なし",
+                "条件は核 §7（別窓レビュー green・試験が緑）", "- [止める｜実装] 前回と同じ類（3 回目） a.py"]:
+        assert 合流の写し.search(bad), bad
+    for ok in ["コードの完了と main へ入れる条件は核 §7・細目 §7 が決める（ここに写さない）。",
+               "核 §7 の確かめが済み衝突が無ければ、書いた窓が squash で入れる", "試験が緑", 合流の_1_行]:
+        assert not 合流の写し.search(ok), ok
+
+
+def test_合流の条件は核_7_の_1_か所で_土台の中に写しが無い():
+    hits = []
+    for p in sorted(ROOT.rglob("*")):
+        rel = p.relative_to(ROOT)
+        if rel.parts[0] in {".git", "tests"} or not p.is_file() or p.suffix not in {".md", ".py", ".json", ".mjs", ".html"}:
+            continue   # 変更の記録（CHANGELOG.d の .txt）は経緯として古い言い方を持つので拡張子で外れる
+        m = 合流の写し.search(used_text(rel, p.read_text(encoding="utf-8")))
+        if m:
+            hits.append(f"{rel}: {m.group(0)}")
+    assert not hits, hits
+    assert 合流の_1_行 in _節7(CORE.read_text(encoding="utf-8"))
