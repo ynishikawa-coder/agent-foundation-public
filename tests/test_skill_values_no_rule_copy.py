@@ -12,6 +12,7 @@
 """
 import re
 from pathlib import Path
+from test_core_plugin import used_texts
 from uses import kaku
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -77,14 +78,10 @@ def test_SKILL_の値の表に土台の規律の写しが無い():
 
 
 def test_雛形も_common_rules_を指さない():
-    # 鍵の一覧（plugins/*/lib/schema.json＝skill-values/ の正本への symlink）は畳んだ鍵として名指しする所なので外す
-    #（使う側の表に残れば「畳んだ鍵」と名指しされる＝tests/test_skill_values.py）。
-    for p in sorted((ROOT / "plugins").rglob("*")):
-        if "lib" in p.relative_to(ROOT / "plugins").parts:
-            continue
-        if p.is_file() and p.suffix in (".md", ".py", ".mjs", ".json", ".html"):
-            text = p.read_text(encoding="utf-8", errors="ignore")
-            assert not RULE_BUCKET.search(pointing(p.suffix, text)), f"{p.relative_to(ROOT)} が common.rules を指す"
+    # 歩き方と除く物（鍵の一覧の schema.json・古い形.json）は used_texts の正本。読み方だけ指す形（pointing）に替える。
+    hits = [str(rel) for rel, text in used_texts(under=("plugins",), read=lambda rel, t: pointing(rel.suffix, t))
+            if RULE_BUCKET.search(text)]
+    assert not hits, f"common.rules を指す: {hits}"
 
 
 def test_値の表の節を読めている():

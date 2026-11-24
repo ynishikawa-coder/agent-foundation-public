@@ -71,7 +71,8 @@ def test_付属の_python_が読める():
 
 
 def test_土台の外の置き場を指さない():
-    """プラグインは入れた先で動く＝作った所の repo の中の path や、他の repo の内部の path を書かない。"""
+    """プラグインは入れた先で動く＝作った所の repo の中の path や、他の repo の内部の path を書かない。
+    used_texts を通さない: 外の置き場の path は注釈・引用の中でも AI が辿る道になるので、字のまま docs-kit の中を見る。"""
     bad = re.compile(r"git rev-parse --show-toplevel\)/plugins/|\.claude/skills/|core/rules/|agents/javis")
     files = [p for p in PLUGIN.rglob("*") if p.is_file() and "__pycache__" not in p.parts]
     hits = [f"{p.relative_to(ROOT)}" for p in files if bad.search(p.read_text(encoding="utf-8"))]

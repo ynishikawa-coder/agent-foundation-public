@@ -33,7 +33,8 @@ def 台帳を指す(ln):
 
 
 def _後へ回す行(root):
-    """原因の台帳を指さず、外の表にも無い「後へ回す」行の並び。"""
+    """原因の台帳を指さず、外の表にも無い「後へ回す」行の並び。
+    used_texts を通さない: 注入の試験が作り物の root を渡し、引用・囲みの中の「後で」も決まりとして読むため字のまま見る。"""
     out = []
     files = [*root.glob("plugins/**/*.md"), *root.glob("docs/**/*.md"), *root.glob(".github/**/*.md"),
              *(root / n for n in ("CONTRIBUTING.md", "README.md", "CLAUDE.md"))]

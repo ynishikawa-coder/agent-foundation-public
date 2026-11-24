@@ -50,6 +50,7 @@ def test_付属の物が在る():
 
 
 def test_土台の中で閉じる():
+    """used_texts を通さない: 外の置き場の path は注釈・引用の中でも AI が辿る道になるので、字のまま dev-flow の中を見る。"""
     hits = []
     for p in sorted(PLUGIN.rglob("*")):
         if p.is_file() and p.suffix in {".md", ".py", ".json"}:

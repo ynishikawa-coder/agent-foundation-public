@@ -23,29 +23,44 @@ LIMITS = kaku.LIMITS
 
 def used_text(rel, text):
     """古い言い回しを探す所（使う形の所）: .md は自分の文（囲み・注記・引用の中を除く。# で始まる引用は書く行として残す）・
-    .py は注釈と docstring を除いたコード・.mjs は注釈を除いた字・.html は注記を除いた字・.json は字のまま。注釈や引用で
-    古い名を挙げて経緯を説明するのは残りでない。読み方の正本は kaku.own（写さない）。"""
+    .py は注釈と docstring を除いたコード・.mjs は注釈を除いた字・.html は注記を除いた字・.json は字のまま。写し（同じ
+    決まりの文が 2 か所に在るか）を探す時の読み方。docstring・注記も AI や人が読む文なので、古い言い回しや消した仕組みの
+    説明を探す試験はこれでなく raw_text で読む。読み方の正本は kaku.own（写さない）。"""
     return kaku.own(str(rel), text)
 
 
-def used_texts():
-    """土台の文（.md .py .json .mjs .html・試験と .git を除く）の (rel, 使う形の所) を返す。写しや古い言い回しを
-    探す試験は全部ここを通す（除く物の正本を 1 か所に）。変更の記録は CHANGELOG.d/ の .txt（経緯として古い語を持つ）
-    なので、拡張子で外れる＝file 名で除かない。"""
+def raw_text(rel, text):
+    """生の文のまま読む。docstring（--help や画面に出る）・md の注記（PR の雛形の案内）・コメントも読む人に届く文なので、
+    古い言い回しや消した仕組みの説明を探す試験はこの読み方で探す。"""
+    return text
+
+
+USED_SUFFIXES = (".md", ".py", ".json", ".mjs", ".html")
+
+
+def used_texts(under=(), suffixes=USED_SUFFIXES, read=used_text):
+    """土台の文（試験と .git を除く）の (rel, 使う形の所) を返す。土台を自分で歩いて写し・古い言い回し・消した仕組みの
+    説明を探す試験は全部ここを通す（歩き方と除く物の正本を 1 か所に）。under は見る上の dir（空は全部）、suffixes は
+    拡張子、read は読み方で試験ごとに選ぶ（既定 used_text＝写し探し向き。古い言い回し・消した仕組みは raw_text）。
+    ここを通さず自分で歩く試験は、範囲がわざと違う理由を docstring に書く。
+    変更の記録は CHANGELOG.d/ の .txt（経緯として古い語を持つ）なので、拡張子で外れる＝file 名で除かない。"""
     for p in sorted(ROOT.rglob("*")):
         rel = p.relative_to(ROOT)
+        if under and rel.parts[0] not in under:
+            continue
         # 古い形.json は使う側に残る古い形を見つける一覧＝古い名を持つのが役目（見つけ方の正しさは古い形の試験が照らす）。
         # 値の表の鍵の一覧（skill-values/schema.json と plugin の lib/ の symlink）も畳んだ鍵を名指す所（retired）なので同じ
         if rel.parts[0] in {".git", "tests"} or p == PLUGIN / "古い形.json" or p.name == "schema.json" and (
                 rel.parts[0] == "skill-values" or "lib" in rel.parts):
             continue
-        if p.is_file() and p.suffix in {".md", ".py", ".json", ".mjs", ".html"}:
-            yield rel, used_text(rel, p.read_text(encoding="utf-8"))
+        if p.is_file() and p.suffix in suffixes:
+            yield rel, read(rel, p.read_text(encoding="utf-8"))
 
 
-def old_words_left(olds):
-    """土台の文の使う形の所（used_texts）に残る古い言い回しを「path: 語」で返す。"""
-    return [f"{rel}: {o}" for rel, text in used_texts() for o in olds if o in text]
+def old_words_left(olds, under=(), suffixes=USED_SUFFIXES, read=raw_text):
+    """土台の文（used_texts）に残る古い言い回しを「path: 語」で返す。読み方の既定は raw_text（docstring・注記・引用も
+    読む人に届く）。範囲と読み方は used_texts と同じ引数で選ぶ。"""
+    return [f"{rel}: {o}" for rel, text in used_texts(under, suffixes, read) for o in olds if o in text]
 
 
 def size(text: str) -> int:

@@ -10,6 +10,7 @@
 import pathlib
 
 import pytest
+from test_core_plugin import old_words_left
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 
@@ -43,6 +44,5 @@ def test_合意した目標と穴の聞き方の文が在る(rel, sentence):
 
 def test_古い終わり方_台帳の全部が片付くまで終わらない_が戻らない():
     olds = ["直す窓の行が残れば一部", "`直す窓` の行が残れば「一部」", "任されたゴールは広く取り", "1 行ずつオーナーに聞く"]
-    hits = [(p.relative_to(ROOT).as_posix(), w) for p in (ROOT / "plugins").rglob("*.md")
-            for w in olds if w in p.read_text(encoding="utf-8")]
+    hits = old_words_left(olds, suffixes=(".md",))  # 引用の中の古い終わり方も skill を読む AI に届く（既定の読み方 raw_text）
     assert not hits, hits
