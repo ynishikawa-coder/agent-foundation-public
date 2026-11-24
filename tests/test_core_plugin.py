@@ -558,7 +558,8 @@ def test_挙げた原因は全部台帳に行き先つきで持ち_全部済む�
     ("plugins/dev-flow/skills/codex/SKILL.md", "6. **DEFER"),
     ("plugins/dev-flow/skills/verify/SKILL.md", "**一時しのぎを含めば Partially**"),
     ("plugins/dev-flow/skills/verify/SKILL.md", "**設計と実物の差分を必ず書く**"),
-    ("plugins/docs-kit/skills/qa-html/SKILL.md", "0. **聞く前に引く**"),
+    # 聞く前に引いた後の扱い（道具の都合は台帳の行）の正本は細目 §4。qa-html の作り方 0 はそこを指すだけ
+    ("plugins/core/細目/04-聞き方.md", "**聞く前に引く**"),
     ("plugins/docs-kit/skills/theory-mock/SKILL.md", "範囲（やる／やらない／後で"),
     ("plugins/docs-kit/skills/theory-mock/SKILL.md", "**Q 番号・画面番号で元と突き合わせる**"),
     ("plugins/docs-kit/skills/theory-mock/SKILL.md", "外すとやり直しになる分かれ道"),

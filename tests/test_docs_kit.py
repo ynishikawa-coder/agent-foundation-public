@@ -306,7 +306,7 @@ def prior_cmd(tmp_path, answered=None, skip=()):
 
 
 @needs_node
-def test_値の表に_prior_check_cmd_が無ければ前と同じ(tmp_path):
+def test_値の表に_prior_check_cmd_が無ければ_HTML_のページは前と同じ(tmp_path):
     page = tmp_path / "確認.html"
     page.write_text(filled_template(), encoding="utf-8")
     before = run_check(page)
@@ -408,7 +408,7 @@ def test_別の版のページで引いた結果は赤(tmp_path):
 
 
 @needs_node
-def test_guard_と同じ呼び方でも値の表を見つける(tmp_path):
+def test_窓の_repo_の外のページでも値の表を見つける(tmp_path):
     """cwd をページの dir にして呼ぶ。ページが repo の外（窓の scratchpad）でも、窓の repo の値の表の命令が効く。"""
     repo = tmp_path / "repo"
     repo.mkdir()

@@ -23,8 +23,8 @@
 //     答えずに送れる（required が無い）／1 問に 2 つ以上／「合っていますか」を食い違いの外で使う／
 //     資料の外の事実に「当てはまらない」が無い／資料がそろっているかの問いに足りない資料を書かせる選択肢が無い／ひとこと（supp_鍵）が無い／鍵の重なり
 //   前の答え: 引いた結果（--prior・ページの隣の <名>.prior.json）の answered に在る鍵が問いに残っている／引いた結果が読めない・
-//     形が違う・命令が落ちた・別の版のページで引いた／--prior に渡した file が無い／値の表に prior_check_cmd が在る時だけ、
-//     引いた結果が無い・引いた結果の無い問いがある（値の表に無く引いた結果も無ければ見ない＝今までどおり）
+//     形が違う・命令が落ちた・別の版のページで引いた／--prior に渡した file が無い／問いのデータの問いに引いた物（"引いた物": [{"所", "版"}]）が
+//     無い・空・形が違う（値の表に命令が無くても赤）／値の表に prior_check_cmd が在る時は、引いた結果が無い・引いた結果の無い問いがある
 // 読める物は 2 つで、問いの決まりは同じ 1 か所（checkPage）が見る:
 //   ① 1 枚の HTML（型を写した物・<body data-dest="send|copy|artifact">・確認のページ（Artifact）も同じ HTML）
 //   ② 問いのデータ（JSON・Artifact 型に中身をデータで渡す時。形は SKILL.md §問いのデータ）
@@ -747,6 +747,7 @@ export function readHtml(raw) {
 
 // ── 読み取り 2: 問いのデータ（JSON）。確認のページを Artifact 型で作り、問いをデータで渡す時の形（SKILL.md §問いのデータ）。
 //   「分からない」と「ほかに伝えたい事」は型の側が足す＝データに書かない。
+const HIITA = "引いた物";
 const lines = (v) => (Array.isArray(v) ? v : typeof v === "string" ? v.split("\n") : []).map((x) => String(x).trim()).filter(Boolean);
 export function readJson(data) {
   const shape = [];
@@ -806,6 +807,7 @@ export function readJson(data) {
         required: true, // 型の側が付ける
         unknownLast: true, // 型の側が足す
         supp: q.supp !== false,
+        hiita: Object.hasOwn(q ?? {}, HIITA) ? q[HIITA] : undefined, // 引いた物（SKILL.md §問いのデータ・中身はページに出さない）
       };
     });
   const docsIn = Array.isArray(data?.docs) ? data.docs : null;
@@ -1047,7 +1049,7 @@ export function checkPage(page, { valuesPath = null, valuesStarts = [], values =
     }
     if (!q.supp) red.push(`${id}: ひとことの欄（name="supp_${q.key}"）が無い`);
   }
-  checkPrior(qs, company, prior, red, page.version);
+  checkPrior(qs, company, prior, red, page.version, page.format);
   return { ok: red.length === 0, format: page.format, dest, questions: keys, red: [...new Set(red)], warn };
 }
 
@@ -1055,7 +1057,7 @@ export function checkPage(page, { valuesPath = null, valuesStarts = [], values =
 //   命令は標準入力に priorInput の JSON（形 qa-prior/1）を受け、標準出力に
 //   {"answered": {"問いの鍵": "前の答えの ID か URL"}, "checked": {"問いの鍵": "引いた結果（ID・URL・引いた言葉）"}} を返す。
 //   answered に在る鍵が問いに残っていれば赤。値の表に命令が在る時だけ、引いた結果（answered か checked）の無い問いも赤。
-//   値の表に命令が無く --prior も無ければ何も見ない（今までどおり）。
+//   値の表に命令が無く --prior も無くても、問いのデータの問いごとの引いた物（checkHiita）は見る。
 // ── 答えの形（qa-html/2）。型の JS（references/template.html の payload）が作る形の正本。配る口・貼り戻しの道具はこれで照らす。
 export const ANSWER_FORM = "qa-html/2";
 const ANSWER_ROOT_CAUSE = "  直し: 赤の行を 1 つずつ潰さず、意図（答えが機械で欠けなく戻る）とのずれから入り、細目 §3「まず構造を疑う」で原因（答えを作る・受ける道具が形を写していないか）を探して直す";
@@ -1105,7 +1107,8 @@ export const PRIOR_FORMAT = "qa-prior/1";
 export function priorInput(page) {
   return {
     format: PRIOR_FORMAT,
-    questions: page.questions.map((q) => ({ key: q.key, label: q.label ?? "", question: q.question, about: q.about, known: q.known, group: q.group, kind: q.kind })),
+    questions: page.questions.map((q) => ({ key: q.key, label: q.label ?? "", question: q.question, about: q.about, known: q.known, group: q.group, kind: q.kind,
+      ...(Array.isArray(q.hiita) ? { [HIITA]: q.hiita } : {}) })),
   };
 }
 // 引いた結果の置き場の既定＝ページの隣（確認_x.html → 確認_x.prior.json）。
@@ -1126,8 +1129,21 @@ export function readPrior(data) {
   }
   return out;
 }
-function checkPrior(qs, company, prior, red, version) {
+// 引いた物（問いのデータの問いごとの "引いた物": [{"所", "版"}]）。値の表に命令が無くても、無い・空・形の違う問いは赤（黙って通さない）。
+function checkHiita(q, id, red) {
+  const v = q.hiita;
+  const how = `聞く前に決定の記録と問いの表を引き、引いた記録の所と版を "${HIITA}": [{"所": …, "版": …}] で持たせる（細目 §4）`;
+  if (!Array.isArray(v) || !v.length) return red.push(`${id}: 引いた物（"${HIITA}"）が${v === undefined ? "無い" : Array.isArray(v) ? "空" : "配列でない"}: ${how}`);
+  v.forEach((e, i) => {
+    const at = `${id}: 引いた物の ${i + 1} つ目`;
+    if (!isMap(e)) return red.push(`${at}が {"所", "版"} の形でない`);
+    for (const k of ["所", "版"]) if (typeof e[k] !== "string" || !e[k].trim()) red.push(`${at}の「${k}」が無い・空（文字で書く）`);
+    for (const k of Object.keys(e)) if (!["所", "版"].includes(k)) red.push(`${at}に知らない鍵「${k}」（"所" と "版" だけ）`);
+  });
+}
+function checkPrior(qs, company, prior, red, version, format) {
   const cmd = String(company.prior_check_cmd ?? "").trim();
+  if (format === "json") for (const q of qs) checkHiita(q, `問い ${q.key}`, red);
   if (!prior) {
     if (cmd) red.push("前の答えを照らした結果が無い（値の表に prior_check_cmd がある）: node check.mjs <file> --run-prior で引いてから検査する");
     return;
