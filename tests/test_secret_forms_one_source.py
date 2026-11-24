@@ -105,7 +105,7 @@ def test_codex_は入った版の土台を探して読む(tmp_path):
 
 def test_在り処探しは_1_か所で_各_plugin_へ_symlink_で届く():
     src = ROOT / "skill-values" / "af_place.py"
-    for plugin in ("guard", "dev-flow"):
+    for plugin in ("guard", "dev-flow", "core"):
         link = ROOT / "plugins" / plugin / "lib" / "af_place.py"
         assert link.is_symlink() and link.resolve() == src.resolve(), link
     common = (ROOT / "plugins" / "guard" / "scripts" / "guard_common.py").read_text(encoding="utf-8")
