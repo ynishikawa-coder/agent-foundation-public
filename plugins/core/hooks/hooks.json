@@ -16,6 +16,10 @@
           {
             "type": "command",
             "command": "f=\"$HOME/.claude/plugins/marketplaces/agent-foundation/plugins/core/scripts/hook_run.py\"; [ -f \"$f\" ] || f=; python3 ${f:+\"$f\"} \"${CLAUDE_PLUGIN_ROOT}/scripts/kaku.py\" fresh"
+          },
+          {
+            "type": "command",
+            "command": "f=\"$HOME/.claude/plugins/marketplaces/agent-foundation/plugins/core/scripts/hook_run.py\"; [ -f \"$f\" ] || f=; python3 ${f:+\"$f\"} \"${CLAUDE_PLUGIN_ROOT}/scripts/title.py\""
           }
         ]
       }
