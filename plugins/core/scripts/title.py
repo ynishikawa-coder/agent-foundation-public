@@ -30,9 +30,10 @@ FORM = ("形は `<種類><状態> <作業名>`。種類は 🙋（オーナー�
         "🤖（AI が立てて AI に返す窓）。状態は 無し（動いている）・❓（オーナーの答え待ち）・💤（ほかの窓・CI 待ち）・"
         "🛑（止まった）・✅（終わった）で、✋ には ✅ だけ付ける。返事の 1 行目の札を変えたら、同じ返事の中で題の状態も"
         "同じ絵へ付け替える（細目 §4「窓の題」）。")
-UNTITLED = ("[core] この窓の題にまだ種類と状態の印が無い。この返事の中で `mcp__claude-code-remote__set_session_title` で"
-            "題を付ける（自分の session id は `get_session` を session_id を省いて読む。`parent_session_id` が無ければ人が"
-            "立てた窓＝🙋、在れば別の窓が立てた窓＝🤖）。" + FORM)
+UNTITLED = ("[core] この窓ではまだ `mcp__claude-code-remote__set_session_title` を呼んでいない（立てた時に付いた題は"
+            "会話の記録に出ないので、ここからは見えない）。この返事の中で `get_session` を session_id を省いて読み、今の題に"
+            "印が無ければ付け、在っても同じ題で 1 回 `set_session_title` を呼ぶ（呼べば記録に残り、この知らせは止まる。"
+            "`parent_session_id` が無ければ人が立てた窓＝🙋、在れば別の窓が立てた窓＝🤖）。" + FORM)
 MISMATCH = ("[core] 前の返事の札は「%s」なのに、最後に付けた題は「%s」で状態が合っていない。この返事の終わりに、"
             "返事の札と同じ状態へ `mcp__claude-code-remote__set_session_title` で題を付け替える。" + FORM)
 

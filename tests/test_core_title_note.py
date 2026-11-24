@@ -54,6 +54,14 @@ def test_題をまだ付けていない窓には付けるよう知らせる(tmp_
     assert out and SET in out and "🙋" in out
 
 
+def test_立てた時に題が付いた窓は今の題を読んで1回付け直せば知らせが止まる(tmp_path):
+    first = [{"type": "user", "message": {"role": "user", "content": "親から: PR を見て"}}]
+    out = run(tmp_path, first)
+    assert out and "get_session" in out and "同じ題で 1 回" in out
+    again = first + [tool(SET, {"title": "🤖 レビュー: x"}), result(), say("見ています。"), human("続けて")]
+    assert run(tmp_path, again) is None
+
+
 def test_前の返事の札と題の状態が食い違えば付け替えるよう知らせる(tmp_path):
     out = run(tmp_path, titled("🙋 題の直し", "✅終わった\n\n直しました。"))
     assert out and "✅" in out and "🙋 題の直し" in out
