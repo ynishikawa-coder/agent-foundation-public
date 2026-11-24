@@ -24,7 +24,7 @@
 //     資料の外の事実に「当てはまらない」が無い／資料がそろっているかの問いに足りない資料を書かせる選択肢が無い／ひとこと（supp_鍵）が無い／鍵の重なり
 //   前の答え: 引いた結果（--prior・ページの隣の <名>.prior.json）の answered に在る鍵が問いに残っている／引いた結果が読めない・
 //     形が違う・命令が落ちた・別の版のページで引いた／--prior に渡した file が無い／問いのデータの問いに引いた物（"引いた物": [{"所", "版"}]）が
-//     無い・空・形が違う（値の表に命令が無くても赤）／値の表に prior_check_cmd が在る時は、引いた結果が無い・引いた結果の無い問いがある
+//     無い・空・形が違う（値の表に命令が無くても赤）／引いた物にその問いの鍵の答え（"鍵"＝問いの鍵・"答え" が空でない）が在る／値の表に prior_check_cmd が在る時は、引いた結果が無い・引いた結果の無い問いがある
 // 読める物は 2 つで、問いの決まりは同じ 1 か所（checkPage）が見る:
 //   ① 1 枚の HTML（型を写した物・<body data-dest="send|copy|artifact">・確認のページ（Artifact）も同じ HTML）
 //   ② 問いのデータ（JSON・Artifact 型に中身をデータで渡す時。形は SKILL.md §問いのデータ）
@@ -1129,7 +1129,9 @@ export function readPrior(data) {
   }
   return out;
 }
-// 引いた物（問いのデータの問いごとの "引いた物": [{"所", "版"}]）。値の表に命令が無くても、無い・空・形の違う問いは赤（黙って通さない）。
+// 引いた物（問いのデータの問いごとの "引いた物": [{"所", "版", "鍵"?, "答え"?}]）。値の表に命令が無くても、無い・空・形の違う問いは赤（黙って通さない）。
+//   引いた記録にこの問いの鍵の答え（"鍵" が問いの鍵と同じで "答え" が空でない）が在る問いは答え済み＝赤（問いから外し、その答えで進める・細目 §4）。
+const HIITA_KEYS = ["所", "版", "鍵", "答え"];
 function checkHiita(q, id, red) {
   const v = q.hiita;
   const how = `聞く前に決定の記録と問いの表を引き、引いた記録の所と版を "${HIITA}": [{"所": …, "版": …}] で持たせる（細目 §4）`;
@@ -1138,7 +1140,11 @@ function checkHiita(q, id, red) {
     const at = `${id}: 引いた物の ${i + 1} つ目`;
     if (!isMap(e)) return red.push(`${at}が {"所", "版"} の形でない`);
     for (const k of ["所", "版"]) if (typeof e[k] !== "string" || !e[k].trim()) red.push(`${at}の「${k}」が無い・空（文字で書く）`);
-    for (const k of Object.keys(e)) if (!["所", "版"].includes(k)) red.push(`${at}に知らない鍵「${k}」（"所" と "版" だけ）`);
+    for (const k of Object.keys(e)) if (!HIITA_KEYS.includes(k)) red.push(`${at}に知らない鍵「${k}」（"所"・"版" と、答えを見つけた時の "鍵"・"答え" だけ）`);
+    for (const k of ["鍵", "答え"]) if (k in e && typeof e[k] !== "string") red.push(`${at}の「${k}」が文字でない`);
+    if ("答え" in e && !("鍵" in e)) red.push(`${at}に「答え」があって「鍵」（答えた問いの鍵）が無い`);
+    if (e.鍵 === q.key && typeof e.答え === "string" && e.答え.trim())
+      red.push(`${at}（${e.所}）で答え済み（${e.答え}）＝問いから外し、その答えで進める（細目 §4）`);
   });
 }
 function checkPrior(qs, company, prior, red, version, format) {
