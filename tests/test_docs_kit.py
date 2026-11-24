@@ -171,7 +171,21 @@ def filled_template(dest="copy"):
     return out
 
 
-def run_check(path):
+# HTML のページの引いた物は、ページに載せず隣の <名>.prior.json に問いの鍵ごとに持つ（細目 §4・SKILL.md §問いのデータ）
+HIITA = {k: [{"所": "決定の記録 3 行目", "版": "2026-11-13"}] for k in ("q1", "q2", "q3", "q4")}
+
+
+def side_prior(page, **extra):
+    """HTML のページの隣の <名>.prior.json に、引いた物（HIITA）と extra（answered・checked など）を書く。"""
+    side = page.with_name(page.stem + ".prior.json")
+    side.write_text(json.dumps({"引いた物": HIITA, **extra}, ensure_ascii=False), encoding="utf-8")
+    return side
+
+
+def run_check(path, hiita=True):
+    """検査する。HTML のページで隣の <名>.prior.json が無ければ、引いた物だけの物を置いてから（hiita=False で置かない）。"""
+    if hiita and path.suffix == ".html" and not path.with_name(path.stem + ".prior.json").exists():
+        side_prior(path)
     res = subprocess.run([NODE, str(CHECK), str(path), "--json"], capture_output=True, text=True, cwd=path.parent)
     assert res.returncode in (0, 1), res.stderr
     out = json.loads(res.stdout)
@@ -284,6 +298,8 @@ def write_values(tmp_path, qa_values):
 
 
 def run_check_args(path, *args):
+    if path.suffix == ".html" and not path.with_name(path.stem + ".prior.json").exists():
+        side_prior(path)
     res = subprocess.run([NODE, str(CHECK), str(path), "--json", *args], capture_output=True, text=True, cwd=path.parent)
     assert res.returncode in (0, 1), res.stderr
     return json.loads(res.stdout)
@@ -299,20 +315,31 @@ def prior_cmd(tmp_path, answered=None, skip=()):
         f"skip = {json.dumps(list(skip))}\n"
         "assert data['format'] == 'qa-prior/1'\n"
         "checked = {q['key']: '引いた言葉: ' + q['label'] for q in data['questions'] if q['key'] not in answered and q['key'] not in skip}\n"
-        "print(json.dumps({'answered': answered, 'checked': checked}, ensure_ascii=False))\n",
+        "hiita = {q['key']: [{'所': '決定の記録 3 行目', '版': '2026-11-13'}] for q in data['questions']}\n"
+        "out = {'answered': answered, 'checked': checked}\n"
+        "if data['page_format'] == 'html': out['引いた物'] = hiita\n"
+        "print(json.dumps(out, ensure_ascii=False))\n",
         encoding="utf-8",
     )
     return f"{shlex.quote(sys.executable)} {shlex.quote(str(script))}"
 
 
 @needs_node
-def test_値の表に_prior_check_cmd_が無ければ_HTML_のページは前と同じ(tmp_path):
+@pytest.mark.parametrize("dest", ["copy", "send", "artifact"])
+def test_HTML_のページも引いた物が無ければ_値の表に命令が無くても赤(tmp_path, dest):
+    """お客さん宛て（send）を含むどの宛先も、隣の <名>.prior.json に引いた物が無い問いは黙って通さない（細目 §4）。"""
     page = tmp_path / "確認.html"
-    page.write_text(filled_template(), encoding="utf-8")
-    before = run_check(page)
+    page.write_text(filled_template(dest), encoding="utf-8")
     write_values(tmp_path, {"limits": {}})
-    after = run_check(page)
-    assert before["red"] == after["red"] == [] and before["questions"] == after["questions"]
+    how = ('聞く前に決定の記録と問いの表を引き、引いた記録の所と版をページの隣の <名>.prior.json の '
+           '"引いた物": {"問いの鍵": [{"所": …, "版": …}]} に書く（ページには載せない・細目 §4）')
+    assert run_check(page, hiita=False)["red"] == [f'問い {k}: 引いた物（"引いた物"）が無い: {how}' for k in HIITA]
+    side_prior(page)  # 引いた物を隣に置けば緑
+    assert run_check(page)["red"] == []
+    side = json.loads(page.with_name("確認.prior.json").read_text(encoding="utf-8"))
+    side["引いた物"].pop("q3")  # 1 問でも欠ければその問いが赤
+    page.with_name("確認.prior.json").write_text(json.dumps(side, ensure_ascii=False), encoding="utf-8")
+    assert run_check(page)["red"] == [f'問い q3: 引いた物（"引いた物"）が無い: {how}']
 
 
 @needs_node
@@ -320,7 +347,7 @@ def test_引いた結果に答え済みの鍵があれば赤(tmp_path):
     page = tmp_path / "確認.html"
     page.write_text(filled_template(), encoding="utf-8")
     prior = tmp_path / "引いた結果.json"
-    prior.write_text(json.dumps({"answered": {"q2": "https://example.com/answers/12"}, "checked": {}}), encoding="utf-8")
+    prior.write_text(json.dumps({"answered": {"q2": "https://example.com/answers/12"}, "checked": {}, "引いた物": HIITA}, ensure_ascii=False), encoding="utf-8")
     red = run_check_args(page, "--prior", str(prior))["red"]
     assert red == ["問い q2: 前の答えで答え済み（https://example.com/answers/12）＝問いから外す（作り方 0）"], red
     # ページの隣の <名>.prior.json は --prior を渡さなくても読む（呼ぶ側はページの path だけを渡す）
@@ -333,11 +360,10 @@ def test_値の表に命令があれば引いた結果の無い問いは赤(tmp_
     page = tmp_path / "確認.html"
     page.write_text(filled_template(), encoding="utf-8")
     write_values(tmp_path, {"prior_check_cmd": prior_cmd(tmp_path)})
-    assert run_check(page)["red"] == ["前の答えを照らした結果が無い（値の表に prior_check_cmd がある）: node check.mjs <file> --run-prior で引いてから検査する"]
-    prior = tmp_path / "確認.prior.json"
-    prior.write_text(json.dumps({"checked": {"q1": "x", "q2": "y", "q4": "z"}}), encoding="utf-8")
+    assert run_check(page, hiita=False)["red"] == ["前の答えを照らした結果が無い（値の表に prior_check_cmd がある）: node check.mjs <file> --run-prior で引いてから検査する"]
+    side_prior(page, checked={"q1": "x", "q2": "y", "q4": "z"})
     assert run_check(page)["red"] == ["問い q3: 前の答えを照らした結果が無い（--run-prior で引き直す）"]
-    prior.write_text(json.dumps({"checked": ["q1"]}), encoding="utf-8")
+    side_prior(page, checked=["q1"])
     red = run_check(page)["red"]
     assert len(red) == 1 and red[0].startswith("前の答えを照らした結果が読めない") and '"checked" は' in red[0], red
 
@@ -841,6 +867,7 @@ def test_選択肢_1_つは資料の外の数の欄の時だけ(tmp_path):
 def test_file_を2つ渡すと2つ目の赤も出る(tmp_path):
     good = tmp_path / "確認.html"
     good.write_text(filled_template("copy"), encoding="utf-8")
+    side_prior(good)
     bad = DATA / "bad.json"
     one = subprocess.run([NODE, str(CHECK), str(good)], capture_output=True, text=True, cwd=tmp_path)
     assert one.returncode == 0, one.stdout
@@ -870,6 +897,7 @@ def test_知らない印と同じ印の2度書きは止まる(flags, word):
 def test_file_を2つ渡して1つでも赤なら根治の入口を指す(tmp_path):
     good = tmp_path / "確認.html"
     good.write_text(filled_template("copy"), encoding="utf-8")
+    side_prior(good)
     res = subprocess.run([NODE, str(CHECK), str(good), str(DATA / "bad.json")], capture_output=True, text=True, cwd=tmp_path)
     assert res.returncode == 1 and "まず構造を疑う" in res.stdout and "赤 1" in res.stdout
 
