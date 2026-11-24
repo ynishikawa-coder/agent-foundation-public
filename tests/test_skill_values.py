@@ -68,6 +68,7 @@ LITERAL = re.compile(r"""["']skill-values\.json["']""")
 
 
 def code_files():
+    """used_texts を通さない: 表の path の字を読んでよい唯一の所＝lib/ の読み口（正本への symlink）を丸ごと外し、.js も見る。"""
     for p in PLUGINS.rglob("*"):
         if p.suffix in (".py", ".mjs", ".js") and p.is_file() and "lib" not in p.relative_to(PLUGINS).parts:
             yield p

@@ -8,6 +8,7 @@
 """
 import pathlib
 from saimoku import 全文 as 細目の全文
+from test_core_plugin import old_words_left
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 CORE = ROOT / "plugins" / "core"
@@ -56,9 +57,5 @@ def test_古い_4_段と呼び名_MGkm_が決まりと道具に残らない():
     # 古い 4 段の名に加え、意図を持たず起きた事と原因を 1 欄に混ぜる型の字形（tests/test_kata_no_ran.py が形ごと照らす）
     olds = ["問題→原因→解決→未来", "MGkm", "根治の 4 段", "## 1. 問題", "未達は何が・なぜ", "どんな困りごとを",
             "なぜ在る" + "か:", "で原因から直す"]
-    hits = []
-    for p in list((ROOT / "plugins").rglob("*")) + [ROOT / ".github" / "pull_request_template.md"]:
-        if p.is_file() and p.suffix in {".md", ".py", ".json", ".mjs", ".sh"}:
-            text = p.read_text(encoding="utf-8", errors="ignore")
-            hits += [f"{p.relative_to(ROOT)}: {o}" for o in olds if o in text]
+    hits = old_words_left(olds)
     assert not hits, hits

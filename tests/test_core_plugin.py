@@ -28,19 +28,25 @@ def used_text(rel, text):
     return kaku.own(str(rel), text)
 
 
-def used_texts():
-    """土台の文（.md .py .json .mjs .html・試験と .git を除く）の (rel, 使う形の所) を返す。写しや古い言い回しを
-    探す試験は全部ここを通す（除く物の正本を 1 か所に）。変更の記録は CHANGELOG.d/ の .txt（経緯として古い語を持つ）
-    なので、拡張子で外れる＝file 名で除かない。"""
+USED_SUFFIXES = (".md", ".py", ".json", ".mjs", ".html")
+
+
+def used_texts(under=(), suffixes=USED_SUFFIXES, read=used_text):
+    """土台の文（試験と .git を除く）の (rel, 使う形の所) を返す。土台を自分で歩いて写し・古い言い回し・消した仕組みの
+    説明を探す試験は全部ここを通す（歩き方と除く物の正本を 1 か所に）。under は見る上の dir（空は全部）、suffixes は
+    拡張子、read は読み方（既定 used_text）。ここを通さず自分で歩く試験は、範囲がわざと違う理由を docstring に書く。
+    変更の記録は CHANGELOG.d/ の .txt（経緯として古い語を持つ）なので、拡張子で外れる＝file 名で除かない。"""
     for p in sorted(ROOT.rglob("*")):
         rel = p.relative_to(ROOT)
+        if under and rel.parts[0] not in under:
+            continue
         # 古い形.json は使う側に残る古い形を見つける一覧＝古い名を持つのが役目（見つけ方の正しさは古い形の試験が照らす）。
         # 値の表の鍵の一覧（skill-values/schema.json と plugin の lib/ の symlink）も畳んだ鍵を名指す所（retired）なので同じ
         if rel.parts[0] in {".git", "tests"} or p == PLUGIN / "古い形.json" or p.name == "schema.json" and (
                 rel.parts[0] == "skill-values" or "lib" in rel.parts):
             continue
-        if p.is_file() and p.suffix in {".md", ".py", ".json", ".mjs", ".html"}:
-            yield rel, used_text(rel, p.read_text(encoding="utf-8"))
+        if p.is_file() and p.suffix in suffixes:
+            yield rel, read(rel, p.read_text(encoding="utf-8"))
 
 
 def old_words_left(olds):

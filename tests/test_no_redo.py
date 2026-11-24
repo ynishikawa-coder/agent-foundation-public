@@ -15,7 +15,7 @@ from pathlib import Path
 
 import pytest
 
-from test_core_plugin import kaku
+from test_core_plugin import kaku, used_texts
 
 ROOT = Path(__file__).resolve().parent.parent
 CORE = ROOT / "plugins" / "core"
@@ -157,8 +157,6 @@ def test_注入_値の表に文脈の目安の古い鍵を置くと畳んだ鍵�
 
 # ── 消した仕組みを今も在る物として書く説明（plugin の説明・README・skill・AI に出す文）──
 STALE_DESC = re.compile(r"差し戻す Stop の hook|AI だけへ差し戻す|返事の差し戻し|Stop の差し戻し|文脈の量を|文脈の量と越えた|引き継がずに締める|既に差し戻した")
-DESC_FILES = [p for p in [*(ROOT / "plugins").rglob("*"), *(ROOT / "public-guard").rglob("*")]
-              if p.is_file() and p.suffix in {".md", ".json", ".py"} and "tests" not in p.parts]
 
 
 @pytest.mark.parametrize("sample", [
@@ -171,9 +169,8 @@ def test_消した仕組みの説明を入れると拾う(sample):
 
 
 def test_説明に消した仕組みが残らない():
-    hits = [f"{p.relative_to(ROOT)}:{i}" for p in DESC_FILES
-            for i, line in enumerate(p.read_text(encoding="utf-8", errors="ignore").splitlines(), 1)
-            if STALE_DESC.search(line)]
+    hits = [f"{rel}:{i}" for rel, text in used_texts(under=("plugins", "public-guard"), suffixes=(".md", ".json", ".py"))
+            for i, line in enumerate(text.splitlines(), 1) if STALE_DESC.search(line)]
     assert not hits, hits
 
 

@@ -79,7 +79,7 @@
 - CI の job は `check`（入口は `bash scripts/check_all.sh` の 1 本）と `public-guard`（公開の検査）と `plugin-smoke`（PR の枝を使う側と同じ入れ方で入れて窓を起動し、核の差し込み・守りの hook・skill の読み込みを見る。本物の claude を要る試験＝印 `real_claude` の付いた試験もここで回す）。どの job も 5 分で切る（`timeout-minutes: 5`）。`check_all.sh` は中で pytest（`tests/`・CI では印 `real_claude` を外す）と、`scripts/checks/*.sh` を順に走らせる。
 - 検査を足す時は `scripts/checks/<名前>.sh` を足すか、`tests/` に試験を足す。`ci.yml` と `check_all.sh` は書き換えなくてよい。`scripts/checks` には 1 段の `*.sh` だけを置く（終わり方 0 が緑・ほかは赤）。
 - pytest の版と、試験が読む python の部品（yaml を読む PyYAML）の版は `scripts/requirements.txt` の 1 か所（CI はこの file で入れる）。試験が要る部品（node・playwright・ブラウザ）が無くて飛ばす時は `tests/needs.py` を試験の頭で呼ぶ。小箱で入口を回す試験は `tests/entry_box.py` の `box_env` の環境で回す。
-- `check_all.sh` の最後の行が `check_all: 緑` なら通り、`check_all: 赤 …` なら止まり。止まったら赤の行を 1 つずつ潰さず、細目 §3「まず構造を疑う」で原因から直す。
+- `check_all.sh` の最後の行が `check_all: 緑` なら通り、`check_all: 赤 …` なら止まり。止まったら赤の行を 1 つずつ潰さず、外れた意図とのずれから入って細目 §3「まず構造を疑う」で原因を探して直す。
 
 ## 7. プラグインの一覧
 
