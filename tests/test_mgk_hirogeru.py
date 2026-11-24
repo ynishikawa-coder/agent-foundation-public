@@ -12,7 +12,7 @@ import re
 
 import pytest
 from saimoku import 全文 as 細目の全文
-from test_core_plugin import used_texts
+from test_core_plugin import raw_text, used_texts
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 P = ROOT / "plugins"
@@ -42,7 +42,8 @@ def 原因から入る直し(text):
 
 
 def test_赤の時の直しの文は意図とのずれから入る():
-    tools = used_texts(under=("plugins", "scripts", "public-guard"), suffixes=(".py", ".sh", ".mjs", ".js"))
+    # 生の文で読む: docstring（__doc__ や argparse の説明）も赤の時に出る直しの文
+    tools = used_texts(under=("plugins", "scripts", "public-guard"), suffixes=(".py", ".sh", ".mjs", ".js"), read=raw_text)
     bad = {str(rel): b for rel, text in tools if (b := 原因から入る直し(text))}
     assert not bad, bad
 

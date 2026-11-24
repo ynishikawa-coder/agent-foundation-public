@@ -15,7 +15,7 @@ from pathlib import Path
 
 import pytest
 
-from test_core_plugin import kaku, used_texts
+from test_core_plugin import kaku, raw_text, used_texts
 
 ROOT = Path(__file__).resolve().parent.parent
 CORE = ROOT / "plugins" / "core"
@@ -169,8 +169,9 @@ def test_消した仕組みの説明を入れると拾う(sample):
 
 
 def test_説明に消した仕組みが残らない():
-    hits = [f"{rel}:{i}" for rel, text in used_texts(under=("plugins", "public-guard"), suffixes=(".md", ".json", ".py"))
-            for i, line in enumerate(text.splitlines(), 1) if STALE_DESC.search(line)]
+    # 生の文で読む: 道具の docstring は --help や stderr に出る説明そのもの
+    descs = used_texts(under=("plugins", "public-guard"), suffixes=(".md", ".json", ".py"), read=raw_text)
+    hits = [f"{rel}:{i}" for rel, text in descs for i, line in enumerate(text.splitlines(), 1) if STALE_DESC.search(line)]
     assert not hits, hits
 
 
