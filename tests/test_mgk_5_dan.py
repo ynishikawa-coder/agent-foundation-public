@@ -8,7 +8,7 @@
 """
 import pathlib
 from saimoku import 全文 as 細目の全文
-from test_core_plugin import USED_SUFFIXES, old_words_left, raw_text
+from test_core_plugin import USED_SUFFIXES, old_words_left
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 CORE = ROOT / "plugins" / "core"
@@ -58,5 +58,5 @@ def test_古い_4_段と呼び名_MGkm_が決まりと道具に残らない():
     olds = ["問題→原因→解決→未来", "MGkm", "根治の 4 段", "## 1. 問題", "未達は何が・なぜ", "どんな困りごとを",
             "なぜ在る" + "か:", "で原因から直す"]
     # 生の文で読む: PR の雛形の案内は md の注記に、道具の説明は docstring に在り、どちらも読む人に届く
-    hits = old_words_left(olds, suffixes=USED_SUFFIXES + (".sh",), read=raw_text)
+    hits = old_words_left(olds, suffixes=USED_SUFFIXES + (".sh",))
     assert not hits, hits

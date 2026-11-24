@@ -57,8 +57,9 @@ def used_texts(under=(), suffixes=USED_SUFFIXES, read=used_text):
             yield rel, read(rel, p.read_text(encoding="utf-8"))
 
 
-def old_words_left(olds, under=(), suffixes=USED_SUFFIXES, read=used_text):
-    """土台の文（used_texts）に残る古い言い回しを「path: 語」で返す。範囲と読み方は used_texts と同じ引数で選ぶ。"""
+def old_words_left(olds, under=(), suffixes=USED_SUFFIXES, read=raw_text):
+    """土台の文（used_texts）に残る古い言い回しを「path: 語」で返す。読み方の既定は raw_text（docstring・注記・引用も
+    読む人に届く）。範囲と読み方は used_texts と同じ引数で選ぶ。"""
     return [f"{rel}: {o}" for rel, text in used_texts(under, suffixes, read) for o in olds if o in text]
 
 
