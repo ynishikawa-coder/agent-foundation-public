@@ -28,10 +28,10 @@ def used_text(rel, text):
     return kaku.own(str(rel), text)
 
 
-def old_words_left(olds):
-    """土台の文（.md .py .json .mjs .html・試験と .git を除く）の使う形の所（used_text）に残る古い言い回しを
-    「path: 語」で返す。変更の記録は CHANGELOG.d/ の .txt（経緯として古い語を持つ）なので、拡張子で外れる＝file 名で除かない。"""
-    hits = []
+def used_texts():
+    """土台の文（.md .py .json .mjs .html・試験と .git を除く）の (rel, 使う形の所) を返す。写しや古い言い回しを
+    探す試験は全部ここを通す（除く物の正本を 1 か所に）。変更の記録は CHANGELOG.d/ の .txt（経緯として古い語を持つ）
+    なので、拡張子で外れる＝file 名で除かない。"""
     for p in sorted(ROOT.rglob("*")):
         rel = p.relative_to(ROOT)
         # 古い形.json は使う側に残る古い形を見つける一覧＝古い名を持つのが役目（見つけ方の正しさは古い形の試験が照らす）。
@@ -40,9 +40,12 @@ def old_words_left(olds):
                 rel.parts[0] == "skill-values" or "lib" in rel.parts):
             continue
         if p.is_file() and p.suffix in {".md", ".py", ".json", ".mjs", ".html"}:
-            text = used_text(rel, p.read_text(encoding="utf-8"))
-            hits += [f"{rel}: {o}" for o in olds if o in text]
-    return hits
+            yield rel, used_text(rel, p.read_text(encoding="utf-8"))
+
+
+def old_words_left(olds):
+    """土台の文の使う形の所（used_texts）に残る古い言い回しを「path: 語」で返す。"""
+    return [f"{rel}: {o}" for rel, text in used_texts() for o in olds if o in text]
 
 
 def size(text: str) -> int:

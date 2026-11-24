@@ -3,7 +3,7 @@
 import re
 from pathlib import Path
 
-from test_core_plugin import used_text
+from test_core_plugin import used_texts
 
 from saimoku import 全文 as 細目の全文
 
@@ -92,13 +92,6 @@ def test_合流の写しの見分けは注入を拾い_核を指す文は拾わ�
 
 
 def test_合流の条件は核_7_の_1_か所で_土台の中に写しが無い():
-    hits = []
-    for p in sorted(ROOT.rglob("*")):
-        rel = p.relative_to(ROOT)
-        if rel.parts[0] in {".git", "tests"} or not p.is_file() or p.suffix not in {".md", ".py", ".json", ".mjs", ".html"}:
-            continue   # 変更の記録（CHANGELOG.d の .txt）は経緯として古い言い方を持つので拡張子で外れる
-        m = 合流の写し.search(used_text(rel, p.read_text(encoding="utf-8")))
-        if m:
-            hits.append(f"{rel}: {m.group(0)}")
+    hits = [f"{rel}: {m.group(0)}" for rel, text in used_texts() if (m := 合流の写し.search(text))]
     assert not hits, hits
     assert 合流の_1_行 in _節7(CORE.read_text(encoding="utf-8"))
