@@ -32,7 +32,11 @@ def _http(code, body):
 def _github(rules_err, wf_status="completed", wf_conclusion="success"):
     def get(path, token):
         if "/rules/branches/" in path:
-            raise rules_err
+            if isinstance(rules_err, Exception):
+                raise rules_err
+            return rules_err
+        if path == "/repos/o/r":
+            return {"default_branch": "main"}
         if path.startswith("/repos/o/r/pulls/1"):
             return {"state": "open", "merged": False, "mergeable_state": "clean", "head": {"sha": HEAD}, "base": {"ref": "main"}}
         if "/check-runs" in path:
@@ -43,6 +47,15 @@ def _github(rules_err, wf_status="completed", wf_conclusion="success"):
                                        "created_at": "2026-11-22T01:00:00Z"}]}
         return []
     return get
+
+
+def test_合流後モードでも空の規則と読めない規則を分ける(monkeypatch):
+    args = ["--repo", "o/r", "--pr", "1", "--ci-after-merge"]
+    for rules, status, want in (([], "in_progress", 1), ([], "completed", 0),
+                                ({"message": "not a rules list"}, "completed", 2),
+                                (_http(403, {"message": "Resource not accessible"}), "completed", 2)):
+        monkeypatch.setattr(rg, "_get", _github(rules, status))
+        assert rg.main(args) == want
 
 
 def test_必須の検査を持てない_repo_は_workflow_の走りが終わって緑になるまで通さない(monkeypatch):

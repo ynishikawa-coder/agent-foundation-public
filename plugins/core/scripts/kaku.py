@@ -14,7 +14,7 @@
   python3 kaku.py fresh               UserPromptSubmit の hook が呼ぶ。窓が立った時の main の先端から plugin が変わったら、
                                       先端の核と振る舞いの既定をこの窓に差し込む（窓は引き継がず閉じず、そのまま続ける）。
                                       あわせて、器の量（前の返事の入力＋キャッシュ）が CONTEXT_LINE を越えたら、
-                                      引き継ぎを書いて新しい窓へ・読むだけの調べは助手へと窓に 1 回だけ知らせる（止めない）。
+                                      細目 §8 の「文脈が重い時」を窓に 1 回だけ知らせる（止めない）。
   python3 kaku.py refresh TIP ENTRY    inject・fresh が古さを見つけた時に裏で回す。目録の clone の入口 ENTRY（setup_plugins.py）で
                                       先端の版を入れ直し、結果を ~/.claude/af-foundation/refresh.json に書く（hook の入口 hook_run.py が
                                       次の呼び出しから入れ直した版を回す・失敗は fresh が 1 行で名指す）。
@@ -1660,8 +1660,7 @@ def _fresh_text(data: dict) -> str | None:
 
 
 CONTEXT_NOTE = ("[core] この窓の器が {n} token を使った（自動の要約の線より手前の知らせ・この窓で 1 回だけ・作業は止めない）。"
-                "要約が起きると AI の読みが落ちる。今の区切りで引き継ぎ（目標・済んだ事・残り・触る file）を書いて新しい窓へ渡す。"
-                "読むだけの調べは助手（Agent）へ出し、結論だけを受け取る。")
+                "細目 §8「文脈が重い時」を参照。")
 
 
 def _used(row: dict) -> int | None:

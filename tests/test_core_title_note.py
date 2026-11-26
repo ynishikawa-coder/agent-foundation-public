@@ -72,6 +72,16 @@ def test_札と題の状態が合っていれば何も出さない(tmp_path):
     assert run(tmp_path, titled("🤖💤 合流待ち", "💤待ち\n\nCI を待つ。")) is None
 
 
+def test_失敗した付け替えを一覧に反映したと数えない(tmp_path):
+    log = titled("🙋🛑 題の直し", "🛑止まった")[:-1]
+    denied = result()
+    denied["message"]["content"][0]["is_error"] = True
+    log += [human("できた分を報告して"), tool(SET, {"title": "🙋✅ 題の直し"}),
+            denied, say("✅終わった"), human("次")]
+    out = run(tmp_path, log)
+    assert out and "🙋🛑 題の直し" in out
+
+
 def test_途中の実況でなく最後の道具の後の本文の札を見る(tmp_path):
     log = [human("直して"), tool(SET, {"title": "🙋❓ 題の直し"}), result(),
            say("❓答えて ではなく途中の文"), tool("Bash", {}), result(), say("❓答えて\n\nどちらにしますか"), human("A")]

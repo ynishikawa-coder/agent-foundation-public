@@ -410,6 +410,7 @@ def capture(data, vals):
         return note
     stems = " / ".join("「%s」" % i["question"][:48] for i in unanswered)
     reminder = REMINDER.format(n=len(unanswered), stems=stems, ttl=LEDGER_TTL_HOURS, ledger=path or "(置き場を決められず)")
+    reminder += "\n別の環境へ仕事を渡す時は、この控えだけに頼らず、結果に必要な未回答を元の仕事の引継ぎに残す。"
     return "\n".join(x for x in (reminder, note) if x)
 
 
@@ -466,7 +467,7 @@ def resurface(data, vals):
     if expired:
         lines += ["次の %d 件は最後に出てから %d 時間を過ぎたので、台帳から降ろします（文面が無い行は出し直せないので"
                   "一緒に降ろす。この知らせが最後です）。" % (len(expired), LEDGER_TTL_HOURS),
-                  "今の頼みと関わってまだ要る問いなら、前提と「具体例:」「判断の物差し:」の 2 行をチャットに書いてから AskUserQuestion で出し直してください"
+                  "今の頼みと関わってまだ要る問いなら、前提（今の状況）・選ぶと変わる結果・まだ答えが要る理由をチャットで伝えてから AskUserQuestion で出し直してください"
                   "（出せば台帳に積み直されます）。", ""]
         for n, it in enumerate(expired, 1):
             lines += _expired_line(n, it)
@@ -483,8 +484,7 @@ def resurface(data, vals):
         lines += ["前の窓で答えのないまま閉じた問いが %d 件あります。今の窓の流れの中で、1 件ずつ次のどれかにします。" % len(items),
                   "- 答え済み（今の頼み・会話・決定の記録で答えが出ている）か、もう要らない問い → 出さずに台帳から降ろす:",
                   "    %s" % DROP_CMD,
-                  "- 今の頼みと関わる問い → 出す前にチャットで前提（何の件で・なぜまだ答えが要るか）を 1〜2 文と、行頭が「具体例:」と"
-                  "「判断の物差し:」の 2 行（問いが懸かる実物の 1 例・どんな理由で選んでほしいか）を書いてから、"
+                  "- 今の頼みと関わる問い → 出す前にチャットで前提（今の状況）・選ぶと変わる結果・まだ答えが要る理由をチャットで伝えてから、"
                   "AskUserQuestion で出し直す。問いの文は今の流れに合わせて短く言い直してよい。言い直した問いに答えが"
                   "返ったら、元の問いを上の drop で降ろす（言い直した問いを機械は元の問いと結ばない）。"
                   "出す問いが %d を越えたら %d 問ずつ続けて出す（どの問いも飛ばさない）。" % (ASK_BATCH, ASK_BATCH),

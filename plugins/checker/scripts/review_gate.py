@@ -19,7 +19,9 @@
   先端で走った検査が全部終わって緑（1 つも無ければ mergeable_state clean だけ）で通す（オーナーの答え 2026-11-22）。
   走った検査には、先端の workflow の走り（actions/runs?head_sha=）も入れる（遅い job の check run がまだ作られていない間に、
   先に終わった速い検査だけで通らないように）。
-  それ以外の 403・必須の検査が空の repo は今までどおり通さない。どれかが外れたら「まだ」（同じ先端の判定が在れば「済み」）。
+  それ以外の 403 は通さない。必須の検査が空の repo も既定では通さない。
+  CI を合流後に回すと決めた repo のレビューに限り --ci-after-merge を使う。GitHub が返した必須の検査が空の時だけ
+  走った検査を確認する。これはレビューを始める条件であり、合流の許可や検査が緑だった証拠ではない。どれかが外れたら「まだ」（同じレビュー対象の判定が在れば「済み」）。
 exit: 0=入ってよい / 1=まだ・済み（訳を 1 行ずつ）/ 2=読めない（入ってよいと言わない＝まだと同じに扱う）。
 材料を file で受ける口は置かない（窓が書いた材料で関所を通さない）。試験は decide を直に呼ぶ。
 入口は main の先端の版でしか判定しない（ensure_tip）: skill は窓が立った時の版の dir を指すので、自分の中身が
@@ -28,6 +30,7 @@ main の先端の物と違えば先端の版を取り出してそちらで回し
 from __future__ import annotations
 
 import argparse
+import hashlib
 import io
 import json
 import os
@@ -123,18 +126,87 @@ def workflow_states(wruns: list) -> dict[str, str]:
     return {k: v[1] for k, v in out.items()}
 
 
-def verdicts_on(comments: list, head: str) -> list[str]:
-    """同じ先端に出た判定の 1 行目（`レビューした窓: … 判定: …`）の並び。"""
-    out = []
-    for c in comments or []:
-        body = c.get("body") or ""
-        m, s = VERDICT.search(body), SEEN.search(body)
-        if m and s and head.startswith(s.group(1)):
-            out.append(m.group(0).strip())
-    return out
+def read_verdict(body: str):
+    """正式な先頭2行を読む。対象外は None、崩れた判定は (先端, None, None)。"""
+    lines = body.strip().splitlines()
+    if len(lines) < 2:
+        return None
+    seen = SEEN.match(lines[1].strip())
+    if not seen:
+        return None
+    # 旧来の窓 ID の別表記もここで同じ窓に寄せる。
+    first = re.sub(r"(?<=[:：])\s*cse_", " session_", lines[0].strip(), count=1)
+    match = VERDICT.match(first)
+    return (seen.group(1), *match.groups()) if match else (seen.group(1), None, None)
 
 
-def decide(pr: dict, required: list[str], states: dict[str, str], comments: list) -> tuple[str, list[str]]:
+def verdict_for_head(body: str, head: str):
+    """今の先端の判定だけを読む。対象外は None、対象なのに判定が崩れていれば ValueError。"""
+    read = read_verdict(body)
+    if not read or read[0] != head.lower()[:12]:
+        return None
+    _, session, verdict = read
+    if not session:
+        raise ValueError("判定の形に合わない")
+    return session, verdict
+
+
+def review_text_version(pr: dict) -> str | None:
+    """Scalar snapshot of what point 1 reviews; no extra GitHub call."""
+    if not isinstance(pr.get("title"), str) or "body" not in pr:
+        return None
+    data = json.dumps([pr["title"], pr["body"] or ""], ensure_ascii=False, separators=(",", ":"))
+    return hashlib.sha256(data.encode("utf-8")).hexdigest()[:16]
+
+
+def review_results(comments, head: str, *, text_version=None, writers=(), strict=True):
+    """Oldest first. Keep the last verdict per reviewer, for this code only.
+    An older text green proves no current text; an older text red is still an
+    open finding until that reviewer explicitly reverses it. Publishing an
+    already-merged artifact checks code, not edits to the PR description.
+    """
+    latest = {}
+    versioned = False
+    for item in comments or ():
+        body = item if isinstance(item, str) else (item.get("body") or "")
+        try:
+            result = verdict_for_head(body, head)
+        except ValueError:
+            if strict:
+                raise
+            continue
+        if result is None or result[0] in writers:
+            continue
+        who, verdict = result
+        lines = body.strip().splitlines()
+        stamp = re.fullmatch(r"見た本文: ([0-9a-f]{16})", lines[2]) if len(lines) > 2 else None
+        if stamp:
+            versioned = True
+        elif latest.get(who, (None, None))[1] is not None:
+            continue  # A legacy-only note cannot reverse an already versioned verdict.
+        latest[who] = (verdict, stamp[1] if stamp else None)
+    # Legacy-only PRs retain their existing receipts. Once a real review on
+    # this head uses the stamp, legacy greens cannot override the new scope.
+    green = sorted(who for who, (v, stamp) in latest.items() if v == "green"
+                   and (not text_version or stamp == text_version or not versioned))
+    red = sorted(who for who, (v, _) in latest.items() if v == "red")
+    current = any(stamp == text_version if text_version else True for _, stamp in latest.values())
+    # An old head-only red can receive its first versioned re-review.
+    if text_version and not versioned and green and not red:
+        current = True
+    return green, red, current
+
+
+def require_green(comments, head: str, *, text_version=None, writers=()):
+    green, red, _ = review_results(comments, head, text_version=text_version, writers=writers)
+    if red:
+        raise ValueError("窓 %s の最後の判定が red" % "・".join(red))
+    if not green:
+        raise ValueError(f"先端 {head.lower()[:12]} を見た今の判定: green が無い")
+    return green
+
+
+def decide(pr: dict, required: list[str] | None, states: dict[str, str], comments: list, *, ci_after_merge=False) -> tuple[str, list[str]]:
     """("入ってよい"|"まだ"|"済み", 訳の並び)。材料は全部 GitHub の記録（呼ぶ側が読んで渡す）。"""
     head = ((pr.get("head") or {}).get("sha") or "")
     why: list[str] = []
@@ -147,11 +219,11 @@ def decide(pr: dict, required: list[str], states: dict[str, str], comments: list
                "unstable": "必須でない検査に赤か走り中がある", "draft": "下書きの PR",
                "unknown": "GitHub がまだ数え終えていない（少し後で引き直す）"}.get(ms, "")
         why.append("mergeable_state が %s（clean でない）%s" % (ms, "＝" + say if say else ""))
-    if required is PLAN_NONE:   # 必須の検査を持てない repo: 走った検査が全部緑
+    if required is PLAN_NONE or (required == [] and ci_after_merge):
         required = []
         for name, st in states.items():
             if st not in OK:
-                why.append("検査 %s が %s（必須の検査を持てない repo なので走った検査は全部緑を求める）" % (name, st))
+                why.append("検査 %s が %s（走った検査は全部緑を求める）" % (name, st))
     elif not required:
         why.append("base の枝の必須の検査が読めない（必須の検査が無い所では関所を通さない）")
     for name in required:
@@ -162,9 +234,9 @@ def decide(pr: dict, required: list[str], states: dict[str, str], comments: list
             why.append("必須の検査 %s が %s（緑でない）" % (name, st))
     if why:
         return "まだ", why
-    done = verdicts_on(comments, head)
-    if done:
-        return "済み", ["先端 %s に判定が既に在る（%s）。同じ先端に 2 つ目の判定を出さない" % (head[:12], done[0])]
+    _, _, current = review_results(comments, head, text_version=review_text_version(pr), strict=False)
+    if current:
+        return "済み", ["先端 %s の同じレビュー対象に判定が既に在る" % head[:12]]
     return "入ってよい", []
 
 
@@ -200,14 +272,17 @@ def _pages(path: str, token: str, key: str = "") -> list:
 def _rules(repo: str, branch: str, token: str):
     """必須の検査の名の並び。無料のプランで rules を持てない repo は PLAN_NONE（他の 403 は読めないとして上げる）。"""
     try:
-        return required_contexts(_get("/repos/%s/rules/branches/%s" % (repo, branch), token))
+        rules = _get("/repos/%s/rules/branches/%s" % (repo, branch), token)
+        if not isinstance(rules, list):
+            raise ValueError("GitHub の必須検査の決まりが一覧でない")
+        return required_contexts(rules)
     except urllib.error.HTTPError as e:
         if e.code == 403 and PLAN_403 in (e.read() or b"").decode("utf-8", "replace"):
             return PLAN_NONE
         raise
 
 
-def read_facts(repo: str, number: int, token: str, wait=time.sleep):
+def read_facts(repo: str, number: int, token: str, wait=time.sleep, *, ci_after_merge=False):
     pr = _get("/repos/%s/pulls/%d" % (repo, number), token)
     for i in range(UNKNOWN_TRIES):
         if (pr.get("mergeable_state") or "unknown") != "unknown" or i == UNKNOWN_TRIES - 1:
@@ -226,14 +301,15 @@ def read_facts(repo: str, number: int, token: str, wait=time.sleep):
     # 先端の workflow の走り: 同じ workflow を走らせ直した新しい suite で古い suite の結果を上書きするのに使う
     # 読めない鍵（Actions を読む権限が無い）の時、必須の検査が在れば走りを束ねず suite ごとに数える（赤を残す向き）。
     # PLAN_NONE は走りそのものを照らすので、読めない時は今までどおり上げる。
+    all_runs = required is PLAN_NONE or (required == [] and ci_after_merge)
     try:
         wruns = _pages("/repos/%s/actions/runs?head_sha=%s" % (repo, head), token, key="workflow_runs")
     except urllib.error.HTTPError as e:
-        if required is PLAN_NONE or e.code not in (403, 404):
+        if all_runs or e.code not in (403, 404):
             raise
         wruns = []
     states = check_states(runs, statuses, wruns, number)
-    if required is PLAN_NONE:   # 走った検査を全部照らす＝まだ check run を作っていない workflow の走りも入れる
+    if all_runs:   # まだ check run を作っていない workflow の走りも入れる
         states.update(workflow_states(wruns))
     return pr, required, states, comments
 
@@ -242,23 +318,32 @@ def main(argv=None, read=read_facts) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--repo", required=True, help="owner/name")
     ap.add_argument("--pr", type=int, required=True)
+    ap.add_argument("--ci-after-merge", action="store_true",
+                    help="PR では必須 CI がないと決めた repo のコードレビュー。合流の許可ではない")
     a = ap.parse_args(argv)
     if not re.fullmatch(r"[\w.-]+/[\w.-]+", a.repo):
         print("review_gate: 読めない — --repo は owner/name の形で渡す")
         return 2
     try:
-        pr, required, states, comments = read(a.repo, a.pr, os.environ.get("GITHUB_TOKEN") or "")
+        args = (a.repo, a.pr, os.environ.get("GITHUB_TOKEN") or "")
+        pr, required, states, comments = read(*args, ci_after_merge=True) if a.ci_after_merge else read(*args)
     except Exception as e:  # noqa: BLE001  読めない時は入ってよいと言わない（exit 2＝まだと同じに扱う）
         print("review_gate: 読めない — GitHub の記録を引けない（%s）。判定に入らない" % e)
         return 2
-    kind, why = decide(pr, required, states, comments)
+    kind, why = decide(pr, required, states, comments, ci_after_merge=a.ci_after_merge)
     head = (pr.get("head") or {}).get("sha", "")[:12]
     for w in why:
         print("✗ " + w)
     if kind == "入ってよい":
+        if (stamp := review_text_version(pr)) is not None:
+            print("見た本文: " + stamp)
+        if a.ci_after_merge and required in ([], PLAN_NONE):
+            what = "走った検査は緑" if states else "PR の検査なし（合流前の検証は別）"
+            print("review_gate: 入ってよい — #%d@%s %s・mergeable_state clean・同じ対象の判定はまだ無い" % (a.pr, head, what))
+            return 0
         what = ("必須の検査 %s" % "・".join(required)) if required is not PLAN_NONE else \
             ("走った検査 %s" % ("・".join(states) or "なし（必須の検査を持てない repo）"))
-        print("review_gate: 入ってよい — #%d@%s %s が緑・mergeable_state clean・この先端の判定はまだ無い" % (a.pr, head, what))
+        print("review_gate: 入ってよい — #%d@%s %s が緑・mergeable_state clean・同じ対象の判定はまだ無い" % (a.pr, head, what))
         return 0
     print("review_gate: %s — #%d@%s（判定に入らない。書いた窓へ「%s」と訳だけを返す）" % (kind, a.pr, head, kind))
     print("直し: 書いた窓は訳を 1 つずつ潰さず、意図（レビューは中身だけを 1 回見る）とのずれから入り、検査の赤・衝突の原因を細目 §3「まず構造を疑う」で探して直してからレビューを頼む")
