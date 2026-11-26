@@ -60,9 +60,16 @@ def test_閉じた_PR_と必須の検査が読めない所ではレビューに�
 def test_同じ先端に判定が在れば_2_つ目を出さない():
     done = [{"body": "レビューした窓: session_R1 判定: red\n見た先端: %s\n" % HEAD[:12]}]
     kind, why = rg.decide(pr(), REQ, GREEN, done)
-    assert kind == "済み" and "2 つ目" in why[0]
+    assert kind == "済み" and "同じレビュー対象" in why[0]
     old = [{"body": "レビューした窓: session_R1 判定: red\n見た先端: ffffffffffff\n"}]
     assert rg.decide(pr(), REQ, GREEN, old)[0] == "入ってよい"   # 前の先端の判定は見直しを止めない
+
+
+def test_引用や崩れた判定はレビュー済みとして数えない():
+    body = "レビューした窓: session_R1 判定: green\n見た先端: %s\n" % HEAD[:12]
+    for text in ("参考の引用\n" + body, body.replace("レビューした窓:", "窓:"), "ただのコメント"):
+        assert rg.decide(pr(), REQ, GREEN, [{"body": text}])[0] == "入ってよい"
+    assert rg.verdict_for_head(body.replace("session_R1", "cse_R1"), HEAD) == ("session_R1", "green")
 
 
 def test_check_run_は新しい物を取り_status_は無い名だけ():
@@ -95,9 +102,36 @@ def test_入口の_exit_は入ってよいが_0_まだが_1(capsys, monkeypatch)
     assert "review_gate: まだ" in capsys.readouterr().out
 
 
-def test_材料を_file_で受ける口が無い():
-    """窓が書いた材料（JSON の file）で関所を通せない。"""
-    src = (ROOT / "plugins" / "checker" / "scripts" / "review_gate.py").read_text(encoding="utf-8")
-    assert "add_argument(\"--repo\"" in src and "add_argument(\"--pr\"" in src
-    assert src.count("add_argument(") == 2
+def test_合流後だけ_CI_を回す_repo_も既存の検査を省かない(capsys):
+    args = ["--repo", "o/r", "--pr", "1"]
+    def read(*_, **kw):
+        return pr(), [], {}, []
+    assert rg.main(args, read=read) == 1
+    assert rg.main(args + ["--ci-after-merge"], read=read) == 0
+    assert "PR の検査なし（合流前の検証は別）" in capsys.readouterr().out
+    for required, states in (([], {"workflow ci": "queued"}), ([], {"lint": "failure"}), (REQ, {})):
+        assert rg.decide(pr(), required, states, [], ci_after_merge=True)[0] == "まだ"
+    assert rg.decide(pr(), REQ, GREEN, [], ci_after_merge=True)[0] == "入ってよい"
+    assert rg.decide(pr(mergeable_state="dirty"), [], {}, [], ci_after_merge=True)[0] == "まだ"
 
+
+def test_text_correction_same_head_reopens_only_existing_review():
+    from pytest import raises
+    before = pr(title="誤った題", body="誤った説明")
+    after = pr(title="正しい題", body="正しい説明")
+    def stamp(who, verdict, rev):
+        return {"body": f"レビューした窓: session_{who} 判定: {verdict}\n見た先端: {HEAD[:12]}\n"
+                        f"見た本文: {rg.review_text_version(rev)}\n"}
+    old = stamp("R1", "red", before)
+    fixed = stamp("R1", "green", after)
+    other = stamp("R2", "green", after)
+    assert rg.decide(before, REQ, GREEN, [old])[0] == "済み"
+    assert rg.decide(after, REQ, GREEN, [old])[0] == "入ってよい"
+    assert rg.decide(after, REQ, GREEN, [old, fixed])[0] == "済み"
+    current = rg.review_text_version(after)
+    with raises(ValueError, match="red"):
+        rg.require_green([old, other], HEAD, text_version=current)
+    assert rg.require_green([old, fixed], HEAD, text_version=current) == ["session_R1"]
+    with raises(ValueError, match="green"):
+        rg.require_green([stamp("R1", "green", before)], HEAD, text_version=current)
+    assert rg.require_green([stamp("R1", "green", before)], HEAD) == ["session_R1"]

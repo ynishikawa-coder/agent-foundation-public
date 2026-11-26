@@ -1,5 +1,5 @@
 """器の量の知らせ（plugin core の kaku.py fresh・UserPromptSubmit）: 前の返事の器の量（usage の入力＋キャッシュ作成＋キャッシュ読み）が
-線 CONTEXT_LINE を越えたら、引き継ぎを書いて新しい窓へ・読むだけの調べは助手へと窓に 1 回だけ知らせる。作業は止めない。"""
+線 CONTEXT_LINE を越えたら、細目 §8 の参照を窓に 1 回だけ知らせる。作業は止めない。"""
 import io
 import json
 
@@ -41,7 +41,8 @@ def test_線の_1_手前では出ず_越えたら出る(ask):
     """注入: 線の手前で知らせる・越えても知らせない、のどちらも赤。"""
     assert ask([ASK, _reply(LINE)], sid="a") == ""
     text = ask([ASK, _reply(LINE + 1)], sid="b")
-    assert text == kaku.CONTEXT_NOTE.format(n=LINE + 1) and "新しい窓" in text and "助手" in text
+    assert text == kaku.CONTEXT_NOTE.format(n=LINE + 1)
+    assert "細目 §8" in text and "新しい窓" not in text and "助手" not in text
 
 
 def test_同じ窓で_2_回出さない(ask):

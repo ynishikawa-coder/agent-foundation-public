@@ -333,7 +333,7 @@ def test_核の根治は意図_課題_原因_解決_未来の_5_段で_未来は
     kaku_text = (PLUGIN / "核.md").read_text(encoding="utf-8")
     s3 = _節(kaku_text, 3)
     assert "意図→課題→原因→解決→未来" in s3
-    assert "仕組み・設計）が悪い前提" in s3 and "別の目の助手" in s3
+    assert "仕組み・設計）が悪い前提" in s3 and "細目 §3 の範囲で探し" in s3
     s3d = _節(細目の全文(), 3)
     assert "意図が果たされ、同じ課題と同じ原因の他の問題が起きない状態" in s3d, "細目 §3 の未来が直した後の姿でない"
     for word in ["**意図**", "**課題**", "**原因**", "**同じ原因の他の問題**", "**解決**", "**未来**",
@@ -369,10 +369,10 @@ def test_聞き方は見せてから聞き_前提の出所を分け_推奨の印
                  "済んだかは AI が確かめてから", "答えを待つ間は答えに頼らない事を進める"]:
         assert word in s4, f"核 §4 に無い: {word}"
     s4d = _節(細目の全文(), 4)
-    for word in ["**見せてから聞く**", "1 文（前提も①へ）", "選択肢の説明へ", "**前提の出所**", "オーナーの言葉／記録の事実／AI の読み",
+    for word in ["**見せてから聞く**", "問いは 1 文", "選択肢の説明へ", "**前提の出所**", "オーナーの言葉／記録の事実／AI の読み",
                  "「ずれ」と決め込まない", "「なぜこの形か」を問う", "**推奨の印**", "済んだかの確認には付けない",
-                 "**答えを待つ間**", "推奨で先に進めない", "「終わった」「うまくいかない」「分からない」・推奨の印は付けない",
-                 "AI が確かめられる済んだ目印を先に確かめ"]:
+                 "**答えを待つ間**", "推奨で先に進めない", "見えない所だけ「終わった」「うまくいかない」「分からない」",
+                 "AI に見える結果は自分で確かめ"]:
         assert word in s4d, f"細目 §4 に無い: {word}"
     mock = (ROOT / "plugins" / "docs-kit" / "skills" / "theory-mock" / "SKILL.md").read_text(encoding="utf-8")
     assert "作り方の分かれ道（画面・データ・流れをどう作るか）だけを置き" in mock and "推奨を付けずにチャットで聞く" in mock
@@ -402,15 +402,15 @@ def test_一言の返事は札と締めを省き_窓の役に決まった一覧�
     assert not hits, hits
 
 
-def test_核の根治は誤りが入れない形と注入の試験を持つ():
+def test_核の根治は誤りが入れない形と合格の証拠を持つ():
     kaku_text = (PLUGIN / "核.md").read_text(encoding="utf-8")
     s3 = _節(kaku_text, 3)
-    for word in ["誤りが入れない形", "1 つの正本", "写さない", "既定で止める", "証明", "人の関所", "わざと入れて"]:
+    for word in ["誤りが入れない形", "1 つの正本", "写さない", "既定で止める", "証明", "人の関所", "合意した振る舞いを示す証拠"]:
         assert word in s3, f"核 §3 に無い: {word}"
     assert "申告でなく記録" in _節(kaku_text, 7)
     saimoku = 細目の全文()
     s3d = _節(saimoku, 3)
-    for word in ["写す工程を無くす", "誤った物が入れない", "正しい道だけが外へ出す", "防げない物は名指しで人の関所へ", "注入の試験", "古い道は残さず"]:
+    for word in ["写す工程を無くす", "誤った物が入れない", "正しい道だけが外へ出す", "防げない物は名指しで人の関所へ", "合格の証拠", "古い道は残さず"]:
         assert word in s3d, f"細目 §3 に無い: {word}"
     assert "記録で確かめる" in _節(saimoku, 7)
 
@@ -575,7 +575,7 @@ def test_挙げた原因は全部台帳に行き先つきで持ち_全部済む�
     ("plugins/dev-flow/skills/codex/SKILL.md", "**RETURN_TO_DESIGN**"),
     ("plugins/dev-flow/skills/codex/SKILL.md", "6. **DEFER"),
     ("plugins/dev-flow/skills/verify/SKILL.md", "**一時しのぎを含めば Partially**"),
-    ("plugins/dev-flow/skills/verify/SKILL.md", "**設計と実物の差分を必ず書く**"),
+    ("plugins/dev-flow/skills/verify/SKILL.md", "**設計と実物の差分は細目 §7「設計図どおりかの照らし」を使う**"),
     ("plugins/docs-kit/skills/qa-html/SKILL.md", "0. **聞く前に引く**"),
     ("plugins/docs-kit/skills/theory-mock/SKILL.md", "範囲（やる／やらない／後で"),
     ("plugins/docs-kit/skills/theory-mock/SKILL.md", "**Q 番号・画面番号で元と突き合わせる**"),
@@ -648,14 +648,14 @@ def test_核から細目へ移した物が細目に在る():
     assert "Javis は Notion と Drive" in s8 and "**またぐ連絡**" in s8
     s4 = _節(saimoku, 4)
     assert "**聞く前に引く** — 問いを出す前に、各社の決定の記録と問いの表" in s4 and "問いと同じ言葉で引く" in s4, "振る舞いから移した「聞く前に引く」が細目 §4 から消えた"
-    assert "人の手はまず Claude in Chrome に貼る文 1 個で頼む" in s4, "振る舞いから移した「人の手」が細目 §4 から消えた"
+    assert "その場で一手なら今の窓" in s4 and "Chrome への貼り付けは人の負担を減らせて許された時だけ" in s4
 
 
 # ---- 振る舞いの既定（AI の癖と逆を求める物）は核と一緒に毎回差し込む ----
 
 FURUMAI_WORDS = {  # 既定の要の語: 振る舞い.md だけに在り、細目に戻らない（2 か所に書かない）
-    "並走": ["着手と言われたら確認させずに進め", "分けた方が実際に早く終わる時だけ",
-             "読むだけの調べは助手", "互いに待たない書く仕事は窓", "窓は触る file で分け", "PR は話題で分ける",
+    "並走": ["着手と言われたら進める", "早く終わる独立作業",
+             "共有の調べは一度", "担当の前提と参照先", "結論・根拠・残り", "窓は触る file を宣言し", "PR は話題で分ける",
              "合流は 1 回にまとめない", "版の PR が CHANGELOG.d の断片を束ねて 1 回上げる", "後から入る PR がつなぎを持つ",
              "他が待つ時間を見込みに数える"],
     "後継": ["1 本の列にせず"],

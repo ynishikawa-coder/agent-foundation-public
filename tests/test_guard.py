@@ -17,6 +17,8 @@ def env(tmp_path):
     """試験ごとに一時の箱・台帳の置き場・repo の根を分ける（実の印を汚さない）。"""
     proj = tmp_path / "proj"
     proj.mkdir()
+    # Hook fallback and CLI cwd must name the same checkout, even under a parent with .git.
+    subprocess.run(["git", "init", "-q", str(proj)], check=True, capture_output=True)
     (tmp_path / "scratch").mkdir()
     e = {k: v for k, v in os.environ.items() if not k.startswith(("AF_", "_AF_", "SKILL_VALUES", "CLAUDE_PROJECT_DIR"))}
     e.update({"AF_GUARD_TMP": str(tmp_path / "tmp"), "AF_GUARD_STATE": str(tmp_path / "state"),

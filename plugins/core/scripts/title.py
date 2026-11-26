@@ -29,10 +29,10 @@ CARD = re.compile(r"^[#>*\s]*(✅ ?終わった|❓ ?答えて|💤 ?待ち|🛑
 FORM = ("形は `<種類><状態> <作業名>`。種類は 🙋（オーナーと話す窓）・✋（オーナーの操作を頼む手の窓）・"
         "🤖（AI が立てて AI に返す窓）。状態は 無し（動いている）・❓（オーナーの答え待ち）・💤（ほかの窓・CI 待ち）・"
         "🛑（止まった）・✅（終わった）で、✋ には ✅ だけ付ける。返事の 1 行目の札を変えたら、同じ返事の中で題の状態も"
-        "同じ絵へ付け替える（細目 §4「窓の題」）。")
-UNTITLED = ("[core] この窓ではまだ `mcp__claude-code-remote__set_session_title` を呼んでいない（立てた時に付いた題は"
+        "同じ絵へ付け替える。後継が引き取っただけなら ✅ にせず、作業名に「｜引き継ぎ済み」を残す（細目 §4「窓の題」）。")
+UNTITLED = ("[core] この窓ではまだ `mcp__claude-code-remote__set_session_title` に成功した記録がない（立てた時に付いた題は"
             "会話の記録に出ないので、ここからは見えない）。この返事の中で `get_session` を session_id を省いて読み、今の題に"
-            "印が無ければ付け、在っても同じ題で 1 回 `set_session_title` を呼ぶ（呼べば記録に残り、この知らせは止まる。"
+            "印が無ければ付け、在っても同じ題で 1 回 `set_session_title` を呼ぶ（成功が記録に残ると、この知らせは止まる。"
             "`parent_session_id` が無ければ人が立てた窓＝🙋、在れば別の窓が立てた窓＝🤖）。" + FORM)
 MISMATCH = ("[core] 前の返事の札は「%s」なのに、最後に付けた題は「%s」で状態が合っていない。この返事の終わりに、"
             "返事の札と同じ状態へ `mcp__claude-code-remote__set_session_title` で題を付け替える。" + FORM)
@@ -69,10 +69,17 @@ def read(path: str):
     """(最後に付けた題, 前の返事の 1 行目の札の絵)。無ければ None。
     前の返事＝本文を書いた最後のターンの、最後の道具より後ろの本文（途中の実況は返事に数えない）。"""
     title, last, cur = None, [], []
+    pending = {}
     for row in rows(path):
         kind = row.get("type")
         if kind == "user" and not row.get("isMeta"):
             bs = [b for b in blocks(row) if isinstance(b, dict)]
+            for b in bs:
+                if b.get("type") != "tool_result":
+                    continue
+                name = pending.pop(b.get("tool_use_id"), None)
+                if name is not None and not b.get("is_error"):
+                    title = name
             if bs and not any(b.get("type") == "tool_result" for b in bs):
                 last, cur = (cur or last), []   # 人の頼みでターンが替わる
         elif kind == "assistant":
@@ -81,8 +88,10 @@ def read(path: str):
                     continue
                 if b.get("type") == "tool_use":
                     cur = []
-                    if str(b.get("name", "")).endswith(TOOL):
-                        title = (b.get("input") or {}).get("title", title)
+                    if str(b.get("name", "")).endswith(TOOL) and b.get("id"):
+                        name = (b.get("input") or {}).get("title")
+                        if isinstance(name, str) and name.strip():
+                            pending[b["id"]] = name
                 elif b.get("type") == "text" and b.get("text"):
                     cur.append(b["text"])
     text = "\n".join(cur or last)

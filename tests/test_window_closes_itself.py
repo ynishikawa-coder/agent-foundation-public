@@ -13,16 +13,17 @@ def _s5():
     return (ROOT / "plugins/core/細目/05-返事の形.md").read_text(encoding="utf-8")
 
 
-def test_AI_が立てた窓は記録の親で決め_報告したら子と自分を閉じる():
-    assert "- **閉じる窓** — AI が立てた窓（`parent_session_id` 在り）は報告したら子と自分を閉じる。" in _s5()
+def test_AI_が立てた窓は引き渡し後に戻る必要がなければ閉じる():
+    assert "`parent_session_id`" in _s5() and "戻る用がなくなったら自分でアーカイブ" in _s5()
+    assert "人の返事待ち・引き取り未確認は閉じない" in _s5()
 
 
 def test_知らせの来ない物は窓で待たず預ける():
-    assert "知らせの来ない物は待たず台帳か PR に預ける。" in _s5()
+    assert "知らせの来ない続きは行き先のある台帳か PR に預ける。" in _s5()
 
 
 def test_閉じない除外は記録の親の無い窓で_題の印によらない():
-    assert "親の無い窓（オーナーが立てた窓）は閉じない。" in _s5()
+    assert "親の無い窓（オーナーが立てた窓）は本人から頼まれない限り閉じない。" in _s5()
     assert "オーナーの窓は閉じない" not in _s5()
 
 

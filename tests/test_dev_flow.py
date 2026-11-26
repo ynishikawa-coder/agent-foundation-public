@@ -75,6 +75,10 @@ def test_ほんまにできる表に届く先と写しの残りの行が在る()
 
 def test_設計の相談は論点ごとに窓を並べ_1_本の列にしない():
     text = (PLUGIN / "skills" / "design-mode" / "SKILL.md").read_text(encoding="utf-8")
-    assert "論点ごとに窓を並べて同時に進める" in text and "1 本の列にしない" in text
+    assert "論点ごとに窓を分けて進める" in text and "1 本の列にしない" in text
+    assert "立ち上げと取りまとめ込みで早くなる" in text
+    handoff = text.split("出た後（実装の段）", 1)[1]
+    assert "相談窓とは別の実装窓" in handoff and "既存の確定文" in handoff
+    assert "追加の承認や中継の窓は作らない" in handoff
     assert "一番手前" not in text, "問いを表の一番手前の 1 つから取る形が戻った"
 
