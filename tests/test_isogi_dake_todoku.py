@@ -17,7 +17,7 @@ def test_起動の後に急ぎの安全の直しが入ったら先端の核を�
     assert "新しい核をここで読み" in text and "そのまま頼みを続ける" in text and "guard" in text
     assert "### main の先端の 核.md" in text and "核 3" in text and "- 急ぎの安全: 守りと核を変える" in text
     for old in ("create_session", "archive_session", "引き継いで閉じる"):
-        assert old not in text.replace("create_session・archive_session をしない", ""), old
+        assert old not in text, old
     assert f.hook("fresh") == ""                         # 同じ先端は 1 回だけ（問いのたびに繰り返さない）
     _commit(f.work, {"plugins/checker/y.py": "y\n"}, "急ぎの安全: また変える")
     assert f.hook("fresh") == ""                         # 核の本文が同じなら、plugin が動いても送り直さない
