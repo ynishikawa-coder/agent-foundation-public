@@ -109,7 +109,9 @@ def test_土台の新しさの知らせは窓をそのまま続けさせる(monk
     monkeypatch.setenv("HOME", str(tmp_path))       # 目録が無い＝先端の本文は読めない（読めない事を 1 行で名指す）
     text = make(_f())
     assert not HANDOVER.search(text), text
-    assert "そのまま頼みを続ける" in text and "create_session・archive_session をしない" in text
+    assert "そのまま頼みを続ける" in text and "create_session・archive_session をしない" not in text
+    # 禁じるのは土台の更新を理由にした立て直しだけ（作業窓への委任・済んだ窓を閉じる事まで禁じて読ませない）
+    assert "土台の更新だけを理由に" in text and "独立した仕事を作業窓へ任せる事・済んだ窓を閉じる事は、この知らせと関係なく" in text
     if make is _update:
         assert "（main の先端の 核.md を読めなかった" in text
     else:                                            # 起動の時は核を上に 1 枚だけ差し込み、知らせに本文を重ねない
